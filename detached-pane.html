@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <link rel="stylesheet" href="/src/detachedPane.css" />
+    <title>Termie Detached Pane</title>
+    <script type="module" src="/src/detachedPane.ts" defer></script>
+  </head>
+  <body class="detached-pane-body">
+    <div class="detached-pane-shell">
+      <header id="detached-pane-chrome" class="detached-pane-chrome">
+        <div class="detached-pane-title-wrap">
+          <span class="detached-pane-kicker">Detached Pane</span>
+          <span id="detached-pane-title" class="detached-pane-title">Termie</span>
+        </div>
+        <div class="detached-pane-actions">
+          <button type="button" id="detached-pane-maximize" class="detached-pane-btn" aria-label="Maximize">
+            □
+          </button>
+          <button type="button" id="detached-pane-close" class="detached-pane-btn" aria-label="Close">
+            ×
+          </button>
+        </div>
+      </header>
+      <div id="detached-pane-root" class="detached-pane-root"></div>
+    </div>
+  </body>
+</html>

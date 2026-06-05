@@ -1,0 +1,222 @@
+import { invoke } from "@tauri-apps/api/core";
+
+/** Mirrors `prefs::Prefs` JSON (snake_case). */
+export type TermiePrefs = {
+  shell: string;
+  shed_on_hide: boolean;
+  always_on_top: boolean;
+  initial_cwd: string | null;
+  webgl_shed_on_hide: boolean;
+  discard_buffer_on_hide: boolean;
+  scrollback_lines: number;
+  snapshot_max_lines: number;
+  preload_pty_on_startup: boolean;
+  preload_webgl_on_startup: boolean;
+  defer_window_show_until_prepared: boolean;
+  destroy_webview_on_hide: boolean;
+  focus_follows_cursor: boolean;
+  blur_unfocused_panes: boolean;
+  dim_unfocused_panes: boolean;
+  auto_copy_selection: boolean;
+  ui_theme: string;
+  ui_theme_variant: string;
+  font_terminal: string;
+  font_ui: string;
+  font_file_tree: string;
+  shed_workspace_exit: string;
+  always_summon_maximized: boolean;
+  /** Summon main window near the OS cursor (same monitor). */
+  summon_spawn_at_cursor: boolean;
+  hidden_from_taskbar: boolean;
+  /** File tree: show git diff +/- counts next to status letters. */
+  file_tree_show_diff_counts: boolean;
+  /** File tree: show git info panel with repo summary. */
+  file_tree_show_git_info: boolean;
+  /** Ask for delete confirmation before file/folder removal in file tree. */
+  confirm_delete_prompt: boolean;
+  /** Disable native hover tooltips in the UI. */
+  ui_disable_tooltips: boolean;
+  /** Allow click-to-reposition cursor on active terminal line. */
+  terminal_click_to_cursor: boolean;
+  /** When true, backspace deletes the selected text block in the terminal. (Experimental) */
+  terminal_backspace_delete_selection: boolean;
+  /** Force zen mode on every app open/show. */
+  always_open_in_zen_mode: boolean;
+};
+
+type DetectedShell = { name: string; path: string };
+
+type Persisted = { window: Record<string, unknown>; prefs: TermiePrefs };
+
+export type SettingsPanelApi = {
+  open(): void;
+  close(): void;
+  isOpen(): boolean;
+};
+
+export function createSettingsPanel(
+  root: HTMLElement,
+  onSaved?: (next: TermiePrefs, previous: TermiePrefs) => void | Promise<void>,
+): SettingsPanelApi {
+  let open = false;
+
+  function close(): void {
+    if (!open) return;
+    open = false;
+    root.classList.add("settings-panel--hidden");
+    root.setAttribute("aria-hidden", "true");
+  }
+
+  async function loadAndRender(): Promise<void> {
+    const data = await invoke<Persisted>("get_persisted_state");
+    const p = data.prefs;
+    const form = root.querySelector("#settings-form") as HTMLFormElement | null;
+    if (!form) return;
+
+    const pr = p as Partial<TermiePrefs>;
+
+    const shellInput = form.querySelector("#setting-shell") as HTMLInputElement;
+    const shellDatalist = form.querySelector("#shell-suggestions") as HTMLDataListElement;
+    shellDatalist.innerHTML = "";
+    try {
+      const shells = await invoke<DetectedShell[]>("detect_shells");
+      const seen = new Set<string>();
+      for (const s of shells) {
+        const key = s.name.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const opt = document.createElement("option");
+        opt.value = s.name;
+        opt.label = s.path;
+        shellDatalist.appendChild(opt);
+      }
+    } catch {
+      /* keep datalist empty; user can still type a path */
+    }
+    shellInput.value = p.shell;
+    (form.querySelector('[name="initial_cwd"]') as HTMLInputElement).value = p.initial_cwd ?? "";
+    (form.querySelector('[name="font_terminal"]') as HTMLInputElement).value = pr.font_terminal ?? "";
+    (form.querySelector('[name="font_ui"]') as HTMLInputElement).value = pr.font_ui ?? "";
+    (form.querySelector('[name="font_file_tree"]') as HTMLInputElement).value = pr.font_file_tree ?? "";
+    (form.querySelector('[name="scrollback_lines"]') as HTMLInputElement).value = String(
+      p.scrollback_lines,
+    );
+    (form.querySelector('[name="snapshot_max_lines"]') as HTMLInputElement).value = String(
+      p.snapshot_max_lines,
+    );
+    const shedSel = form.querySelector('[name="shed_workspace_exit"]') as HTMLSelectElement | null;
+    if (shedSel) {
+      const raw = (pr.shed_workspace_exit ?? "keep").toLowerCase();
+      shedSel.value = raw === "shed" || raw === "always" ? "shed" : raw === "ask" ? "ask" : "keep";
+    }
+    const setChk = (name: keyof TermiePrefs, v: boolean) => {
+      const el = form.querySelector(`[name="${name}"]`) as HTMLInputElement | null;
+      if (el) el.checked = v;
+    };
+    setChk("shed_on_hide", p.shed_on_hide);
+    setChk("always_on_top", p.always_on_top);
+    setChk("webgl_shed_on_hide", p.webgl_shed_on_hide);
+    setChk("discard_buffer_on_hide", p.discard_buffer_on_hide);
+    setChk("preload_pty_on_startup", p.preload_pty_on_startup);
+    setChk("preload_webgl_on_startup", p.preload_webgl_on_startup);
+    setChk("defer_window_show_until_prepared", p.defer_window_show_until_prepared);
+    setChk("destroy_webview_on_hide", p.destroy_webview_on_hide);
+    setChk("focus_follows_cursor", p.focus_follows_cursor);
+    setChk("blur_unfocused_panes", pr.blur_unfocused_panes ?? false);
+    setChk("dim_unfocused_panes", pr.dim_unfocused_panes ?? false);
+    setChk("auto_copy_selection", pr.auto_copy_selection ?? false);
+    setChk("always_summon_maximized", pr.always_summon_maximized ?? false);
+    setChk("summon_spawn_at_cursor", pr.summon_spawn_at_cursor ?? false);
+    setChk("hidden_from_taskbar", pr.hidden_from_taskbar ?? false);
+    setChk("file_tree_show_diff_counts", pr.file_tree_show_diff_counts ?? false);
+    setChk("file_tree_show_git_info", pr.file_tree_show_git_info ?? true);
+    setChk("confirm_delete_prompt", pr.confirm_delete_prompt ?? true);
+    setChk("ui_disable_tooltips", pr.ui_disable_tooltips ?? false);
+    setChk("terminal_click_to_cursor", pr.terminal_click_to_cursor ?? true);
+    setChk("terminal_backspace_delete_selection", pr.terminal_backspace_delete_selection ?? false);
+    setChk("always_open_in_zen_mode", pr.always_open_in_zen_mode ?? false);
+  }
+
+  root.querySelector(".settings-panel-backdrop")?.addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) close();
+  });
+  root.querySelector("#settings-close")?.addEventListener("click", () => close());
+  root.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") close();
+  });
+
+  root.querySelector("#settings-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const form = e.target as HTMLFormElement;
+    const g = (n: string) => (form.querySelector(`[name="${n}"]`) as HTMLInputElement).value;
+    const gc = (n: string) => (form.querySelector(`[name="${n}"]`) as HTMLInputElement).checked;
+    const gs = (n: string) => (form.querySelector(`[name="${n}"]`) as HTMLSelectElement).value;
+    const cwd = g("initial_cwd").trim();
+    void (async () => {
+      try {
+        const data = await invoke<Persisted>("get_persisted_state");
+        const previous = { ...(data.prefs as TermiePrefs) };
+        const shedRaw = gs("shed_workspace_exit").toLowerCase();
+        const shed_workspace_exit = shedRaw === "shed" || shedRaw === "ask" ? shedRaw : "keep";
+        const prefs: TermiePrefs = {
+          shell: g("shell").trim() || "pwsh",
+          shed_on_hide: gc("shed_on_hide"),
+          always_on_top: gc("always_on_top"),
+          initial_cwd: cwd ? cwd : null,
+          webgl_shed_on_hide: gc("webgl_shed_on_hide"),
+          discard_buffer_on_hide: gc("discard_buffer_on_hide"),
+          scrollback_lines: Math.max(100, Math.min(50000, parseInt(g("scrollback_lines"), 10) || 2500)),
+          snapshot_max_lines: Math.max(50, Math.min(50000, parseInt(g("snapshot_max_lines"), 10) || 2500)),
+          preload_pty_on_startup: gc("preload_pty_on_startup"),
+          preload_webgl_on_startup: gc("preload_webgl_on_startup"),
+          defer_window_show_until_prepared: gc("defer_window_show_until_prepared"),
+          destroy_webview_on_hide: gc("destroy_webview_on_hide"),
+          focus_follows_cursor: gc("focus_follows_cursor"),
+          blur_unfocused_panes: gc("blur_unfocused_panes"),
+          dim_unfocused_panes: gc("dim_unfocused_panes"),
+          auto_copy_selection: gc("auto_copy_selection"),
+          shed_workspace_exit,
+          always_summon_maximized: gc("always_summon_maximized"),
+          summon_spawn_at_cursor: gc("summon_spawn_at_cursor"),
+          hidden_from_taskbar: gc("hidden_from_taskbar"),
+          ui_theme: previous.ui_theme,
+          ui_theme_variant: previous.ui_theme_variant,
+          font_terminal: g("font_terminal").trim(),
+          font_ui: g("font_ui").trim(),
+          font_file_tree: g("font_file_tree").trim(),
+          file_tree_show_diff_counts: gc("file_tree_show_diff_counts"),
+          file_tree_show_git_info: gc("file_tree_show_git_info"),
+          confirm_delete_prompt: gc("confirm_delete_prompt"),
+          ui_disable_tooltips: gc("ui_disable_tooltips"),
+          terminal_click_to_cursor: gc("terminal_click_to_cursor"),
+          terminal_backspace_delete_selection: gc("terminal_backspace_delete_selection"),
+          always_open_in_zen_mode: gc("always_open_in_zen_mode"),
+        };
+        const merged = { ...previous, ...prefs };
+        await invoke("set_prefs", {
+          prefs: merged,
+        });
+        await onSaved?.(merged, previous);
+        close();
+      } catch (err) {
+        console.error("set_prefs", err);
+      }
+    })();
+  });
+
+
+  return {
+    open: () => {
+      if (open) return;
+      open = true;
+      root.classList.remove("settings-panel--hidden");
+      root.setAttribute("aria-hidden", "false");
+      void loadAndRender();
+      requestAnimationFrame(() => {
+        (root.querySelector('[name="shell"]') as HTMLInputElement | null)?.focus();
+      });
+    },
+    close,
+    isOpen: () => open,
+  };
+}
