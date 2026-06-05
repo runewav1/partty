@@ -64,6 +64,10 @@ fn default_ui_theme_variant() -> String {
     "default".to_string()
 }
 
+fn default_terminal_animation_speed() -> String {
+    "normal".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
@@ -140,6 +144,15 @@ pub struct Prefs {
     /// Start the app in zen mode on every launch/show.
     #[serde(default)]
     pub always_open_in_zen_mode: bool,
+    /// Remove pane/container gaps for dense terminal layouts.
+    #[serde(default)]
+    pub terminal_no_gap: bool,
+    /// Remove rounded pane/chrome corners for dense terminal layouts.
+    #[serde(default)]
+    pub terminal_no_round: bool,
+    /// `off` | `fast` | `normal` | `slow` — scales terminal UI animations.
+    #[serde(default = "default_terminal_animation_speed")]
+    pub terminal_animation_speed: String,
     /// App chrome + terminal palette id (see frontend `themePresets`).
     #[serde(default = "default_ui_theme")]
     pub ui_theme: String,
@@ -190,6 +203,9 @@ impl Default for Prefs {
             terminal_click_to_cursor: true,
             terminal_backspace_delete_selection: true,
             always_open_in_zen_mode: false,
+            terminal_no_gap: false,
+            terminal_no_round: false,
+            terminal_animation_speed: default_terminal_animation_speed(),
         }
     }
 }

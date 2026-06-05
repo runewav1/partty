@@ -3,15 +3,18 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::sync_channel;
+use std::sync::mpsc::{sync_channel, RecvTimeoutError};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 const SHELL_INTEGRATION_PWSH: &str = include_str!("../scripts/termie-shell-integration.ps1");
 const SHELL_INTEGRATION_BASH: &str = include_str!("../scripts/termie-shell-integration.bash");
 #[allow(dead_code)]
 const SHELL_INTEGRATION_ZSH: &str = include_str!("../scripts/termie-shell-integration.zsh");
+const PTY_OUTPUT_BATCH_BYTES: usize = 64 * 1024;
+const PTY_OUTPUT_BATCH_MS: u64 = 4;
 
 #[derive(Clone, serde::Serialize)]
 pub struct PtyOutputEvent {
@@ -119,19 +122,47 @@ impl PtySession {
         let app_emit = app.clone();
         let pane_emit = pane_id.clone();
         let _emitter = thread::spawn(move || {
+            let batch_window = Duration::from_millis(PTY_OUTPUT_BATCH_MS);
+            let mut pending = Vec::<u8>::with_capacity(16 * 1024);
             while !stop_emitter.load(Ordering::SeqCst) {
-                match rx.recv() {
-                    Ok(chunk) => {
-                        let text = String::from_utf8_lossy(&chunk).into_owned();
-                        let ev = PtyOutputEvent {
-                            pane_id: pane_emit.clone(),
-                            data: text,
-                        };
-                        if app_emit.emit("pty-output", ev).is_err() {
+                if pending.is_empty() {
+                    match rx.recv() {
+                        Ok(chunk) => pending.extend_from_slice(&chunk),
+                        Err(_) => break,
+                    }
+                }
+
+                let started = Instant::now();
+                let mut disconnected = false;
+                while pending.len() < PTY_OUTPUT_BATCH_BYTES {
+                    let elapsed = started.elapsed();
+                    if elapsed >= batch_window {
+                        break;
+                    }
+                    match rx.recv_timeout(batch_window - elapsed) {
+                        Ok(chunk) => pending.extend_from_slice(&chunk),
+                        Err(RecvTimeoutError::Timeout) => break,
+                        Err(RecvTimeoutError::Disconnected) => {
+                            disconnected = true;
                             break;
                         }
                     }
-                    Err(_) => break,
+                }
+
+                if !pending.is_empty() {
+                    let text = String::from_utf8_lossy(&pending).into_owned();
+                    pending.clear();
+                    let ev = PtyOutputEvent {
+                        pane_id: pane_emit.clone(),
+                        data: text,
+                    };
+                    if app_emit.emit("pty-output", ev).is_err() {
+                        break;
+                    }
+                }
+
+                if disconnected {
+                    break;
                 }
             }
         });

@@ -42,17 +42,59 @@ export type TermiePrefs = {
   terminal_backspace_delete_selection: boolean;
   /** Force zen mode on every app open/show. */
   always_open_in_zen_mode: boolean;
+  /** Remove pane/container gaps. */
+  terminal_no_gap: boolean;
+  /** Remove rounded pane/chrome corners. */
+  terminal_no_round: boolean;
+  /** off | fast | normal | slow */
+  terminal_animation_speed: string;
 };
 
 type DetectedShell = { name: string; path: string };
 
 type Persisted = { window: Record<string, unknown>; prefs: TermiePrefs };
+type LocalFontDescriptor = { family: string; fullName?: string; postscriptName?: string };
+
+declare global {
+  interface Window {
+    queryLocalFonts?: () => Promise<LocalFontDescriptor[]>;
+  }
+}
 
 export type SettingsPanelApi = {
   open(): void;
   close(): void;
   isOpen(): boolean;
 };
+
+const FALLBACK_FONT_FAMILIES = [
+  "JetBrains Mono",
+  "Cascadia Code",
+  "Cascadia Mono",
+  "Consolas",
+  "Fira Code",
+  "Hack",
+  "Iosevka",
+  "IBM Plex Mono",
+  "Segoe UI",
+  "Inter",
+  "Arial",
+  "system-ui",
+];
+
+async function discoverFontFamilies(): Promise<string[]> {
+  const families = new Set<string>(FALLBACK_FONT_FAMILIES);
+  try {
+    const fonts = await window.queryLocalFonts?.();
+    for (const font of fonts ?? []) {
+      const family = font.family?.trim();
+      if (family) families.add(family);
+    }
+  } catch {
+    /* Font Access may be unavailable or denied; typed fallback remains valid. */
+  }
+  return [...families].sort((a, b) => a.localeCompare(b));
+}
 
 export function createSettingsPanel(
   root: HTMLElement,
@@ -94,6 +136,16 @@ export function createSettingsPanel(
       /* keep datalist empty; user can still type a path */
     }
     shellInput.value = p.shell;
+    const fontDatalist = form.querySelector("#font-suggestions") as HTMLDataListElement | null;
+    if (fontDatalist) {
+      fontDatalist.innerHTML = "";
+      const families = await discoverFontFamilies();
+      for (const family of families) {
+        const opt = document.createElement("option");
+        opt.value = family;
+        fontDatalist.appendChild(opt);
+      }
+    }
     (form.querySelector('[name="initial_cwd"]') as HTMLInputElement).value = p.initial_cwd ?? "";
     (form.querySelector('[name="font_terminal"]') as HTMLInputElement).value = pr.font_terminal ?? "";
     (form.querySelector('[name="font_ui"]') as HTMLInputElement).value = pr.font_ui ?? "";
@@ -108,6 +160,11 @@ export function createSettingsPanel(
     if (shedSel) {
       const raw = (pr.shed_workspace_exit ?? "keep").toLowerCase();
       shedSel.value = raw === "shed" || raw === "always" ? "shed" : raw === "ask" ? "ask" : "keep";
+    }
+    const animSel = form.querySelector('[name="terminal_animation_speed"]') as HTMLSelectElement | null;
+    if (animSel) {
+      const raw = (pr.terminal_animation_speed ?? "normal").toLowerCase();
+      animSel.value = raw === "off" || raw === "fast" || raw === "slow" ? raw : "normal";
     }
     const setChk = (name: keyof TermiePrefs, v: boolean) => {
       const el = form.querySelector(`[name="${name}"]`) as HTMLInputElement | null;
@@ -133,8 +190,10 @@ export function createSettingsPanel(
     setChk("confirm_delete_prompt", pr.confirm_delete_prompt ?? true);
     setChk("ui_disable_tooltips", pr.ui_disable_tooltips ?? false);
     setChk("terminal_click_to_cursor", pr.terminal_click_to_cursor ?? true);
-    setChk("terminal_backspace_delete_selection", pr.terminal_backspace_delete_selection ?? false);
+    setChk("terminal_backspace_delete_selection", pr.terminal_backspace_delete_selection ?? true);
     setChk("always_open_in_zen_mode", pr.always_open_in_zen_mode ?? false);
+    setChk("terminal_no_gap", pr.terminal_no_gap ?? false);
+    setChk("terminal_no_round", pr.terminal_no_round ?? false);
   }
 
   root.querySelector(".settings-panel-backdrop")?.addEventListener("click", (e) => {
@@ -158,6 +217,9 @@ export function createSettingsPanel(
         const previous = { ...(data.prefs as TermiePrefs) };
         const shedRaw = gs("shed_workspace_exit").toLowerCase();
         const shed_workspace_exit = shedRaw === "shed" || shedRaw === "ask" ? shedRaw : "keep";
+        const animationRaw = gs("terminal_animation_speed").toLowerCase();
+        const terminal_animation_speed =
+          animationRaw === "off" || animationRaw === "fast" || animationRaw === "slow" ? animationRaw : "normal";
         const prefs: TermiePrefs = {
           shell: g("shell").trim() || "pwsh",
           shed_on_hide: gc("shed_on_hide"),
@@ -191,6 +253,9 @@ export function createSettingsPanel(
           terminal_click_to_cursor: gc("terminal_click_to_cursor"),
           terminal_backspace_delete_selection: gc("terminal_backspace_delete_selection"),
           always_open_in_zen_mode: gc("always_open_in_zen_mode"),
+          terminal_no_gap: gc("terminal_no_gap"),
+          terminal_no_round: gc("terminal_no_round"),
+          terminal_animation_speed,
         };
         const merged = { ...previous, ...prefs };
         await invoke("set_prefs", {

@@ -8,6 +8,7 @@ import { OscHandler } from "./oscHandler";
 import { FileTreeBackend, type GitPathStatus, type GitRepoInfo } from "./fileTreeBackend";
 import type { ShellIntegrationEvent } from "./shellIntegration";
 import { ptyShellCwd } from "./ptyIpc";
+import { isNativeAbsoluteFsPath, normalizeFsPathKey } from "./oscCwd";
 
 export type FileTreeCoordinatorOptions = {
   onFileTreeRootChange?: (root: string | null) => void;
@@ -30,6 +31,7 @@ export class FileTreeCoordinator {
   private readonly panesWithLiveCwd = new Set<string>();
   private refreshTimer: number | null = null;
   private lastLiveCwdSignalAt = 0;
+  private lastRefreshKey = "";
 
   constructor(options: FileTreeCoordinatorOptions = {}) {
     this.options = options;
@@ -57,8 +59,8 @@ export class FileTreeCoordinator {
       this.handleCwdChange(paneId, cwd);
     });
 
-    // Start git polling
-    this.fileTreeBackend.startGitPolling(3000);
+    // Native FS events drive most updates; polling remains a low-frequency fallback.
+    this.fileTreeBackend.startGitPolling(8000);
   }
 
   /**
@@ -80,10 +82,20 @@ export class FileTreeCoordinator {
    */
   handlePaneFocus(paneId: string): void {
     this.cwdTracker.setFocusedPane(paneId);
-    if (!this.cwdTracker.getPaneCwd(paneId)) {
+    const cwd = this.cwdTracker.getPaneCwd(paneId);
+    if (!isNativeAbsoluteFsPath(cwd)) {
       this.options.onFileTreeRootChange?.(null);
+      this.lastRefreshKey = "";
+      return;
     }
-    this.scheduleRefresh();
+    void this.refresh();
+  }
+
+  seedPaneCwd(paneId: string, cwd: string | null | undefined): void {
+    if (!paneId || !isNativeAbsoluteFsPath(cwd)) return;
+    this.panesWithLiveCwd.add(paneId);
+    this.cwdTracker.updatePaneCwd(paneId, cwd.trim());
+    this.lastLiveCwdSignalAt = Date.now();
   }
 
   /**
@@ -159,6 +171,10 @@ export class FileTreeCoordinator {
    * Update the file tree root directory.
    */
   private async updateFileTreeRoot(cwd: string): Promise<void> {
+    if (!isNativeAbsoluteFsPath(cwd)) {
+      this.options.onFileTreeRootChange?.(null);
+      return;
+    }
     const currentRoot = this.fileTreeBackend.getRoot();
     const normalizedCwd = normalizePathKey(cwd);
     const normalizedCurrent = normalizePathKey(currentRoot ?? "");
@@ -173,23 +189,22 @@ export class FileTreeCoordinator {
    * Sync cwd from backend (fallback when OSC sequences aren't available).
    */
   async syncCwdFromBackend(): Promise<void> {
-    // Don't sync if we recently got a live signal
-    if (Date.now() - this.lastLiveCwdSignalAt < 1500) {
-      return;
-    }
-
     const focusedPaneId = this.cwdTracker.getFocusedPaneId();
     if (!focusedPaneId) return;
 
     const hasLive = this.panesWithLiveCwd.has(focusedPaneId);
     const knownCwd = this.cwdTracker.getPaneCwd(focusedPaneId);
+    // Don't sync if we recently got a live signal for a pane that is already seeded.
+    if (knownCwd && Date.now() - this.lastLiveCwdSignalAt < 1500) {
+      return;
+    }
     if (hasLive && knownCwd) {
       return;
     }
 
     try {
       const cwd = await ptyShellCwd(focusedPaneId);
-      if (cwd?.trim()) {
+      if (isNativeAbsoluteFsPath(cwd)) {
         this.cwdTracker.updatePaneCwd(focusedPaneId, cwd.trim());
       }
     } catch (e) {
@@ -198,26 +213,24 @@ export class FileTreeCoordinator {
   }
 
   /**
-   * Schedule a refresh operation.
-   */
-  private scheduleRefresh(): void {
-    if (this.refreshTimer) {
-      window.clearTimeout(this.refreshTimer);
-    }
-    this.refreshTimer = window.setTimeout(() => {
-      this.refreshTimer = null;
-      void this.syncCwdFromBackend();
-    }, 120);
-  }
-
-  /**
    * Force a refresh of the file tree.
    */
-  async refresh(): Promise<void> {
+  async refresh(): Promise<boolean> {
     const cwd = this.cwdTracker.getFocusedPaneCwd();
-    if (cwd) {
-      await this.updateFileTreeRoot(cwd);
+    if (!isNativeAbsoluteFsPath(cwd)) {
+      if (this.lastRefreshKey) {
+        this.lastRefreshKey = "";
+        this.options.onFileTreeRootChange?.(null);
+      }
+      return false;
     }
+    const key = normalizeFsPathKey(cwd);
+    if (key === this.lastRefreshKey && key === normalizeFsPathKey(this.fileTreeBackend.getRoot() ?? "")) {
+      return false;
+    }
+    this.lastRefreshKey = key;
+    await this.updateFileTreeRoot(cwd);
+    return true;
   }
 
   /**
@@ -238,9 +251,5 @@ export class FileTreeCoordinator {
  * Normalize path key for comparison (case-insensitive, normalize separators).
  */
 function normalizePathKey(p: string): string {
-  return p
-    .trim()
-    .replace(/\\/g, "/")
-    .replace(/\/+$/, "")
-    .toLowerCase();
+  return normalizeFsPathKey(p);
 }

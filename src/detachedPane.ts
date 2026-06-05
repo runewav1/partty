@@ -4,7 +4,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { FitAddon } from "@xterm/addon-fit";
 import type { WebglAddon } from "@xterm/addon-webgl";
-import type { ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
 import { PaneHost, type PaneTerminal } from "./paneHost";
@@ -20,6 +19,7 @@ import {
 import { createWebglAddon } from "./termLifecycle";
 import {
   applyUiTheme,
+  buildXtermThemeFromDocument,
   DEFAULT_TERMINAL_FONT_STACK,
   loadCustomThemesIntoCache,
   pickUiPrefs,
@@ -30,30 +30,11 @@ import {
   type ShellIntegrationState,
 } from "./shellIntegration";
 
-const TERM_BG_FALLBACK = "#2e2e32";
-const TERM_FG_FALLBACK = "#d4d4d8";
-const TERM_CURSOR_FALLBACK = "#e8e8ec";
-const TERM_SELECTION_BG_FALLBACK = "#6b6b7866";
 const PTY_FALLBACK_COLS = 80;
 const PTY_FALLBACK_ROWS = 24;
 const RESIZE_DEBOUNCE_MS = 100;
 
 type PersistedPayload = { prefs: Record<string, unknown> };
-
-function readXtermThemeFromDocument(): ITheme {
-  const cs = getComputedStyle(document.documentElement);
-  const bg = cs.getPropertyValue("--term-bg").trim() || TERM_BG_FALLBACK;
-  const fg = cs.getPropertyValue("--term-fg").trim() || TERM_FG_FALLBACK;
-  const cursor = cs.getPropertyValue("--term-cursor").trim() || TERM_CURSOR_FALLBACK;
-  const sel = cs.getPropertyValue("--term-selection-bg").trim() || TERM_SELECTION_BG_FALLBACK;
-  return {
-    background: bg,
-    foreground: fg,
-    cursor,
-    cursorAccent: bg,
-    selectionBackground: sel,
-  };
-}
 
 function terminalFontStackFromDocument(): string {
   const raw = getComputedStyle(document.documentElement).getPropertyValue("--font-terminal").trim();
@@ -100,7 +81,7 @@ function scheduleResize(): void {
 function refreshTerminalChrome(): void {
   const pt = paneId ? paneHost?.getPaneTerminal(paneId) : null;
   if (!pt) return;
-  pt.term.options.theme = readXtermThemeFromDocument();
+  pt.term.options.theme = buildXtermThemeFromDocument();
   pt.term.options.fontFamily = terminalFontStackFromDocument();
   pt.term.refresh(0, pt.term.rows - 1);
 }
@@ -135,12 +116,10 @@ function shedWebgl(): void {
 async function runResize(): Promise<void> {
   const pt = paneId ? paneHost?.getPaneTerminal(paneId) : null;
   if (!pt) return;
-  paneHost?.layoutAll();
   pt.fit.fit();
   let d = ptyDims(pt.fit);
   if (!d) {
     await new Promise<void>((r) => requestAnimationFrame(() => r()));
-    paneHost?.layoutAll();
     pt.fit.fit();
     d = ptyDims(pt.fit);
   }
@@ -156,12 +135,10 @@ async function runResize(): Promise<void> {
 async function ensurePtyForPane(ptIn?: PaneTerminal): Promise<void> {
   const pt = ptIn ?? (paneId ? paneHost?.getPaneTerminal(paneId) : null);
   if (!pt || !paneId) return;
-  paneHost?.layoutAll();
   pt.fit.fit();
   let d = ptyDims(pt.fit);
   if (!d) {
     await new Promise<void>((r) => requestAnimationFrame(() => r()));
-    paneHost?.layoutAll();
     pt.fit.fit();
     d = ptyDims(pt.fit);
   }
@@ -187,7 +164,7 @@ async function mountDetachedPane(prefs: Record<string, unknown>): Promise<void> 
     rootPaneId: paneId,
     scrollbackLines: Math.max(100, Math.min(50000, Number(prefs.scrollback_lines) || 2500)),
     fontStack: terminalFontStackFromDocument(),
-    getTheme: () => readXtermThemeFromDocument(),
+    getTheme: () => buildXtermThemeFromDocument(),
     focusFollowsCursor: () => false,
     onPaneFocus: (id) => {
       void ptyFocusPane(id).catch(() => {});

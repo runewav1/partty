@@ -48,6 +48,7 @@
   --pane-inner-pad-y: 8px;
   --file-tree-user-width: 260px;
   --file-tree-width: 0px;
+  --termie-animation-scale: 1;
   
   /* ===== Minimap Colors ===== */
   --minimap-track: rgba(0, 0, 0, 0.32);
@@ -293,8 +294,8 @@ html.term-search-open #main-workspace {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 0;
-  padding: 4px 10px 4px;
+  gap: 8px;
+  padding: 3px 8px 3px;
   /* Tight to window / file-tree edge; file tree dock sits left of this column */
   padding-left: 8px;
   background: var(--term-bg);
@@ -387,10 +388,10 @@ html.file-tree-on .term-toolbar-files-svg--open {
 }
 
 .term-toolbar-drag {
-  flex: 1;
-  min-width: 48px;
-  min-height: 24px;
-  border-radius: 4px;
+  flex: 1 1 auto;
+  min-width: 96px;
+  min-height: 22px;
+  border-radius: 3px;
   cursor: grab;
   touch-action: none;
   user-select: none;
@@ -1205,6 +1206,15 @@ button.file-tree-label:hover {
   padding: var(--pane-outer-gap);
 }
 
+html.terminal-no-gap {
+  --pane-outer-gap: 0px;
+  --pane-inner-pad-x: 0px;
+  --pane-inner-pad-y: 0px;
+  --term-pad-x: 8px;
+  --term-pad-y: 8px;
+  --term-minimap-gutter: 0px;
+}
+
 .pane-leaf {
   position: relative;
   display: flex;
@@ -1223,6 +1233,15 @@ button.file-tree-label:hover {
     filter 0.22s ease,
     background 0.2s ease,
     outline 0.12s ease;
+}
+
+html.terminal-no-round .pane-leaf,
+html.terminal-no-round .pane-leaf::before,
+html.terminal-no-round .pane-minimap,
+html.terminal-no-round .terminal-chrome-bridge,
+html.terminal-no-round .term-tab,
+html.terminal-no-round .term-tab-group {
+  border-radius: 0 !important;
 }
 
 /* Alt+drag from pane to swap (see theme modal hint). Floated during drag: glass blur. */
@@ -1279,7 +1298,7 @@ html.pane-blur-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--
 }
 
 .pane-leaf--entering {
-  animation: pane-enter 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation: pane-enter calc(0.28s * var(--termie-animation-scale)) cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
 @keyframes pane-leave {
@@ -1294,8 +1313,13 @@ html.pane-blur-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--
 }
 
 .pane-leaf--leaving {
-  animation: pane-leave 0.26s cubic-bezier(0.4, 0, 0.55, 1) forwards;
+  animation: pane-leave calc(0.26s * var(--termie-animation-scale)) cubic-bezier(0.4, 0, 0.55, 1) forwards;
   pointer-events: none;
+}
+
+html.terminal-motion-off .pane-leaf--entering,
+html.terminal-motion-off .pane-leaf--leaving {
+  animation: none !important;
 }
 
 .pane-terminal-row {
@@ -1356,25 +1380,6 @@ html.pane-blur-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--
   right: -2px;
   bottom: -2px;
   cursor: nwse-resize;
-}
-
-.pane-cursor-trail {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 12;
-}
-
-.pane-cursor-head {
-  display: block;
-  position: absolute;
-  left: 0;
-  top: 0;
-  pointer-events: none;
-  z-index: 13;
-  opacity: 0;
-  border-radius: 2px;
-  will-change: transform, width, height, opacity;
 }
 
 .terminal-pane-root .xterm {
@@ -1617,7 +1622,7 @@ html.zen-mode #main-workspace {
 }
 
 .command-palette-input::placeholder {
-  color: #9ca3af;
+  color: var(--ui-chrome-fainter);
 }
 
 .command-palette-list {
@@ -1656,14 +1661,14 @@ html.zen-mode #main-workspace {
 .command-palette-item {
   padding: 8px 14px;
   font-size: 13px;
-  color: #e4e4e7;
+  color: var(--ui-chrome-fg);
   cursor: pointer;
   user-select: none;
 }
 
 .command-palette-item:hover,
 .command-palette-item--active {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--hover-overlay);
 }
 
 .command-palette-builder {
@@ -1690,7 +1695,7 @@ html.zen-mode #main-workspace {
 .cp-back {
   border: none;
   background: transparent;
-  color: #a1a1aa;
+  color: var(--ui-chrome-muted);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
@@ -1698,13 +1703,13 @@ html.zen-mode #main-workspace {
 }
 
 .cp-back:hover {
-  color: #e4e4e7;
+  color: var(--ui-chrome-fg);
 }
 
 .cp-title {
   font-size: 12px;
   font-weight: 600;
-  color: #f4f4f5;
+  color: var(--ui-chrome-fg);
   letter-spacing: 0.02em;
 }
 
@@ -1712,10 +1717,10 @@ html.zen-mode #main-workspace {
   width: 100%;
   margin: 0;
   padding: 9px 11px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--input-border);
   border-radius: 6px;
-  background: #2e2e32;
-  color: #e4e4e7;
+  background: var(--input-bg);
+  color: var(--input-text);
   font-size: 13px;
   outline: none;
   box-sizing: border-box;
@@ -1734,7 +1739,7 @@ html.zen-mode #main-workspace {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #a1a1aa;
+  color: var(--ui-chrome-muted);
 }
 
 .cp-field-cwd.cp-field-cwd--off {
@@ -1778,7 +1783,7 @@ html.zen-mode #main-workspace {
   flex: 1;
   min-width: 0;
   font-size: 13px;
-  color: #e4e4e7;
+  color: var(--ui-chrome-fg);
 }
 
 .command-palette-item-hk {
@@ -1787,7 +1792,7 @@ html.zen-mode #main-workspace {
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.04em;
-  color: rgba(255, 255, 255, 0.28);
+  color: var(--ui-chrome-fainter);
   background: transparent;
   border: none;
   padding: 2px 0;
@@ -1796,7 +1801,7 @@ html.zen-mode #main-workspace {
 
 .command-palette-item:hover .command-palette-item-hk,
 .command-palette-item--active .command-palette-item-hk {
-  color: rgba(255, 255, 255, 0.42);
+  color: var(--ui-chrome-muted);
 }
 
 .command-palette-item-remove {
@@ -1807,7 +1812,7 @@ html.zen-mode #main-workspace {
   border: none;
   border-radius: 6px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.42);
+  color: var(--ui-chrome-muted);
   cursor: pointer;
   opacity: 0;
   transition:
@@ -1844,7 +1849,7 @@ html.zen-mode #main-workspace {
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: #a1a1aa;
+  color: var(--ui-chrome-muted);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
@@ -1854,8 +1859,8 @@ html.zen-mode #main-workspace {
 }
 
 .file-tree-tool-btn:hover {
-  color: #f4f4f5;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--ui-chrome-fg);
+  background: var(--hover-overlay-light);
 }
 
 .file-tree-breadcrumb {
@@ -1863,7 +1868,7 @@ html.zen-mode #main-workspace {
   min-width: 0;
   font-size: 10px;
   line-height: 1.3;
-  color: #71717a;
+  color: var(--ui-chrome-fainter);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1886,15 +1891,15 @@ html.zen-mode #main-workspace {
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  background: rgba(255, 255, 255, 0.06);
-  color: #a1a1aa;
+  background: var(--hover-overlay-light);
+  color: var(--ui-chrome-muted);
   cursor: pointer;
   transition: background 0.12s ease;
 }
 
 .file-tree-quick-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #e4e4e7;
+  background: var(--hover-overlay);
+  color: var(--ui-chrome-fg);
 }
 
 .file-tree-row--selected {
@@ -2172,36 +2177,36 @@ html.zen-mode #main-workspace {
 
 .help-panel-row dt {
   margin: 0;
-  color: #d4d4d8;
+  color: var(--ui-chrome-fg);
   font-weight: 500;
 }
 
 .help-panel-row dd {
   margin: 0;
   text-align: right;
-  color: #a1a1aa;
+  color: var(--ui-chrome-muted);
 }
 
 .help-panel-row kbd {
   display: inline-block;
   padding: 2px 5px;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--ui-chrome-fg) 8%, transparent);
+  border: 1px solid var(--panel-border);
   font: 600 10px ui-monospace, monospace;
-  color: #e4e4e7;
+  color: var(--ui-chrome-fg);
 }
 
 .help-panel-muted {
   font-size: 10px;
-  color: #71717a;
+  color: var(--ui-chrome-fainter);
 }
 
 .help-panel-close {
   flex: 0 0 auto;
   border: none;
   background: transparent;
-  color: #a1a1aa;
+  color: var(--ui-chrome-muted);
   font-size: 22px;
   line-height: 1;
   cursor: pointer;
@@ -2210,7 +2215,7 @@ html.zen-mode #main-workspace {
 }
 
 .help-panel-close:hover {
-  color: #f4f4f5;
+  color: var(--ui-chrome-fg);
   background: var(--hover-overlay-light);
 }
 
@@ -2240,16 +2245,16 @@ html.zen-mode #main-workspace {
   display: inline-block;
   padding: 2px 6px;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: color-mix(in srgb, var(--ui-chrome-fg) 8%, transparent);
+  border: 1px solid var(--panel-border);
   font: 600 10px ui-monospace, monospace;
-  color: #e4e4e7;
+  color: var(--ui-chrome-fg);
 }
 
 .help-desc {
   flex: 1 1 auto;
   min-width: 120px;
-  color: #d4d4d8;
+  color: var(--ui-chrome-fg);
 }
 
 .help-panel-foot {
@@ -2384,6 +2389,31 @@ html.zen-mode #main-workspace {
 .settings-form::-webkit-scrollbar-track,
 .settings-panel-body::-webkit-scrollbar-track {
   background: transparent;
+}
+
+.settings-domain {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.42fr) minmax(0, 1fr);
+  gap: 9px 12px;
+  padding: 11px 0 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--panel-border) 70%, transparent);
+}
+
+.settings-domain-title {
+  grid-row: 1 / span 20;
+  margin: 1px 0 0;
+  padding-left: 8px;
+  border-left: 2px solid color-mix(in srgb, var(--accent-primary) 62%, transparent);
+  color: var(--ui-chrome-fg);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.settings-domain > .settings-field,
+.settings-domain > .settings-checkbox-label {
+  grid-column: 2;
 }
 
 .settings-field {
@@ -2638,7 +2668,7 @@ html.zen-mode #main-workspace {
   margin: 0 0 14px;
   font-size: 13px;
   line-height: 1.45;
-  color: #d4d4d8;
+  color: var(--ui-chrome-fg);
   white-space: pre-wrap;
 }
 
@@ -2646,10 +2676,10 @@ html.zen-mode #main-workspace {
   width: 100%;
   margin: 0 0 14px;
   padding: 9px 11px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--input-border);
   border-radius: 6px;
-  background: #2e2e32;
-  color: #e4e4e7;
+  background: var(--input-bg);
+  color: var(--input-text);
   font-size: 13px;
   box-sizing: border-box;
 }
@@ -2668,12 +2698,12 @@ html.zen-mode #main-workspace {
   font: inherit;
   font-size: 12px;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.08);
-  color: #e4e4e7;
+  background: var(--hover-overlay);
+  color: var(--ui-chrome-fg);
 }
 
 .termie-dialog-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: color-mix(in srgb, var(--hover-overlay) 140%, var(--ui-chrome-fg) 8%);
 }
 
 .termie-dialog-btn--primary {

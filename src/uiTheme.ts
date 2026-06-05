@@ -3,6 +3,7 @@
  * File-tree git status colors stay semantic (not overridden by theme ink).
  */
 
+import type { ITheme } from "@xterm/xterm";
 import { invoke } from "@tauri-apps/api/core";
 
 export type UiThemePrefs = {
@@ -154,15 +155,15 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
     },
     latte: {
       "--term-bg": "#eff1f5",
-      "--term-fg": "#4c4f69",
-      "--term-cursor": "#dc8a78",
+      "--term-fg": "#25273a",
+      "--term-cursor": "#5c2e1f",
       "--term-selection-bg": "#acb0be88",
       "--ui-gray-900": "#dce0e8",
       "--ui-gray-800": "#e6e9ef",
       "--ui-gray-700": "#ccd0da",
-      "--ui-gray-400": "#6c6f85",
-      "--accent-primary": "#8839ef",
-      "--panel-bg": "#ccd0da",
+      "--ui-gray-400": "#3f4257",
+      "--accent-primary": "#6b21c9",
+      "--panel-bg": "#dce0e8",
       "--panel-border": "#bcc0cc",
       "--backdrop-darkest": "rgba(76, 79, 105, 0.35)",
       "--input-bg": "#eff1f5",
@@ -230,14 +231,14 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
     },
     soft_light: {
       "--term-bg": "#f2e5bc",
-      "--term-fg": "#654735",
-      "--term-cursor": "#c2410d",
+      "--term-fg": "#3c271d",
+      "--term-cursor": "#7c2d12",
       "--term-selection-bg": "#d5c4a188",
       "--ui-gray-900": "#ebdbb2",
       "--ui-gray-800": "#f2e5bc",
       "--ui-gray-700": "#ebdbb2",
-      "--ui-gray-400": "#665c54",
-      "--accent-primary": "#af3a03",
+      "--ui-gray-400": "#3c3836",
+      "--accent-primary": "#8f2f00",
       "--panel-bg": "#ebdbb2",
       "--panel-border": "#d5c4a1",
       "--backdrop-darkest": "rgba(80, 60, 40, 0.25)",
@@ -250,12 +251,12 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
     },
     hard_light: {
       "--term-bg": "#f9f5d7",
-      "--term-fg": "#654735",
-      "--term-cursor": "#b57614",
+      "--term-fg": "#3c271d",
+      "--term-cursor": "#7c4a03",
       "--term-selection-bg": "#bdae9388",
       "--ui-gray-800": "#f2e5bc",
       "--ui-gray-700": "#ebdbb2",
-      "--accent-primary": "#9d0006",
+      "--accent-primary": "#7f0005",
       "--panel-bg": "#ebdbb2",
       "--panel-border": "#d5c4a1",
       "--backdrop-darkest": "rgba(60, 45, 30, 0.22)",
@@ -387,12 +388,12 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
     },
     light: {
       "--term-bg": "#fdf6e3",
-      "--term-fg": "#586e75",
-      "--term-cursor": "#657b83",
+      "--term-fg": "#25363b",
+      "--term-cursor": "#35484e",
       "--term-selection-bg": "#eee8d588",
       "--ui-gray-800": "#eee8d5",
       "--ui-gray-700": "#e8e2d0",
-      "--accent-primary": "#268bd2",
+      "--accent-primary": "#1269a3",
       "--panel-bg": "#eee8d5",
       "--panel-border": "#d5cdc0",
       "--backdrop-darkest": "rgba(60, 55, 40, 0.22)",
@@ -566,6 +567,130 @@ function luminanceContrast(a: [number, number, number], b: [number, number, numb
   return la > lb ? la / lb : lb / la;
 }
 
+function toHex(c: [number, number, number]): string {
+  return `#${c.map((x) => Math.max(0, Math.min(255, x)).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function termBackgroundRgb(): [number, number, number] | null {
+  const bgStr = getComputedStyle(document.documentElement).getPropertyValue("--term-bg").trim();
+  return parseCssColorToRgb(bgStr);
+}
+
+function isLightBackground(rgb: [number, number, number]): boolean {
+  return relLuminance(rgb) > 0.45;
+}
+
+/** xterm defaults assume a dark canvas; light themes need a full ANSI remap. */
+const XTERM_ANSI_DARK: Pick<
+  ITheme,
+  | "black"
+  | "red"
+  | "green"
+  | "yellow"
+  | "blue"
+  | "magenta"
+  | "cyan"
+  | "white"
+  | "brightBlack"
+  | "brightRed"
+  | "brightGreen"
+  | "brightYellow"
+  | "brightBlue"
+  | "brightMagenta"
+  | "brightCyan"
+  | "brightWhite"
+> = {
+  black: "#000000",
+  red: "#cd3131",
+  green: "#0dbc79",
+  yellow: "#e5e510",
+  blue: "#2472c8",
+  magenta: "#bc3fbc",
+  cyan: "#11a8cd",
+  white: "#e5e5e5",
+  brightBlack: "#666666",
+  brightRed: "#f14c4c",
+  brightGreen: "#23d18b",
+  brightYellow: "#f5f543",
+  brightBlue: "#3b8eea",
+  brightMagenta: "#d670d6",
+  brightCyan: "#29b8db",
+  brightWhite: "#e5e5e5",
+};
+
+const XTERM_ANSI_LIGHT: typeof XTERM_ANSI_DARK = {
+  black: "#383a42",
+  red: "#c01c28",
+  green: "#2a7f3e",
+  yellow: "#8a5b00",
+  blue: "#1f5fd0",
+  magenta: "#8b2fa6",
+  cyan: "#0b6e8a",
+  white: "#4a4a4a",
+  brightBlack: "#5c5c5c",
+  brightRed: "#b91c1c",
+  brightGreen: "#166534",
+  brightYellow: "#854d0e",
+  brightBlue: "#1d4ed8",
+  brightMagenta: "#7e22ce",
+  brightCyan: "#0e7490",
+  brightWhite: "#18181b",
+};
+
+const TERM_BG_FALLBACK = "#2e2e32";
+const TERM_FG_FALLBACK = "#d4d4d8";
+const TERM_CURSOR_FALLBACK = "#e8e8ec";
+const TERM_SELECTION_BG_FALLBACK = "#6b6b7866";
+
+/** Build a complete xterm theme (incl. ANSI) from current CSS variables. */
+export function buildXtermThemeFromDocument(): ITheme {
+  const cs = getComputedStyle(document.documentElement);
+  const bg = cs.getPropertyValue("--term-bg").trim() || TERM_BG_FALLBACK;
+  const fg = cs.getPropertyValue("--term-fg").trim() || TERM_FG_FALLBACK;
+  const cursor = cs.getPropertyValue("--term-cursor").trim() || TERM_CURSOR_FALLBACK;
+  const sel = cs.getPropertyValue("--term-selection-bg").trim() || TERM_SELECTION_BG_FALLBACK;
+  const bgRgb = parseCssColorToRgb(bg);
+  const ansi = bgRgb && isLightBackground(bgRgb) ? XTERM_ANSI_LIGHT : XTERM_ANSI_DARK;
+  return {
+    background: bg,
+    foreground: fg,
+    cursor,
+    cursorAccent: bg,
+    selectionBackground: sel,
+    ...ansi,
+  };
+}
+
+/** Remap neutral grays + hover overlays for light vs dark chrome. */
+export function syncUiGrayScale(): void {
+  const root = document.documentElement;
+  const bgRgb = termBackgroundRgb();
+  if (!bgRgb) return;
+  const light = isLightBackground(bgRgb);
+  root.dataset.luminance = light ? "light" : "dark";
+
+  const grayKeys = ["50", "100", "200", "300", "400", "500", "600", "700", "800", "900"] as const;
+  if (!light) {
+    for (const n of grayKeys) root.style.removeProperty(`--ui-gray-${n}`);
+    root.style.removeProperty("--hover-overlay");
+    root.style.removeProperty("--hover-overlay-light");
+    return;
+  }
+
+  root.style.setProperty("--ui-gray-50", "#f8fafc");
+  root.style.setProperty("--ui-gray-100", "#0f172a");
+  root.style.setProperty("--ui-gray-200", "#1e293b");
+  root.style.setProperty("--ui-gray-300", "#334155");
+  root.style.setProperty("--ui-gray-400", "#475569");
+  root.style.setProperty("--ui-gray-500", "#64748b");
+  root.style.setProperty("--ui-gray-600", "#94a3b8");
+  root.style.setProperty("--ui-gray-700", "#cbd5e1");
+  root.style.setProperty("--ui-gray-800", "#e2e8f0");
+  root.style.setProperty("--ui-gray-900", "#f1f5f9");
+  root.style.setProperty("--hover-overlay", "rgba(0, 0, 0, 0.06)");
+  root.style.setProperty("--hover-overlay-light", "rgba(0, 0, 0, 0.04)");
+}
+
 /**
  * Panel / modal label text: derive from `--panel-bg` when set (theme presets), else `--term-bg`.
  */
@@ -588,16 +713,18 @@ export function syncUiChromeTextColors(): void {
   let fg = pickFg;
   let muted = lightPanel ? mutedDark : mutedLight;
   let faint = lightPanel ? faintDark : faintLight;
-  if (luminanceContrast(rgb, fg) < 4.2) {
-    fg = lightPanel ? [15, 23, 42] : [254, 254, 255];
-    muted = lightPanel ? [31, 41, 55] : [229, 231, 235];
-    faint = lightPanel ? [55, 65, 81] : [163, 163, 163];
+  if (lightPanel) {
+    if (relLuminance(fg) > 0.28 || luminanceContrast(rgb, fg) < 7) fg = [15, 23, 42];
+    if (relLuminance(muted) > 0.35 || luminanceContrast(rgb, muted) < 4.5) muted = [31, 41, 55];
+    if (relLuminance(faint) > 0.42 || luminanceContrast(rgb, faint) < 3.2) faint = [55, 65, 81];
+  } else if (luminanceContrast(rgb, fg) < 5.0) {
+    fg = [254, 254, 255];
+    muted = [229, 231, 235];
+    faint = [163, 163, 163];
   }
-  const hex = (c: [number, number, number]) =>
-    `#${c.map((x) => Math.max(0, Math.min(255, x)).toString(16).padStart(2, "0")).join("")}`;
-  root.style.setProperty("--ui-chrome-fg", hex(fg));
-  root.style.setProperty("--ui-chrome-muted", hex(muted));
-  root.style.setProperty("--ui-chrome-fainter", hex(faint));
+  root.style.setProperty("--ui-chrome-fg", toHex(fg));
+  root.style.setProperty("--ui-chrome-muted", toHex(muted));
+  root.style.setProperty("--ui-chrome-fainter", toHex(faint));
 }
 
 /** Input / select text: readable on `--input-bg` (fixes light presets leaving `--input-text` from dark defaults). */
@@ -610,12 +737,12 @@ export function syncInputTextColor(): void {
   const lum = relLuminance(rgb);
   const lightIn = lum > 0.42;
   let fg: [number, number, number] = lightIn ? [17, 24, 39] : [249, 250, 251];
-  if (luminanceContrast(rgb, fg) < 4.2) {
-    fg = lightIn ? [15, 23, 42] : [254, 254, 255];
+  if (lightIn) {
+    if (relLuminance(fg) > 0.28 || luminanceContrast(rgb, fg) < 7) fg = [15, 23, 42];
+  } else if (luminanceContrast(rgb, fg) < 5.0) {
+    fg = [254, 254, 255];
   }
-  const hex = (c: [number, number, number]) =>
-    `#${c.map((x) => Math.max(0, Math.min(255, x)).toString(16).padStart(2, "0")).join("")}`;
-  root.style.setProperty("--input-text", hex(fg));
+  root.style.setProperty("--input-text", toHex(fg));
 }
 
 /** Ensures `--term-fg` / `--term-cursor` read clearly on `--term-bg` (fixes washed-out pairs). */
@@ -627,16 +754,23 @@ export function syncTerminalFgContrast(): void {
   const bg = parseCssColorToRgb(bgStr);
   const fg = parseCssColorToRgb(fgStr);
   if (!bg || !fg) return;
-  if (luminanceContrast(bg, fg) >= 4.2) return;
   const lumBg = relLuminance(bg);
-  const darkText: [number, number, number] = [17, 24, 39];
-  const lightText: [number, number, number] = [248, 250, 252];
-  const pick = lumBg > 0.45 ? darkText : lightText;
-  const hex = (c: [number, number, number]) =>
-    `#${c.map((x) => Math.max(0, Math.min(255, x)).toString(16).padStart(2, "0")).join("")}`;
-  const next = hex(pick);
+  const lumFg = relLuminance(fg);
+  const lightBg = lumBg > 0.45;
+  const needsFix = lightBg
+    ? lumFg > 0.28 || luminanceContrast(bg, fg) < 7
+    : lumFg < 0.65 || luminanceContrast(bg, fg) < 7;
+  if (!needsFix) return;
+
+  const next = toHex(lightBg ? [24, 24, 27] : [248, 250, 252]);
   root.style.setProperty("--term-fg", next);
-  root.style.setProperty("--term-cursor", next);
+  const cursorRgb = parseCssColorToRgb(cs.getPropertyValue("--term-cursor").trim());
+  const cursorOk =
+    cursorRgb &&
+    (lightBg
+      ? relLuminance(cursorRgb) <= 0.35 && luminanceContrast(bg, cursorRgb) >= 4.5
+      : relLuminance(cursorRgb) >= 0.6 && luminanceContrast(bg, cursorRgb) >= 4.5);
+  if (!cursorOk) root.style.setProperty("--term-cursor", next);
 }
 
 /** Live-preview CSS vars (theme builder) without changing font prefs. */
@@ -645,6 +779,7 @@ export function previewThemeCssVars(vars: ThemeCssVars): void {
   for (const [k, v] of Object.entries(vars)) {
     if (k.startsWith("--")) root.style.setProperty(k, v);
   }
+  syncUiGrayScale();
   syncUiChromeTextColors();
   syncInputTextColor();
   syncTerminalFgContrast();
@@ -692,6 +827,7 @@ export function applyUiTheme(prefs: UiThemePrefs): void {
   clearThemeVars();
 
   if (prefs.ui_theme === "system") {
+    syncUiGrayScale();
     syncUiChromeTextColors();
     syncInputTextColor();
     syncTerminalFgContrast();
@@ -702,6 +838,7 @@ export function applyUiTheme(prefs: UiThemePrefs): void {
   for (const [k, v] of Object.entries(preset)) {
     root.style.setProperty(k, v);
   }
+  syncUiGrayScale();
   syncUiChromeTextColors();
   syncInputTextColor();
   syncTerminalFgContrast();

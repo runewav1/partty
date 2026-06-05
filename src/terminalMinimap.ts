@@ -1,6 +1,7 @@
 import type { Terminal } from "@xterm/xterm";
 
 import { cellInkRgb } from "./minimapColors";
+import { termiePerf } from "./perf";
 
 /**
  * IDE-style minimap: colored buffer preview + viewport thumb.
@@ -12,6 +13,8 @@ export class TerminalMinimap {
   private scrollVp: HTMLElement | null = null;
   private ro: ResizeObserver | null = null;
   private pending = false;
+  private pendingTimer = 0;
+  private lastDrawAt = 0;
   private dragging = false;
   private readonly unsubs: Array<() => void> = [];
 
@@ -56,7 +59,7 @@ export class TerminalMinimap {
 
     this.term.onResize(() => {
       this.bindScrollTarget();
-      this.requestDraw();
+      this.requestDraw(true);
     });
 
     this.bindScrollTarget();
@@ -71,7 +74,7 @@ export class TerminalMinimap {
     window.addEventListener("mousemove", this.onPointerMove);
     window.addEventListener("mouseup", this.onPointerUp);
 
-    this.requestDraw();
+    this.requestDraw(true);
   }
 
   /** Highlight buffer lines in the minimap (bright markers). Pass null to clear. */
@@ -81,7 +84,7 @@ export class TerminalMinimap {
     } else {
       this.searchLines = new Set(lines);
     }
-    this.requestDraw();
+    this.requestDraw(true);
   }
 
   dispose(): void {
@@ -89,6 +92,10 @@ export class TerminalMinimap {
     if (this.ro) {
       this.ro.disconnect();
       this.ro = null;
+    }
+    if (this.pendingTimer) {
+      window.clearTimeout(this.pendingTimer);
+      this.pendingTimer = 0;
     }
     this.canvas.removeEventListener("mousedown", this.onPointerDown);
     window.removeEventListener("mousemove", this.onPointerMove);
@@ -106,11 +113,11 @@ export class TerminalMinimap {
     this.canvas.style.width = `${w}px`;
     this.canvas.style.height = `${h}px`;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.requestDraw();
+    this.requestDraw(true);
   }
 
   private onScroll = (): void => {
-    this.requestDraw();
+    this.requestDraw(true);
   };
 
   private bindScrollTarget(): void {
@@ -130,12 +137,31 @@ export class TerminalMinimap {
     }
   }
 
-  private requestDraw(): void {
+  private requestDraw(force = false): void {
+    if (force && this.pendingTimer) {
+      window.clearTimeout(this.pendingTimer);
+      this.pendingTimer = 0;
+    }
     if (this.pending) return;
+    const now = performance.now();
+    const waitMs = force ? 0 : Math.max(0, 66 - (now - this.lastDrawAt));
+    if (waitMs > 0) {
+      if (!this.pendingTimer) {
+        this.pendingTimer = window.setTimeout(() => {
+          this.pendingTimer = 0;
+          this.requestDraw(true);
+        }, waitMs);
+      }
+      return;
+    }
     this.pending = true;
     requestAnimationFrame(() => {
       this.pending = false;
+      this.lastDrawAt = performance.now();
+      const started = performance.now();
       this.draw();
+      termiePerf.mark("minimap.draw");
+      termiePerf.time("minimap.draw.ms", performance.now() - started);
     });
   }
 

@@ -5,7 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { normalizeFsPathKey } from "./oscCwd";
+import { isNativeAbsoluteFsPath, normalizeFsPathKey } from "./oscCwd";
 
 export type FsEntry = {
   name: string;
@@ -106,6 +106,17 @@ export class FileTreeBackend {
    * Clears cached state and starts fresh polling for the new root.
    */
   async setRoot(root: string): Promise<void> {
+    if (!isNativeAbsoluteFsPath(root)) {
+      await this.stopNativeWatch();
+      this.currentRoot = null;
+      this.gitStatusMap.clear();
+      this.lastGitHash = "";
+      this.nativeWatchActive = false;
+      this.repoInfo = null;
+      this.options.onGitStatusChange?.(this.getAllGitStatuses());
+      this.options.onGitRepoInfoChange?.(null);
+      return;
+    }
     const normalizedRoot = normalizeFsPathKey(root);
     const normalizedCurrent = normalizeFsPathKey(this.currentRoot ?? "");
 
@@ -171,11 +182,12 @@ export class FileTreeBackend {
   /**
    * Start polling for git status changes.
    */
-  startGitPolling(intervalMs: number = 3000): void {
+  startGitPolling(intervalMs: number = 8000): void {
     this.stopGitPolling();
+    const delay = Math.max(5000, intervalMs);
     this.gitPollTimer = window.setInterval(() => {
       void this.pollGitStatus();
-    }, intervalMs);
+    }, delay);
   }
 
   /**
@@ -192,7 +204,7 @@ export class FileTreeBackend {
    * Poll for git status changes.
    */
   private async pollGitStatus(): Promise<void> {
-    if (this.isPolling || !this.currentRoot) {
+    if (this.isPolling || !isNativeAbsoluteFsPath(this.currentRoot)) {
       return;
     }
 
@@ -234,7 +246,7 @@ export class FileTreeBackend {
    * Start native file system watcher.
    */
   private async startNativeWatch(): Promise<void> {
-    if (!this.currentRoot || this.nativeWatchActive) {
+    if (!isNativeAbsoluteFsPath(this.currentRoot) || this.nativeWatchActive) {
       return;
     }
 

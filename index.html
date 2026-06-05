@@ -148,6 +148,11 @@
                 <kbd class="help-key">W</kbd>
                 <span class="help-desc">Close focused pane</span>
               </div>
+              <div class="help-shortcut">
+                <kbd class="help-key">Ctrl</kbd>
+                <kbd class="help-key">Arrow</kbd>
+                <span class="help-desc">Focus adjacent pane</span>
+              </div>
             </div>
           </div>
           <div class="help-panel-foot">
@@ -168,234 +173,101 @@
             <button id="settings-close" type="button" class="settings-panel-close" aria-label="Close">×</button>
           </div>
           <form id="settings-form" class="settings-panel-body termie-scroll-fade">
-            <div class="settings-field">
-              <label class="settings-label" for="setting-shell">Shell</label>
-              <input
-                id="setting-shell"
-                name="shell"
-                type="text"
-                class="settings-input"
-                list="shell-suggestions"
-                spellcheck="false"
-                autocomplete="off"
-                placeholder="default: pwsh"
-              />
-              <datalist id="shell-suggestions"></datalist>
-            </div>
-            <div class="settings-field">
-              <label class="settings-label" for="setting-initial-cwd">CWD</label>
-              <input
-                id="setting-initial-cwd"
-                name="initial_cwd"
-                type="text"
-                class="settings-input"
-                placeholder="default"
-              />
-            </div>
-            <div class="settings-field">
-              <label class="settings-label" for="setting-font-terminal">Terminal font</label>
-              <input
-                id="setting-font-terminal"
-                name="font_terminal"
-                type="text"
-                class="settings-input"
-                spellcheck="false"
-                autocomplete="off"
-                placeholder="default"
-              />
-            </div>
-            <div class="settings-field">
-              <label class="settings-label" for="setting-font-ui">UI font</label>
-              <input
-                id="setting-font-ui"
-                name="font_ui"
-                type="text"
-                class="settings-input"
-                spellcheck="false"
-                autocomplete="off"
-                placeholder="default"
-              />
-            </div>
-            <div class="settings-field">
-              <label class="settings-label" for="setting-font-file-tree">Tree font</label>
-              <input
-                id="setting-font-file-tree"
-                name="font_file_tree"
-                type="text"
-                class="settings-input"
-                spellcheck="false"
-                autocomplete="off"
-                placeholder="default"
-              />
-            </div>
-            <div class="settings-field">
-              <label class="settings-label" for="setting-scrollback">Scrollback lines</label>
-              <input
-                id="setting-scrollback"
-                name="scrollback_lines"
-                type="number"
-                min="100"
-                max="50000"
-                step="1"
-                class="settings-input"
-              />
-            </div>
-            <div class="settings-field">
-              <label class="settings-label" for="setting-snapshot-max">Snapshot max lines (discard buffer)</label>
-              <input
-                id="setting-snapshot-max"
-                name="snapshot_max_lines"
-                type="number"
-                min="50"
-                max="50000"
-                step="50"
-                class="settings-input"
-              />
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="always_on_top" />
-                <span>Always on top</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="shed_on_hide" />
-                <span>Shed PTY on hide</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="webgl_shed_on_hide" checked />
-                <span>Shed WebGL on hide</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="discard_buffer_on_hide" />
-                <span>Discard buffer on hide</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="preload_pty_on_startup" checked />
-                <span>Preload PTY</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="preload_webgl_on_startup" checked />
-                <span>Preload WebGL</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="defer_window_show_until_prepared" checked />
-                <span>Defer window show</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="destroy_webview_on_hide" checked />
-                <span>Destroy webview on hide</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="focus_follows_cursor" />
-                <span>Focus follows pointer</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="blur_unfocused_panes" />
-                <span>Blur unfocused</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="dim_unfocused_panes" />
-                <span>Dim unfocused</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="auto_copy_selection" />
-                <span>Auto-copy selection</span>
-              </label>
-            </div>
-            <div class="settings-field">
-              <label class="settings-label" for="setting-shed-exit">Workspace state</label>
-              <select
-                id="setting-shed-exit"
-                name="shed_workspace_exit"
-                class="settings-input settings-select"
-              >
-                <option value="ask">ask</option>
-                <option value="keep">keep</option>
-                <option value="shed">shed</option>
-              </select>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="always_summon_maximized" />
-                <span>Always summon maximized</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="summon_spawn_at_cursor" />
-                <span>Summon main window at cursor (same monitor)</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="hidden_from_taskbar" />
-                <span>Hidden from taskbar</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="always_open_in_zen_mode" />
-                <span>Always open in zen mode</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="ui_disable_tooltips" />
-                <span>Disable hover tooltips (always off in zen mode)</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="terminal_click_to_cursor" />
-                <span>Terminal: click to reposition cursor on active line</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="terminal_backspace_delete_selection" checked />
-                <span>Terminal: backspace deletes selected text</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="file_tree_show_diff_counts" />
-                <span>Files: show git diff +/- counts next to status</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="file_tree_show_git_info" />
-                <span>Files: show git info panel at bottom</span>
-              </label>
-            </div>
-            <div class="settings-field settings-field--checkbox">
-              <label class="settings-checkbox-label">
-                <input class="settings-checkbox-input" type="checkbox" name="confirm_delete_prompt" />
-                <span>Files: ask before delete</span>
-              </label>
-            </div>
+            <datalist id="shell-suggestions"></datalist>
+            <datalist id="font-suggestions"></datalist>
+
+            <section class="settings-domain">
+              <h3 class="settings-domain-title">Shell</h3>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-shell">Shell</label>
+                <input id="setting-shell" name="shell" type="text" class="settings-input" list="shell-suggestions" spellcheck="false" autocomplete="off" placeholder="pwsh" />
+              </div>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-initial-cwd">Start dir</label>
+                <input id="setting-initial-cwd" name="initial_cwd" type="text" class="settings-input" placeholder="default" />
+              </div>
+            </section>
+
+            <section class="settings-domain">
+              <h3 class="settings-domain-title">Fonts</h3>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-font-terminal">Terminal</label>
+                <input id="setting-font-terminal" name="font_terminal" type="text" class="settings-input" list="font-suggestions" spellcheck="false" autocomplete="off" placeholder="default" />
+              </div>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-font-ui">UI</label>
+                <input id="setting-font-ui" name="font_ui" type="text" class="settings-input" list="font-suggestions" spellcheck="false" autocomplete="off" placeholder="default" />
+              </div>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-font-file-tree">Files</label>
+                <input id="setting-font-file-tree" name="font_file_tree" type="text" class="settings-input" list="font-suggestions" spellcheck="false" autocomplete="off" placeholder="default" />
+              </div>
+            </section>
+
+            <section class="settings-domain">
+              <h3 class="settings-domain-title">Terminal</h3>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-scrollback">Scrollback</label>
+                <input id="setting-scrollback" name="scrollback_lines" type="number" min="100" max="50000" step="1" class="settings-input" />
+              </div>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-snapshot-max">Snapshot lines</label>
+                <input id="setting-snapshot-max" name="snapshot_max_lines" type="number" min="50" max="50000" step="50" class="settings-input" />
+              </div>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-animation-speed">Motion</label>
+                <select id="setting-animation-speed" name="terminal_animation_speed" class="settings-input settings-select">
+                  <option value="off">off</option>
+                  <option value="fast">fast</option>
+                  <option value="normal">normal</option>
+                  <option value="slow">slow</option>
+                </select>
+              </div>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_no_gap" /><span>No gaps</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_no_round" /><span>Square panes</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="focus_follows_cursor" /><span>Pointer focus</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="blur_unfocused_panes" /><span>Blur inactive</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="dim_unfocused_panes" /><span>Dim inactive</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_click_to_cursor" /><span>Click cursor</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_backspace_delete_selection" checked /><span>Backspace selection</span></label>
+            </section>
+
+            <section class="settings-domain">
+              <h3 class="settings-domain-title">Startup</h3>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="preload_pty_on_startup" checked /><span>Preload PTY</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="preload_webgl_on_startup" checked /><span>Preload WebGL</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="defer_window_show_until_prepared" checked /><span>Wait to show</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="destroy_webview_on_hide" checked /><span>Destroy on hide</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="shed_on_hide" /><span>Shed PTY</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="webgl_shed_on_hide" checked /><span>Shed WebGL</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="discard_buffer_on_hide" /><span>Drop buffer</span></label>
+            </section>
+
+            <section class="settings-domain">
+              <h3 class="settings-domain-title">Window</h3>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-shed-exit">Workspace</label>
+                <select id="setting-shed-exit" name="shed_workspace_exit" class="settings-input settings-select">
+                  <option value="ask">ask</option>
+                  <option value="keep">keep</option>
+                  <option value="shed">shed</option>
+                </select>
+              </div>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="always_on_top" /><span>Always top</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="always_summon_maximized" /><span>Max summon</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="summon_spawn_at_cursor" /><span>Summon at cursor</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="hidden_from_taskbar" /><span>Hide taskbar</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="always_open_in_zen_mode" /><span>Zen launch</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="ui_disable_tooltips" /><span>No tooltips</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="auto_copy_selection" /><span>Auto-copy</span></label>
+            </section>
+
+            <section class="settings-domain">
+              <h3 class="settings-domain-title">Files</h3>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="file_tree_show_diff_counts" /><span>Diff counts</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="file_tree_show_git_info" /><span>Git panel</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="confirm_delete_prompt" /><span>Confirm delete</span></label>
+            </section>
             <div class="settings-panel-foot">
               <button type="submit" class="settings-save">Save</button>
             </div>
@@ -436,35 +308,8 @@
 
       <div id="terminal-wrap">
         <div id="term-toolbar" class="term-toolbar">
-          <div class="term-toolbar-cluster">
-            <button
-              type="button"
-              id="file-tree-toggle"
-              class="term-toolbar-btn term-toolbar-btn--files"
-              title="Files"
-              aria-pressed="false"
-              aria-label="Toggle file tree"
-            >
-              <span class="term-toolbar-btn-icon" aria-hidden="true">
-                <svg class="term-toolbar-svg term-toolbar-files-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path class="files-folder" d="M4 8h5l2 2h11v11H4V8z"/>
-                  <path class="files-folder-tab" d="M4 8V6h6l2 2"/>
-                </svg>
-              </span>
-            </button>
-            <button
-              type="button"
-              id="settings-toggle"
-              class="term-toolbar-btn term-toolbar-btn--settings"
-              title="Settings"
-              aria-label="Settings"
-            >
-              <span class="term-toolbar-btn-icon" aria-hidden="true"></span>
-            </button>
-          </div>
           <div class="term-tabs-wrap" id="term-tabs-wrap">
             <div class="term-tabs-strip" id="term-tabs-strip" role="tablist" aria-label="Tabs"></div>
-            <button type="button" id="term-tab-new" class="term-toolbar-btn term-tab-new" title="New tab" aria-label="New tab"><span class="term-tab-new-icon" aria-hidden="true"></span></button>
           </div>
           <div
             class="term-toolbar-drag"
@@ -486,7 +331,6 @@
           <div id="terminal-column">
             <div id="terminal-stage">
               <div id="terminal-content">
-                <canvas id="cursor-trail" width="1" height="1" aria-hidden="true"></canvas>
                 <div class="terminal-main">
                   <div id="terminal-pane-root" class="terminal-pane-root"></div>
                 </div>

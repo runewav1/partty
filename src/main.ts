@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { FitAddon } from "@xterm/addon-fit";
 import type { WebglAddon } from "@xterm/addon-webgl";
-import { Terminal, type ITheme } from "@xterm/xterm";
+import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
 import {
@@ -45,6 +45,7 @@ import {
 } from "./workspaceShed";
 import {
   applyUiTheme,
+  buildXtermThemeFromDocument,
   DEFAULT_TERMINAL_FONT_STACK,
   loadCustomThemesIntoCache,
   pickUiPrefs,
@@ -94,15 +95,17 @@ import {
   mountTabNewPlusIcon,
   syncFileTreeFolderIcon,
 } from "./toolbarIcons";
+import { termiePerf } from "./perf";
 
 // Terminal color constants with fallbacks
 // CSS variables are read after DOM is ready in boot()
 const TERM_BG_FALLBACK = "#2e2e32";
 const TERM_FG_FALLBACK = "#d4d4d8";
-const TERM_CURSOR_FALLBACK = "#e8e8ec";
-const TERM_SELECTION_BG_FALLBACK = "#6b6b7866";
 
 const RESIZE_DEBOUNCE_MS = 100;
+const PTY_OUTPUT_FLUSH_MS = 8;
+const PTY_OUTPUT_INTERACTIVE_CHARS = 2048;
+const PTY_OUTPUT_MAX_BATCH_CHARS = 128 * 1024;
 const MINIMAP_STORAGE_KEY = "termie.minimap.enabled";
 const MINIMAP_HIDDEN_PANES_KEY = "termie.minimap.hiddenPanes";
 const FILE_TREE_STORAGE_KEY = "termie.filetree.visible";
@@ -151,6 +154,22 @@ function scheduleIdle(cb: () => void, timeout = IDLE_WEBGL_MS): void {
   }
 }
 
+function animationScaleForPref(value: unknown): string {
+  const raw = typeof value === "string" ? value.toLowerCase() : "normal";
+  if (raw === "off") return "0";
+  if (raw === "fast") return "0.55";
+  if (raw === "slow") return "1.65";
+  return "1";
+}
+
+function applyTerminalDisplayPrefs(raw: Partial<TermiePrefs>): void {
+  const root = document.documentElement;
+  root.classList.toggle("terminal-no-gap", Boolean(raw.terminal_no_gap));
+  root.classList.toggle("terminal-no-round", Boolean(raw.terminal_no_round));
+  root.classList.toggle("terminal-motion-off", animationScaleForPref(raw.terminal_animation_speed) === "0");
+  root.style.setProperty("--termie-animation-scale", animationScaleForPref(raw.terminal_animation_speed));
+}
+
 function loadMinimapHiddenPaneIds(): Set<string> {
   try {
     const raw = localStorage.getItem(MINIMAP_HIDDEN_PANES_KEY);
@@ -177,13 +196,6 @@ function isWorkspaceLayoutUsable(p: PersistedPaneLayout, tabId: string): boolean
   return findPaneLeaf(p.tree, p.focusedId) != null;
 }
 
-type TrailHandle = {
-  dispose(): void;
-  attach(): void;
-  setAccentColor(rgb: [number, number, number]): void;
-  getCursorClientPoint(): { x: number; y: number } | null;
-  jumpFromClientPoint(point: { x: number; y: number } | null): void;
-};
 type MinimapHandle = {
   dispose(): void;
   attach(): void;
@@ -193,6 +205,21 @@ type MinimapHandle = {
 
 type PtyOutputEvent = { pane_id: string; data: string };
 type PtyExitEvent = { pane_id: string };
+type PaneWebglStatus = "pending" | "ready" | "failed" | "disposed";
+type PaneWebglState = {
+  status: PaneWebglStatus;
+  attempts: number;
+  generation: number;
+  addon?: WebglAddon;
+  lastError?: unknown;
+  lastFailureAt?: number;
+  contextLossDispose?: { dispose(): void };
+};
+type PendingPtyOutput = {
+  data: string;
+  eventCount: number;
+  queuedAt: number;
+};
 
 function isTargetInsideXterm(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -209,21 +236,6 @@ function maybeBlockBrowserPrintShortcut(e: KeyboardEvent): void {
   e.stopPropagation();
 }
 
-function readXtermThemeFromDocument(): ITheme {
-  const cs = getComputedStyle(document.documentElement);
-  const bg = cs.getPropertyValue("--term-bg").trim() || TERM_BG_FALLBACK;
-  const fg = cs.getPropertyValue("--term-fg").trim() || TERM_FG_FALLBACK;
-  const cursor = cs.getPropertyValue("--term-cursor").trim() || TERM_CURSOR_FALLBACK;
-  const sel = cs.getPropertyValue("--term-selection-bg").trim() || TERM_SELECTION_BG_FALLBACK;
-  return {
-    background: bg,
-    foreground: fg,
-    cursor,
-    cursorAccent: bg,
-    selectionBackground: sel,
-  };
-}
-
 function terminalFontStackFromDocument(): string {
   const raw = getComputedStyle(document.documentElement).getPropertyValue("--font-terminal").trim();
   return raw.replace(/^["']|["']$/g, "") || DEFAULT_TERMINAL_FONT_STACK;
@@ -237,6 +249,7 @@ async function boot(): Promise<void> {
   const lp: TermieLifecyclePrefs = mergeLifecyclePrefs(persisted.prefs);
   const uiPrefs = pickUiPrefs(persisted.prefs);
   applyUiTheme(uiPrefs);
+  applyTerminalDisplayPrefs(persisted.prefs as Partial<TermiePrefs>);
 
   const minimapUserEnabled = localStorage.getItem(MINIMAP_STORAGE_KEY) !== "0";
   document.documentElement.classList.toggle("minimap-off", !minimapUserEnabled);
@@ -271,6 +284,7 @@ async function boot(): Promise<void> {
   const paneCwdHints = new Map<string, string>();
   const paneShellState = new Map<string, ShellIntegrationState>();
   const paneBlockOverlays = new Map<string, BlockOverlayHandle>();
+  const pendingBlockOverlayRefreshPanes = new Set<string>();
   const lastPtyDims = new Map<string, { cols: number; rows: number }>();
   const focusFollowsRef = { v: lp.focus_follows_cursor };
   const autoCopySelectionRef = {
@@ -289,17 +303,22 @@ async function boot(): Promise<void> {
     v: (persisted.prefs as Partial<TermiePrefs>).terminal_click_to_cursor ?? true,
   };
   const backspaceDeleteSelectionRef = {
-    v: (persisted.prefs as Partial<TermiePrefs>).terminal_backspace_delete_selection ?? false,
+    v: (persisted.prefs as Partial<TermiePrefs>).terminal_backspace_delete_selection ?? true,
   };
   const confirmDeletePromptRef = {
     v: (persisted.prefs as Partial<TermiePrefs>).confirm_delete_prompt ?? true,
   };
   const pendingPtyWriteByPane = new Map<string, string>();
+  const pendingPtyOutputByPane = new Map<string, PendingPtyOutput>();
   let pendingPtyWriteRaf = 0;
+  let pendingPtyOutputRaf = 0;
+  let pendingPtyOutputTimer = 0;
+  let pendingBlockOverlayRaf = 0;
   let liveCwd: string | null = null;
   let lastLiveCwdSignalAt = 0;
   let lastFocusedPaneId = "";
   let tooltipObserver: MutationObserver | null = null;
+  let bridgeScrollCleanup: (() => void) | null = null;
 
   const flushPendingPtyWrites = (): void => {
     pendingPtyWriteRaf = 0;
@@ -310,13 +329,136 @@ async function boot(): Promise<void> {
     }
   };
 
-  const queuePtyWrite = (paneId: string, data: string): void => {
+  const flushPendingPtyWriteForPane = (paneId: string): void => {
+    const pending = pendingPtyWriteByPane.get(paneId);
+    if (!pending) return;
+    pendingPtyWriteByPane.delete(paneId);
+    void ptyWrite(paneId, pending).catch((e) => console.error("pty_write", e));
+  };
+
+  const isLatencySensitiveInput = (data: string): boolean => {
+    if (data.length > 8) return false;
+    if (data.includes("\x1b")) return true;
+    return data.length <= 2;
+  };
+
+  const queuePtyWrite = (paneId: string, data: string, immediate = false): void => {
     if (!data) return;
+    if (immediate || isLatencySensitiveInput(data)) {
+      flushPendingPtyWriteForPane(paneId);
+      void ptyWrite(paneId, data).catch((e) => console.error("pty_write", e));
+      termiePerf.mark("pty.input.immediate");
+      return;
+    }
     const prior = pendingPtyWriteByPane.get(paneId);
     pendingPtyWriteByPane.set(paneId, prior ? `${prior}${data}` : data);
     if (pendingPtyWriteRaf) return;
     pendingPtyWriteRaf = requestAnimationFrame(flushPendingPtyWrites);
   };
+
+  function processPtyOutputBatch(paneId: string, data: string, eventCount: number, queuedAt: number): void {
+    const pt = getPaneTerminalById(paneId);
+    if (!pt) return;
+    termiePerf.mark("pty.output.events", eventCount);
+    termiePerf.mark("pty.output.chars", data.length);
+    termiePerf.time("pty.output.queue.ms", performance.now() - queuedAt);
+
+    const cwdHandler = (p: string): void => {
+      paneCwdHints.set(paneId, p);
+      lastLiveCwdSignalAt = Date.now();
+      fileTreeCoordinator?.seedPaneCwd(paneId, p);
+      if (paneId !== paneHost?.getFocusedPaneId()) return;
+      if (normalizeFsPathKey(p) === normalizeFsPathKey(liveCwd ?? "")) return;
+      liveCwd = p;
+      scheduleFileTreeRefresh();
+    };
+
+    const siState = ensureShellState(paneId);
+    const parseStarted = performance.now();
+    const si = processShellIntegration(data, siState, pt.term, cwdHandler);
+    termiePerf.time("pty.output.parse.ms", performance.now() - parseStarted);
+
+    if (fileTreeCoordinator && si.events.length > 0) {
+      fileTreeCoordinator.processShellIntegrationEvents(paneId, si.events);
+    }
+
+    if (si.cleaned) {
+      const writeStarted = performance.now();
+      try {
+        pt.term.write(si.cleaned, () => {
+          termiePerf.time("xterm.write.callback.ms", performance.now() - writeStarted);
+        });
+        termiePerf.time("xterm.write.call.ms", performance.now() - writeStarted);
+      } catch (e) {
+        console.warn("xterm.write", e);
+      }
+    }
+
+    if (si.commandsChanged || si.events.length > 0) {
+      queueBlockOverlayRefresh(paneId);
+    }
+    scheduleCwdSync();
+  }
+
+  function clearPtyOutputFlushHandles(): void {
+    if (pendingPtyOutputRaf) {
+      cancelAnimationFrame(pendingPtyOutputRaf);
+      pendingPtyOutputRaf = 0;
+    }
+    if (pendingPtyOutputTimer) {
+      window.clearTimeout(pendingPtyOutputTimer);
+      pendingPtyOutputTimer = 0;
+    }
+  }
+
+  function flushPendingPtyOutputs(): void {
+    clearPtyOutputFlushHandles();
+    if (pendingPtyOutputByPane.size === 0) return;
+    const batches = [...pendingPtyOutputByPane.entries()];
+    pendingPtyOutputByPane.clear();
+    for (const [paneId, batch] of batches) {
+      processPtyOutputBatch(paneId, batch.data, batch.eventCount, batch.queuedAt);
+    }
+  }
+
+  function schedulePtyOutputFlush(): void {
+    if (!pendingPtyOutputRaf) {
+      pendingPtyOutputRaf = requestAnimationFrame(flushPendingPtyOutputs);
+    }
+    if (!pendingPtyOutputTimer) {
+      pendingPtyOutputTimer = window.setTimeout(flushPendingPtyOutputs, PTY_OUTPUT_FLUSH_MS);
+    }
+  }
+
+  function queuePtyOutput(paneId: string, data: string): void {
+    if (!data) return;
+    if (
+      data.length <= PTY_OUTPUT_INTERACTIVE_CHARS &&
+      !pendingPtyOutputByPane.has(paneId) &&
+      paneId === paneHost?.getFocusedPaneId()
+    ) {
+      processPtyOutputBatch(paneId, data, 1, performance.now());
+      termiePerf.mark("pty.output.immediate");
+      return;
+    }
+    const existing = pendingPtyOutputByPane.get(paneId);
+    if (existing) {
+      existing.data += data;
+      existing.eventCount++;
+    } else {
+      pendingPtyOutputByPane.set(paneId, {
+        data,
+        eventCount: 1,
+        queuedAt: performance.now(),
+      });
+    }
+    const batch = pendingPtyOutputByPane.get(paneId);
+    if (batch && batch.data.length >= PTY_OUTPUT_MAX_BATCH_CHARS) {
+      flushPendingPtyOutputs();
+      return;
+    }
+    schedulePtyOutputFlush();
+  }
 
   const getTerminalClickCell = (
     term: Terminal,
@@ -533,27 +675,42 @@ async function boot(): Promise<void> {
   function disposeBlockOverlay(paneId: string): void {
     paneBlockOverlays.get(paneId)?.dispose();
     paneBlockOverlays.delete(paneId);
+    pendingBlockOverlayRefreshPanes.delete(paneId);
+  }
+
+  function flushBlockOverlayRefreshes(): void {
+    pendingBlockOverlayRaf = 0;
+    if (pendingBlockOverlayRefreshPanes.size === 0) return;
+    const paneIds = [...pendingBlockOverlayRefreshPanes];
+    pendingBlockOverlayRefreshPanes.clear();
+    for (const paneId of paneIds) {
+      const started = performance.now();
+      paneBlockOverlays.get(paneId)?.refresh();
+      termiePerf.mark("overlay.refresh");
+      termiePerf.time("overlay.refresh.ms", performance.now() - started);
+    }
+  }
+
+  function queueBlockOverlayRefresh(paneId: string): void {
+    pendingBlockOverlayRefreshPanes.add(paneId);
+    if (pendingBlockOverlayRaf) return;
+    pendingBlockOverlayRaf = requestAnimationFrame(flushBlockOverlayRefreshes);
   }
 
   function cleanupPaneVisualState(paneId: string): void {
     minimapHiddenPanes.delete(paneId);
     saveMinimapHiddenPaneIds(minimapHiddenPanes);
-    try {
-      paneWebglAddons.get(paneId)?.dispose();
-    } catch {
-      /* ignore */
-    }
-    paneWebglAddons.delete(paneId);
-    disposeTrailForPane(paneId);
+    disposeWebglForPane(paneId);
     disposeMinimapForPane(paneId);
     disposeBlockOverlay(paneId);
     paneShellState.delete(paneId);
     paneCwdHints.delete(paneId);
     lastPtyDims.delete(paneId);
     pendingPtyWriteByPane.delete(paneId);
+    pendingPtyOutputByPane.delete(paneId);
   }
 
-  const paneWebglAddons = new Map<string, WebglAddon>();
+  const paneWebglStates = new Map<string, PaneWebglState>();
   /** Pending plain-text replay after `discard_buffer_on_hide` (focused pane). */
   let pendingSnapshot: string | null = null;
 
@@ -561,6 +718,16 @@ async function boot(): Promise<void> {
     const id = paneHost?.getFocusedPaneId();
     if (!id) return null;
     return paneHost?.getPaneTerminal(id)?.term ?? null;
+  }
+
+  function getPaneTerminalById(paneId: string): PaneTerminal | null {
+    const active = paneHost?.getPaneTerminal(paneId);
+    if (active) return active;
+    for (const host of tabPaneHosts.values()) {
+      const pt = host.getPaneTerminal(paneId);
+      if (pt) return pt;
+    }
+    return null;
   }
 
   function focusActiveTerminal(): void {
@@ -694,35 +861,98 @@ async function boot(): Promise<void> {
     scheduleCwdSync();
   }
 
-  function shedWebgl(): void {
-    for (const addon of paneWebglAddons.values()) {
-      try {
-        addon.dispose();
-      } catch {
-        /* ignore */
-      }
+  function disposeWebglForPane(paneId: string): void {
+    const state = paneWebglStates.get(paneId);
+    if (!state) return;
+    state.status = "disposed";
+    try {
+      state.contextLossDispose?.dispose();
+    } catch {
+      /* ignore */
     }
-    paneWebglAddons.clear();
+    try {
+      state.addon?.dispose();
+    } catch {
+      /* ignore */
+    }
+    paneWebglStates.delete(paneId);
+    termiePerf.mark("webgl.dispose");
+    updateWebglPerfGauges();
+  }
+
+  function shedWebgl(): void {
+    for (const paneId of [...paneWebglStates.keys()]) disposeWebglForPane(paneId);
+  }
+
+  function updateWebglPerfGauges(): void {
+    let pending = 0;
+    let ready = 0;
+    let failed = 0;
+    for (const state of paneWebglStates.values()) {
+      if (state.status === "pending") pending++;
+      else if (state.status === "ready") ready++;
+      else if (state.status === "failed") failed++;
+    }
+    termiePerf.gauge("webgl.panes.pending", pending);
+    termiePerf.gauge("webgl.panes.ready", ready);
+    termiePerf.gauge("webgl.panes.failed", failed);
   }
 
   async function ensureWebglOnPane(paneId: string): Promise<void> {
     if (!lp.preload_webgl_on_startup && document.visibilityState === "hidden") return;
     const pt = paneHost?.getPaneTerminal(paneId);
     if (!pt) return;
-    if (paneWebglAddons.has(paneId)) return;
+    const existing = paneWebglStates.get(paneId);
+    if (existing?.status === "ready" || existing?.status === "pending") return;
+    if (existing?.status === "failed" && existing.lastFailureAt && Date.now() - existing.lastFailureAt < 10_000) {
+      return;
+    }
+
+    const generation = (existing?.generation ?? 0) + 1;
+    const state: PaneWebglState = {
+      status: "pending",
+      attempts: existing?.attempts ?? 0,
+      generation,
+    };
+    paneWebglStates.set(paneId, state);
+    updateWebglPerfGauges();
+    termiePerf.mark("webgl.mount.start");
+
     const delays = [0, 50, 120, 240];
     for (let i = 0; i < delays.length; i++) {
       if (delays[i] > 0) await new Promise<void>((r) => setTimeout(r, delays[i]));
+      if (paneWebglStates.get(paneId)?.generation !== generation) return;
+      const started = performance.now();
       try {
+        state.attempts++;
         const addon = await createWebglAddon();
         pt.term.loadAddon(addon);
-        paneWebglAddons.set(paneId, addon);
+        const maybeContextLoss = addon as WebglAddon & {
+          onContextLoss?: (listener: () => void) => { dispose(): void };
+        };
+        state.contextLossDispose = maybeContextLoss.onContextLoss?.(() => {
+          termiePerf.mark("webgl.context_loss");
+          disposeWebglForPane(paneId);
+          void ensureWebglOnPane(paneId);
+        });
+        state.addon = addon;
+        state.status = "ready";
+        paneWebglStates.set(paneId, state);
+        updateWebglPerfGauges();
         pt.term.refresh(0, pt.term.rows - 1);
+        termiePerf.mark("webgl.mount.ready");
+        termiePerf.time("webgl.mount.ms", performance.now() - started);
         return;
-      } catch {
-        paneWebglAddons.delete(paneId);
+      } catch (e) {
+        state.lastError = e;
+        termiePerf.mark("webgl.mount.failure");
       }
     }
+
+    state.status = "failed";
+    state.lastFailureAt = Date.now();
+    paneWebglStates.set(paneId, state);
+    updateWebglPerfGauges();
   }
 
   async function mountWebglForFocused(): Promise<void> {
@@ -734,6 +964,18 @@ async function boot(): Promise<void> {
   function attachTermKeyHandler(term: Terminal): void {
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
+      if (
+        e.ctrlKey &&
+        !e.shiftKey &&
+        !e.altKey &&
+        !e.metaKey &&
+        (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown")
+      ) {
+        if (focusAdjacentPaneByArrow(e.key)) {
+          e.preventDefault();
+          return false;
+        }
+      }
       if (
         e.ctrlKey &&
         !e.shiftKey &&
@@ -872,8 +1114,6 @@ async function boot(): Promise<void> {
   const terminalContent = document.getElementById("terminal-content");
   const stage = document.getElementById("terminal-stage");
 
-  const paneTrails = new Map<string, TrailHandle>();
-  let bridgeMo: MutationObserver | null = null;
   const paneMinimaps = new Map<string, MinimapHandle>();
   let minimapOn = minimapUserEnabled;
   let minimapHiddenPanes = loadMinimapHiddenPaneIds();
@@ -924,16 +1164,11 @@ async function boot(): Promise<void> {
   }
 
   function refreshAllTerminalThemes(): void {
-    const th = readXtermThemeFromDocument();
+    const th = buildXtermThemeFromDocument();
     paneHost?.forEachPane((_id, pt) => {
       pt.term.options.theme = { ...th, cursorAccent: th.background ?? TERM_BG_FALLBACK };
       pt.term.refresh(0, pt.term.rows - 1);
     });
-    const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent-primary").trim();
-    if (accent) {
-      const rgb = hexRgb(accent);
-      for (const trail of paneTrails.values()) trail.setAccentColor(rgb);
-    }
   }
 
   function setMinimapGutter(css: string): void {
@@ -950,15 +1185,6 @@ async function boot(): Promise<void> {
 
   function disposeAllMinimaps(): void {
     for (const id of [...paneMinimaps.keys()]) disposeMinimapForPane(id);
-  }
-
-  function disposeTrailForPane(paneId: string): void {
-    paneTrails.get(paneId)?.dispose();
-    paneTrails.delete(paneId);
-  }
-
-  function disposeAllTrails(): void {
-    for (const id of [...paneTrails.keys()]) disposeTrailForPane(id);
   }
 
   async function ensureMinimapForPane(paneId: string): Promise<void> {
@@ -978,18 +1204,6 @@ async function boot(): Promise<void> {
     });
     m.attach();
     paneMinimaps.set(paneId, m);
-  }
-
-  async function ensureTrailForPane(paneId: string): Promise<void> {
-    const pt = paneHost?.getPaneTerminal(paneId);
-    if (!pt) return;
-    disposeTrailForPane(paneId);
-    const trailMod = await import("./cursorTrail");
-    const t = new trailMod.CursorTrailOverlay(pt.term, pt.cursorCanvas, pt.cursorHead);
-    const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent-primary").trim();
-    if (accent) t.setAccentColor(hexRgb(accent));
-    t.attach();
-    paneTrails.set(paneId, t);
   }
 
   function resizeAllMinimaps(): void {
@@ -1043,20 +1257,28 @@ async function boot(): Promise<void> {
   }
 
   let debounceTimer = 0;
+  let layoutRaf = 0;
+  let layoutForceRefresh = false;
 
-  function runLayoutPass(): void {
+  function runLayoutPass(forceRefresh = false): void {
+    layoutRaf = 0;
+    const shouldForceRefresh = forceRefresh || layoutForceRefresh;
+    layoutForceRefresh = false;
     paneHost?.forEachPane((paneId, pt) => {
+      const fitStarted = performance.now();
       pt.fit.fit();
+      termiePerf.time("layout.fit.ms", performance.now() - fitStarted);
       const d = ptyDims(pt.fit);
       if (!d) return;
       const safe = clampPtyColsRows(d.cols, d.rows);
       const prev = lastPtyDims.get(paneId);
       const unchanged = prev?.cols === safe.cols && prev?.rows === safe.rows;
       if (unchanged) {
-        pt.term.refresh(0, pt.term.rows - 1);
+        if (shouldForceRefresh) pt.term.refresh(0, pt.term.rows - 1);
         return;
       }
       lastPtyDims.set(paneId, safe);
+      termiePerf.mark("layout.pty_resize");
       void ptyResize(paneId, safe.cols, safe.rows)
         .then(() => {
           pt.term.refresh(0, pt.term.rows - 1);
@@ -1069,18 +1291,18 @@ async function boot(): Promise<void> {
   /** PTY + xterm stay aligned after pane/window refocus (TUIs need SIGWINCH-sized PTY + refresh). */
   function reflowAllPanes(): void {
     lastPtyDims.clear();
-    paneHost?.layoutAll();
-    runLayoutPass();
-    paneHost?.forEachPane((_id, pt) => {
-      pt.term.refresh(0, pt.term.rows - 1);
-    });
+    scheduleResizeImmediate(true);
   }
 
   function scheduleFileTreeRefresh(): void {
     if (fileTreeRefreshTimer) window.clearTimeout(fileTreeRefreshTimer);
     fileTreeRefreshTimer = window.setTimeout(() => {
       fileTreeRefreshTimer = 0;
-      void fileTreePanel?.refresh();
+      if (fileTreeCoordinator) {
+        void fileTreeCoordinator.refresh();
+      } else {
+        void fileTreePanel?.refresh();
+      }
     }, 280);
   }
 
@@ -1153,39 +1375,43 @@ async function boot(): Promise<void> {
     setFileTreeEnabled(!document.documentElement.classList.contains("file-tree-on"));
   }
 
-  function scheduleResizeDebounced(): void {
+  function requestLayoutPass(forceRefresh = false): void {
+    layoutForceRefresh ||= forceRefresh;
+    if (layoutRaf) return;
+    layoutRaf = requestAnimationFrame(() => {
+      requestAnimationFrame(() => runLayoutPass());
+    });
+  }
+
+  function scheduleResizeDebounced(forceRefresh = false): void {
+    layoutForceRefresh ||= forceRefresh;
     if (debounceTimer) window.clearTimeout(debounceTimer);
     debounceTimer = window.setTimeout(() => {
       debounceTimer = 0;
-      requestAnimationFrame(() => {
-        requestAnimationFrame(runLayoutPass);
-      });
+      requestLayoutPass();
     }, RESIZE_DEBOUNCE_MS);
   }
 
-  function scheduleResizeImmediate(): void {
+  function scheduleResizeImmediate(forceRefresh = false): void {
+    layoutForceRefresh ||= forceRefresh;
     if (debounceTimer) window.clearTimeout(debounceTimer);
     debounceTimer = 0;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(runLayoutPass);
-    });
+    requestLayoutPass();
   }
 
   async function ensurePtyForPane(paneId: string, ptIn?: PaneTerminal): Promise<void> {
     const pt = ptIn ?? paneHost?.getPaneTerminal(paneId);
     if (!pt) return;
-    paneHost?.layoutAll();
+    const ensureStarted = performance.now();
     pt.fit.fit();
     let d = ptyDims(pt.fit);
     if (!d) {
       await new Promise<void>((r) => requestAnimationFrame(() => r()));
-      paneHost?.layoutAll();
       pt.fit.fit();
       d = ptyDims(pt.fit);
     }
     if (!d) {
       await new Promise<void>((r) => requestAnimationFrame(() => r()));
-      paneHost?.layoutAll();
       pt.fit.fit();
       d = ptyDims(pt.fit);
     }
@@ -1196,7 +1422,6 @@ async function boot(): Promise<void> {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (attempt > 0) {
         await new Promise<void>((r) => setTimeout(r, 55 * attempt));
-        paneHost?.layoutAll();
         pt.fit.fit();
         const d2 = ptyDims(pt.fit);
         raw = d2 ?? raw;
@@ -1205,6 +1430,8 @@ async function boot(): Promise<void> {
       try {
         await ptyEnsure(paneId, safe.cols, safe.rows);
         lastPtyDims.set(paneId, safe);
+        termiePerf.mark("pty.ensure.success");
+        termiePerf.time("pty.ensure.ms", performance.now() - ensureStarted);
         if (paneId === paneHost?.getFocusedPaneId()) scheduleCwdSync();
         return;
       } catch (e) {
@@ -1213,6 +1440,8 @@ async function boot(): Promise<void> {
     }
     const msg = String(lastErr);
     console.error("pty_ensure failed:", lastErr);
+    termiePerf.mark("pty.ensure.failure");
+    termiePerf.time("pty.ensure.ms", performance.now() - ensureStarted);
     try {
       pt.term.write(`\r\n\x1b[31mShell failed after retries.\x1b[0m \x1b[90m${msg}\x1b[0m\r\n`);
     } catch {
@@ -1225,12 +1454,11 @@ async function boot(): Promise<void> {
     if (!pt) return;
 
     await ensureWebglOnPane(paneId);
-    await ensureTrailForPane(paneId);
 
-    resizeAllMinimaps();
+    paneMinimaps.get(paneId)?.resizeToHost();
 
-    bridgeMo?.disconnect();
-    bridgeMo = null;
+    bridgeScrollCleanup?.();
+    bridgeScrollCleanup = null;
     const termEl = pt.term.element;
     const bridge = document.getElementById("terminal-chrome-bridge");
     if (termEl && bridge) {
@@ -1243,6 +1471,7 @@ async function boot(): Promise<void> {
           bridge.style.setProperty("--terminal-bridge-intensity", intensity.toFixed(3));
         };
         vp.addEventListener("scroll", onScroll, { passive: true });
+        bridgeScrollCleanup = () => vp.removeEventListener("scroll", onScroll);
         onScroll();
       }
     }
@@ -1266,21 +1495,16 @@ async function boot(): Promise<void> {
       rootPaneId,
       scrollbackLines: lp.scrollback_lines,
       fontStack: terminalFontStackFromDocument(),
-      getTheme: () => readXtermThemeFromDocument(),
+      getTheme: () => buildXtermThemeFromDocument(),
       focusFollowsCursor: () => focusFollowsRef.v,
       onPaneFocus: (id) => {
-        const previousFocus = lastFocusedPaneId;
         lastFocusedPaneId = id;
-        const previousTrailPoint =
-          previousFocus && previousFocus !== id
-            ? paneTrails.get(previousFocus)?.getCursorClientPoint() ?? null
-            : null;
         paneHost?.getPaneTerminal(id)?.term.focus();
         void ptyFocusPane(id).catch(() => {});
         fileTreePanel?.setActivePane(id);
         if (fileTreeCoordinator) {
+          fileTreeCoordinator.seedPaneCwd(id, paneCwdHints.get(id));
           fileTreeCoordinator.handlePaneFocus(id);
-          void fileTreeCoordinator.refresh();
         } else {
           const hint = paneCwdHints.get(id);
           if (hint) {
@@ -1289,9 +1513,7 @@ async function boot(): Promise<void> {
           }
         }
         void syncCwdFromBackend();
-        void remountAuxiliaryForFocus(id).then(() => {
-          if (previousTrailPoint) paneTrails.get(id)?.jumpFromClientPoint(previousTrailPoint);
-        });
+        void remountAuxiliaryForFocus(id);
       },
       onPaneCreated: (id, pt) => {
         attachTermKeyHandler(pt.term);
@@ -1318,7 +1540,6 @@ async function boot(): Promise<void> {
         });
         if (lp.preload_webgl_on_startup) void ensureWebglOnPane(id);
         if (minimapOn && !minimapHiddenPanes.has(id)) void ensureMinimapForPane(id);
-        void ensureTrailForPane(id);
         ensureBlockOverlay(id);
         queueMicrotask(() => {
           void ensurePtyForPane(id, pt);
@@ -1398,8 +1619,8 @@ async function boot(): Promise<void> {
     lastFocusedPaneId = paneHost.getFocusedPaneId();
     fileTreePanel?.setActivePane(lastFocusedPaneId);
     if (fileTreeCoordinator) {
+      fileTreeCoordinator.seedPaneCwd(lastFocusedPaneId, paneCwdHints.get(lastFocusedPaneId));
       fileTreeCoordinator.handlePaneFocus(lastFocusedPaneId);
-      void fileTreeCoordinator.refresh();
     } else {
       const hint = paneCwdHints.get(lastFocusedPaneId);
       if (hint) {
@@ -2241,9 +2462,8 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     paneCwdHints.clear();
     lastPtyDims.clear();
     pendingSnapshot = null;
-    bridgeMo?.disconnect();
-    bridgeMo = null;
-    disposeAllTrails();
+    bridgeScrollCleanup?.();
+    bridgeScrollCleanup = null;
     disposeAllMinimaps();
     shedWebgl();
     const tabId = activeWorkspaceTabId;
@@ -2308,7 +2528,8 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         confirmDeletePromptRef.v = saved.confirm_delete_prompt ?? true;
         disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
         clickToCursorRef.v = saved.terminal_click_to_cursor ?? true;
-        backspaceDeleteSelectionRef.v = saved.terminal_backspace_delete_selection ?? false;
+        backspaceDeleteSelectionRef.v = saved.terminal_backspace_delete_selection ?? true;
+        applyTerminalDisplayPrefs(saved);
         applyTooltipPolicy(document);
         document.documentElement.classList.toggle("pane-blur-unfocused", saved.blur_unfocused_panes);
         document.documentElement.classList.toggle("pane-dim-unfocused", saved.dim_unfocused_panes);
@@ -2514,27 +2735,27 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     return [
       {
         id: "help-hotkeys",
-        label: "Help: Keyboard shortcuts",
+        label: "Help: Shortcuts",
         keywords: "hotkeys bindings reference help",
         hotkey: "Ctrl+Shift+/",
         run: () => openHelpPanel(),
       },
       {
         id: "open-settings",
-        label: "Open settings",
+        label: "Settings",
         keywords: "preferences config options",
         hotkey: "Ctrl+,",
         run: () => settingsApi?.open(),
       },
       {
         id: "open-themes",
-        label: "View: Themes…",
+        label: "Themes…",
         keywords: "theme appearance colors ui palette",
         run: () => themeModal?.open(),
       },
       {
         id: "open-theme-builder",
-        label: "View: Theme builder…",
+        label: "Theme builder…",
         keywords: "theme custom colors editor create css variables",
         run: () => {
           themeModal?.close();
@@ -2543,45 +2764,45 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       },
       {
         id: "tab-new",
-        label: "Tab: New",
+        label: "New tab",
         keywords: "workspace create add",
         run: () => openNewWorkspaceTab(),
       },
       {
         id: "tab-duplicate",
-        label: "Tab: Duplicate current",
+        label: "Duplicate tab",
         keywords: "workspace copy clone",
         run: () => duplicateWorkspaceTab(activeWorkspaceTabId),
       },
       {
         id: "tab-close",
-        label: "Tab: Close current",
+        label: "Close tab",
         keywords: "workspace remove delete",
         run: () => closeWorkspaceTab(activeWorkspaceTabId),
       },
       {
         id: "tab-rename",
-        label: "Tab: Rename current…",
+        label: "Rename tab…",
         keywords: "workspace title edit",
         run: () => beginTabRename(activeWorkspaceTabId),
       },
       {
         id: "find-in-pane",
-        label: "Find: In focused pane",
+        label: "Find pane",
         keywords: "search buffer ctrl f",
         hotkey: "Ctrl+F",
         run: () => terminalSearch?.openSinglePane(),
       },
       {
         id: "find-in-workspace",
-        label: "Find: In all panes",
+        label: "Find workspace",
         keywords: "search workspace multi ctrl shift f",
         hotkey: "Ctrl+Shift+F",
         run: () => terminalSearch?.openAllPanes(),
       },
       {
         id: "new-custom",
-        label: "Palette: New custom command…",
+        label: "New command…",
         keywords: "create builder save",
         run: () => {
           showBuilder();
@@ -2598,7 +2819,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       },
       {
         id: "toggle-file-tree",
-        label: "View: Toggle file tree",
+        label: "Toggle files",
         keywords: "files explorer sidebar workspace ctrl shift e",
         hotkey: "Ctrl+Shift+E",
         run: () => {
@@ -2607,15 +2828,15 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       },
       {
         id: "reload-file-tree",
-        label: "Files: Reload file tree",
+        label: "Reload files",
         keywords: "refresh explorer rescan restart watch cwd",
         run: () => void reloadFileTree(),
       },
       {
         id: "toggle-zen-mode",
         label: document.documentElement.classList.contains("zen-mode")
-          ? "View: Exit zen mode"
-          : "View: Enter zen mode",
+          ? "Exit zen"
+          : "Enter zen",
         keywords: "focus session hide toolbar chrome distraction free",
         run: () => {
           setZenMode(!document.documentElement.classList.contains("zen-mode"));
@@ -2941,43 +3162,17 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   await Promise.all([
     listen<PtyOutputEvent>("pty-output", (event) => {
       const { pane_id, data } = event.payload;
-      const pt = paneHost?.getPaneTerminal(pane_id);
-      if (!pt) return;
-
-      const cwdHandler = (p: string): void => {
-        paneCwdHints.set(pane_id, p);
-        lastLiveCwdSignalAt = Date.now();
-        if (pane_id !== paneHost?.getFocusedPaneId()) return;
-        if (normalizeFsPathKey(p) === normalizeFsPathKey(liveCwd ?? "")) return;
-        liveCwd = p;
-        scheduleFileTreeRefresh();
-      };
-
-      const siState = ensureShellState(pane_id);
-
-      // Process raw data for OSC 7 sequences first (before shell integration strips them)
-      let dataForShellIntegration = data;
-      if (fileTreeCoordinator) {
-        const oscResult = fileTreeCoordinator.processRawTerminalOutput(pane_id, data);
-        dataForShellIntegration = oscResult.cleaned;
-      }
-
-      const si = processShellIntegration(dataForShellIntegration, siState, pt.term, cwdHandler);
-
-      // Process shell integration events (including OSC 633;P;Cwd)
-      if (fileTreeCoordinator && si.events.length > 0) {
-        fileTreeCoordinator.processShellIntegrationEvents(pane_id, si.events);
-      }
-      pt.term.write(si.cleaned);
-      if (si.commandsChanged || si.events.length > 0) {
-        paneBlockOverlays.get(pane_id)?.refresh();
-      }
-      scheduleCwdSync();
+      queuePtyOutput(pane_id, data);
     }),
     listen<PtyExitEvent>("pty-exit", async (event) => {
       const { pane_id } = event.payload;
+      const pending = pendingPtyOutputByPane.get(pane_id);
+      if (pending) {
+        pendingPtyOutputByPane.delete(pane_id);
+        processPtyOutputBatch(pane_id, pending.data, pending.eventCount, pending.queuedAt);
+      }
       await ptyAckExit(pane_id);
-      const pt = paneHost?.getPaneTerminal(pane_id);
+      const pt = getPaneTerminalById(pane_id);
       pt?.term.write("\r\n\x1b[90mReconnecting…\x1b[0m\r\n");
       if (document.visibilityState === "visible") {
         await ensurePtyForPane(pane_id);
@@ -2986,6 +3181,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     listen("pty-session-shed", () => {
       liveCwd = null;
       paneCwdHints.clear();
+      pendingPtyOutputByPane.clear();
       pendingSnapshot = null;
       paneHost?.forEachPane((_id, p) => {
         p.term.reset();
@@ -3042,7 +3238,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     /* ignore */
   });
 
-  window.addEventListener("resize", scheduleResizeDebounced);
+  window.addEventListener("resize", () => scheduleResizeDebounced());
   void appWindow.onResized(() => scheduleResizeImmediate());
   void appWindow.onScaleChanged(() => scheduleResizeImmediate());
   if (terminalContent && typeof ResizeObserver !== "undefined") {
@@ -3107,6 +3303,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         const focusedPaneId = paneHost?.getFocusedPaneId();
         if (focusedPaneId) {
           fileTreePanel.setActivePane(focusedPaneId);
+          fileTreeCoordinator.seedPaneCwd(focusedPaneId, paneCwdHints.get(focusedPaneId) ?? liveCwd);
           fileTreeCoordinator.handlePaneFocus(focusedPaneId);
         }
         void fileTreeCoordinator.syncCwdFromBackend().then(() => fileTreeCoordinator?.refresh());
@@ -3125,8 +3322,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   });
 
   window.addEventListener("beforeunload", () => {
-    bridgeMo?.disconnect();
-    disposeAllTrails();
+    bridgeScrollCleanup?.();
     fileTreePanel?.dispose();
     fileTreeCoordinator?.dispose();
     fileTreeBackend?.dispose();

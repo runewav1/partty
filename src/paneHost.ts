@@ -1,5 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal, type ITheme } from "@xterm/xterm";
+import { termiePerf } from "./perf";
 
 export const MAIN_PANE_ID = "main";
 
@@ -22,8 +23,6 @@ export type PaneTerminal = {
   row: HTMLElement;
   minimapAside: HTMLElement;
   minimapCanvas: HTMLCanvasElement;
-  cursorCanvas: HTMLCanvasElement;
-  cursorHead: HTMLDivElement;
 };
 
 export type PaneHostOptions = {
@@ -139,6 +138,8 @@ export class PaneHost {
   private readonly root: HTMLElement;
   private resizeObs: ResizeObserver | null = null;
   private focusFollowPointer: ((ev: PointerEvent) => void) | null = null;
+  private focusFollowRaf = 0;
+  private pendingFocusFollowId: string | null = null;
   private paneDragActive = false;
 
   private readonly onPaneAltDragPointerDown = (e: PointerEvent): void => {
@@ -176,7 +177,7 @@ export class PaneHost {
     this.container.appendChild(this.root);
     this.root.addEventListener("pointerdown", this.onPaneAltDragPointerDown, true);
     this.mountTree();
-    this.resizeObs = new ResizeObserver(() => this.layoutAll());
+    this.resizeObs = new ResizeObserver(() => this.opts.onPaneLayout?.());
     this.resizeObs.observe(this.root);
   }
 
@@ -413,6 +414,10 @@ export class PaneHost {
       this.root.removeEventListener("pointermove", this.focusFollowPointer, true);
       this.focusFollowPointer = null;
     }
+    if (this.focusFollowRaf) {
+      cancelAnimationFrame(this.focusFollowRaf);
+      this.focusFollowRaf = 0;
+    }
     this.resizeObs?.disconnect();
     this.resizeObs = null;
     for (const [id, pt] of this.terminals) {
@@ -434,7 +439,7 @@ export class PaneHost {
     this.root.appendChild(el);
     this.wireFocus();
     this.updateFocusClass();
-    this.layoutAll();
+    this.opts.onPaneLayout?.();
   }
 
   private wireFocus(): void {
@@ -448,7 +453,15 @@ export class PaneHost {
       const el = document.elementFromPoint(ev.clientX, ev.clientY);
       const leaf = el?.closest?.(".pane-leaf") as HTMLElement | null;
       const id = leaf?.dataset.paneId;
-      if (id && id !== this.focusedId) this.setFocusedPaneId(id);
+      if (!id || id === this.focusedId) return;
+      this.pendingFocusFollowId = id;
+      if (this.focusFollowRaf) return;
+      this.focusFollowRaf = requestAnimationFrame(() => {
+        this.focusFollowRaf = 0;
+        const nextId = this.pendingFocusFollowId;
+        this.pendingFocusFollowId = null;
+        if (nextId && nextId !== this.focusedId) this.setFocusedPaneId(nextId);
+      });
     };
     this.root.addEventListener("pointermove", this.focusFollowPointer, true);
 
@@ -646,7 +659,6 @@ export class PaneHost {
       (cells[0] as HTMLElement).style.flex = String(next);
       (cells[1] as HTMLElement).style.flex = String(1 - next);
     }
-    this.layoutAll();
     this.opts.onPaneLayout?.();
   }
 
@@ -677,12 +689,6 @@ export class PaneHost {
         row.className = "pane-terminal-row";
         const host = document.createElement("div");
         host.className = "pane-terminal-host";
-        const cursorCanvas = document.createElement("canvas");
-        cursorCanvas.className = "pane-cursor-trail";
-        cursorCanvas.setAttribute("aria-hidden", "true");
-        const cursorHead = document.createElement("div");
-        cursorHead.className = "pane-cursor-head";
-        cursorHead.setAttribute("aria-hidden", "true");
         const minimapAside = document.createElement("aside");
         minimapAside.className = "pane-minimap";
         minimapAside.setAttribute("aria-hidden", "true");
@@ -695,6 +701,7 @@ export class PaneHost {
         minimapAside.appendChild(compact);
         row.appendChild(host);
         row.appendChild(minimapAside);
+        const createStarted = performance.now();
         const term = new Terminal({
           allowProposedApi: true,
           cursorBlink: true,
@@ -707,9 +714,9 @@ export class PaneHost {
         const fit = new FitAddon();
         term.loadAddon(fit);
         term.open(host);
-        host.appendChild(cursorCanvas);
-        host.appendChild(cursorHead);
-        pt = { term, fit, host, row, minimapAside, minimapCanvas: canvas, cursorCanvas, cursorHead };
+        termiePerf.mark("pane.terminal.create");
+        termiePerf.time("pane.terminal.create.ms", performance.now() - createStarted);
+        pt = { term, fit, host, row, minimapAside, minimapCanvas: canvas };
         this.terminals.set(node.id, pt);
         this.opts.onPaneCreated(node.id, pt);
       }

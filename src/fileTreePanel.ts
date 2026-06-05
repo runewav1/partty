@@ -4,7 +4,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import { normalizeFsPathKey } from "./oscCwd";
+import { isNativeAbsoluteFsPath, normalizeFsPathKey } from "./oscCwd";
 import { showAlert, showConfirm } from "./dialog";
 import { FileTreeBackend, type GitRepoInfo, type DetectedApp } from "./fileTreeBackend";
 import { EXTENSION_TO_ICON, FILENAME_TO_ICON, FOLDER_NAME_TO_ICON } from "./iconMappings";
@@ -561,6 +561,14 @@ export class FileTreePanel {
     this.ctxEl = null;
   }
 
+  private showEmptyMessage(message: string): void {
+    this.scrollEl.replaceChildren();
+    const p = document.createElement("p");
+    p.className = "file-tree-empty";
+    p.textContent = message;
+    this.scrollEl.appendChild(p);
+  }
+
   /**
    * Set the root directory for the file tree.
    * Called by the coordinator when cwd changes.
@@ -570,12 +578,21 @@ export class FileTreePanel {
       this.viewRoot = null;
       this.cache.clear();
       this.selected.clear();
-      this.scrollEl.replaceChildren();
-      const p = document.createElement("p");
-      p.className = "file-tree-empty";
-      p.textContent = "No working directory yet (cd into a directory).";
-      this.scrollEl.appendChild(p);
+      this.showEmptyMessage("No working directory yet (cd into a directory).");
       this.repoInfo = null;
+      this.updateSummaryFooter();
+      return;
+    }
+
+    if (!isNativeAbsoluteFsPath(root)) {
+      this.viewRoot = null;
+      this.cache.clear();
+      this.selected.clear();
+      this.gitPathMap.clear();
+      this.repoInfo = null;
+      this.prefetchToken += 1;
+      this.showEmptyMessage("File panel needs a native absolute directory.");
+      this.persistActivePaneState();
       this.updateSummaryFooter();
       return;
     }
@@ -609,7 +626,7 @@ export class FileTreePanel {
    */
   private async loadRoot(): Promise<void> {
     const root = this.viewRoot;
-    if (!root) return;
+    if (!isNativeAbsoluteFsPath(root)) return;
 
     // Update backend root
     await this.backend.setRoot(root);
@@ -642,6 +659,16 @@ export class FileTreePanel {
   }
 
   async refresh(): Promise<void> {
+    const root = this.viewRoot;
+    if (!isNativeAbsoluteFsPath(root)) return;
+    const st = this.cache.get(root);
+    if (st?.loaded) {
+      this.gitPathMap = this.backend.getAllGitStatuses();
+      this.repoInfo = this.backend.getGitRepoInfo();
+      this.updateSummaryFooter();
+      this.syncVisibleGitDecorations();
+      return;
+    }
     await this.loadRoot();
   }
 
