@@ -1,24 +1,25 @@
 mod fs_watcher;
 mod fs_workspace;
 mod palette_commands;
+#[cfg(windows)]
+mod peb_cwd_windows;
 mod prefs;
 mod pty;
 mod subprocess;
 mod win_console;
-#[cfg(windows)]
-mod peb_cwd_windows;
 
 use parking_lot::Mutex;
 use prefs::{load_state, save_state, PersistedState};
-use std::fs;
 use pty::PtySession;
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::path::PathBuf;
 use std::process::Command as StdCommand;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
+use tauri::window::{Color, Effect, EffectsBuilder};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
@@ -85,7 +86,10 @@ fn read_dir_summary(path: String) -> Result<fs_workspace::FsDirSummary, String> 
 }
 
 #[tauri::command]
-fn git_workdir_status(state: State<'_, AppState>, cwd: String) -> Result<Vec<fs_workspace::GitPathStatus>, String> {
+fn git_workdir_status(
+    state: State<'_, AppState>,
+    cwd: String,
+) -> Result<Vec<fs_workspace::GitPathStatus>, String> {
     let include = state.persisted.lock().prefs.file_tree_show_diff_counts;
     fs_workspace::git_workdir_status_impl(cwd, include)
 }
@@ -126,7 +130,10 @@ fn fs_create_dir(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn search_file_contents(root: String, query: String) -> Result<Vec<fs_workspace::SearchResult>, String> {
+fn search_file_contents(
+    root: String,
+    query: String,
+) -> Result<Vec<fs_workspace::SearchResult>, String> {
     fs_workspace::search_file_contents(root, query)
 }
 
@@ -167,11 +174,16 @@ fn open_in_editor(path: String) -> Result<(), String> {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
         use std::ptr;
-        use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SHELLEXECUTEINFOW, SEE_MASK_NOASYNC, SEE_MASK_FLAG_NO_UI};
-        
-        let wide_path: Vec<u16> = OsStr::new(&path).encode_wide().chain(std::iter::once(0)).collect();
+        use windows_sys::Win32::UI::Shell::{
+            ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW,
+        };
+
+        let wide_path: Vec<u16> = OsStr::new(&path)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
         let wide_verb: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
-        
+
         let mut sei: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
         sei.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
         sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
@@ -179,7 +191,7 @@ fn open_in_editor(path: String) -> Result<(), String> {
         sei.lpVerb = wide_verb.as_ptr();
         sei.lpFile = wide_path.as_ptr();
         sei.nShow = 1; // SW_SHOWNORMAL
-        
+
         unsafe {
             if ShellExecuteExW(&mut sei) == 0 {
                 return Err(format!("failed to open file with ShellExecuteExW"));
@@ -211,10 +223,15 @@ fn reveal_in_explorer(path: String) -> Result<(), String> {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
         use std::ptr;
-        use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SHELLEXECUTEINFOW, SEE_MASK_NOASYNC, SEE_MASK_FLAG_NO_UI};
-        let wide_path: Vec<u16> = OsStr::new(target).encode_wide().chain(std::iter::once(0)).collect();
+        use windows_sys::Win32::UI::Shell::{
+            ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW,
+        };
+        let wide_path: Vec<u16> = OsStr::new(target)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
         let wide_verb: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
-        
+
         let mut sei: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
         sei.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
         sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
@@ -222,7 +239,7 @@ fn reveal_in_explorer(path: String) -> Result<(), String> {
         sei.lpVerb = wide_verb.as_ptr();
         sei.lpFile = wide_path.as_ptr();
         sei.nShow = 1; // SW_SHOWNORMAL
-        
+
         unsafe {
             if ShellExecuteExW(&mut sei) == 0 {
                 // Fallback to explorer.exe
@@ -260,21 +277,29 @@ fn open_external_terminal(cwd: String, terminal: Option<String>) -> Result<(), S
     #[cfg(windows)]
     {
         let requested = terminal.unwrap_or_else(|| "wt".to_string()).to_lowercase();
-        
+
         // Check if it's a full path or a simple token
         let is_full_path = requested.contains('\\') || requested.contains('/');
-        
+
         if is_full_path {
             // Full path - use ShellExecuteExW to open the terminal
             use std::ffi::OsStr;
             use std::os::windows::ffi::OsStrExt;
             use std::ptr;
-            use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SHELLEXECUTEINFOW, SEE_MASK_NOASYNC, SEE_MASK_FLAG_NO_UI};
-            
-            let wide_terminal: Vec<u16> = OsStr::new(&requested).encode_wide().chain(std::iter::once(0)).collect();
-            let wide_cwd: Vec<u16> = OsStr::new(&cwd).encode_wide().chain(std::iter::once(0)).collect();
+            use windows_sys::Win32::UI::Shell::{
+                ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW,
+            };
+
+            let wide_terminal: Vec<u16> = OsStr::new(&requested)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            let wide_cwd: Vec<u16> = OsStr::new(&cwd)
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
             let wide_verb: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
-            
+
             let mut sei: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
             sei.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
             sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
@@ -284,7 +309,7 @@ fn open_external_terminal(cwd: String, terminal: Option<String>) -> Result<(), S
             sei.lpParameters = wide_cwd.as_ptr();
             sei.lpDirectory = ptr::null();
             sei.nShow = 1;
-            
+
             unsafe {
                 if ShellExecuteExW(&mut sei) == 0 {
                     // Fallback to StdCommand
@@ -297,9 +322,15 @@ fn open_external_terminal(cwd: String, terminal: Option<String>) -> Result<(), S
         } else {
             // Simple token - use the original logic
             let launched = match requested.as_str() {
-                "wt" | "windows terminal" => StdCommand::new("wt").args(["-d", &cwd]).spawn().is_ok(),
+                "wt" | "windows terminal" => {
+                    StdCommand::new("wt").args(["-d", &cwd]).spawn().is_ok()
+                }
                 "powershell" | "pwsh" => StdCommand::new("powershell")
-                    .args(["-NoExit", "-Command", &format!("Set-Location -LiteralPath '{}'", cwd.replace('\'', "''"))])
+                    .args([
+                        "-NoExit",
+                        "-Command",
+                        &format!("Set-Location -LiteralPath '{}'", cwd.replace('\'', "''")),
+                    ])
                     .spawn()
                     .is_ok(),
                 "cmd" | "command prompt" => StdCommand::new("cmd")
@@ -307,7 +338,13 @@ fn open_external_terminal(cwd: String, terminal: Option<String>) -> Result<(), S
                     .spawn()
                     .is_ok(),
                 "bash" | "git bash" | "git-bash" => StdCommand::new("cmd")
-                    .args(["/c", "start", "bash", "-lc", &format!("cd '{}' ; exec bash", cwd.replace('\'', "''"))])
+                    .args([
+                        "/c",
+                        "start",
+                        "bash",
+                        "-lc",
+                        &format!("cd '{}' ; exec bash", cwd.replace('\'', "''")),
+                    ])
                     .spawn()
                     .is_ok(),
                 other => StdCommand::new(other).arg(&cwd).spawn().is_ok(),
@@ -341,11 +378,7 @@ fn open_external_terminal(cwd: String, terminal: Option<String>) -> Result<(), S
                     .arg(&cwd)
                     .spawn()
             })
-            .or_else(|_| {
-                StdCommand::new("x-terminal-emulator")
-                    .arg(&cwd)
-                    .spawn()
-            })
+            .or_else(|_| StdCommand::new("x-terminal-emulator").arg(&cwd).spawn())
             .map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -364,12 +397,20 @@ fn open_with_editor(path: String, editor: String) -> Result<(), String> {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
         use std::ptr;
-        use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SHELLEXECUTEINFOW, SEE_MASK_NOASYNC, SEE_MASK_FLAG_NO_UI};
-        
-        let wide_editor: Vec<u16> = OsStr::new(bin).encode_wide().chain(std::iter::once(0)).collect();
-        let wide_path: Vec<u16> = OsStr::new(&path).encode_wide().chain(std::iter::once(0)).collect();
+        use windows_sys::Win32::UI::Shell::{
+            ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW,
+        };
+
+        let wide_editor: Vec<u16> = OsStr::new(bin)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let wide_path: Vec<u16> = OsStr::new(&path)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
         let wide_verb: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
-        
+
         let mut sei: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
         sei.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
         sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
@@ -378,7 +419,7 @@ fn open_with_editor(path: String, editor: String) -> Result<(), String> {
         sei.lpFile = wide_editor.as_ptr();
         sei.lpParameters = wide_path.as_ptr();
         sei.nShow = 1; // SW_SHOWNORMAL
-        
+
         unsafe {
             if ShellExecuteExW(&mut sei) == 0 {
                 // Fallback to StdCommand if ShellExecuteExW fails
@@ -402,16 +443,24 @@ fn open_with_editor(path: String, editor: String) -> Result<(), String> {
 /// Returns base64-encoded PNG icon data with MIME type.
 #[cfg(windows)]
 fn extract_exe_icon(exe_path: &str) -> Option<(String, String)> {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use std::ptr;
-    use windows_sys::Win32::UI::Shell::{SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON, SHGFI_USEFILEATTRIBUTES};
+    use windows_sys::Win32::Graphics::Gdi::{
+        CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, BITMAP, BITMAPINFO,
+        BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, RGBQUAD,
+    };
+    use windows_sys::Win32::UI::Shell::{
+        SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_LARGEICON, SHGFI_USEFILEATTRIBUTES,
+    };
     use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyIcon, GetIconInfo, ICONINFO};
-    use windows_sys::Win32::Graphics::Gdi::{CreateCompatibleDC, DeleteDC, DeleteObject, GetObjectW, GetDIBits, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, RGBQUAD};
 
-    let wide_path: Vec<u16> = OsStr::new(exe_path).encode_wide().chain(std::iter::once(0)).collect();
-    
+    let wide_path: Vec<u16> = OsStr::new(exe_path)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
     let mut shfi = SHFILEINFOW {
         hIcon: ptr::null_mut(),
         iIcon: 0,
@@ -419,10 +468,10 @@ fn extract_exe_icon(exe_path: &str) -> Option<(String, String)> {
         szTypeName: [0; 80],
         dwAttributes: 0,
     };
-    
+
     // SHGFI_USEFILEATTRIBUTES allows getting icon without the file existing
     let flags = SHGFI_ICON | SHGFI_LARGEICON | SHGFI_USEFILEATTRIBUTES;
-    
+
     let result = unsafe {
         SHGetFileInfoW(
             wide_path.as_ptr(),
@@ -432,34 +481,36 @@ fn extract_exe_icon(exe_path: &str) -> Option<(String, String)> {
             flags,
         )
     };
-    
+
     if result == 0 || shfi.hIcon.is_null() {
         return None;
     }
-    
+
     // Convert HICON to PNG bytes
     let png_bytes = unsafe {
         let hicon = shfi.hIcon;
-        
+
         // Get icon bitmap info
         // Get icon size (assume 32x32 for large icon)
-        
+
         // Extract raw BGRA from icon
         let mut icon_info: ICONINFO = std::mem::zeroed();
         if GetIconInfo(hicon, &mut icon_info) == 0 {
             DestroyIcon(hicon);
             return None;
         }
-        
+
         let hbm_color = icon_info.hbmColor;
         let hbm_mask = icon_info.hbmMask;
-        
+
         if hbm_color.is_null() {
-            if !hbm_mask.is_null() { DeleteObject(hbm_mask); }
+            if !hbm_mask.is_null() {
+                DeleteObject(hbm_mask);
+            }
             DestroyIcon(hicon);
             return None;
         }
-        
+
         // Get bitmap dimensions
         let mut bm = BITMAP {
             bmType: 0,
@@ -470,18 +521,24 @@ fn extract_exe_icon(exe_path: &str) -> Option<(String, String)> {
             bmBitsPixel: 0,
             bmBits: ptr::null_mut(),
         };
-        GetObjectW(hbm_color, std::mem::size_of::<BITMAP>() as i32, &mut bm as *mut _ as *mut _);
-        
+        GetObjectW(
+            hbm_color,
+            std::mem::size_of::<BITMAP>() as i32,
+            &mut bm as *mut _ as *mut _,
+        );
+
         let bmp_width = bm.bmWidth as u32;
         let bmp_height = bm.bmHeight as u32;
-        
+
         if bmp_width == 0 || bmp_height == 0 {
             DeleteObject(hbm_color);
-            if !hbm_mask.is_null() { DeleteObject(hbm_mask); }
+            if !hbm_mask.is_null() {
+                DeleteObject(hbm_mask);
+            }
             DestroyIcon(hicon);
             return None;
         }
-        
+
         // Read color bitmap
         let mut color_data: Vec<u8> = vec![0; (bmp_width * bmp_height * 4) as usize];
         let mut bmi_color = BITMAPINFO {
@@ -498,12 +555,25 @@ fn extract_exe_icon(exe_path: &str) -> Option<(String, String)> {
                 biClrUsed: 0,
                 biClrImportant: 0,
             },
-            bmiColors: [RGBQUAD { rgbBlue: 0, rgbGreen: 0, rgbRed: 0, rgbReserved: 0 }; 1],
+            bmiColors: [RGBQUAD {
+                rgbBlue: 0,
+                rgbGreen: 0,
+                rgbRed: 0,
+                rgbReserved: 0,
+            }; 1],
         };
-        
+
         let hdc = CreateCompatibleDC(ptr::null_mut());
-        GetDIBits(hdc, hbm_color, 0, bmp_height, color_data.as_mut_ptr() as *mut _, &mut bmi_color, DIB_RGB_COLORS);
-        
+        GetDIBits(
+            hdc,
+            hbm_color,
+            0,
+            bmp_height,
+            color_data.as_mut_ptr() as *mut _,
+            &mut bmi_color,
+            DIB_RGB_COLORS,
+        );
+
         // Read mask bitmap for alpha
         let mut mask_data: Vec<u8> = vec![0; ((bmp_width + 7) / 8 * bmp_height) as usize];
         if !hbm_mask.is_null() {
@@ -521,16 +591,31 @@ fn extract_exe_icon(exe_path: &str) -> Option<(String, String)> {
                     biClrUsed: 0,
                     biClrImportant: 0,
                 },
-                bmiColors: [RGBQUAD { rgbBlue: 0, rgbGreen: 0, rgbRed: 0, rgbReserved: 0 }; 1],
+                bmiColors: [RGBQUAD {
+                    rgbBlue: 0,
+                    rgbGreen: 0,
+                    rgbRed: 0,
+                    rgbReserved: 0,
+                }; 1],
             };
-            GetDIBits(hdc, hbm_mask, 0, bmp_height, mask_data.as_mut_ptr() as *mut _, &mut bmi_mask, DIB_RGB_COLORS);
+            GetDIBits(
+                hdc,
+                hbm_mask,
+                0,
+                bmp_height,
+                mask_data.as_mut_ptr() as *mut _,
+                &mut bmi_mask,
+                DIB_RGB_COLORS,
+            );
         }
-        
+
         DeleteDC(hdc);
         DeleteObject(hbm_color);
-        if !hbm_mask.is_null() { DeleteObject(hbm_mask); }
+        if !hbm_mask.is_null() {
+            DeleteObject(hbm_mask);
+        }
         DestroyIcon(hicon);
-        
+
         // Apply mask as alpha channel
         for y in 0..bmp_height as usize {
             for x in 0..bmp_width as usize {
@@ -542,29 +627,29 @@ fn extract_exe_icon(exe_path: &str) -> Option<(String, String)> {
                 } else {
                     false
                 };
-                
+
                 // BGRA to RGBA and apply alpha
                 let b = color_data[pixel_idx];
                 let g = color_data[pixel_idx + 1];
                 let r = color_data[pixel_idx + 2];
                 let a = color_data[pixel_idx + 3];
-                
+
                 // If alpha is 0 but mask shows opaque, use full alpha
                 let final_alpha = if a == 0 && !is_transparent { 255u8 } else { a };
-                
+
                 color_data[pixel_idx] = r;
                 color_data[pixel_idx + 1] = g;
                 color_data[pixel_idx + 2] = b;
                 color_data[pixel_idx + 3] = final_alpha;
             }
         }
-        
+
         // Encode as PNG
         let png_data = encode_png(&color_data, bmp_width, bmp_height);
-        
+
         png_data
     };
-    
+
     if let Some(bytes) = png_bytes {
         Some((STANDARD.encode(&bytes), "image/png".to_string()))
     } else {
@@ -576,10 +661,10 @@ fn extract_exe_icon(exe_path: &str) -> Option<(String, String)> {
 #[cfg(windows)]
 fn encode_png(data: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
     let mut png_data = Vec::new();
-    
+
     // PNG signature
     png_data.extend_from_slice(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
-    
+
     // IHDR chunk
     let ihdr_data: Vec<u8> = [
         &width.to_be_bytes()[..],
@@ -589,10 +674,11 @@ fn encode_png(data: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
         &[0], // compression
         &[0], // filter
         &[0], // interlace
-    ].concat();
-    
+    ]
+    .concat();
+
     write_png_chunk(&mut png_data, b"IHDR", &ihdr_data);
-    
+
     // IDAT chunk - raw data with filter bytes
     let mut raw_data = Vec::with_capacity(data.len() + height as usize);
     for row in 0..height as usize {
@@ -600,14 +686,14 @@ fn encode_png(data: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
         let row_start = row * width as usize * 4;
         raw_data.extend_from_slice(&data[row_start..row_start + width as usize * 4]);
     }
-    
+
     // Compress with deflate
     let compressed = miniz_oxide::deflate::compress_to_vec(&raw_data, 6);
     write_png_chunk(&mut png_data, b"IDAT", &compressed);
-    
+
     // IEND chunk
     write_png_chunk(&mut png_data, b"IEND", &[]);
-    
+
     Some(png_data)
 }
 
@@ -615,13 +701,13 @@ fn encode_png(data: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
 fn write_png_chunk(output: &mut Vec<u8>, chunk_type: &[u8; 4], data: &[u8]) {
     // Length (4 bytes, big-endian)
     output.extend_from_slice(&(data.len() as u32).to_be_bytes());
-    
+
     // Chunk type (4 bytes)
     output.extend_from_slice(chunk_type);
-    
+
     // Chunk data
     output.extend_from_slice(data);
-    
+
     // CRC32 (chunk type + data)
     let crc = crc32fast::hash(&[chunk_type, data].concat());
     output.extend_from_slice(&crc.to_be_bytes());
@@ -632,7 +718,7 @@ fn write_png_chunk(output: &mut Vec<u8>, chunk_type: &[u8; 4], data: &[u8]) {
 #[tauri::command]
 fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
     let mut apps = Vec::new();
-    
+
     #[cfg(windows)]
     {
         let where_first = |cmd: &str| -> Option<String> {
@@ -642,68 +728,73 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
                 .ok()
                 .and_then(|output| {
                     if output.status.success() {
-                        String::from_utf8(output.stdout).ok()
-                            .and_then(|s| {
-                                s.lines()
-                                    .map(|line| line.trim().to_string())
-                                    .find(|line| !line.is_empty())
-                            })
+                        String::from_utf8(output.stdout).ok().and_then(|s| {
+                            s.lines()
+                                .map(|line| line.trim().to_string())
+                                .find(|line| !line.is_empty())
+                        })
                     } else {
                         None
                     }
                 })
         };
 
-        let resolve_executable = |candidates: &[&str], fallback_paths: &[PathBuf]| -> Option<String> {
-            for cand in candidates {
-                if let Some(path) = where_first(cand) {
-                    return Some(path);
+        let resolve_executable =
+            |candidates: &[&str], fallback_paths: &[PathBuf]| -> Option<String> {
+                for cand in candidates {
+                    if let Some(path) = where_first(cand) {
+                        return Some(path);
+                    }
                 }
-            }
-            for path in fallback_paths {
-                if path.exists() {
-                    return Some(path.to_string_lossy().to_string());
+                for path in fallback_paths {
+                    if path.exists() {
+                        return Some(path.to_string_lossy().to_string());
+                    }
                 }
-            }
-            None
-        };
+                None
+            };
 
         let local_app_data = std::env::var("LOCALAPPDATA").ok();
         let program_files = std::env::var("ProgramFiles").ok();
         let program_files_x86 = std::env::var("ProgramFiles(x86)").ok();
 
         let mut seen = std::collections::HashSet::<String>::new();
-        let mut push_app = |name: &str, command: String, app_type: &str, icon_from: Option<String>| {
-            let key = format!("{}:{}", app_type, command.to_lowercase());
-            if seen.contains(&key) {
-                return;
-            }
-            seen.insert(key);
-            // Try icon extraction but don't fail if it fails
-            let (icon_data, icon_mime) = match icon_from.as_deref().and_then(extract_exe_icon) {
-                Some((data, mime)) => (Some(data), Some(mime)),
-                None => (None, None),
+        let mut push_app =
+            |name: &str, command: String, app_type: &str, icon_from: Option<String>| {
+                let key = format!("{}:{}", app_type, command.to_lowercase());
+                if seen.contains(&key) {
+                    return;
+                }
+                seen.insert(key);
+                // Try icon extraction but don't fail if it fails
+                let (icon_data, icon_mime) = match icon_from.as_deref().and_then(extract_exe_icon) {
+                    Some((data, mime)) => (Some(data), Some(mime)),
+                    None => (None, None),
+                };
+                apps.push(DetectedApp {
+                    name: name.to_string(),
+                    command,
+                    app_type: app_type.to_string(),
+                    icon_data,
+                    icon_mime,
+                });
             };
-            apps.push(DetectedApp {
-                name: name.to_string(),
-                command,
-                app_type: app_type.to_string(),
-                icon_data,
-                icon_mime,
-            });
-        };
 
         let mut fallback = Vec::<PathBuf>::new();
         if let Some(base) = &local_app_data {
             fallback.push(PathBuf::from(base).join("Programs\\Microsoft VS Code\\Code.exe"));
-            fallback.push(PathBuf::from(base).join("Programs\\Microsoft VS Code Insiders\\Code - Insiders.exe"));
+            fallback.push(
+                PathBuf::from(base)
+                    .join("Programs\\Microsoft VS Code Insiders\\Code - Insiders.exe"),
+            );
             fallback.push(PathBuf::from(base).join("Programs\\Cursor\\Cursor.exe"));
             fallback.push(PathBuf::from(base).join("Programs\\Windsurf\\Windsurf.exe"));
             fallback.push(PathBuf::from(base).join("Programs\\Zed\\Zed.exe"));
         }
         if let Some(base) = &program_files {
             fallback.push(PathBuf::from(base).join("Microsoft VS Code\\Code.exe"));
-            fallback.push(PathBuf::from(base).join("Microsoft VS Code Insiders\\Code - Insiders.exe"));
+            fallback
+                .push(PathBuf::from(base).join("Microsoft VS Code Insiders\\Code - Insiders.exe"));
             fallback.push(PathBuf::from(base).join("Notepad++\\notepad++.exe"));
             fallback.push(PathBuf::from(base).join("Sublime Text\\sublime_text.exe"));
             fallback.push(PathBuf::from(base).join("WindowsApps\\wt.exe"));
@@ -729,7 +820,11 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
             let match_fallbacks: Vec<PathBuf> = fallback
                 .iter()
                 .filter(|p| {
-                    let fname = p.file_name().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+                    let fname = p
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
                     cmds.iter().any(|c| fname == c.to_lowercase())
                 })
                 .cloned()
@@ -739,11 +834,19 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
             }
         }
 
-        let wt_path = resolve_executable(&["wt.exe", "wt"], &fallback
-            .iter()
-            .filter(|p| p.file_name().and_then(|s| s.to_str()).map(|n| n.eq_ignore_ascii_case("wt.exe")).unwrap_or(false))
-            .cloned()
-            .collect::<Vec<_>>());
+        let wt_path = resolve_executable(
+            &["wt.exe", "wt"],
+            &fallback
+                .iter()
+                .filter(|p| {
+                    p.file_name()
+                        .and_then(|s| s.to_str())
+                        .map(|n| n.eq_ignore_ascii_case("wt.exe"))
+                        .unwrap_or(false)
+                })
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
         if wt_path.is_some() {
             push_app("Windows Terminal", "wt".to_string(), "terminal", wt_path);
         }
@@ -754,12 +857,23 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
         } else {
             let powershell_path = resolve_executable(&["powershell.exe", "powershell"], &[]);
             if powershell_path.is_some() {
-                push_app("PowerShell", "powershell".to_string(), "terminal", powershell_path);
+                push_app(
+                    "PowerShell",
+                    "powershell".to_string(),
+                    "terminal",
+                    powershell_path,
+                );
             }
         }
 
-        let cmd_path = resolve_executable(&["cmd.exe", "cmd"], &[])
-            .or_else(|| std::env::var("WINDIR").ok().map(|w| PathBuf::from(w).join("System32\\cmd.exe").to_string_lossy().to_string()));
+        let cmd_path = resolve_executable(&["cmd.exe", "cmd"], &[]).or_else(|| {
+            std::env::var("WINDIR").ok().map(|w| {
+                PathBuf::from(w)
+                    .join("System32\\cmd.exe")
+                    .to_string_lossy()
+                    .to_string()
+            })
+        });
         push_app("Command Prompt", "cmd".to_string(), "terminal", cmd_path);
 
         let mut git_bash_fallbacks = Vec::<PathBuf>::new();
@@ -773,10 +887,15 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
         }
         let git_bash_path = resolve_executable(&["bash.exe", "bash"], &git_bash_fallbacks);
         if git_bash_path.is_some() {
-            push_app("Git Bash", "git-bash".to_string(), "terminal", git_bash_path);
+            push_app(
+                "Git Bash",
+                "git-bash".to_string(),
+                "terminal",
+                git_bash_path,
+            );
         }
     }
-    
+
     #[cfg(target_os = "macos")]
     {
         // macOS detection using which command
@@ -788,7 +907,7 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
             ("Vim", "vim"),
             ("Neovim", "nvim"),
         ];
-        
+
         for (display_name, command) in mac_editors {
             if let Ok(output) = StdCommand::new("which").arg(command).output() {
                 if output.status.success() {
@@ -802,7 +921,7 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
                 }
             }
         }
-        
+
         // macOS terminals
         if let Ok(_) = StdCommand::new("which").arg("Terminal").output() {
             apps.push(DetectedApp {
@@ -813,7 +932,7 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
                 icon_mime: None,
             });
         }
-        
+
         if let Ok(_) = StdCommand::new("which").arg("iTerm").output() {
             apps.push(DetectedApp {
                 name: "iTerm2".to_string(),
@@ -824,7 +943,7 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
             });
         }
     }
-    
+
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         // Linux detection using which command
@@ -839,7 +958,7 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
             ("Gedit", "gedit"),
             ("Kate", "kate"),
         ];
-        
+
         for (display_name, command) in linux_editors {
             if let Ok(output) = StdCommand::new("which").arg(command).output() {
                 if output.status.success() {
@@ -853,7 +972,7 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
                 }
             }
         }
-        
+
         // Linux terminals
         let linux_terminals = vec![
             ("GNOME Terminal", "gnome-terminal"),
@@ -863,7 +982,7 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
             ("Kitty", "kitty"),
             ("Terminator", "terminator"),
         ];
-        
+
         for (display_name, command) in linux_terminals {
             if let Ok(output) = StdCommand::new("which").arg(command).output() {
                 if output.status.success() {
@@ -878,7 +997,7 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
             }
         }
     }
-    
+
     Ok(apps)
 }
 
@@ -925,6 +1044,53 @@ fn pty_identity(prefs: &prefs::Prefs) -> String {
         prefs.shell.trim().to_lowercase(),
         prefs.initial_cwd.as_deref().unwrap_or("")
     )
+}
+
+fn clamped_alpha(value: f64) -> u8 {
+    let clamped = if value.is_finite() {
+        value.clamp(0.0, 1.0)
+    } else {
+        0.82
+    };
+    (clamped * 255.0).round() as u8
+}
+
+fn window_effect_config(prefs: &prefs::Prefs) -> Option<tauri::utils::config::WindowEffectsConfig> {
+    let effect = match prefs
+        .window_effect_mode
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "transparent" => return None,
+        "blur" => Effect::Blur,
+        "acrylic" => Effect::Acrylic,
+        "mica" => Effect::Mica,
+        "mica_dark" | "mica-dark" => Effect::MicaDark,
+        "mica_light" | "mica-light" => Effect::MicaLight,
+        "tabbed" => Effect::Tabbed,
+        "tabbed_dark" | "tabbed-dark" => Effect::TabbedDark,
+        "tabbed_light" | "tabbed-light" => Effect::TabbedLight,
+        _ => return None,
+    };
+    Some(
+        EffectsBuilder::new()
+            .effect(effect)
+            .color(Color(0, 0, 0, clamped_alpha(prefs.window_effect_opacity)))
+            .build(),
+    )
+}
+
+fn apply_window_effects(win: &tauri::WebviewWindow, prefs: &prefs::Prefs) {
+    if let Err(e) = win.set_effects(window_effect_config(prefs)) {
+        eprintln!("termie: set window effects for {}: {e}", win.label());
+    }
+}
+
+fn apply_window_effects_to_all(app: &AppHandle, prefs: &prefs::Prefs) {
+    for win in app.webview_windows().values() {
+        apply_window_effects(win, prefs);
+    }
 }
 
 fn detached_window_label_for_pane(pane_id: &str) -> String {
@@ -1081,7 +1247,8 @@ fn pop_out_pane(
             return Ok(label);
         }
     }
-    let win = tauri::WebviewWindowBuilder::new(
+    let prefs = state.persisted.lock().prefs.clone();
+    let mut builder = tauri::WebviewWindowBuilder::new(
         &app,
         label.as_str(),
         tauri::WebviewUrl::App("detached-pane.html".into()),
@@ -1093,9 +1260,12 @@ fn pop_out_pane(
     .decorations(false)
     .shadow(true)
     .skip_taskbar(false)
-    .visible(true)
-    .build()
-    .map_err(|e| e.to_string())?;
+    .visible(true);
+    if let Some(effects) = window_effect_config(&prefs) {
+        builder = builder.effects(effects);
+    }
+    let win = builder.build().map_err(|e| e.to_string())?;
+    apply_window_effects(&win, &prefs);
     if let Ok(sz) = win.outer_size() {
         position_window_near_cursor(&win, sz.width, sz.height);
     }
@@ -1154,8 +1324,7 @@ fn schedule_destroy_webview_after_hide(app: &AppHandle) {
         thread::sleep(Duration::from_millis(160));
         let app2 = app.clone();
         let _ = app.run_on_main_thread(move || {
-            app2
-                .state::<AppState>()
+            app2.state::<AppState>()
                 .webview_destroyed_for_hide
                 .store(true, Ordering::SeqCst);
             match app2.get_webview_window("main") {
@@ -1206,13 +1375,16 @@ async fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
         .cloned()
         .ok_or_else(|| "tauri.conf.json: missing window with label \"main\"".to_string())?;
 
-    let win = tauri::WebviewWindowBuilder::from_config(app, &cfg)
-        .map_err(|e| e.to_string())?
-        .visible(false)
-        .build()
-        .map_err(|e| e.to_string())?;
-
     let st = app.state::<AppState>().persisted.lock().clone();
+    let mut builder = tauri::WebviewWindowBuilder::from_config(app, &cfg)
+        .map_err(|e| e.to_string())?
+        .visible(false);
+    if let Some(effects) = window_effect_config(&st.prefs) {
+        builder = builder.effects(effects);
+    }
+    let win = builder.build().map_err(|e| e.to_string())?;
+
+    apply_window_effects(&win, &st.prefs);
     let _ = win.set_position(tauri::PhysicalPosition::new(st.window.x, st.window.y));
     let _ = win.set_size(tauri::PhysicalSize::new(st.window.width, st.window.height));
     if st.prefs.always_summon_maximized {
@@ -1385,7 +1557,9 @@ fn pty_ensure(
     {
         let panes = state.pty_panes.lock();
         let ids = state.pty_spawn_identity.lock();
-        if panes.get(&pane_id).is_some() && ids.get(&pane_id).map(|x| x.as_str()) == Some(want.as_str()) {
+        if panes.get(&pane_id).is_some()
+            && ids.get(&pane_id).map(|x| x.as_str()) == Some(want.as_str())
+        {
             return Ok(());
         }
     }
@@ -1393,13 +1567,7 @@ fn pty_ensure(
         old.kill();
     }
     state.pty_spawn_identity.lock().remove(&pane_id);
-    let session = Arc::new(PtySession::spawn(
-        app,
-        pane_id.clone(),
-        cols,
-        rows,
-        &prefs,
-    )?);
+    let session = Arc::new(PtySession::spawn(app, pane_id.clone(), cols, rows, &prefs)?);
     state.pty_panes.lock().insert(pane_id.clone(), session);
     state.pty_spawn_identity.lock().insert(pane_id, want);
     Ok(())
@@ -1419,13 +1587,7 @@ fn pty_spawn(
     state.pty_spawn_identity.lock().remove(&pane_id);
     let prefs = state.persisted.lock().prefs.clone();
     let want = pty_identity(&prefs);
-    let session = Arc::new(PtySession::spawn(
-        app,
-        pane_id.clone(),
-        cols,
-        rows,
-        &prefs,
-    )?);
+    let session = Arc::new(PtySession::spawn(app, pane_id.clone(), cols, rows, &prefs)?);
     state.pty_panes.lock().insert(pane_id.clone(), session);
     state.pty_spawn_identity.lock().insert(pane_id, want);
     Ok(())
@@ -1486,9 +1648,13 @@ pub(crate) fn effective_cwd_for_ui(state: &AppState, pane_id: Option<&str>) -> O
         .map(|s| s.to_string())
         .or_else(|| state.focused_pane_id.lock().clone())
         .or_else(|| state.pty_panes.lock().keys().next().cloned());
-    let Some(id) = resolved else { return None; };
+    let Some(id) = resolved else {
+        return None;
+    };
     let g = state.pty_panes.lock();
-    let Some(s) = g.get(&id) else { return None; };
+    let Some(s) = g.get(&id) else {
+        return None;
+    };
     if let Some(cwd) = s.shell_cwd() {
         let t = cwd.trim().to_string();
         if !t.is_empty() {
@@ -1521,7 +1687,10 @@ fn pty_shell_cwd(
 
 /// Foreground shell executable token for a pane (nested shell when detectable), for palette `>` commands.
 #[tauri::command]
-fn pty_shell_exe_token(state: State<'_, AppState>, pane_id: String) -> Result<Option<String>, String> {
+fn pty_shell_exe_token(
+    state: State<'_, AppState>,
+    pane_id: String,
+) -> Result<Option<String>, String> {
     let g = state.pty_panes.lock();
     let Some(s) = g.get(&pane_id) else {
         return Ok(None);
@@ -1572,7 +1741,11 @@ fn delete_custom_theme_json(name: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn set_prefs(app: AppHandle, state: State<'_, AppState>, prefs: prefs::Prefs) -> Result<(), String> {
+fn set_prefs(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    prefs: prefs::Prefs,
+) -> Result<(), String> {
     {
         let mut p = state.persisted.lock();
         p.prefs = prefs.clone();
@@ -1581,6 +1754,7 @@ fn set_prefs(app: AppHandle, state: State<'_, AppState>, prefs: prefs::Prefs) ->
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_skip_taskbar(prefs.hidden_from_taskbar);
     }
+    apply_window_effects_to_all(&app, &prefs);
     Ok(())
 }
 
@@ -1717,6 +1891,7 @@ pub fn run() {
             if st.prefs.always_on_top {
                 let _ = win.set_always_on_top(true);
             }
+            apply_window_effects(&win, &st.prefs);
 
             register_main_window_events(&handle, &win);
 

@@ -59,10 +59,7 @@ impl PtySession {
             .map_err(|e| e.to_string())?;
 
         let cmd = shell_command(prefs)?;
-        let child = pair
-            .slave
-            .spawn_command(cmd)
-            .map_err(|e| e.to_string())?;
+        let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
         let shell_pid = child.process_id();
 
         let master = pair.master;
@@ -278,9 +275,7 @@ fn has_exe_on_path(name: &str) -> bool {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
     crate::subprocess::hide_console_window(&mut c);
-    c.status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    c.status().map(|s| s.success()).unwrap_or(false)
 }
 
 /// First absolute path from `where.exe`, if any.
@@ -304,10 +299,20 @@ fn where_exe_first_line(name: &str) -> Option<PathBuf> {
 fn pwsh_standard_paths() -> Vec<PathBuf> {
     let mut v = Vec::new();
     if let Ok(pf) = std::env::var("ProgramFiles") {
-        v.push(PathBuf::from(pf).join("PowerShell").join("7").join("pwsh.exe"));
+        v.push(
+            PathBuf::from(pf)
+                .join("PowerShell")
+                .join("7")
+                .join("pwsh.exe"),
+        );
     }
     if let Ok(pfx86) = std::env::var("ProgramFiles(x86)") {
-        v.push(PathBuf::from(pfx86).join("PowerShell").join("7").join("pwsh.exe"));
+        v.push(
+            PathBuf::from(pfx86)
+                .join("PowerShell")
+                .join("7")
+                .join("pwsh.exe"),
+        );
     }
     if let Ok(la) = std::env::var("LOCALAPPDATA") {
         v.push(
@@ -359,10 +364,7 @@ pub struct DetectedShell {
 }
 
 fn push_shell_unique(shells: &mut Vec<DetectedShell>, name: &str, path: String) {
-    if shells
-        .iter()
-        .any(|s| s.name.eq_ignore_ascii_case(name))
-    {
+    if shells.iter().any(|s| s.name.eq_ignore_ascii_case(name)) {
         return;
     }
     shells.push(DetectedShell {
@@ -511,8 +513,12 @@ fn resolve_bash_or_fail(shell: &str) -> Result<CommandBuilder, String> {
     }
     // Check Git for Windows bash
     let git_bash_paths: Vec<PathBuf> = [
-        std::env::var("ProgramFiles").ok().map(|pf| PathBuf::from(pf).join("Git").join("bin").join("bash.exe")),
-        std::env::var("ProgramFiles(x86)").ok().map(|pf| PathBuf::from(pf).join("Git").join("bin").join("bash.exe")),
+        std::env::var("ProgramFiles")
+            .ok()
+            .map(|pf| PathBuf::from(pf).join("Git").join("bin").join("bash.exe")),
+        std::env::var("ProgramFiles(x86)")
+            .ok()
+            .map(|pf| PathBuf::from(pf).join("Git").join("bin").join("bash.exe")),
         Some(PathBuf::from(r"C:\Git\bin\bash.exe")),
     ]
     .into_iter()
@@ -569,7 +575,10 @@ fn windows_shell_command(prefs: &Prefs) -> Result<CommandBuilder, String> {
             } else {
                 PathBuf::from("powershell.exe")
             };
-            let script = write_shell_integration_script("termie-shell-integration.ps1", SHELL_INTEGRATION_PWSH)?;
+            let script = write_shell_integration_script(
+                "termie-shell-integration.ps1",
+                SHELL_INTEGRATION_PWSH,
+            )?;
             let command = format!(". '{}'", script.to_string_lossy().replace('\'', "''"));
             let mut c = CommandBuilder::new(exe);
             c.args([
@@ -584,7 +593,10 @@ fn windows_shell_command(prefs: &Prefs) -> Result<CommandBuilder, String> {
         }
         ShellKind::Bash => {
             let bash = resolve_windows_bash_executable()?;
-            let script = write_shell_integration_script("termie-shell-integration.bash", SHELL_INTEGRATION_BASH)?;
+            let script = write_shell_integration_script(
+                "termie-shell-integration.bash",
+                SHELL_INTEGRATION_BASH,
+            )?;
             let init = write_shell_integration_script(
                 "termie-bash-init.sh",
                 &format!(
@@ -595,14 +607,24 @@ source "{}"
                 ),
             )?;
             let mut c = bash;
-            c.args(["--init-file".to_string(), init.to_string_lossy().to_string(), "-i".to_string()]);
+            c.args([
+                "--init-file".to_string(),
+                init.to_string_lossy().to_string(),
+                "-i".to_string(),
+            ]);
             c.env("TERM_PROGRAM", "termie");
             c.env("TERMIE_SHELL_INTEGRATION", "1");
             apply_cwd(c, prefs)
         }
         ShellKind::Zsh => {
-            let script = write_shell_integration_script("termie-shell-integration.zsh", SHELL_INTEGRATION_ZSH)?;
-            let command = format!("source \"{}\"; exec zsh -i", script.to_string_lossy().replace('\\', "/"));
+            let script = write_shell_integration_script(
+                "termie-shell-integration.zsh",
+                SHELL_INTEGRATION_ZSH,
+            )?;
+            let command = format!(
+                "source \"{}\"; exec zsh -i",
+                script.to_string_lossy().replace('\\', "/")
+            );
             let mut c = CommandBuilder::new("zsh.exe");
             c.args(["-i".to_string(), "-c".to_string(), command]);
             c.env("TERM_PROGRAM", "termie");
@@ -616,20 +638,21 @@ source "{}"
                 return windows_host_shell(prefs);
             }
             let path_candidate = Path::new(trimmed);
-            let cmd = if (trimmed.contains('\\') || trimmed.contains('/') || trimmed.ends_with(".exe"))
-                && path_candidate.is_file()
-            {
-                CommandBuilder::new(path_candidate)
-            } else {
-                let exe_with = format!("{}.exe", trimmed);
-                if has_exe_on_path(&exe_with) {
-                    CommandBuilder::new(exe_with)
-                } else if has_exe_on_path(trimmed) {
-                    CommandBuilder::new(trimmed)
+            let cmd =
+                if (trimmed.contains('\\') || trimmed.contains('/') || trimmed.ends_with(".exe"))
+                    && path_candidate.is_file()
+                {
+                    CommandBuilder::new(path_candidate)
                 } else {
-                    return windows_host_shell(prefs);
-                }
-            };
+                    let exe_with = format!("{}.exe", trimmed);
+                    if has_exe_on_path(&exe_with) {
+                        CommandBuilder::new(exe_with)
+                    } else if has_exe_on_path(trimmed) {
+                        CommandBuilder::new(trimmed)
+                    } else {
+                        return windows_host_shell(prefs);
+                    }
+                };
             apply_cwd(cmd, prefs)
         }
     }
@@ -679,7 +702,6 @@ fn detect_shell_kind(prefs: &Prefs) -> ShellKind {
         _ => ShellKind::Other,
     }
 }
-
 
 #[cfg(not(windows))]
 fn shell_command_interactive(prefs: &Prefs) -> Result<CommandBuilder, String> {
@@ -750,12 +772,8 @@ fn shell_command_interactive(prefs: &Prefs) -> Result<CommandBuilder, String> {
                 c.args(pwsh_powershell_osc7_args());
                 c
             }
-            "bash" | "git-bash" | "gitbash" => {
-                resolve_bash_or_fail(&shell)?
-            }
-            "wsl" | "wsl2" => {
-                CommandBuilder::new("wsl.exe")
-            }
+            "bash" | "git-bash" | "gitbash" => resolve_bash_or_fail(&shell)?,
+            "wsl" | "wsl2" => CommandBuilder::new("wsl.exe"),
             "zsh" | "fish" | "sh" | "dash" | "ash" => {
                 // Try to find on PATH (WSL, Git Bash, MSYS2)
                 let exe_name = format!("{}.exe", shell);

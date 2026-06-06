@@ -73,15 +73,8 @@ pub fn get_palette_context(state: tauri::State<'_, super::AppState>) -> PaletteC
             .or_else(|| panes.keys().next().cloned());
         id.and_then(|i| panes.get(&i).and_then(|s| s.shell_exe_token()))
     };
-    let shell = shell_from_pty.unwrap_or_else(|| {
-        state
-            .persisted
-            .lock()
-            .prefs
-            .shell
-            .trim()
-            .to_string()
-    });
+    let shell =
+        shell_from_pty.unwrap_or_else(|| state.persisted.lock().prefs.shell.trim().to_string());
     PaletteContext {
         shell,
         cwd: super::effective_cwd_for_ui(&state, None),

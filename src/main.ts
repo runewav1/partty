@@ -168,6 +168,10 @@ function applyTerminalDisplayPrefs(raw: Partial<TermiePrefs>): void {
   root.classList.toggle("terminal-no-round", Boolean(raw.terminal_no_round));
   root.classList.toggle("terminal-motion-off", animationScaleForPref(raw.terminal_animation_speed) === "0");
   root.style.setProperty("--termie-animation-scale", animationScaleForPref(raw.terminal_animation_speed));
+  const paneAlpha = typeof raw.pane_background_opacity === "number" ? raw.pane_background_opacity : 1;
+  const appAlpha = raw.window_effect_mode && raw.window_effect_mode !== "off" ? 0 : 1;
+  root.style.setProperty("--termie-app-bg-alpha", String(appAlpha));
+  root.style.setProperty("--termie-pane-bg-alpha", String(Math.max(0, Math.min(1, paneAlpha))));
 }
 
 function loadMinimapHiddenPaneIds(): Set<string> {

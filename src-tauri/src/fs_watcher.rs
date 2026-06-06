@@ -27,11 +27,7 @@ pub fn create_watcher_handle() -> WatcherHandle {
     Arc::new(Mutex::new(None))
 }
 
-pub fn start_watching(
-    handle: &WatcherHandle,
-    app: AppHandle,
-    path: String,
-) -> Result<(), String> {
+pub fn start_watching(handle: &WatcherHandle, app: AppHandle, path: String) -> Result<(), String> {
     let dir = PathBuf::from(&path);
     if !dir.is_absolute() || !dir.is_dir() {
         return Err("path must be an absolute directory".into());
@@ -47,8 +43,9 @@ pub fn start_watching(
     }
 
     let app_clone = app.clone();
-    let debouncer = new_debouncer(Duration::from_millis(300), move |res: Result<Vec<notify_debouncer_mini::DebouncedEvent>, notify::Error>| {
-        match res {
+    let debouncer = new_debouncer(
+        Duration::from_millis(300),
+        move |res: Result<Vec<notify_debouncer_mini::DebouncedEvent>, notify::Error>| match res {
             Ok(events) => {
                 let paths: Vec<String> = events
                     .iter()
@@ -62,8 +59,9 @@ pub fn start_watching(
             Err(e) => {
                 eprintln!("fs watcher error: {e}");
             }
-        }
-    }).map_err(|e| e.to_string())?;
+        },
+    )
+    .map_err(|e| e.to_string())?;
 
     let mut d = debouncer;
     d.watcher()

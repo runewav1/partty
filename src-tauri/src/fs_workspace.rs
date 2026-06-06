@@ -171,12 +171,20 @@ fn normalize_remote_url_for_link(remote: &str) -> Option<String> {
     if let Some(rest) = trimmed.strip_prefix("ssh://") {
         let rest = rest.strip_prefix("git@").unwrap_or(rest);
         if let Some((host, path)) = rest.split_once('/') {
-            return Some(format!("https://{}/{}", host, path.trim_end_matches(".git")));
+            return Some(format!(
+                "https://{}/{}",
+                host,
+                path.trim_end_matches(".git")
+            ));
         }
     }
     if let Some(rest) = trimmed.strip_prefix("git@") {
         if let Some((host, path)) = rest.split_once(':') {
-            return Some(format!("https://{}/{}", host, path.trim_end_matches(".git")));
+            return Some(format!(
+                "https://{}/{}",
+                host,
+                path.trim_end_matches(".git")
+            ));
         }
     }
     None
@@ -228,13 +236,7 @@ fn detect_remote_url(repo: &Repository) -> Option<String> {
 fn git_diff_numstat_output(root: &Path) -> Result<std::process::Output, std::io::Error> {
     let mut c = Command::new("git");
     c.current_dir(root)
-        .args([
-            "diff",
-            "--numstat",
-            "--no-renames",
-            "--no-ext-diff",
-            "HEAD",
-        ]);
+        .args(["diff", "--numstat", "--no-renames", "--no-ext-diff", "HEAD"]);
     crate::subprocess::hide_console_window(&mut c);
     c.output()
 }
@@ -301,7 +303,10 @@ fn cached_diff_counts(root: &Path) -> HashMap<PathBuf, (i32, i32)> {
     g.diffs.clone()
 }
 
-pub fn git_workdir_status_impl(cwd: String, include_diff_counts: bool) -> Result<Vec<GitPathStatus>, String> {
+pub fn git_workdir_status_impl(
+    cwd: String,
+    include_diff_counts: bool,
+) -> Result<Vec<GitPathStatus>, String> {
     let start = PathBuf::from(&cwd);
     if !start.is_absolute() {
         return Err("path must be absolute".into());
@@ -638,14 +643,8 @@ pub fn search_file_contents(root: String, query: String) -> Result<Vec<SearchRes
 
 fn run_rg_search(root: &Path, query: &str) -> Result<Vec<SearchResult>, String> {
     let mut cmd = Command::new("rg");
-    cmd.args([
-        "--count-matches",
-        "--no-heading",
-        "--",
-        query,
-        ".",
-    ])
-    .current_dir(root);
+    cmd.args(["--count-matches", "--no-heading", "--", query, "."])
+        .current_dir(root);
     crate::subprocess::hide_console_window(&mut cmd);
 
     let output = cmd.output().map_err(|e| e.to_string())?;
@@ -661,11 +660,9 @@ fn run_rg_search(root: &Path, query: &str) -> Result<Vec<SearchResult>, String> 
 fn run_git_grep_search(root: &Path, query: &str) -> Result<Vec<SearchResult>, String> {
     let mut cmd = Command::new("git");
     cmd.args([
-        "grep",
-        "-c",               // count matches per file
-        "-I",               // ignore binary files
-        "--",
-        query,
+        "grep", "-c", // count matches per file
+        "-I", // ignore binary files
+        "--", query,
     ])
     .current_dir(root);
     crate::subprocess::hide_console_window(&mut cmd);
@@ -682,12 +679,9 @@ fn run_git_grep_search(root: &Path, query: &str) -> Result<Vec<SearchResult>, St
 fn run_grep_search(root: &Path, query: &str) -> Result<Vec<SearchResult>, String> {
     let mut cmd = Command::new("grep");
     cmd.args([
-        "-r",
-        "-c",               // count matches per file
-        "-I",               // ignore binary
-        "--",
-        query,
-        ".",
+        "-r", "-c", // count matches per file
+        "-I", // ignore binary
+        "--", query, ".",
     ])
     .current_dir(root);
     crate::subprocess::hide_console_window(&mut cmd);

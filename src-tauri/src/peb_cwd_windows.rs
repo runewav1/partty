@@ -5,8 +5,8 @@
 use ntapi::ntrtl::RTL_USER_PROCESS_PARAMETERS;
 use ntapi::ntwow64::{PEB32, RTL_USER_PROCESS_PARAMETERS32};
 use std::ffi::c_void;
-use std::mem::{size_of, MaybeUninit};
 use std::ffi::OsString;
+use std::mem::{size_of, MaybeUninit};
 use std::os::windows::ffi::OsStringExt;
 use windows_sys::Wdk::System::Threading::{
     NtQueryInformationProcess, ProcessBasicInformation, ProcessWow64Information,
@@ -151,7 +151,10 @@ unsafe fn cwd_wow64(handle: HANDLE, peb32_remote: usize) -> Option<String> {
     cwd_from_nt_params32(handle, &params)
 }
 
-unsafe fn cwd_from_nt_params(handle: HANDLE, params: &RTL_USER_PROCESS_PARAMETERS) -> Option<String> {
+unsafe fn cwd_from_nt_params(
+    handle: HANDLE,
+    params: &RTL_USER_PROCESS_PARAMETERS,
+) -> Option<String> {
     let us = &params.CurrentDirectory.DosPath;
     let len = us.Length as usize;
     let buf = us.Buffer;
@@ -185,14 +188,7 @@ unsafe fn read_remote_utf16_path(
     let n_chars = byte_len / 2;
     let mut buf = vec![0u16; n_chars];
     let mut read = 0usize;
-    if ReadProcessMemory(
-        handle,
-        remote,
-        buf.as_mut_ptr().cast(),
-        byte_len,
-        &mut read,
-    ) == 0
-    {
+    if ReadProcessMemory(handle, remote, buf.as_mut_ptr().cast(), byte_len, &mut read) == 0 {
         return None;
     }
     if read != byte_len {

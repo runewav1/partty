@@ -49,6 +49,8 @@
   --file-tree-user-width: 260px;
   --file-tree-width: 0px;
   --termie-animation-scale: 1;
+  --termie-app-bg-alpha: 1;
+  --termie-pane-bg-alpha: 1;
   
   /* ===== Minimap Colors ===== */
   --minimap-track: rgba(0, 0, 0, 0.32);
@@ -209,7 +211,7 @@ body {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background: var(--term-bg);
+  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-app-bg-alpha) * 100%), transparent);
   font-family: var(--font-ui);
 }
 
@@ -232,7 +234,7 @@ body {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background: var(--term-bg);
+  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-app-bg-alpha) * 100%), transparent);
   display: flex;
   flex-direction: row;
   align-items: stretch;
@@ -246,7 +248,7 @@ body {
   min-width: 0;
   min-height: 0;
   height: 100%;
-  background: var(--term-bg);
+  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-app-bg-alpha) * 100%), transparent);
 }
 
 /* Theme picker open: block input to xterm/shell until closed */
@@ -298,7 +300,7 @@ html.term-search-open #main-workspace {
   padding: 3px 8px 3px;
   /* Tight to window / file-tree edge; file tree dock sits left of this column */
   padding-left: 8px;
-  background: var(--term-bg);
+  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-app-bg-alpha) * 100%), transparent);
   border-bottom: none;
   position: relative;
   z-index: 6;
@@ -752,7 +754,7 @@ html.file-tree-on .term-toolbar-icon-btn--sidebar .sidebar-bar--mid {
   margin-top: 0;
   position: relative;
   z-index: 2;
-  background: var(--term-bg);
+  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-app-bg-alpha) * 100%), transparent);
 }
 
 #terminal-content {
@@ -1226,7 +1228,7 @@ html.terminal-no-gap {
   border: 1px solid transparent;
   border-radius: 6px;
   overflow: hidden;
-  background: var(--term-bg);
+  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-pane-bg-alpha) * 100%), transparent);
   transition:
     border-color 0.2s ease,
     opacity 0.22s ease,
@@ -1332,7 +1334,7 @@ html.terminal-motion-off .pane-leaf--leaving {
   height: 100%;
   gap: 10px;
   padding: var(--pane-inner-pad-y) var(--pane-inner-pad-x);
-  background: var(--term-bg);
+  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-pane-bg-alpha) * 100%), transparent);
 }
 
 .pane-terminal-host {
@@ -1342,7 +1344,7 @@ html.terminal-motion-off .pane-leaf--leaving {
   overflow: hidden;
   padding: 0;
   position: relative;
-  background: var(--term-bg);
+  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-pane-bg-alpha) * 100%), transparent);
 }
 
 .pane-corner-handle {
@@ -1449,7 +1451,7 @@ html.terminal-motion-off .pane-leaf--leaving {
 
 /* Native scrollbar hidden; minimap + wheel handle scrolling */
 .xterm-viewport {
-  background-color: var(--term-bg) !important;
+  background-color: color-mix(in srgb, var(--term-bg) calc(var(--termie-pane-bg-alpha) * 100%), transparent) !important;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
@@ -1499,7 +1501,7 @@ html.terminal-motion-off .pane-leaf--leaving {
   overflow: hidden;
   cursor: grab;
   align-self: stretch;
-  background: var(--term-bg);
+  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-pane-bg-alpha) * 100%), transparent);
 }
 
 html.zen-mode .term-toolbar,
@@ -2458,6 +2460,7 @@ html.zen-mode #main-workspace {
   display: flex;
   flex-direction: column;
   background: var(--panel-bg);
+  color: var(--ui-chrome-fg);
   border: 1px solid var(--panel-border);
   border-radius: 10px;
   box-shadow: 0 20px 60px var(--panel-shadow);
@@ -2514,6 +2517,7 @@ html.zen-mode #main-workspace {
   gap: 12px;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  color: var(--ui-chrome-fg);
 }
 
 .settings-form::-webkit-scrollbar,
@@ -2604,6 +2608,7 @@ html.zen-mode #main-workspace {
   width: 100%;
   cursor: pointer;
   user-select: none;
+  color: var(--ui-chrome-fg);
 }
 
 .settings-checkbox-label span {

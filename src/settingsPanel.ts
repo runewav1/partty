@@ -50,6 +50,10 @@ export type TermiePrefs = {
   terminal_no_round: boolean;
   /** off | fast | normal | slow */
   terminal_animation_speed: string;
+  /** off | transparent | blur | acrylic | mica | mica_dark | mica_light | tabbed */
+  window_effect_mode: string;
+  window_effect_opacity: number;
+  pane_background_opacity: number;
 };
 
 type DetectedShell = { name: string; path: string };
@@ -168,6 +172,17 @@ export function createSettingsPanel(
       const raw = (pr.terminal_animation_speed ?? "normal").toLowerCase();
       animSel.value = raw === "off" || raw === "fast" || raw === "slow" ? raw : "normal";
     }
+    const effectSel = form.querySelector('[name="window_effect_mode"]') as HTMLSelectElement | null;
+    if (effectSel) {
+      const raw = (pr.window_effect_mode ?? "off").toLowerCase().replace(/-/g, "_");
+      effectSel.value = ["off", "transparent", "blur", "acrylic", "mica", "mica_dark", "mica_light", "tabbed"].includes(raw)
+        ? raw
+        : "off";
+    }
+    const effectOpacity = form.querySelector('[name="window_effect_opacity"]') as HTMLInputElement | null;
+    if (effectOpacity) effectOpacity.value = String(pr.window_effect_opacity ?? 0.82);
+    const paneOpacity = form.querySelector('[name="pane_background_opacity"]') as HTMLInputElement | null;
+    if (paneOpacity) paneOpacity.value = String(pr.pane_background_opacity ?? 1);
     const setChk = (name: keyof TermiePrefs, v: boolean) => {
       const el = form.querySelector(`[name="${name}"]`) as HTMLInputElement | null;
       if (el) el.checked = v;
@@ -223,6 +238,14 @@ export function createSettingsPanel(
         const animationRaw = gs("terminal_animation_speed").toLowerCase();
         const terminal_animation_speed =
           animationRaw === "off" || animationRaw === "fast" || animationRaw === "slow" ? animationRaw : "normal";
+        const effectRaw = gs("window_effect_mode").toLowerCase().replace(/-/g, "_");
+        const window_effect_mode = ["off", "transparent", "blur", "acrylic", "mica", "mica_dark", "mica_light", "tabbed"].includes(effectRaw)
+          ? effectRaw
+          : "off";
+        const clamp01 = (raw: string, fallback: number) => {
+          const n = Number.parseFloat(raw);
+          return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback;
+        };
         const prefs: TermiePrefs = {
           shell: g("shell").trim() || "pwsh",
           shed_on_hide: gc("shed_on_hide"),
@@ -260,6 +283,9 @@ export function createSettingsPanel(
           terminal_no_gap: gc("terminal_no_gap"),
           terminal_no_round: gc("terminal_no_round"),
           terminal_animation_speed,
+          window_effect_mode,
+          window_effect_opacity: clamp01(g("window_effect_opacity"), 0.82),
+          pane_background_opacity: clamp01(g("pane_background_opacity"), 1),
         };
         const merged = { ...previous, ...prefs };
         await invoke("set_prefs", {

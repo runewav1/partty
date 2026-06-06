@@ -253,6 +253,27 @@
                   <option value="shed">shed</option>
                 </select>
               </div>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-window-effect-mode">Backdrop</label>
+                <select id="setting-window-effect-mode" name="window_effect_mode" class="settings-input settings-select">
+                  <option value="off">off</option>
+                  <option value="transparent">transparent</option>
+                  <option value="blur">blur</option>
+                  <option value="acrylic">acrylic</option>
+                  <option value="mica">mica</option>
+                  <option value="mica_dark">mica dark</option>
+                  <option value="mica_light">mica light</option>
+                  <option value="tabbed">tabbed</option>
+                </select>
+              </div>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-window-effect-opacity">Backdrop alpha</label>
+                <input id="setting-window-effect-opacity" name="window_effect_opacity" type="number" min="0" max="1" step="0.05" class="settings-input" />
+              </div>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-pane-background-opacity">Pane alpha</label>
+                <input id="setting-pane-background-opacity" name="pane_background_opacity" type="number" min="0" max="1" step="0.05" class="settings-input" />
+              </div>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="always_on_top" /><span>Always top</span></label>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="always_summon_maximized" /><span>Max summon</span></label>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="summon_spawn_at_cursor" /><span>Summon at cursor</span></label>

@@ -68,6 +68,18 @@ fn default_terminal_animation_speed() -> String {
     "normal".to_string()
 }
 
+fn default_window_effect_mode() -> String {
+    "off".to_string()
+}
+
+fn default_window_effect_opacity() -> f64 {
+    0.82
+}
+
+fn default_pane_background_opacity() -> f64 {
+    1.0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
@@ -156,6 +168,15 @@ pub struct Prefs {
     /// `off` | `fast` | `normal` | `slow` — scales terminal UI animations.
     #[serde(default = "default_terminal_animation_speed")]
     pub terminal_animation_speed: String,
+    /// `off` | `transparent` | `blur` | `acrylic` | `mica` | `mica_dark` | `mica_light` | `tabbed` — Tauri window backdrop effect.
+    #[serde(default = "default_window_effect_mode")]
+    pub window_effect_mode: String,
+    /// Alpha used by transparent/blur/acrylic backdrops on Windows.
+    #[serde(default = "default_window_effect_opacity")]
+    pub window_effect_opacity: f64,
+    /// CSS opacity for terminal pane backgrounds (0 = fully transparent, 1 = opaque).
+    #[serde(default = "default_pane_background_opacity")]
+    pub pane_background_opacity: f64,
     /// App chrome + terminal palette id (see frontend `themePresets`).
     #[serde(default = "default_ui_theme")]
     pub ui_theme: String,
@@ -210,6 +231,9 @@ impl Default for Prefs {
             terminal_no_gap: false,
             terminal_no_round: false,
             terminal_animation_speed: default_terminal_animation_speed(),
+            window_effect_mode: default_window_effect_mode(),
+            window_effect_opacity: default_window_effect_opacity(),
+            pane_background_opacity: default_pane_background_opacity(),
         }
     }
 }
@@ -253,11 +277,7 @@ pub fn load_state() -> PersistedState {
             if let Some(serde_json::Value::Bool(b)) = obj.remove("shed_workspace_on_exit") {
                 obj.insert(
                     "shed_workspace_exit".into(),
-                    serde_json::Value::String(if b {
-                        "shed".into()
-                    } else {
-                        "keep".into()
-                    }),
+                    serde_json::Value::String(if b { "shed".into() } else { "keep".into() }),
                 );
             }
             if let Some(serde_json::Value::String(mode)) = obj.get_mut("shed_workspace_exit") {
