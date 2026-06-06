@@ -68,16 +68,24 @@ fn default_terminal_animation_speed() -> String {
     "normal".to_string()
 }
 
+fn default_terminal_pane_gap() -> f64 {
+    6.0
+}
+
 fn default_window_effect_mode() -> String {
     "off".to_string()
 }
 
 fn default_window_effect_opacity() -> f64 {
-    0.82
+    0.0
 }
 
 fn default_pane_background_opacity() -> f64 {
     1.0
+}
+
+fn default_pane_corner_radius() -> f64 {
+    6.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,21 +170,27 @@ pub struct Prefs {
     /// Remove pane/container gaps for dense terminal layouts.
     #[serde(default)]
     pub terminal_no_gap: bool,
+    /// Pane/container gap in px.
+    #[serde(default = "default_terminal_pane_gap")]
+    pub terminal_pane_gap: f64,
     /// Remove rounded pane/chrome corners for dense terminal layouts.
     #[serde(default)]
     pub terminal_no_round: bool,
     /// `off` | `fast` | `normal` | `slow` — scales terminal UI animations.
     #[serde(default = "default_terminal_animation_speed")]
     pub terminal_animation_speed: String,
-    /// `off` | `transparent` | `blur` | `acrylic` | `mica` | `mica_dark` | `mica_light` | `tabbed` — Tauri window backdrop effect.
+    /// `off` | `transparent` — Tauri window backdrop mode.
     #[serde(default = "default_window_effect_mode")]
     pub window_effect_mode: String,
-    /// Alpha used by transparent/blur/acrylic backdrops on Windows.
+    /// Reserved alpha value for window backdrop tinting.
     #[serde(default = "default_window_effect_opacity")]
     pub window_effect_opacity: f64,
     /// CSS opacity for terminal pane backgrounds (0 = fully transparent, 1 = opaque).
     #[serde(default = "default_pane_background_opacity")]
     pub pane_background_opacity: f64,
+    /// Pane corner radius in px when square panes are disabled.
+    #[serde(default = "default_pane_corner_radius")]
+    pub pane_corner_radius: f64,
     /// App chrome + terminal palette id (see frontend `themePresets`).
     #[serde(default = "default_ui_theme")]
     pub ui_theme: String,
@@ -229,11 +243,13 @@ impl Default for Prefs {
             terminal_backspace_delete_selection: true,
             always_open_in_zen_mode: false,
             terminal_no_gap: false,
+            terminal_pane_gap: default_terminal_pane_gap(),
             terminal_no_round: false,
             terminal_animation_speed: default_terminal_animation_speed(),
             window_effect_mode: default_window_effect_mode(),
             window_effect_opacity: default_window_effect_opacity(),
             pane_background_opacity: default_pane_background_opacity(),
+            pane_corner_radius: default_pane_corner_radius(),
         }
     }
 }

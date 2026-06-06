@@ -51,6 +51,7 @@
   --termie-animation-scale: 1;
   --termie-app-bg-alpha: 1;
   --termie-pane-bg-alpha: 1;
+  --termie-pane-radius: 6px;
   
   /* ===== Minimap Colors ===== */
   --minimap-track: rgba(0, 0, 0, 0.32);
@@ -1208,15 +1209,6 @@ button.file-tree-label:hover {
   padding: var(--pane-outer-gap);
 }
 
-html.terminal-no-gap {
-  --pane-outer-gap: 0px;
-  --pane-inner-pad-x: 0px;
-  --pane-inner-pad-y: 0px;
-  --term-pad-x: 8px;
-  --term-pad-y: 8px;
-  --term-minimap-gutter: 0px;
-}
-
 .pane-leaf {
   position: relative;
   display: flex;
@@ -1226,15 +1218,46 @@ html.terminal-no-gap {
   flex: 1;
   outline: none;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--termie-pane-radius);
   overflow: hidden;
   background: color-mix(in srgb, var(--term-bg) calc(var(--termie-pane-bg-alpha) * 100%), transparent);
+  backdrop-filter: blur(0) saturate(1);
+  -webkit-backdrop-filter: blur(0) saturate(1);
   transition:
     border-color 0.2s ease,
     opacity 0.22s ease,
     filter 0.22s ease,
     background 0.2s ease,
     outline 0.12s ease;
+}
+
+html.pane-bg-transparent .pane-leaf {
+  backdrop-filter: blur(18px) saturate(1.12);
+  -webkit-backdrop-filter: blur(18px) saturate(1.12);
+}
+
+html.pane-bg-transparent .pane-leaf::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-pane-bg-alpha) * 100%), transparent);
+  backdrop-filter: blur(18px) saturate(1.12);
+  -webkit-backdrop-filter: blur(18px) saturate(1.12);
+}
+
+html.pane-bg-transparent .pane-terminal-row,
+html.pane-bg-transparent .pane-terminal-host,
+html.pane-bg-transparent .xterm-viewport,
+html.pane-bg-transparent .pane-minimap {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+.pane-leaf > * {
+  position: relative;
+  z-index: 1;
 }
 
 html.terminal-no-round .pane-leaf,
@@ -1252,7 +1275,7 @@ html.terminal-no-round .term-tab-group {
   z-index: 20000;
   pointer-events: none;
   box-sizing: border-box;
-  border-radius: 6px;
+  border-radius: var(--termie-pane-radius);
   border: 1px solid color-mix(in srgb, var(--accent-primary) 38%, transparent);
   background: color-mix(in srgb, var(--term-bg) 14%, transparent);
   backdrop-filter: blur(14px) saturate(1.12);
@@ -1388,52 +1411,47 @@ html.terminal-motion-off .pane-leaf--leaving {
   font-family: var(--font-terminal) !important;
 }
 
-/* Hit area wide; visible line is only the centered stroke (between panes) */
+/* Invisible resize gutters between panes. */
 .pane-gutter {
   flex-shrink: 0;
   z-index: 3;
   position: relative;
   background: transparent;
+  overflow: visible;
 }
 
 .pane-gutter--h {
-  flex: 0 0 6px;
-  width: 6px;
+  flex: 0 0 var(--pane-outer-gap);
+  width: var(--pane-outer-gap);
   cursor: col-resize;
 }
 
-.pane-gutter--h::before {
+.pane-gutter--h::after {
   content: "";
   position: absolute;
   top: 0;
   bottom: 0;
   left: 50%;
-  width: 1px;
+  width: 8px;
   transform: translateX(-50%);
-  background: var(--pane-divider);
-  pointer-events: none;
+  cursor: col-resize;
 }
 
 .pane-gutter--v {
-  flex: 0 0 6px;
-  height: 6px;
+  flex: 0 0 var(--pane-outer-gap);
+  height: var(--pane-outer-gap);
   cursor: row-resize;
 }
 
-.pane-gutter--v::before {
+.pane-gutter--v::after {
   content: "";
   position: absolute;
   left: 0;
   right: 0;
   top: 50%;
-  height: 1px;
+  height: 8px;
   transform: translateY(-50%);
-  background: var(--pane-divider);
-  pointer-events: none;
-}
-
-.pane-gutter:hover::before {
-  background: var(--pane-divider-hover);
+  cursor: row-resize;
 }
 
 .pane-split {
@@ -1482,6 +1500,18 @@ html.terminal-motion-off .pane-leaf--leaving {
 .xterm-screen {
   width: 100% !important;
   cursor: text;
+}
+
+html.pane-bg-transparent .xterm,
+html.pane-bg-transparent .xterm-screen,
+html.pane-bg-transparent .xterm-rows,
+html.pane-bg-transparent .xterm-text-layer,
+html.pane-bg-transparent .xterm-link-layer,
+html.pane-bg-transparent .xterm-selection-layer,
+html.pane-bg-transparent .xterm-cursor-layer,
+html.pane-bg-transparent .xterm-screen canvas {
+  background: transparent !important;
+  background-color: transparent !important;
 }
 
 .pane-terminal-host--ctrl-link-hover .xterm-screen {
@@ -2912,28 +2942,6 @@ html.zen-mode #main-workspace {
 
 .termie-cmd-decoration--success:hover .termie-cmd-decoration__dot {
   box-shadow: 0 0 6px color-mix(in srgb, var(--color-success) 40%, transparent);
-}
-
-.cmd-block-tooltip {
-  position: fixed;
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  padding: 8px 11px;
-  box-shadow: 0 6px 20px var(--panel-shadow);
-  white-space: pre-line;
-  min-width: 180px;
-  max-width: 320px;
-  z-index: 3000;
-  pointer-events: none;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--ui-gray-200);
-}
-
-.cmd-block-tooltip-time {
-  color: var(--ui-gray-400);
-  font-size: 11px;
 }
 
 /* Right-click context menu for command blocks */

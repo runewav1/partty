@@ -19,7 +19,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
-use tauri::window::{Color, Effect, EffectsBuilder};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
@@ -1046,39 +1045,11 @@ fn pty_identity(prefs: &prefs::Prefs) -> String {
     )
 }
 
-fn clamped_alpha(value: f64) -> u8 {
-    let clamped = if value.is_finite() {
-        value.clamp(0.0, 1.0)
-    } else {
-        0.82
-    };
-    (clamped * 255.0).round() as u8
-}
-
 fn window_effect_config(prefs: &prefs::Prefs) -> Option<tauri::utils::config::WindowEffectsConfig> {
-    let effect = match prefs
-        .window_effect_mode
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "transparent" => return None,
-        "blur" => Effect::Blur,
-        "acrylic" => Effect::Acrylic,
-        "mica" => Effect::Mica,
-        "mica_dark" | "mica-dark" => Effect::MicaDark,
-        "mica_light" | "mica-light" => Effect::MicaLight,
-        "tabbed" => Effect::Tabbed,
-        "tabbed_dark" | "tabbed-dark" => Effect::TabbedDark,
-        "tabbed_light" | "tabbed-light" => Effect::TabbedLight,
-        _ => return None,
-    };
-    Some(
-        EffectsBuilder::new()
-            .effect(effect)
-            .color(Color(0, 0, 0, clamped_alpha(prefs.window_effect_opacity)))
-            .build(),
-    )
+    match prefs.window_effect_mode.trim().to_ascii_lowercase().as_str() {
+        "transparent" => None,
+        _ => None,
+    }
 }
 
 fn apply_window_effects(win: &tauri::WebviewWindow, prefs: &prefs::Prefs) {
@@ -1248,7 +1219,7 @@ fn pop_out_pane(
         }
     }
     let prefs = state.persisted.lock().prefs.clone();
-    let mut builder = tauri::WebviewWindowBuilder::new(
+    let builder = tauri::WebviewWindowBuilder::new(
         &app,
         label.as_str(),
         tauri::WebviewUrl::App("detached-pane.html".into()),
@@ -1261,9 +1232,6 @@ fn pop_out_pane(
     .shadow(true)
     .skip_taskbar(false)
     .visible(true);
-    if let Some(effects) = window_effect_config(&prefs) {
-        builder = builder.effects(effects);
-    }
     let win = builder.build().map_err(|e| e.to_string())?;
     apply_window_effects(&win, &prefs);
     if let Ok(sz) = win.outer_size() {
@@ -1376,12 +1344,9 @@ async fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
         .ok_or_else(|| "tauri.conf.json: missing window with label \"main\"".to_string())?;
 
     let st = app.state::<AppState>().persisted.lock().clone();
-    let mut builder = tauri::WebviewWindowBuilder::from_config(app, &cfg)
+    let builder = tauri::WebviewWindowBuilder::from_config(app, &cfg)
         .map_err(|e| e.to_string())?
         .visible(false);
-    if let Some(effects) = window_effect_config(&st.prefs) {
-        builder = builder.effects(effects);
-    }
     let win = builder.build().map_err(|e| e.to_string())?;
 
     apply_window_effects(&win, &st.prefs);

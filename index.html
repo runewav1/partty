@@ -223,7 +223,10 @@
                   <option value="slow">slow</option>
                 </select>
               </div>
-              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_no_gap" /><span>No gaps</span></label>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-terminal-pane-gap">Pane gap</label>
+                <input id="setting-terminal-pane-gap" name="terminal_pane_gap" type="number" min="0" max="32" step="1" class="settings-input" />
+              </div>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_no_round" /><span>Square panes</span></label>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="focus_follows_cursor" /><span>Pointer focus</span></label>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="blur_unfocused_panes" /><span>Blur inactive</span></label>
@@ -258,12 +261,6 @@
                 <select id="setting-window-effect-mode" name="window_effect_mode" class="settings-input settings-select">
                   <option value="off">off</option>
                   <option value="transparent">transparent</option>
-                  <option value="blur">blur</option>
-                  <option value="acrylic">acrylic</option>
-                  <option value="mica">mica</option>
-                  <option value="mica_dark">mica dark</option>
-                  <option value="mica_light">mica light</option>
-                  <option value="tabbed">tabbed</option>
                 </select>
               </div>
               <div class="settings-field">
@@ -273,6 +270,10 @@
               <div class="settings-field">
                 <label class="settings-label" for="setting-pane-background-opacity">Pane alpha</label>
                 <input id="setting-pane-background-opacity" name="pane_background_opacity" type="number" min="0" max="1" step="0.05" class="settings-input" />
+              </div>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-pane-corner-radius">Pane radius</label>
+                <input id="setting-pane-corner-radius" name="pane_corner_radius" type="number" min="0" max="32" step="1" class="settings-input" />
               </div>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="always_on_top" /><span>Always top</span></label>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="always_summon_maximized" /><span>Max summon</span></label>

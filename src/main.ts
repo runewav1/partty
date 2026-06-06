@@ -164,14 +164,20 @@ function animationScaleForPref(value: unknown): string {
 
 function applyTerminalDisplayPrefs(raw: Partial<TermiePrefs>): void {
   const root = document.documentElement;
-  root.classList.toggle("terminal-no-gap", Boolean(raw.terminal_no_gap));
+  const paneGap = typeof raw.terminal_pane_gap === "number" ? raw.terminal_pane_gap : raw.terminal_no_gap ? 0 : 6;
+  root.classList.toggle("terminal-no-gap", paneGap <= 0);
   root.classList.toggle("terminal-no-round", Boolean(raw.terminal_no_round));
   root.classList.toggle("terminal-motion-off", animationScaleForPref(raw.terminal_animation_speed) === "0");
   root.style.setProperty("--termie-animation-scale", animationScaleForPref(raw.terminal_animation_speed));
   const paneAlpha = typeof raw.pane_background_opacity === "number" ? raw.pane_background_opacity : 1;
-  const appAlpha = raw.window_effect_mode && raw.window_effect_mode !== "off" ? 0 : 1;
+  const backdropAlpha = typeof raw.window_effect_opacity === "number" ? raw.window_effect_opacity : 0;
+  const appAlpha = raw.window_effect_mode === "transparent" ? backdropAlpha : 1;
+  const paneRadius = typeof raw.pane_corner_radius === "number" ? raw.pane_corner_radius : 6;
+  root.style.setProperty("--pane-outer-gap", `${Math.max(0, Math.min(32, paneGap))}px`);
   root.style.setProperty("--termie-app-bg-alpha", String(appAlpha));
   root.style.setProperty("--termie-pane-bg-alpha", String(Math.max(0, Math.min(1, paneAlpha))));
+  root.style.setProperty("--termie-pane-radius", `${Math.max(0, Math.min(32, paneRadius))}px`);
+  root.classList.toggle("pane-bg-transparent", paneAlpha < 0.999);
 }
 
 function loadMinimapHiddenPaneIds(): Set<string> {

@@ -74,20 +74,6 @@ export function copyAllFromBlock(
   return extractBufferText(term, startRow, endRow).trim();
 }
 
-function timeAgo(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  if (s < 5) return "just now";
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m ago`;
-}
-
-function formatTime(d: Date): string {
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
-
 export type BlockOverlayHandle = {
   refresh(): void;
   dispose(): void;
@@ -120,14 +106,6 @@ export function createBlockOverlay(
     for (const fn of existing.cleanup) fn();
     existing.decoration.dispose();
     decorations.delete(id);
-  }
-
-  function setTooltipPosition(anchor: HTMLElement, tooltip: HTMLElement): void {
-    const rect = anchor.getBoundingClientRect();
-    const top = Math.max(8, rect.top - 6);
-    const left = Math.min(window.innerWidth - 330, rect.right + 10);
-    tooltip.style.top = `${top}px`;
-    tooltip.style.left = `${Math.max(8, left)}px`;
   }
 
   function showCtxMenu(e: MouseEvent, block: CommandBlock): void {
@@ -232,29 +210,6 @@ export function createBlockOverlay(
           dot.className = "termie-cmd-decoration__dot";
           element.replaceChildren(dot);
 
-          const tooltip = document.createElement("div");
-          tooltip.className = "cmd-block-tooltip";
-          tooltip.hidden = true;
-          document.body.appendChild(tooltip);
-
-          const showTooltip = (): void => {
-            const now = Date.now();
-            const blockTime = block.timestamp ?? now;
-            const pieces: string[] = [
-              `<span class="cmd-block-tooltip-time">${timeAgo(now - blockTime)}</span>`,
-              `<span class="cmd-block-tooltip-time">${formatTime(new Date(blockTime))}</span>`,
-            ];
-            if (block.commandLine) pieces.push(block.commandLine);
-            if (block.exitCode != null) pieces.push(`Exit: ${block.exitCode}`);
-            tooltip.innerHTML = pieces.join("<br>");
-            tooltip.hidden = false;
-            setTooltipPosition(element, tooltip);
-          };
-
-          const hideTooltip = (): void => {
-            tooltip.hidden = true;
-          };
-
           const stopMouseDown = (e: MouseEvent): void => {
             if (e.button === 2) {
               e.preventDefault();
@@ -268,14 +223,9 @@ export function createBlockOverlay(
             showCtxMenu(e, block);
           };
 
-          element.addEventListener("mouseenter", showTooltip);
-          element.addEventListener("mouseleave", hideTooltip);
           element.addEventListener("mousedown", stopMouseDown, true);
           element.addEventListener("contextmenu", onContext, true);
           entry.cleanup.push(() => {
-            tooltip.remove();
-            element.removeEventListener("mouseenter", showTooltip);
-            element.removeEventListener("mouseleave", hideTooltip);
             element.removeEventListener("mousedown", stopMouseDown, true);
             element.removeEventListener("contextmenu", onContext, true);
           });
