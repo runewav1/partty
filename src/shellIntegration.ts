@@ -1,33 +1,10 @@
-import type { IMarker, Terminal } from "@xterm/xterm";
-
-export type CommandBlockPhase = "prompt" | "input" | "executing" | "done";
-
-export type CommandBlock = {
-  id: number;
-  commandLine: string | null;
-  exitCode: number | null;
-  phase: CommandBlockPhase;
-  timestamp: number;
-  promptStartMarker?: IMarker;
-  commandStartMarker?: IMarker;
-  executedMarker?: IMarker;
-  endMarker?: IMarker;
-  cwd?: string;
-};
-
 export type ShellIntegrationState = {
-  blocks: CommandBlock[];
-  current: CommandBlock | null;
   properties: Map<string, string>;
   parserRemainder: string;
 };
 
-let blockCounter = 0;
-
 export function createShellIntegrationState(): ShellIntegrationState {
   return {
-    blocks: [],
-    current: null,
     properties: new Map(),
     parserRemainder: "",
   };
@@ -56,7 +33,6 @@ export type ShellIntegrationEvent =
 type ProcessResult = {
   cleaned: string;
   events: ShellIntegrationEvent[];
-  commandsChanged: boolean;
 };
 
 function toWindowsAbsPath(input: string): string {
@@ -126,20 +102,12 @@ function findOscTerminator(input: string, from: number): { payloadEnd: number; n
   return null;
 }
 
-function trimBlocks(state: ShellIntegrationState): void {
-  if (state.blocks.length > 500) {
-    state.blocks.splice(0, state.blocks.length - 500);
-  }
-}
-
 export function processShellIntegration(
   raw: string,
   state: ShellIntegrationState,
-  term: Terminal,
   onCwd?: OscCwdCallback,
 ): ProcessResult {
   const events: ShellIntegrationEvent[] = [];
-  let commandsChanged = false;
   let cleaned = "";
   const input = state.parserRemainder + raw;
   state.parserRemainder = "";
@@ -160,35 +128,14 @@ export function processShellIntegration(
         const letter = parts[1] ?? "";
         switch (letter) {
           case "A": {
-            const block: CommandBlock = {
-              id: ++blockCounter,
-              commandLine: null,
-              exitCode: null,
-              phase: "prompt",
-              timestamp: Date.now(),
-              promptStartMarker: term.registerMarker(0),
-            };
-            block.commandStartMarker = block.promptStartMarker;
-            state.current = block;
-            commandsChanged = true;
             events.push({ kind: "prompt-start" });
             break;
           }
           case "B": {
-            if (state.current) {
-              state.current.phase = "input";
-              state.current.commandStartMarker ??= state.current.promptStartMarker ?? term.registerMarker(0);
-            }
-            commandsChanged = true;
             events.push({ kind: "prompt-end" });
             break;
           }
           case "C": {
-            if (state.current) {
-              state.current.phase = "executing";
-              state.current.executedMarker = term.registerMarker(0);
-            }
-            commandsChanged = true;
             events.push({ kind: "pre-exec" });
             break;
           }
@@ -196,22 +143,11 @@ export function processShellIntegration(
             const exitStr = parts[2]?.trim();
             const parsed = exitStr ? parseInt(exitStr, 10) : null;
             const exitCode = Number.isFinite(parsed) ? parsed : null;
-            if (state.current) {
-              state.current.exitCode = exitCode;
-              state.current.phase = "done";
-              state.current.endMarker = term.registerMarker(0);
-              state.blocks.push(state.current);
-              trimBlocks(state);
-              state.current = null;
-            }
-            commandsChanged = true;
             events.push({ kind: "command-done", exitCode });
             break;
           }
           case "E": {
             const cmdLine = unescapeOsc(parts.slice(2).join(";"));
-            if (state.current) state.current.commandLine = cmdLine;
-            commandsChanged = true;
             events.push({ kind: "command-line", text: cmdLine });
             break;
           }
@@ -226,7 +162,6 @@ export function processShellIntegration(
               if (key === "Cwd") {
                 const cwd = normalizeCwdPath(value, state.properties);
                 if (cwd) {
-                  if (state.current) state.current.cwd = cwd;
                   onCwd?.(cwd);
                   events.push({ kind: "cwd", path: cwd });
                 }
@@ -241,7 +176,6 @@ export function processShellIntegration(
       } else if (osc === "7") {
         const path = uriToLocalPath(parts.slice(1).join(";"), state.properties);
         if (path) {
-          if (state.current) state.current.cwd = path;
           onCwd?.(path);
           events.push({ kind: "cwd", path });
         }
@@ -262,20 +196,5 @@ export function processShellIntegration(
     i++;
   }
 
-  return { cleaned, events, commandsChanged };
-}
-
-export function getLastBlock(state: ShellIntegrationState): CommandBlock | null {
-  return state.blocks.length > 0 ? state.blocks[state.blocks.length - 1]! : null;
-}
-
-export function getBlocksInRange(
-  state: ShellIntegrationState,
-  startRow: number,
-  endRow: number,
-): CommandBlock[] {
-  return state.blocks.filter((b) => {
-    const s = b.promptStartMarker?.line ?? 0;
-    return s >= startRow && s <= endRow;
-  });
+  return { cleaned, events };
 }

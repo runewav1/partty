@@ -56,7 +56,6 @@ import {
   processShellIntegration,
   type ShellIntegrationState,
 } from "./shellIntegration";
-import { createBlockOverlay, type BlockOverlayHandle, type SendToBuilderHandler } from "./commandBlockOverlay";
 import {
   createCommandPalette,
   isCommandPaletteChord,
@@ -104,6 +103,7 @@ const TERM_FG_FALLBACK = "#d4d4d8";
 
 const RESIZE_DEBOUNCE_MS = 100;
 const PTY_OUTPUT_FLUSH_MS = 8;
+const PTY_OUTPUT_BACKGROUND_FLUSH_MS = 33;
 const PTY_OUTPUT_INTERACTIVE_CHARS = 2048;
 const PTY_OUTPUT_MAX_BATCH_CHARS = 128 * 1024;
 const MINIMAP_STORAGE_KEY = "termie.minimap.enabled";
@@ -293,8 +293,6 @@ async function boot(): Promise<void> {
   let paneHost: PaneHost | null = null;
   const paneCwdHints = new Map<string, string>();
   const paneShellState = new Map<string, ShellIntegrationState>();
-  const paneBlockOverlays = new Map<string, BlockOverlayHandle>();
-  const pendingBlockOverlayRefreshPanes = new Set<string>();
   const lastPtyDims = new Map<string, { cols: number; rows: number }>();
   const focusFollowsRef = { v: lp.focus_follows_cursor };
   const autoCopySelectionRef = {
@@ -326,7 +324,6 @@ async function boot(): Promise<void> {
   let pendingPtyWriteRaf = 0;
   let pendingPtyOutputRaf = 0;
   let pendingPtyOutputTimer = 0;
-  let pendingBlockOverlayRaf = 0;
   let liveCwd: string | null = null;
   let lastLiveCwdSignalAt = 0;
   let lastFocusedPaneId = "";
@@ -396,7 +393,11 @@ async function boot(): Promise<void> {
 
     const siState = ensureShellState(paneId);
     const parseStarted = performance.now();
-    const si = processShellIntegration(parseInput, siState, pt.term, cwdHandler);
+    const focused = paneId === paneHost?.getFocusedPaneId();
+    const shouldParseShellIntegration = focused || siState.parserRemainder.length > 0 || parseInput.includes("\x1b]");
+    const si = shouldParseShellIntegration
+      ? processShellIntegration(parseInput, siState, cwdHandler)
+      : { cleaned: parseInput, events: [] };
     termiePerf.time("pty.output.parse.ms", performance.now() - parseStarted);
 
     if (fileTreeCoordinator && si.events.length > 0) {
@@ -415,10 +416,7 @@ async function boot(): Promise<void> {
       }
     }
 
-    if (si.commandsChanged || si.events.length > 0) {
-      queueBlockOverlayRefresh(paneId);
-    }
-    scheduleCwdSync();
+    if (focused || si.events.length > 0) scheduleCwdSync();
   }
 
   function clearPtyOutputFlushHandles(): void {
@@ -435,11 +433,20 @@ async function boot(): Promise<void> {
   function flushPendingPtyOutputs(): void {
     clearPtyOutputFlushHandles();
     if (pendingPtyOutputByPane.size === 0) return;
+    const now = performance.now();
+    const focusedPaneId = paneHost?.getFocusedPaneId();
     const batches = [...pendingPtyOutputByPane.entries()];
     pendingPtyOutputByPane.clear();
     for (const [paneId, batch] of batches) {
+      const isFocused = paneId === focusedPaneId;
+      const age = now - batch.queuedAt;
+      if (!isFocused && age < PTY_OUTPUT_BACKGROUND_FLUSH_MS && batch.data.length < PTY_OUTPUT_MAX_BATCH_CHARS) {
+        pendingPtyOutputByPane.set(paneId, batch);
+        continue;
+      }
       processPtyOutputBatch(paneId, batch.data, batch.eventCount, batch.queuedAt);
     }
+    if (pendingPtyOutputByPane.size > 0) schedulePtyOutputFlush();
   }
 
   function schedulePtyOutputFlush(): void {
@@ -674,56 +681,11 @@ async function boot(): Promise<void> {
     void navigator.clipboard.writeText(text).catch(() => {});
   }
 
-  let blockOverlayRerunRef: ((paneId: string, command: string) => void) | null = null;
-  let blockOverlaySendToBuilderRef: SendToBuilderHandler | null = null;
-
-  function ensureBlockOverlay(paneId: string): void {
-    if (paneBlockOverlays.has(paneId)) return;
-    const pt = paneHost?.getPaneTerminal(paneId);
-    if (!pt) return;
-    const siState = ensureShellState(paneId);
-    const overlay = createBlockOverlay(
-      pt.term,
-      siState,
-      paneId,
-      copyToClipboard,
-      (cmd) => blockOverlayRerunRef?.(paneId, cmd),
-      (cmd) => blockOverlaySendToBuilderRef?.(cmd),
-    );
-    paneBlockOverlays.set(paneId, overlay);
-  }
-
-  function disposeBlockOverlay(paneId: string): void {
-    paneBlockOverlays.get(paneId)?.dispose();
-    paneBlockOverlays.delete(paneId);
-    pendingBlockOverlayRefreshPanes.delete(paneId);
-  }
-
-  function flushBlockOverlayRefreshes(): void {
-    pendingBlockOverlayRaf = 0;
-    if (pendingBlockOverlayRefreshPanes.size === 0) return;
-    const paneIds = [...pendingBlockOverlayRefreshPanes];
-    pendingBlockOverlayRefreshPanes.clear();
-    for (const paneId of paneIds) {
-      const started = performance.now();
-      paneBlockOverlays.get(paneId)?.refresh();
-      termiePerf.mark("overlay.refresh");
-      termiePerf.time("overlay.refresh.ms", performance.now() - started);
-    }
-  }
-
-  function queueBlockOverlayRefresh(paneId: string): void {
-    pendingBlockOverlayRefreshPanes.add(paneId);
-    if (pendingBlockOverlayRaf) return;
-    pendingBlockOverlayRaf = requestAnimationFrame(flushBlockOverlayRefreshes);
-  }
-
   function cleanupPaneVisualState(paneId: string): void {
     minimapHiddenPanes.delete(paneId);
     saveMinimapHiddenPaneIds(minimapHiddenPanes);
     disposeWebglForPane(paneId);
     disposeMinimapForPane(paneId);
-    disposeBlockOverlay(paneId);
     paneShellState.delete(paneId);
     paneCwdHints.delete(paneId);
     lastPtyDims.delete(paneId);
@@ -1574,7 +1536,6 @@ async function boot(): Promise<void> {
         });
         if (lp.preload_webgl_on_startup) void ensureWebglOnPane(id);
         if (minimapOn && !minimapHiddenPanes.has(id)) void ensureMinimapForPane(id);
-        ensureBlockOverlay(id);
         queueMicrotask(() => {
           void ensurePtyForPane(id, pt);
         });
@@ -2446,7 +2407,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       e.preventDefault();
       const target = e.target as Node | null;
       if (target && terminalContent?.contains(target)) {
-        if ((target as HTMLElement | null)?.closest?.(".termie-cmd-decoration, .cmd-block-ctx")) return;
         void pasteFromClipboard();
         getFocusedTerm()?.focus();
       }
@@ -2907,6 +2867,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         run: () => void invoke("toggle_overlay").catch(() => {}),
       },
       {
+        id: "quit-app",
+        label: "App: Quit Termie",
+        keywords: "exit app quit close traffic light red",
+        run: () => void appWindow.destroy().catch(() => {}),
+      },
+      {
         id: "focus-terminal",
         label: "Terminal: Focus",
         keywords: "keyboard input",
@@ -2978,20 +2944,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
           },
         })
       : null;
-
-  blockOverlayRerunRef = (paneId: string, command: string) => {
-    void ptyWrite(paneId, `${command}\r`).catch((e) => console.warn("rerun", e));
-  };
-
-  blockOverlaySendToBuilderRef = (command: string) => {
-    commandPalette?.open();
-    showBuilder();
-    if (paletteCmdText) paletteCmdText.value = command;
-    if (paletteCmdName) {
-      paletteCmdName.value = "";
-      requestAnimationFrame(() => paletteCmdName?.focus());
-    }
-  };
 
   openHelpPanel = () => {
     if (!helpPanelEl || builderMode) return;

@@ -270,7 +270,7 @@ async function boot(): Promise<void> {
       if (pane_id !== paneId) return;
       const pt = paneHost?.getPaneTerminal(pane_id);
       if (!pt || !paneShellState) return;
-      const si = processShellIntegration(data, paneShellState, pt.term);
+      const si = processShellIntegration(data, paneShellState);
       pt.term.write(si.cleaned);
     }),
     listen<{ pane_id: string }>("pty-exit", async (event) => {
