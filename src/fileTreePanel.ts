@@ -150,6 +150,19 @@ type FlatInline = {
 };
 type FlatItem = FlatEntry | FlatInline;
 
+type SearchKind = "all" | "file" | "folder" | "content";
+type SearchMode = "name" | "content";
+type SearchSpec = {
+  mode: SearchMode;
+  kind: SearchKind;
+  pattern: string;
+};
+type SearchEntry = {
+  entry: FsEntry;
+  relPath: string;
+  depth: number;
+};
+
 type PaneTreeState = {
   viewRoot: string | null;
   selected: string[];
@@ -185,6 +198,20 @@ export class FileTreePanel {
 
   private recoverTimer = 0;
 
+  // ── Search / filter state ──
+  private filterQuery = "";
+  private filterMode: "name" | "content" = "name";
+  private filterMatchCount = 0;
+  private searchInputEl: HTMLInputElement | null = null;
+  private searchCountEl: HTMLElement | null = null;
+  private searchClearEl: HTMLElement | null = null;
+  private searchFilterBtnEl: HTMLButtonElement | null = null;
+  private searchModeMenuEl: HTMLElement | null = null;
+  private searchWrapEl: HTMLElement | null = null;
+  private searchEnabled = true;
+  private searchKind: SearchKind = "all";
+  private readonly contentSearchMetaByPath = new Map<string, { matches: number; label: string }>();
+
   // Virtual scrolling state
   private flatItems: FlatItem[] = [];
   private visibleRange = { start: 0, end: 0 };
@@ -213,6 +240,7 @@ export class FileTreePanel {
     this.setupKeyboardNav();
     this.setupVirtualScroll();
     this.setupSummaryFooter();
+    this.setupSearchToolbar();
 
     // Set up git status change callback
     this.backend.onGitStatusChange = (statuses) => {
@@ -237,7 +265,407 @@ export class FileTreePanel {
       if (this.ctxEl && !this.ctxEl.contains(e.target as Node)) this.hideCtx();
     });
   }
-  
+
+  // ── Search / filter ────────────────────────────────────────────────
+
+  /** Show or hide the search toolbar. */
+  setSearchEnabled(enabled: boolean): void {
+    this.searchEnabled = enabled;
+    if (this.searchWrapEl) {
+      this.searchWrapEl.style.display = enabled ? "" : "none";
+    }
+    if (!enabled && this.filterQuery) {
+      this.clearFilter();
+    }
+  }
+
+  /** Focus the filter input for keyboard shortcut support. */
+  focusFilter(): void {
+    if (!this.searchEnabled) return;
+    this.searchInputEl?.focus();
+  }
+
+  /** Whether the filter input currently has focus. */
+  isFilterFocused(): boolean {
+    return this.searchInputEl === document.activeElement;
+  }
+
+  /** Get the current filter query. */
+  getFilterQuery(): string {
+    return this.filterQuery;
+  }
+
+  private clearFilter(): void {
+    if (this.searchInputEl) {
+      this.searchInputEl.value = "";
+    }
+    this.contentSearchMetaByPath.clear();
+    this.applyFilter("", "name");
+  }
+
+  private setupSearchToolbar(): void {
+    const dock = this.scrollEl.parentElement;
+    if (!dock) return;
+
+    const wrap = document.createElement("div");
+    wrap.className = "file-tree-search-wrap";
+    this.searchWrapEl = wrap;
+
+    const filterBtn = document.createElement("button");
+    filterBtn.type = "button";
+    filterBtn.className = "file-tree-search-filter";
+    filterBtn.title = "Filter mode";
+    filterBtn.setAttribute("aria-label", "Choose file search filter mode");
+    const funnel = createLucideIcon("filter");
+    if (funnel) filterBtn.appendChild(funnel);
+    else filterBtn.textContent = "F";
+    this.searchFilterBtnEl = filterBtn;
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "file-tree-search-input";
+    input.setAttribute("aria-label", "Filter files by name, path, or extension; press Enter to grep");
+    input.spellcheck = false;
+    this.searchInputEl = input;
+
+    const count = document.createElement("span");
+    count.className = "file-tree-search-count";
+    count.setAttribute("aria-live", "polite");
+    this.searchCountEl = count;
+
+    const clear = document.createElement("button");
+    clear.className = "file-tree-search-clear";
+    clear.textContent = "\u2715"; // ✕
+    clear.setAttribute("aria-label", "Clear filter");
+    clear.title = "Clear filter (Escape)";
+    this.searchClearEl = clear;
+
+    wrap.appendChild(filterBtn);
+    wrap.appendChild(input);
+    wrap.appendChild(count);
+    wrap.appendChild(clear);
+    dock.insertBefore(wrap, this.scrollEl);
+
+    if (!this.searchEnabled) {
+      wrap.style.display = "none";
+    }
+
+    // Input handler
+    input.addEventListener("input", () => {
+      this.applyFilter(input.value.trim(), "name");
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        if (input.value) {
+          this.clearFilter();
+        } else {
+          input.blur();
+          const term = document.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
+          term?.focus();
+        }
+        e.preventDefault();
+        e.stopPropagation();
+      } else if (e.key === "Enter") {
+        const q = input.value.trim();
+        if (q) {
+          this.applyFilter(q, "content");
+        }
+        e.preventDefault();
+      }
+    });
+
+    filterBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.toggleSearchModeMenu(filterBtn);
+    });
+
+    // Clear button
+    clear.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      this.clearFilter();
+      input.focus();
+    });
+  }
+
+  private toggleSearchModeMenu(anchor: HTMLElement): void {
+    if (this.searchModeMenuEl) {
+      this.searchModeMenuEl.remove();
+      this.searchModeMenuEl = null;
+      return;
+    }
+
+    const menu = document.createElement("div");
+    menu.className = "file-tree-search-menu";
+    const opts: Array<{ kind: SearchKind; label: string }> = [
+      { kind: "all", label: "All" },
+      { kind: "file", label: "Files" },
+      { kind: "folder", label: "Folders" },
+      { kind: "content", label: "Content" },
+    ];
+    for (const opt of opts) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "file-tree-search-menu-item";
+      if (opt.kind === this.searchKind) btn.classList.add("file-tree-search-menu-item--active");
+      btn.textContent = opt.label;
+      btn.addEventListener("click", () => {
+        this.searchKind = opt.kind;
+        this.updateSearchFilterButton();
+        const value = this.searchInputEl?.value.trim() ?? "";
+        this.applyFilter(value, opt.kind === "content" ? "content" : "name");
+        menu.remove();
+        this.searchModeMenuEl = null;
+      });
+      menu.appendChild(btn);
+    }
+    document.body.appendChild(menu);
+    const rect = anchor.getBoundingClientRect();
+    menu.style.left = `${Math.max(4, rect.left)}px`;
+    menu.style.top = `${rect.bottom + 4}px`;
+    this.searchModeMenuEl = menu;
+    window.setTimeout(() => {
+      const close = (e: PointerEvent): void => {
+        if (menu.contains(e.target as Node)) return;
+        menu.remove();
+        this.searchModeMenuEl = null;
+        document.removeEventListener("pointerdown", close, true);
+      };
+      document.addEventListener("pointerdown", close, true);
+    }, 0);
+  }
+
+  private updateSearchFilterButton(): void {
+    this.searchFilterBtnEl?.classList.toggle("file-tree-search-filter--active", this.searchKind !== "all");
+    this.searchFilterBtnEl?.setAttribute("data-mode", this.searchKind);
+  }
+
+  private parseSearchQuery(raw: string, forcedMode: SearchMode): SearchSpec {
+    let q = raw.trim();
+    let mode = forcedMode;
+    let kind = this.searchKind;
+    const lower = q.toLowerCase();
+    const prefixes: Array<[string, SearchKind | "content"]> = [
+      ["rg:", "content"],
+      ["grep:", "content"],
+      ["content:", "content"],
+      ["file:", "file"],
+      ["files:", "file"],
+      ["dir:", "folder"],
+      ["folder:", "folder"],
+      ["path:", "all"],
+    ];
+    for (const [prefix, parsed] of prefixes) {
+      if (!lower.startsWith(prefix)) continue;
+      q = q.slice(prefix.length).trim();
+      if (parsed === "content") mode = "content";
+      else kind = parsed;
+      break;
+    }
+    return { mode, kind, pattern: q };
+  }
+
+  private relativePathFor(absPath: string): string {
+    const root = this.viewRoot;
+    if (!root) return basename(absPath);
+    const absKey = normalizeFsPathKey(absPath);
+    const rootKey = normalizeFsPathKey(root);
+    if (absKey === rootKey) return "";
+    const prefix = `${rootKey}/`;
+    if (!absKey.startsWith(prefix)) return basename(absPath);
+    return absKey.slice(prefix.length);
+  }
+
+  private collectVisibleEntries(): SearchEntry[] {
+    const out: SearchEntry[] = [];
+    const root = this.viewRoot;
+    const children = root ? this.ensureState(root).children : null;
+    if (!root || !children) return out;
+
+    const visit = (entries: FsEntry[], depth: number): void => {
+      for (const entry of entries) {
+        out.push({ entry, depth, relPath: this.relativePathFor(entry.path) });
+        if (!entry.isDir) continue;
+        const state = this.cache.get(normalizeFsPathKey(entry.path));
+        if (state?.children) visit(state.children, depth + 1);
+      }
+    };
+    visit(children, 0);
+    return out;
+  }
+
+  private entryMatchesSpec(item: SearchEntry, spec: SearchSpec): boolean {
+    if (!spec.pattern) return true;
+    if (spec.kind === "file" && item.entry.isDir) return false;
+    if (spec.kind === "folder" && !item.entry.isDir) return false;
+    const pattern = spec.pattern.replace(/\\/g, "/");
+    if (pattern.includes("/")) return this.matchesPattern(item.relPath, pattern, false);
+    return this.matchesPattern(item.entry.name, pattern, true);
+  }
+
+  private matchesPattern(value: string, pattern: string, substringWhenPlain: boolean): boolean {
+    const v = value.replace(/\\/g, "/").toLowerCase();
+    const p = pattern.toLowerCase();
+    if (!/[?*]/.test(p)) return substringWhenPlain ? v.includes(p) : v.startsWith(p);
+    const source = p
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*/g, ".*")
+      .replace(/\?/g, ".");
+    try {
+      return new RegExp(`^${source}$`, "i").test(value.replace(/\\/g, "/"));
+    } catch {
+      return substringWhenPlain ? v.includes(p) : v.startsWith(p);
+    }
+  }
+
+  /**
+   * Apply a filter query to the file tree.
+   * @param query The filter text (glob, extension, path prefix, or plain substring).
+   * @param mode  "name" = recursive name filter; "content" = backend grep search.
+   */
+  private applyFilter(query: string, mode: "name" | "content"): void {
+    const spec = this.parseSearchQuery(query, mode);
+    this.filterQuery = query;
+    this.filterMode = spec.mode;
+    if (spec.kind !== this.searchKind) {
+      this.searchKind = spec.kind;
+      this.updateSearchFilterButton();
+    }
+
+    // Update clear button visibility
+    if (this.searchClearEl) {
+      this.searchClearEl.classList.toggle("file-tree-search-clear--visible", query.length > 0);
+    }
+
+    if (spec.mode === "content" && spec.pattern) {
+      void this.runContentSearch(spec.pattern);
+      return;
+    }
+
+    this.contentSearchMetaByPath.clear();
+    this.renderedElements.forEach((el) => el.remove());
+    this.renderedElements.clear();
+    this.rebuildFilteredView(spec);
+  }
+
+  /**
+   * Rebuild the flat list using recursive cached entries + current filter.
+   */
+  private rebuildFilteredView(spec = this.parseSearchQuery(this.filterQuery, "name")): void {
+    const cwd = this.viewRoot;
+    if (!cwd || !this.ensureState(cwd).children) {
+      if (this.virtualContainer) {
+        this.virtualContainer.remove();
+        this.virtualContainer = null;
+      }
+      this.flatItems = [];
+      this.renderedElements.clear();
+      this.filterMatchCount = 0;
+      this.updateSearchCount();
+      return;
+    }
+
+    if (spec.pattern) this.buildSearchFlatList(spec);
+    else this.buildFlatList();
+
+    this.presentFlatItems();
+  }
+
+  private presentFlatItems(): void {
+    const cwd = this.viewRoot;
+    if (!cwd) return;
+
+    if (!this.virtualContainer) {
+      this.virtualContainer = document.createElement("div");
+      this.virtualContainer.className = "file-tree-virtual-container";
+      this.virtualContainer.setAttribute("role", "tree");
+      this.scrollEl.appendChild(this.virtualContainer);
+    }
+
+    const totalHeight = this.flatItems.length * this.itemHeight;
+    this.virtualContainer.style.height = `${totalHeight}px`;
+    this.virtualContainer.style.position = "relative";
+
+    this.visibleRange = { start: -1, end: -1 };
+    this.updateVisibleRange();
+    this.updateSearchCount();
+  }
+
+  /** Run a backend content search (grep/rg) and display results with match counts. */
+  private async runContentSearch(query: string): Promise<void> {
+    if (!this.viewRoot || !query) return;
+
+    // Show searching state
+    this.flatItems = [];
+    if (this.searchCountEl) {
+      this.searchCountEl.textContent = "\u2026"; // …
+    }
+    this.renderedElements.forEach((el) => el.remove());
+    this.renderedElements.clear();
+    this.presentFlatItems();
+    if (this.searchCountEl) {
+      this.searchCountEl.textContent = "\u2026";
+    }
+
+    try {
+      const results = await this.backend.searchFileContents(this.viewRoot, query);
+      this.contentSearchMetaByPath.clear();
+      this.flatItems = [];
+      this.filterMatchCount = 0;
+      this.renderedElements.forEach((el) => el.remove());
+      this.renderedElements.clear();
+
+      for (const result of results) {
+        const absPath = result.path;
+        const relDisplay = this.viewRoot
+          ? absPath.startsWith(this.viewRoot)
+            ? absPath.slice(this.viewRoot.length).replace(/^[/\\]+/, "")
+            : basename(absPath)
+          : basename(absPath);
+        const entry: FsEntry = {
+          name: basename(absPath),
+          path: absPath,
+          isDir: false,
+          gitStatus: null,
+          iconKey: null,
+        };
+        this.contentSearchMetaByPath.set(normalizeFsPathKey(absPath), {
+          matches: result.matches,
+          label: relDisplay,
+        });
+        this.flatItems.push({
+          kind: "entry",
+          entry,
+          depth: 0,
+        });
+        this.filterMatchCount++;
+      }
+      this.presentFlatItems();
+      this.updateSearchCount();
+    } catch (e) {
+      console.warn("Content search failed:", e);
+      this.filterMatchCount = 0;
+      this.updateSearchCount();
+      // Fall back to name filter
+      this.filterMode = "name";
+      this.rebuildFilteredView();
+    }
+  }
+
+  private updateSearchCount(): void {
+    if (!this.searchCountEl) return;
+    if (!this.filterQuery) {
+      this.searchCountEl.textContent = "";
+      return;
+    }
+    if (this.filterMode === "content") {
+      this.searchCountEl.textContent = `${this.filterMatchCount}`;
+      return;
+    }
+    this.searchCountEl.textContent = this.filterMatchCount > 0 ? `${this.filterMatchCount}` : "0";
+  }
+
+  // ── End search / filter ────────────────────────────────────────────
   private setupVirtualScroll(): void {
     this.scrollEl.addEventListener("scroll", () => {
       this.updateVisibleRange();
@@ -1239,6 +1667,8 @@ export class FileTreePanel {
     }
 
     this.flatItems = [];
+    this.filterMatchCount = 0;
+
     const visit = (entries: FsEntry[], depth: number, parentPath: string): void => {
       if (
         this.inlineNew &&
@@ -1266,6 +1696,32 @@ export class FileTreePanel {
     const rootChildren = this.ensureState(cwd).children;
     if (rootChildren) {
       visit(rootChildren, 0, cwd);
+    }
+  }
+
+  private buildSearchFlatList(spec: SearchSpec): void {
+    this.flatItems = [];
+    this.filterMatchCount = 0;
+    const entries = this.collectVisibleEntries()
+      .filter((item) => this.entryMatchesSpec(item, spec))
+      .sort((a, b) => {
+        if (a.entry.isDir !== b.entry.isDir) return a.entry.isDir ? -1 : 1;
+        return a.relPath.localeCompare(b.relPath);
+      });
+
+    if (this.inlineNew) {
+      this.flatItems.push({
+        kind: "inline",
+        depth: 0,
+        mode: this.inlineNew.mode,
+        parent: this.inlineNew.parent,
+        initial: this.inlineNew.initial,
+      });
+    }
+
+    for (const { entry } of entries) {
+      this.flatItems.push({ kind: "entry", entry, depth: 0 });
+      this.filterMatchCount++;
     }
   }
 
@@ -2001,9 +2457,17 @@ export class FileTreePanel {
       } else {
         const label = document.createElement("span");
         label.className = "file-tree-label file-tree-label--file";
-        label.textContent = ent.name;
+        const searchMeta = this.contentSearchMetaByPath.get(normalizeFsPathKey(ent.path));
+        label.textContent = searchMeta?.label ?? ent.name;
         label.title = ent.path;
         nameWrap.appendChild(label);
+        if (searchMeta) {
+          const badge = document.createElement("span");
+          badge.className = "file-tree-search-match-badge";
+          badge.textContent = String(searchMeta.matches);
+          badge.title = `${searchMeta.matches} string match${searchMeta.matches === 1 ? "" : "es"}`;
+          nameWrap.appendChild(badge);
+        }
       }
       row.appendChild(nameWrap);
     }

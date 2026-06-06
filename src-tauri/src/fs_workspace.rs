@@ -593,3 +593,150 @@ pub fn fs_create_dir(path: String) -> Result<(), String> {
     }
     fs::create_dir_all(&p).map_err(|e| e.to_string())
 }
+
+/// Result from a content search (grep/rg) operation.
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResult {
+    pub path: String,
+    pub matches: u32,
+}
+
+/// Search file contents in `root` using rg (ripgrep) with fallbacks.
+/// Uses `--count-matches` to report per-file match counts, sorted most-matches-first.
+pub fn search_file_contents(root: String, query: String) -> Result<Vec<SearchResult>, String> {
+    let root_path = PathBuf::from(&root);
+    if !root_path.is_absolute() {
+        return Err("root must be an absolute path".into());
+    }
+    if !root_path.is_dir() {
+        return Err("root must be a directory".into());
+    }
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Try ripgrep first
+    if let Ok(results) = run_rg_search(&root_path, &query) {
+        if !results.is_empty() {
+            return Ok(results);
+        }
+    }
+
+    // Fallback: try `git grep` if in a git repo
+    if root_path.join(".git").exists() {
+        if let Ok(results) = run_git_grep_search(&root_path, &query) {
+            if !results.is_empty() {
+                return Ok(results);
+            }
+        }
+    }
+
+    // Last resort: `grep -r`
+    run_grep_search(&root_path, &query)
+}
+
+fn run_rg_search(root: &Path, query: &str) -> Result<Vec<SearchResult>, String> {
+    let mut cmd = Command::new("rg");
+    cmd.args([
+        "--count-matches",
+        "--no-heading",
+        "--",
+        query,
+        ".",
+    ])
+    .current_dir(root);
+    crate::subprocess::hide_console_window(&mut cmd);
+
+    let output = cmd.output().map_err(|e| e.to_string())?;
+
+    // rg exits 1 when no matches found — that's not an error
+    if !output.status.success() && output.status.code() != Some(1) {
+        return Err(format!("rg exited with {}", output.status));
+    }
+
+    parse_count_output(root, &output.stdout)
+}
+
+fn run_git_grep_search(root: &Path, query: &str) -> Result<Vec<SearchResult>, String> {
+    let mut cmd = Command::new("git");
+    cmd.args([
+        "grep",
+        "-c",               // count matches per file
+        "-I",               // ignore binary files
+        "--",
+        query,
+    ])
+    .current_dir(root);
+    crate::subprocess::hide_console_window(&mut cmd);
+
+    let output = cmd.output().map_err(|e| e.to_string())?;
+
+    if !output.status.success() && output.status.code() != Some(1) {
+        return Err(format!("git grep exited with {}", output.status));
+    }
+
+    parse_count_output(root, &output.stdout)
+}
+
+fn run_grep_search(root: &Path, query: &str) -> Result<Vec<SearchResult>, String> {
+    let mut cmd = Command::new("grep");
+    cmd.args([
+        "-r",
+        "-c",               // count matches per file
+        "-I",               // ignore binary
+        "--",
+        query,
+        ".",
+    ])
+    .current_dir(root);
+    crate::subprocess::hide_console_window(&mut cmd);
+
+    let output = cmd.output().map_err(|e| e.to_string())?;
+
+    // grep returns 1 when no matches found — that's not an error
+    if !output.status.success() && output.status.code() != Some(1) {
+        return Err(format!("grep exited with {}", output.status));
+    }
+
+    parse_count_output(root, &output.stdout)
+}
+
+/// Parse `path:count` output (one line per file, colon-separated).
+fn parse_count_output(root: &Path, stdout: &[u8]) -> Result<Vec<SearchResult>, String> {
+    let text = String::from_utf8_lossy(stdout);
+    let mut results: Vec<SearchResult> = Vec::new();
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        // Format: "path:count"  or  "path:line:count" (git grep may include line numbers)
+        // Split on the LAST colon to get the count
+        let (path_part, count_str) = if let Some(idx) = trimmed.rfind(':') {
+            (&trimmed[..idx], &trimmed[idx + 1..])
+        } else {
+            (trimmed, "1")
+        };
+
+        let count: u32 = count_str.parse().unwrap_or(1);
+        let full_path = root.join(path_part);
+        let abs_path = full_path.to_string_lossy().replace('/', "\\");
+
+        // Deduplicate by path, summing counts
+        if let Some(existing) = results.iter_mut().find(|r| r.path == abs_path) {
+            existing.matches += count;
+        } else {
+            results.push(SearchResult {
+                path: abs_path,
+                matches: count,
+            });
+        }
+    }
+
+    // Sort by match count descending (most matches first)
+    results.sort_by(|a, b| b.matches.cmp(&a.matches));
+    Ok(results)
+}

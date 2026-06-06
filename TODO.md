@@ -3,12 +3,12 @@
 - [x] Animations on pane creation
 - [x] Omni-directional pane resizing
 - [x] Pane-specific file tree tracking
-- [ ] OSC hook injection per-shell for file tree cwd track enhancement (in progress) — *HIGH PRIORITY*
+- [x] OSC hook injection per-shell for file tree cwd track enhancement.
 - [ ] New pane spawn matches pane parent cwd (needs testing, but implementation attempted)
 - [ ] Tab functionality (multiple workspaces, all active and retrievable at any time)
 - [x] Fix white space at bottom of window when maximized (bug). 
 - [x] Copy on selection in terminal panes
-- [ ] Theme center, live UI adjust previews for picking the right one (implementation attempted, needs testing)
+- [x] Theme center, live UI adjust previews for picking the right one (implementation attempted, needs testing)
 - [ ] Presets; open a specific combination of terminal panes in a specific layout, with commands passed through as desired. Allows you to build customized workspaces for any activity. 
 - [ ] Tabs can be opened with a configured preset
 - [x] Pane kill animations in inverse of creation anim. 
@@ -17,21 +17,22 @@
 - [x] More hotkeys with corresponding command palette functions.
 - [ ] Startup, pane creation, and while-active resource use optimization, latency defense, and speed hardening. 
 - [ ] File panel customization options (show dot folders like git, etc., icon customization; show git conditions, etc.)
-- [ ] Editor integration; create a rust-backed (maybe copy Zed’s open source) editor - you can open as a pane.
+- [null] Editor integration; create a rust-backed (maybe copy Zed’s open source) editor - you can open as a pane. **deferred in favor of terminal editors like vim, nvim**. 
 - [ ] Terminal is not the base of the app launch; it can be set as default (which is the default behavior of the app) to launch the terminal, but you can also set it to have an empty working area, launch the editor pane, or use presets as defined. 
 - [ ] Quicker settings, preferences load options, data persistence and reliability enhancements (use lightweight DB for storage? Explore options, see tradeoffs)
-- [ ] Experiment with WebView2 resource optimizations, research, implement optimizations for better window behavior, lighter men and CPU footprint for use on lighter devices *without* tradeoffs on performance.
+- [x] Experiment with WebView2 resource optimizations, research, implement optimizations for better window behavior, lighter men and CPU footprint for use on lighter devices *without* tradeoffs on performance.
 - [x] Hotkeys for vert/horizontal pane creation updated for use quickness (instead of alt + ctrl as modifiers, use only alt; cuts time spent on pane creation and requires one less finger to type; better for hand reach on keyboard)
 - [ ] Refining input handling across all terminal panes (all sequences, combinations like ctrl and alt modified inputs)
 - [x] Ctrl + f search in pane, ctrl + shift + f for searching across all panes (find matching entries in terminal history)
 - [x] When minimap is hidden, the space within a pane (or the general terminal view) should be re-allocated for the terminal content
-- [ ] Per-pane minimap hide support, which lets you use terminal applications in full space where you want, but keep minimap in panes you want to keep it. 
-- [ ] TUI detection for *full* space allocation, and customization (choose which TUIs get full space allocation, which means zero pane padding for UI continuity; this would probably work by watching for a specific string passed to a pane/the terminal, and re-rendering the space without padding if the specific string has been passed, like “opencode” or “claude”)
-- [ ] Better support for bash-style shells; path updating in file tree needs to handle retrieving file paths from WSL disk partition, and if navigating to native disk via WSL, also needs to support those paths in unix format). 
+- [x] Per-pane minimap hide support, which lets you use terminal applications in full space where you want, but keep minimap in panes you want to keep it. 
+- [x] TUI detection for *full* space allocation, and customization (choose which TUIs get full space allocation, which means zero pane padding for UI continuity; this would probably work by watching for a specific string passed to a pane/the terminal, and re-rendering the space without padding if the specific string has been passed, like “opencode” or “claude”)
+- [ ] Better support for bash-style shells; path updating in file tree needs to handle retrieving file paths from WSL disk partition, and if navigating to native disk via WSL, also needs to support those paths in unix format. (very far in the future, wsl is tricky)
 - [ ] CLI for using Termie when open for *programmatic* interaction; all command palette actions, settings/theme changes, etc. 
 - [ ] Option in command palette to detach file panel from terminal cwd, for fast, user end navigation *anywhere*, freely.
 - [ ] Fallback icons for file panel (Lucide), toggle option for icon theme. 
 - [ ] Sessions: save PTY state, pane organizations, etc., so sessions can be returned to.
 - [ ] Better git integration; diff numbers alongside git condition markers in file panel (toggleable), and diff review pane (heavier task).
-- [x] **Pop out pane to separate window:** From the full Termie app, eject an existing pane into its own window with the same cwd, scrollback/history, and pane preferences. The popped-out window should be draggable (e.g. with Alt), fullscreen-capable, and closable with the existing Ctrl+Shift+W pane-kill shortcut. It must survive hiding the main app via its summon hotkey until the pane is killed.
-- [ ] Make panes be able to be picked up and switched with another pane's position (drag and drop, other pane jumps animated out of it's position to the other pane's previous position, and both panes resize to fit each other's spots, with animated landing animation (akin to pane creation animation))
+- [null] **Pop out pane to separate window:** From the full Termie app, eject an existing pane into its own window with the same cwd, scrollback/history, and pane preferences. The popped-out window should be draggable (e.g. with Alt), fullscreen-capable, and closable with the existing Ctrl+Shift+W pane-kill shortcut. It must survive hiding the main app via its summon hotkey until the pane is killed. **DEFERRED** forever!!!
+- [x] Make panes be able to be picked up and switched with another pane's position (drag and drop, other pane jumps animated out of it's position to the other pane's previous position, and both panes resize to fit each other's spots, with animated landing animation (akin to pane creation animation))
+- [ ] Transparency, windows acrylic/mica background (a more modern sort of rite of passage; lots of people like transparent windows; and with a multi-pane environment, will look like we're working with a desktop tiling environment, especially in zen mode.

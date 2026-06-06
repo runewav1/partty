@@ -126,6 +126,11 @@ fn fs_create_dir(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn search_file_contents(root: String, query: String) -> Result<Vec<fs_workspace::SearchResult>, String> {
+    fs_workspace::search_file_contents(root, query)
+}
+
+#[tauri::command]
 fn detect_shells() -> Vec<pty::DetectedShell> {
     pty::detect_available_shells()
 }
@@ -1675,6 +1680,7 @@ pub fn run() {
             fs_remove,
             fs_create_file,
             fs_create_dir,
+            search_file_contents,
             detect_shells,
             open_in_editor,
             open_external_url,

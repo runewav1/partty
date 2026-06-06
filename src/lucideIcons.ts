@@ -60,6 +60,7 @@ const LUCIDE_ICON_MAP: Record<string, keyof typeof lucide> = {
   "toml": "Braces",
   "xml": "CodeXml",
   "settings": "Settings",
+  "filter": "Funnel",
   "env": "Key",
   "lock": "Lock",
   "git": "GitBranch",

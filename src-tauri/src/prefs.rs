@@ -129,6 +129,9 @@ pub struct Prefs {
     /// Show git info panel at the bottom of the file tree.
     #[serde(default = "default_file_tree_show_git_info")]
     pub file_tree_show_git_info: bool,
+    /// Disable the file tree search/filter bar (reclaims vertical space).
+    #[serde(default)]
+    pub file_tree_disable_search: bool,
     /// Ask for confirmation before deleting items from the file tree.
     #[serde(default = "default_confirm_delete_prompt")]
     pub confirm_delete_prompt: bool,
@@ -198,6 +201,7 @@ impl Default for Prefs {
             font_file_tree: String::new(),
             file_tree_show_diff_counts: false,
             file_tree_show_git_info: true,
+            file_tree_disable_search: false,
             confirm_delete_prompt: true,
             ui_disable_tooltips: false,
             terminal_click_to_cursor: true,

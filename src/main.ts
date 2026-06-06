@@ -296,6 +296,9 @@ async function boot(): Promise<void> {
   const showGitInfoRef = {
     v: (persisted.prefs as Partial<TermiePrefs>).file_tree_show_git_info ?? true,
   };
+  const disableSearchRef = {
+    v: Boolean((persisted.prefs as Partial<TermiePrefs>).file_tree_disable_search),
+  };
   const disableTooltipsRef = {
     v: (persisted.prefs as Partial<TermiePrefs>).ui_disable_tooltips ?? false,
   };
@@ -1381,6 +1384,19 @@ async function boot(): Promise<void> {
 
   function toggleFileTree(): void {
     setFileTreeEnabled(!document.documentElement.classList.contains("file-tree-on"));
+  }
+
+  function focusFileTreeFilter(): boolean {
+    if (!document.documentElement.classList.contains("file-tree-on")) {
+      setFileTreeEnabled(true);
+    }
+    if (fileTreePanel?.isFilterFocused()) {
+      // If already focused, clear filter and close
+      fileTreePanel?.focusFilter();
+      return true;
+    }
+    fileTreePanel?.focusFilter();
+    return true;
   }
 
   function requestLayoutPass(forceRefresh = false): void {
@@ -2533,10 +2549,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         autoCopySelectionRef.v = saved.auto_copy_selection;
         showDiffCountsRef.v = saved.file_tree_show_diff_counts;
         showGitInfoRef.v = saved.file_tree_show_git_info;
+        disableSearchRef.v = saved.file_tree_disable_search ?? false;
         confirmDeletePromptRef.v = saved.confirm_delete_prompt ?? true;
         disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
         clickToCursorRef.v = saved.terminal_click_to_cursor ?? true;
         backspaceDeleteSelectionRef.v = saved.terminal_backspace_delete_selection ?? true;
+        fileTreePanel?.setSearchEnabled(!(saved.file_tree_disable_search ?? false));
         applyTerminalDisplayPrefs(saved);
         applyTooltipPolicy(document);
         document.documentElement.classList.toggle("pane-blur-unfocused", saved.blur_unfocused_panes);
@@ -2832,6 +2850,15 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         hotkey: "Ctrl+Shift+E",
         run: () => {
           toggleFileTree();
+        },
+      },
+      {
+        id: "filter-file-tree",
+        label: "Find in files",
+        keywords: "filter search grep rg find ctrl p",
+        hotkey: "Ctrl+P",
+        run: () => {
+          focusFileTreeFilter();
         },
       },
       {
@@ -3308,6 +3335,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
             void setDeleteConfirmPrompt(enabled);
           },
         );
+        fileTreePanel.setSearchEnabled(!disableSearchRef.v);
         const focusedPaneId = paneHost?.getFocusedPaneId();
         if (focusedPaneId) {
           fileTreePanel.setActivePane(focusedPaneId);

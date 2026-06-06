@@ -51,6 +51,11 @@ export type FileTreeBackendOptions = {
   onFileSystemChange?: (paths: string[]) => void;
 };
 
+export type SearchResult = {
+  path: string;
+  matches: number;
+};
+
 /**
  * Backend for file tree operations.
  */
@@ -323,5 +328,12 @@ export class FileTreeBackend {
 
   async getParentDirectory(path: string): Promise<string | null> {
     return invoke<string | null>("fs_parent_dir", { path });
+  }
+
+  /**
+   * Search file contents using rg/grep (backend).
+   */
+  async searchFileContents(root: string, query: string): Promise<SearchResult[]> {
+    return invoke<SearchResult[]>("search_file_contents", { root, query });
   }
 }

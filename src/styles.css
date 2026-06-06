@@ -1902,6 +1902,147 @@ html.zen-mode #main-workspace {
   color: var(--ui-chrome-fg);
 }
 
+/* ── File tree search / filter ── */
+.file-tree-search-wrap {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px 4px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.file-tree-search-filter {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ui-chrome-muted);
+  cursor: pointer;
+  padding: 0;
+}
+
+.file-tree-search-filter:hover,
+.file-tree-search-filter--active {
+  background: var(--hover-overlay-light);
+  color: var(--ui-chrome-fg);
+}
+
+.file-tree-search-filter svg {
+  width: 14px;
+  height: 14px;
+}
+
+.file-tree-search-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  background: var(--hover-overlay-light);
+  color: var(--ui-chrome-fg);
+  font-size: 11px;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  line-height: 1;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.file-tree-search-input:focus {
+  border-color: var(--accent, rgba(100, 150, 255, 0.45));
+}
+
+.file-tree-search-input::placeholder {
+  color: var(--ui-chrome-fainter);
+  font-style: italic;
+}
+
+.file-tree-search-count {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  color: var(--ui-chrome-fainter);
+  white-space: nowrap;
+  padding: 0 2px;
+  min-width: 32px;
+  text-align: right;
+}
+
+.file-tree-search-clear {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ui-chrome-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+.file-tree-search-clear--visible {
+  display: flex;
+}
+
+.file-tree-search-clear:hover {
+  color: var(--ui-chrome-fg);
+  background: var(--hover-overlay-light);
+}
+
+.file-tree-search-menu {
+  position: fixed;
+  z-index: 100000;
+  min-width: 120px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: var(--panel-bg, #18181b);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+.file-tree-search-menu-item {
+  width: 100%;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ui-chrome-muted);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  padding: 5px 7px;
+  cursor: pointer;
+}
+
+.file-tree-search-menu-item:hover,
+.file-tree-search-menu-item--active {
+  background: var(--hover-overlay-light);
+  color: var(--ui-chrome-fg);
+}
+
+.file-tree-search-match-badge {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 15px;
+  color: #bfdbfe;
+  background: rgba(59, 130, 246, 0.16);
+}
+
 .file-tree-row--selected {
   background: var(--active-overlay);
   border-radius: 4px;

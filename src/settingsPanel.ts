@@ -32,6 +32,8 @@ export type TermiePrefs = {
   file_tree_show_diff_counts: boolean;
   /** File tree: show git info panel with repo summary. */
   file_tree_show_git_info: boolean;
+  /** File tree: hide the file name/content search bar. */
+  file_tree_disable_search: boolean;
   /** Ask for delete confirmation before file/folder removal in file tree. */
   confirm_delete_prompt: boolean;
   /** Disable native hover tooltips in the UI. */
@@ -187,6 +189,7 @@ export function createSettingsPanel(
     setChk("hidden_from_taskbar", pr.hidden_from_taskbar ?? false);
     setChk("file_tree_show_diff_counts", pr.file_tree_show_diff_counts ?? false);
     setChk("file_tree_show_git_info", pr.file_tree_show_git_info ?? true);
+    setChk("file_tree_disable_search", pr.file_tree_disable_search ?? false);
     setChk("confirm_delete_prompt", pr.confirm_delete_prompt ?? true);
     setChk("ui_disable_tooltips", pr.ui_disable_tooltips ?? false);
     setChk("terminal_click_to_cursor", pr.terminal_click_to_cursor ?? true);
@@ -248,6 +251,7 @@ export function createSettingsPanel(
           font_file_tree: g("font_file_tree").trim(),
           file_tree_show_diff_counts: gc("file_tree_show_diff_counts"),
           file_tree_show_git_info: gc("file_tree_show_git_info"),
+          file_tree_disable_search: gc("file_tree_disable_search"),
           confirm_delete_prompt: gc("confirm_delete_prompt"),
           ui_disable_tooltips: gc("ui_disable_tooltips"),
           terminal_click_to_cursor: gc("terminal_click_to_cursor"),
