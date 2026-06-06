@@ -44,11 +44,22 @@ function uriToLocalPath(payload: string): string | null {
     const u = new URL(href);
     if (u.protocol !== "file:") return null;
     let p = decodeURIComponent(u.pathname);
-    if (/^\/[a-zA-Z]:/.test(p)) p = p.slice(1);
-    p = p.replace(/\//g, "\\");
+    if (u.hostname) {
+      p = `\\${u.hostname}${p}`.replace(/\//g, "\\");
+      return p || null;
+    }
+    if (/^\/[a-zA-Z]:/.test(p)) {
+      p = p.slice(1).replace(/\//g, "\\");
+      return p || null;
+    }
     return p || null;
   } catch {
-    if (/^[a-zA-Z]:[\\/]/.test(raw)) return raw.replace(/\//g, "\\");
+    // URL constructor failed (e.g. unencoded spaces). Try to recover.
+    let cleaned = raw;
+    try { cleaned = decodeURIComponent(cleaned); } catch { /* raw is fine */ }
+    cleaned = cleaned.replace(/^file:\/+(\/+)?/i, "");
+    if (/^[a-zA-Z]:[\\/]/.test(cleaned)) return cleaned.replace(/\//g, "\\");
+    if (cleaned.startsWith("/")) return cleaned;
     return null;
   }
 }

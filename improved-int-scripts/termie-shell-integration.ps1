@@ -72,6 +72,29 @@ function __Termie-Escape-Value {
     return $result.ToString()
 }
 
+function __Termie-UriEncode-Path {
+    param([string]$Path)
+    if ([string]::IsNullOrEmpty($Path)) { return "" }
+    $result = [System.Text.StringBuilder]::new($Path.Length * 2)
+    foreach ($ch in $Path.ToCharArray()) {
+        $code = [int]$ch
+        # Unreserved chars per RFC 3986: ALPHA / DIGIT / "-" / "." / "_" / "~"
+        # Also keep ":" (drive letter), "/" (separator) for readability
+        if (($code -ge 0x41 -and $code -le 0x5A) -or
+            ($code -ge 0x61 -and $code -le 0x7A) -or
+            ($code -ge 0x30 -and $code -le 0x39) -or
+            $code -eq 0x2D -or $code -eq 0x2E -or
+            $code -eq 0x5F -or $code -eq 0x7E -or
+            $code -eq 0x3A -or $code -eq 0x2F) {
+            [void]$result.Append($ch)
+        }
+        else {
+            [void]$result.Append('%{0:x2}' -f $code)
+        }
+    }
+    return $result.ToString()
+}
+
 <#
 .SYNOPSIS
     Converts a local path to a proper file:// URI for OSC 7.
@@ -88,22 +111,20 @@ function __Termie-Path-To-FileUri {
     
     # Normalize path separators to forward slashes
     $normalizedPath = $Path.Replace('\', '/')
+    $encoded = __Termie-UriEncode-Path $normalizedPath
     
     # Handle UNC paths: \\server\share -> file://server/share
-    if ($normalizedPath.StartsWith('//')) {
-        $uri = "file:" + $normalizedPath
-        return $uri
+    if ($encoded.StartsWith('//')) {
+        return "file:" + $encoded
     }
     
     # Handle drive letters: C:/path -> file:///C:/path
-    if ($normalizedPath -match '^[A-Za-z]:') {
-        # Ensure drive letter path starts correctly
-        $uri = "file:///" + $normalizedPath
-        return $uri
+    if ($encoded -match '^[A-Za-z]:') {
+        return "file:///" + $encoded
     }
     
     # Fallback: assume local path
-    return "file:///" + $normalizedPath.TrimStart('/')
+    return "file:///" + $encoded.TrimStart('/')
 }
 
 <#

@@ -363,6 +363,14 @@ async function boot(): Promise<void> {
     termiePerf.mark("pty.output.chars", data.length);
     termiePerf.time("pty.output.queue.ms", performance.now() - queuedAt);
 
+    // Pre-process: let the coordinator detect OSC 7 cwd before shell integration strips it.
+    // This is a defence-in-depth pass — processShellIntegration also handles OSC 7/633.
+    let parseInput = data;
+    if (fileTreeCoordinator) {
+      const pre = fileTreeCoordinator.processRawTerminalOutput(paneId, data);
+      parseInput = pre.cleaned;
+    }
+
     const cwdHandler = (p: string): void => {
       paneCwdHints.set(paneId, p);
       lastLiveCwdSignalAt = Date.now();
@@ -375,7 +383,7 @@ async function boot(): Promise<void> {
 
     const siState = ensureShellState(paneId);
     const parseStarted = performance.now();
-    const si = processShellIntegration(data, siState, pt.term, cwdHandler);
+    const si = processShellIntegration(parseInput, siState, pt.term, cwdHandler);
     termiePerf.time("pty.output.parse.ms", performance.now() - parseStarted);
 
     if (fileTreeCoordinator && si.events.length > 0) {

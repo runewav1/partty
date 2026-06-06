@@ -71,22 +71,32 @@ export class OscHandler {
 
       let path = decodeURIComponent(url.pathname);
 
-      // Handle Windows paths: /C:/path -> C:\path
-      if (/^\/[a-zA-Z]:/.test(path)) {
-        path = path.slice(1);
-      }
-
-      // Handle UNC paths: \\server\share
+      // Handle UNC paths with hostname: file://server/share -> \\server\share
       if (url.hostname) {
-        path = `\\${url.hostname}${path}`;
+        path = `\\${url.hostname}${path}`.replace(/\//g, "\\");
+        return path || null;
       }
 
-      path = path.replace(/\//g, "\\");
+      // Handle Windows drive-letter paths: /C:/path -> C:\path
+      if (/^\/[a-zA-Z]:/.test(path)) {
+        path = path.slice(1).replace(/\//g, "\\");
+        return path || null;
+      }
+
+      // POSIX path: keep forward slashes as-is
       return path || null;
     } catch {
-      // Fallback: try to parse as raw Windows path
-      if (/^[a-zA-Z]:[\\/]/.test(raw)) {
-        return raw.replace(/\//g, "\\");
+      // URL constructor failed (e.g. unencoded spaces). Try to recover.
+      let cleaned = raw;
+      try { cleaned = decodeURIComponent(cleaned); } catch { /* raw is fine */ }
+      // Strip file:// scheme if present
+      cleaned = cleaned.replace(/^file:\/+(\/+)?/i, "");
+      if (/^[a-zA-Z]:[\\/]/.test(cleaned)) {
+        return cleaned.replace(/\//g, "\\");
+      }
+      // POSIX fallback: if it's an absolute POSIX path, return as-is
+      if (cleaned.startsWith("/")) {
+        return cleaned;
       }
       return null;
     }

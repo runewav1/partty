@@ -60,8 +60,10 @@ type ProcessResult = {
 };
 
 function toWindowsAbsPath(input: string): string {
-  const raw = input.trim();
+  let raw = input.trim();
   if (!raw) return raw;
+  // Strip file:// scheme prefix when URL parsing failed and input is still a URI
+  raw = raw.replace(/^file:\/+(\/+)?/i, "");
   if (/^[a-zA-Z]:[\\/]/.test(raw)) return raw.replace(/\//g, "\\");
   if (/^[a-zA-Z]:\//.test(raw)) return raw.replace(/\//g, "\\");
   if (/^\\\\[^\\]+\\[^\\]+/.test(raw)) return raw.replace(/\//g, "\\");
@@ -100,8 +102,11 @@ function uriToLocalPath(payload: string, properties: Map<string, string>): strin
     }
     return p || null;
   } catch {
-    if (isWindows) return toWindowsAbsPath(raw);
-    return null;
+    if (!isWindows) return null;
+    // URL constructor failed (e.g. unencoded spaces). Try to recover the path.
+    let cleaned = raw;
+    try { cleaned = decodeURIComponent(cleaned); } catch { /* raw is fine */ }
+    return toWindowsAbsPath(cleaned) || null;
   }
 }
 
