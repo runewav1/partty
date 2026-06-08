@@ -11,14 +11,12 @@ import {
   capturePlainBuffer,
   createWebglAddon,
   mergeLifecyclePrefs,
-  type TermieLifecyclePrefs,
+  type ParttyLifecyclePrefs,
 } from "./termLifecycle";
 import { findPaneLeaf, type PaneHostInit, type PaneTerminal, PaneHost } from "./paneHost";
 import {
   clearPaneLayout,
   isLayoutValidForRoot,
-  savePaneLayout,
-  snapshotTreeFromPaneHost,
   type PersistedPaneLayout,
 } from "./paneLayout";
 import {
@@ -34,7 +32,7 @@ import {
   type TabGroup,
   type TabsStateV1,
 } from "./tabsSession";
-import { initTermieScrollFade } from "./scrollChrome";
+import { initParttyScrollFade } from "./scrollChrome";
 import { workspaceRootPaneId } from "./workspacePaneIds";
 import { attachDraggablePanel } from "./draggablePanel";
 import {
@@ -45,11 +43,15 @@ import {
 } from "./workspaceShed";
 import {
   applyUiTheme,
+  buildXtermThemeFromPrefs,
   buildXtermThemeFromDocument,
   DEFAULT_TERMINAL_FONT_STACK,
   loadCustomThemesIntoCache,
   pickUiPrefs,
+  themeCssVarsForPrefs,
+  type PaneThemePrefs,
   uiPrefsChanged,
+  type UiThemePrefs,
 } from "./uiTheme";
 import {
   createShellIntegrationState,
@@ -69,7 +71,7 @@ import {
   savedCommandMatchesContext,
 } from "./paletteCommands";
 import { normalizeFsPathKey } from "./oscCwd";
-import { createSettingsPanel, type TermiePrefs } from "./settingsPanel";
+import { createSettingsPanel, type ParttyPrefs } from "./settingsPanel";
 import { createTerminalSearch } from "./searchModal";
 import { createThemeBuilderModal, type ThemeBuilderApi } from "./themeBuilderModal";
 import { createThemeModal, type ThemeModalApi } from "./themeModal";
@@ -94,7 +96,7 @@ import {
   mountTabNewPlusIcon,
   syncFileTreeFolderIcon,
 } from "./toolbarIcons";
-import { termiePerf } from "./perf";
+import { parttyPerf } from "./perf";
 
 // Terminal color constants with fallbacks
 // CSS variables are read after DOM is ready in boot()
@@ -106,17 +108,56 @@ const PTY_OUTPUT_FLUSH_MS = 8;
 const PTY_OUTPUT_BACKGROUND_FLUSH_MS = 33;
 const PTY_OUTPUT_INTERACTIVE_CHARS = 2048;
 const PTY_OUTPUT_MAX_BATCH_CHARS = 128 * 1024;
-const MINIMAP_STORAGE_KEY = "termie.minimap.enabled";
-const MINIMAP_HIDDEN_PANES_KEY = "termie.minimap.hiddenPanes";
-const FILE_TREE_STORAGE_KEY = "termie.filetree.visible";
-const FILE_TREE_WIDTH_KEY = "termie.filetree.widthPx";
-const ZEN_MODE_STORAGE_KEY = "termie.zen.enabled";
-const TOOLTIP_STASH_ATTR = "data-termie-tooltip-title";
-/** Set when shell / initial cwd change; next `termie-prepare-show` runs a full PTY reinit. */
-const DEFER_PTY_REINIT_KEY = "termie.defer_pty_reinit";
+const MINIMAP_STORAGE_KEY = "partty.minimap.enabled";
+const MINIMAP_HIDDEN_PANES_KEY = "partty.minimap.hiddenPanes";
+const FILE_TREE_STORAGE_KEY = "partty.filetree.visible";
+const FILE_TREE_WIDTH_KEY = "partty.filetree.widthPx";
+const ZEN_MODE_STORAGE_KEY = "partty.zen.enabled";
+const TOOLTIP_STASH_ATTR = "data-partty-tooltip-title";
+/** Set when shell / initial cwd change; next `partty-prepare-show` runs a full PTY reinit. */
+const DEFER_PTY_REINIT_KEY = "partty.defer_pty_reinit";
 const IDLE_WEBGL_MS = 400;
 
 type PersistedPayload = { prefs: Record<string, unknown> };
+
+const STORAGE_KEY_MIGRATIONS: [string, string][] = [
+  ["termie.minimap.enabled", MINIMAP_STORAGE_KEY],
+  ["termie.minimap.hiddenPanes", MINIMAP_HIDDEN_PANES_KEY],
+  ["termie.filetree.visible", FILE_TREE_STORAGE_KEY],
+  ["termie.filetree.widthPx", FILE_TREE_WIDTH_KEY],
+  ["termie.zen.enabled", ZEN_MODE_STORAGE_KEY],
+  ["termie.defer_pty_reinit", DEFER_PTY_REINIT_KEY],
+  ["termie.tabs.v1", "partty.tabs.v1"],
+  ["termie.pane_layout.v1", "partty.pane_layout.v1"],
+  ["termie.runtime.shed_workspace_exit", "partty.runtime.shed_workspace_exit"],
+  ["termie.themeModal.pos", "partty.themeModal.pos"],
+  ["termie.searchModal.pos", "partty.searchModal.pos"],
+  ["termie.settingsPanel.pos", "partty.settingsPanel.pos"],
+  ["termie.helpPanel.pos", "partty.helpPanel.pos"],
+  ["termie.commandPalette.pos", "partty.commandPalette.pos"],
+  ["termie.perf", "partty.perf"],
+];
+
+function migrateParttyLocalStorage(): void {
+  try {
+    for (const [oldKey, newKey] of STORAGE_KEY_MIGRATIONS) {
+      const oldValue = localStorage.getItem(oldKey);
+      if (oldValue != null && localStorage.getItem(newKey) == null) {
+        localStorage.setItem(newKey, oldValue);
+      }
+    }
+    for (const key of Object.keys(localStorage)) {
+      if (!key.startsWith("termie.tab.layout.v1.")) continue;
+      const nextKey = `partty.tab.layout.v1.${key.slice("termie.tab.layout.v1.".length)}`;
+      const oldValue = localStorage.getItem(key);
+      if (oldValue != null && localStorage.getItem(nextKey) == null) {
+        localStorage.setItem(nextKey, oldValue);
+      }
+    }
+  } catch {
+    /* localStorage may be unavailable; ignore migration. */
+  }
+}
 
 function hexRgb(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
@@ -162,22 +203,27 @@ function animationScaleForPref(value: unknown): string {
   return "1";
 }
 
-function applyTerminalDisplayPrefs(raw: Partial<TermiePrefs>): void {
+function applyTerminalDisplayPrefs(raw: Partial<ParttyPrefs>): void {
   const root = document.documentElement;
   const paneGap = typeof raw.terminal_pane_gap === "number" ? raw.terminal_pane_gap : raw.terminal_no_gap ? 0 : 6;
+  const sandboxPadding = typeof raw.terminal_sandbox_padding === "number" ? raw.terminal_sandbox_padding : 0;
   root.classList.toggle("terminal-no-gap", paneGap <= 0);
   root.classList.toggle("terminal-no-round", Boolean(raw.terminal_no_round));
   root.classList.toggle("terminal-motion-off", animationScaleForPref(raw.terminal_animation_speed) === "0");
   root.style.setProperty("--termie-animation-scale", animationScaleForPref(raw.terminal_animation_speed));
   const paneAlpha = typeof raw.pane_background_opacity === "number" ? raw.pane_background_opacity : 1;
+  const paneBlur = typeof raw.pane_background_blur === "number" ? raw.pane_background_blur : 0;
   const backdropAlpha = typeof raw.window_effect_opacity === "number" ? raw.window_effect_opacity : 0;
   const appAlpha = raw.window_effect_mode === "transparent" ? backdropAlpha : 1;
   const paneRadius = typeof raw.pane_corner_radius === "number" ? raw.pane_corner_radius : 6;
   root.style.setProperty("--pane-outer-gap", `${Math.max(0, Math.min(32, paneGap))}px`);
+  root.style.setProperty("--pane-sandbox-padding", `${Math.max(0, Math.min(32, sandboxPadding))}px`);
   root.style.setProperty("--termie-app-bg-alpha", String(appAlpha));
   root.style.setProperty("--termie-pane-bg-alpha", String(Math.max(0, Math.min(1, paneAlpha))));
+  root.style.setProperty("--partty-pane-bg-blur", `${Math.max(0, Math.min(40, paneBlur))}px`);
   root.style.setProperty("--termie-pane-radius", `${Math.max(0, Math.min(32, paneRadius))}px`);
   root.classList.toggle("pane-bg-transparent", paneAlpha < 0.999);
+  root.classList.toggle("pane-bg-blurred", paneBlur > 0.01);
 }
 
 function loadMinimapHiddenPaneIds(): Set<string> {
@@ -252,23 +298,25 @@ function terminalFontStackFromDocument(): string {
 }
 
 async function boot(): Promise<void> {
+  migrateParttyLocalStorage();
   mountSettingsCogIcon();
   const persisted = await invoke<PersistedPayload>("get_persisted_state");
-  syncRuntimeShedFromPrefs(persisted.prefs as TermiePrefs);
+  syncRuntimeShedFromPrefs(persisted.prefs as ParttyPrefs);
   await loadCustomThemesIntoCache();
-  const lp: TermieLifecyclePrefs = mergeLifecyclePrefs(persisted.prefs);
+  const lp: ParttyLifecyclePrefs = mergeLifecyclePrefs(persisted.prefs);
   const uiPrefs = pickUiPrefs(persisted.prefs);
+  let currentUiPrefs = uiPrefs;
   applyUiTheme(uiPrefs);
-  applyTerminalDisplayPrefs(persisted.prefs as Partial<TermiePrefs>);
+  applyTerminalDisplayPrefs(persisted.prefs as Partial<ParttyPrefs>);
 
   const minimapUserEnabled = localStorage.getItem(MINIMAP_STORAGE_KEY) !== "0";
   document.documentElement.classList.toggle("minimap-off", !minimapUserEnabled);
-  document.documentElement.classList.toggle("pane-blur-unfocused", Boolean((persisted.prefs as Partial<TermiePrefs>).blur_unfocused_panes));
-  document.documentElement.classList.toggle("pane-dim-unfocused", Boolean((persisted.prefs as Partial<TermiePrefs>).dim_unfocused_panes));
+  document.documentElement.classList.toggle("pane-blur-unfocused", Boolean((persisted.prefs as Partial<ParttyPrefs>).blur_unfocused_panes));
+  document.documentElement.classList.toggle("pane-dim-unfocused", Boolean((persisted.prefs as Partial<ParttyPrefs>).dim_unfocused_panes));
 
   const fileTreeUserEnabled = localStorage.getItem(FILE_TREE_STORAGE_KEY) === "1";
   document.documentElement.classList.toggle("file-tree-on", fileTreeUserEnabled);
-  const prefAlwaysZen = Boolean((persisted.prefs as Partial<TermiePrefs>).always_open_in_zen_mode);
+  const prefAlwaysZen = Boolean((persisted.prefs as Partial<ParttyPrefs>).always_open_in_zen_mode);
   const zenModeEnabled = prefAlwaysZen || localStorage.getItem(ZEN_MODE_STORAGE_KEY) === "1";
   document.documentElement.classList.toggle("zen-mode", zenModeEnabled);
   mountFileTreeFolderIcons();
@@ -293,31 +341,32 @@ async function boot(): Promise<void> {
   let paneHost: PaneHost | null = null;
   const paneCwdHints = new Map<string, string>();
   const paneShellState = new Map<string, ShellIntegrationState>();
+  const paneThemes = new Map<string, PaneThemePrefs>();
   const lastPtyDims = new Map<string, { cols: number; rows: number }>();
   const focusFollowsRef = { v: lp.focus_follows_cursor };
   const autoCopySelectionRef = {
-    v: Boolean((persisted.prefs as Partial<TermiePrefs>).auto_copy_selection),
+    v: Boolean((persisted.prefs as Partial<ParttyPrefs>).auto_copy_selection),
   };
   const showDiffCountsRef = {
-    v: Boolean((persisted.prefs as Partial<TermiePrefs>).file_tree_show_diff_counts),
+    v: Boolean((persisted.prefs as Partial<ParttyPrefs>).file_tree_show_diff_counts),
   };
   const showGitInfoRef = {
-    v: (persisted.prefs as Partial<TermiePrefs>).file_tree_show_git_info ?? true,
+    v: (persisted.prefs as Partial<ParttyPrefs>).file_tree_show_git_info ?? true,
   };
   const disableSearchRef = {
-    v: Boolean((persisted.prefs as Partial<TermiePrefs>).file_tree_disable_search),
+    v: Boolean((persisted.prefs as Partial<ParttyPrefs>).file_tree_disable_search),
   };
   const disableTooltipsRef = {
-    v: (persisted.prefs as Partial<TermiePrefs>).ui_disable_tooltips ?? false,
+    v: (persisted.prefs as Partial<ParttyPrefs>).ui_disable_tooltips ?? false,
   };
   const clickToCursorRef = {
-    v: (persisted.prefs as Partial<TermiePrefs>).terminal_click_to_cursor ?? true,
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_click_to_cursor ?? true,
   };
   const backspaceDeleteSelectionRef = {
-    v: (persisted.prefs as Partial<TermiePrefs>).terminal_backspace_delete_selection ?? true,
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_backspace_delete_selection ?? true,
   };
   const confirmDeletePromptRef = {
-    v: (persisted.prefs as Partial<TermiePrefs>).confirm_delete_prompt ?? true,
+    v: (persisted.prefs as Partial<ParttyPrefs>).confirm_delete_prompt ?? true,
   };
   const pendingPtyWriteByPane = new Map<string, string>();
   const pendingPtyOutputByPane = new Map<string, PendingPtyOutput>();
@@ -357,7 +406,7 @@ async function boot(): Promise<void> {
     if (immediate || isLatencySensitiveInput(data)) {
       flushPendingPtyWriteForPane(paneId);
       void ptyWrite(paneId, data).catch((e) => console.error("pty_write", e));
-      termiePerf.mark("pty.input.immediate");
+      parttyPerf.mark("pty.input.immediate");
       return;
     }
     const prior = pendingPtyWriteByPane.get(paneId);
@@ -369,9 +418,9 @@ async function boot(): Promise<void> {
   function processPtyOutputBatch(paneId: string, data: string, eventCount: number, queuedAt: number): void {
     const pt = getPaneTerminalById(paneId);
     if (!pt) return;
-    termiePerf.mark("pty.output.events", eventCount);
-    termiePerf.mark("pty.output.chars", data.length);
-    termiePerf.time("pty.output.queue.ms", performance.now() - queuedAt);
+    parttyPerf.mark("pty.output.events", eventCount);
+    parttyPerf.mark("pty.output.chars", data.length);
+    parttyPerf.time("pty.output.queue.ms", performance.now() - queuedAt);
 
     // Pre-process: let the coordinator detect OSC 7 cwd before shell integration strips it.
     // This is a defence-in-depth pass — processShellIntegration also handles OSC 7/633.
@@ -398,7 +447,7 @@ async function boot(): Promise<void> {
     const si = shouldParseShellIntegration
       ? processShellIntegration(parseInput, siState, cwdHandler)
       : { cleaned: parseInput, events: [] };
-    termiePerf.time("pty.output.parse.ms", performance.now() - parseStarted);
+    parttyPerf.time("pty.output.parse.ms", performance.now() - parseStarted);
 
     if (fileTreeCoordinator && si.events.length > 0) {
       fileTreeCoordinator.processShellIntegrationEvents(paneId, si.events);
@@ -408,9 +457,9 @@ async function boot(): Promise<void> {
       const writeStarted = performance.now();
       try {
         pt.term.write(si.cleaned, () => {
-          termiePerf.time("xterm.write.callback.ms", performance.now() - writeStarted);
+          parttyPerf.time("xterm.write.callback.ms", performance.now() - writeStarted);
         });
-        termiePerf.time("xterm.write.call.ms", performance.now() - writeStarted);
+        parttyPerf.time("xterm.write.call.ms", performance.now() - writeStarted);
       } catch (e) {
         console.warn("xterm.write", e);
       }
@@ -466,7 +515,7 @@ async function boot(): Promise<void> {
       paneId === paneHost?.getFocusedPaneId()
     ) {
       processPtyOutputBatch(paneId, data, 1, performance.now());
-      termiePerf.mark("pty.output.immediate");
+      parttyPerf.mark("pty.output.immediate");
       return;
     }
     const existing = pendingPtyOutputByPane.get(paneId);
@@ -650,7 +699,7 @@ async function boot(): Promise<void> {
         m.addedNodes.forEach((n) => {
           if (!(n instanceof HTMLElement)) return;
           syncTooltipForElement(n, suppress);
-          n.querySelectorAll<HTMLElement>("[title], [data-termie-tooltip-title]").forEach((el) =>
+          n.querySelectorAll<HTMLElement>("[title], [data-partty-tooltip-title]").forEach((el) =>
             syncTooltipForElement(el, suppress),
           );
         });
@@ -806,7 +855,7 @@ async function boot(): Promise<void> {
       return;
     }
     const cwd = paneCwdHints.get(id) ?? liveCwd ?? "";
-    const title = cwd ? `Termie - ${cwd}` : "Termie - Detached Pane";
+    const title = cwd ? `Partty - ${cwd}` : "Partty - Detached Pane";
     const snapshot = capturePlainBuffer(pt.term, lp.snapshot_max_lines) || null;
     try {
       await popOutPane(id, title, snapshot);
@@ -859,7 +908,7 @@ async function boot(): Promise<void> {
       /* ignore */
     }
     paneWebglStates.delete(paneId);
-    termiePerf.mark("webgl.dispose");
+    parttyPerf.mark("webgl.dispose");
     updateWebglPerfGauges();
   }
 
@@ -876,9 +925,9 @@ async function boot(): Promise<void> {
       else if (state.status === "ready") ready++;
       else if (state.status === "failed") failed++;
     }
-    termiePerf.gauge("webgl.panes.pending", pending);
-    termiePerf.gauge("webgl.panes.ready", ready);
-    termiePerf.gauge("webgl.panes.failed", failed);
+    parttyPerf.gauge("webgl.panes.pending", pending);
+    parttyPerf.gauge("webgl.panes.ready", ready);
+    parttyPerf.gauge("webgl.panes.failed", failed);
   }
 
   async function ensureWebglOnPane(paneId: string): Promise<void> {
@@ -899,7 +948,7 @@ async function boot(): Promise<void> {
     };
     paneWebglStates.set(paneId, state);
     updateWebglPerfGauges();
-    termiePerf.mark("webgl.mount.start");
+    parttyPerf.mark("webgl.mount.start");
 
     const delays = [0, 50, 120, 240];
     for (let i = 0; i < delays.length; i++) {
@@ -914,7 +963,7 @@ async function boot(): Promise<void> {
           onContextLoss?: (listener: () => void) => { dispose(): void };
         };
         state.contextLossDispose = maybeContextLoss.onContextLoss?.(() => {
-          termiePerf.mark("webgl.context_loss");
+          parttyPerf.mark("webgl.context_loss");
           disposeWebglForPane(paneId);
           void ensureWebglOnPane(paneId);
         });
@@ -923,12 +972,12 @@ async function boot(): Promise<void> {
         paneWebglStates.set(paneId, state);
         updateWebglPerfGauges();
         pt.term.refresh(0, pt.term.rows - 1);
-        termiePerf.mark("webgl.mount.ready");
-        termiePerf.time("webgl.mount.ms", performance.now() - started);
+        parttyPerf.mark("webgl.mount.ready");
+        parttyPerf.time("webgl.mount.ms", performance.now() - started);
         return;
       } catch (e) {
         state.lastError = e;
-        termiePerf.mark("webgl.mount.failure");
+        parttyPerf.mark("webgl.mount.failure");
       }
     }
 
@@ -942,6 +991,14 @@ async function boot(): Promise<void> {
     const id = paneHost?.getFocusedPaneId();
     if (!id) return;
     await ensureWebglOnPane(id);
+  }
+
+  function toggleFocusedPaneFloating(): boolean {
+    const changed = paneHost?.toggleFocusedFloating() ?? false;
+    if (!changed) return false;
+    persistCurrentWorkspaceTabLayout();
+    scheduleResizeImmediate();
+    return true;
   }
 
   function attachTermKeyHandler(term: Terminal): void {
@@ -1058,6 +1115,17 @@ async function boot(): Promise<void> {
         e.ctrlKey &&
         e.shiftKey &&
         !e.altKey &&
+        !e.metaKey &&
+        (e.key === "o" || e.key === "O")
+      ) {
+        e.preventDefault();
+        toggleFocusedPaneFloating();
+        return false;
+      }
+      if (
+        e.ctrlKey &&
+        e.shiftKey &&
+        !e.altKey &&
         (e.key === "w" || e.key === "W")
       ) {
         e.preventDefault();
@@ -1147,11 +1215,24 @@ async function boot(): Promise<void> {
   }
 
   function refreshAllTerminalThemes(): void {
-    const th = buildXtermThemeFromDocument();
-    paneHost?.forEachPane((_id, pt) => {
+    paneHost?.remountPaneSurfaces();
+    paneHost?.forEachPane((id, pt) => {
+      const th = xtermThemeForPane(id);
       pt.term.options.theme = { ...th, cursorAccent: th.background ?? TERM_BG_FALLBACK };
       pt.term.refresh(0, pt.term.rows - 1);
     });
+  }
+
+  function applyPaneTheme(paneId: string, prefs: PaneThemePrefs | null): void {
+    if (prefs) paneThemes.set(paneId, { ...prefs });
+    else paneThemes.delete(paneId);
+    paneHost?.remountPaneSurfaces();
+    const pt = paneHost?.getPaneTerminal(paneId);
+    if (pt) {
+      const th = xtermThemeForPane(paneId);
+      pt.term.options.theme = { ...th, cursorAccent: th.background ?? TERM_BG_FALLBACK };
+      pt.term.refresh(0, pt.term.rows - 1);
+    }
   }
 
   function setMinimapGutter(css: string): void {
@@ -1250,7 +1331,7 @@ async function boot(): Promise<void> {
     paneHost?.forEachPane((paneId, pt) => {
       const fitStarted = performance.now();
       pt.fit.fit();
-      termiePerf.time("layout.fit.ms", performance.now() - fitStarted);
+      parttyPerf.time("layout.fit.ms", performance.now() - fitStarted);
       const d = ptyDims(pt.fit);
       if (!d) return;
       const safe = clampPtyColsRows(d.cols, d.rows);
@@ -1261,7 +1342,7 @@ async function boot(): Promise<void> {
         return;
       }
       lastPtyDims.set(paneId, safe);
-      termiePerf.mark("layout.pty_resize");
+      parttyPerf.mark("layout.pty_resize");
       void ptyResize(paneId, safe.cols, safe.rows)
         .then(() => {
           pt.term.refresh(0, pt.term.rows - 1);
@@ -1311,7 +1392,7 @@ async function boot(): Promise<void> {
 
   async function setDeleteConfirmPrompt(enabled: boolean): Promise<void> {
     try {
-      const state = await invoke<{ window: Record<string, unknown>; prefs: TermiePrefs }>(
+      const state = await invoke<{ window: Record<string, unknown>; prefs: ParttyPrefs }>(
         "get_persisted_state",
       );
       const next = { ...state.prefs, confirm_delete_prompt: enabled };
@@ -1426,8 +1507,8 @@ async function boot(): Promise<void> {
       try {
         await ptyEnsure(paneId, safe.cols, safe.rows);
         lastPtyDims.set(paneId, safe);
-        termiePerf.mark("pty.ensure.success");
-        termiePerf.time("pty.ensure.ms", performance.now() - ensureStarted);
+        parttyPerf.mark("pty.ensure.success");
+        parttyPerf.time("pty.ensure.ms", performance.now() - ensureStarted);
         if (paneId === paneHost?.getFocusedPaneId()) scheduleCwdSync();
         return;
       } catch (e) {
@@ -1436,8 +1517,8 @@ async function boot(): Promise<void> {
     }
     const msg = String(lastErr);
     console.error("pty_ensure failed:", lastErr);
-    termiePerf.mark("pty.ensure.failure");
-    termiePerf.time("pty.ensure.ms", performance.now() - ensureStarted);
+    parttyPerf.mark("pty.ensure.failure");
+    parttyPerf.time("pty.ensure.ms", performance.now() - ensureStarted);
     try {
       pt.term.write(`\r\n\x1b[31mShell failed after retries.\x1b[0m \x1b[90m${msg}\x1b[0m\r\n`);
     } catch {
@@ -1484,6 +1565,16 @@ async function boot(): Promise<void> {
   const tabPaneHosts = new Map<string, PaneHost>();
   const tabPaneShells = new Map<string, HTMLElement>();
 
+  function xtermThemeForPane(paneId: string) {
+    const paneTheme = paneThemes.get(paneId);
+    return paneTheme ? buildXtermThemeFromPrefs(paneTheme) : buildXtermThemeFromDocument();
+  }
+
+  function cssVarsForPane(paneId: string): Record<string, string> | null {
+    const paneTheme = paneThemes.get(paneId);
+    return paneTheme ? themeCssVarsForPrefs(paneTheme) : null;
+  }
+
   function createPaneHost(container: HTMLElement, init: PaneHostInit | undefined, rootPaneId: string): PaneHost {
     return new PaneHost(
       container,
@@ -1491,7 +1582,8 @@ async function boot(): Promise<void> {
       rootPaneId,
       scrollbackLines: lp.scrollback_lines,
       fontStack: terminalFontStackFromDocument(),
-      getTheme: () => buildXtermThemeFromDocument(),
+      getTheme: (paneId) => xtermThemeForPane(paneId),
+      getPaneCssVars: (paneId) => cssVarsForPane(paneId),
       focusFollowsCursor: () => focusFollowsRef.v,
       onPaneFocus: (id) => {
         lastFocusedPaneId = id;
@@ -1542,6 +1634,7 @@ async function boot(): Promise<void> {
       },
       onPaneDisposed: (pid) => {
         void ptyKillPane(pid).catch(() => {});
+        paneThemes.delete(pid);
         cleanupPaneVisualState(pid);
         fileTreePanel?.clearPaneState(pid);
         fileTreeCoordinator?.handlePaneDispose(pid);
@@ -1573,9 +1666,13 @@ async function boot(): Promise<void> {
     if (!isWorkspaceLayoutUsable(layout, tab.id)) {
       layout = emptyWorkspaceLayout(tab.id);
     }
+    for (const [paneId, theme] of Object.entries(layout.paneThemes ?? {})) {
+      paneThemes.set(paneId, { ...theme });
+    }
     createTabPaneShellAndHost(tab.id, {
       initialTree: layout.tree,
       initialFocusedId: layout.focusedId,
+      initialFloating: layout.floating,
     });
     if (tab.id !== activeWorkspaceTabId) {
       tabPaneShells.get(tab.id)?.classList.add("term-tab-pane-shell--hidden");
@@ -1587,15 +1684,20 @@ async function boot(): Promise<void> {
 
   function persistCurrentWorkspaceTabLayout(): void {
     if (!paneHost) return;
-    const tree = snapshotTreeFromPaneHost(paneHost.getHostRoot());
+    const tree = paneHost.getTree();
     const rid = paneHost.getRootPaneId();
     if (!tree || !findPaneLeaf(tree, rid)) return;
     const pl: PersistedPaneLayout = {
       v: 1,
       tree,
       focusedId: paneHost.getFocusedPaneId(),
+      floating: paneHost.getFloatingState(),
+      paneThemes: Object.fromEntries(
+        paneHost.getPaneDescriptors()
+          .filter((pane) => paneThemes.has(pane.id))
+          .map((pane) => [pane.id, paneThemes.get(pane.id)!]),
+      ),
     };
-    savePaneLayout(paneHost.getHostRoot(), paneHost.getFocusedPaneId());
     persistLayoutForTab(activeWorkspaceTabId, pl);
   }
 
@@ -1688,7 +1790,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     saveTabsState(tabsState);
     disposeTabPaneHost(tabId);
     try {
-      localStorage.removeItem(`termie.tab.layout.v1.${tabId}`);
+      localStorage.removeItem(`partty.tab.layout.v1.${tabId}`);
     } catch {
       /* ignore */
     }
@@ -2271,7 +2373,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   });
 
   renderWorkspaceTabsBar();
-  initTermieScrollFade();
+  initParttyScrollFade();
 
   window.addEventListener("beforeunload", () => {
     try {
@@ -2340,6 +2442,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   let themeBuilder: ThemeBuilderApi | null = null;
   if (themeBuilderRoot) {
     themeBuilder = createThemeBuilderModal(themeBuilderRoot as HTMLElement, (prefs) => {
+      currentUiPrefs = prefs;
       applyUiTheme(prefs);
       syncMinimapThemeFromCss();
       disposeAllMinimaps();
@@ -2354,8 +2457,16 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
 
   const themeModalRoot = document.getElementById("theme-modal-root");
   let themeModal: ThemeModalApi | null = null;
+  let openFocusedPaneTheme = (): void => {};
   if (themeModalRoot) {
+    let themePreviewPaneId: string | null = null;
+    let paneThemeRestore: { id: string; theme: PaneThemePrefs | null } | null = null;
     themeModal = createThemeModal(themeModalRoot as HTMLElement, (prefs) => {
+      if (themePreviewPaneId) {
+        applyPaneTheme(themePreviewPaneId, prefs);
+        return;
+      }
+      currentUiPrefs = prefs;
       applyUiTheme(prefs);
       syncMinimapThemeFromCss();
       disposeAllMinimaps();
@@ -2366,11 +2477,50 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         });
       }
     });
+    const originalClose = themeModal.close;
+    themeModal.close = () => {
+      originalClose();
+      if (paneThemeRestore) {
+        applyPaneTheme(paneThemeRestore.id, paneThemeRestore.theme);
+        paneThemeRestore = null;
+      }
+      themePreviewPaneId = null;
+    };
+    openFocusedPaneTheme = () => {
+      const paneId = paneHost?.getFocusedPaneId();
+      if (!paneId) return;
+      themePreviewPaneId = paneId;
+      const existing = paneThemes.get(paneId);
+      paneThemeRestore = { id: paneId, theme: existing ? { ...existing } : null };
+      const appPrefs = currentUiPrefs;
+      const initialPrefs: UiThemePrefs = {
+        ...appPrefs,
+        ui_theme: existing?.ui_theme ?? appPrefs.ui_theme,
+        ui_theme_variant: existing?.ui_theme_variant ?? appPrefs.ui_theme_variant,
+      };
+      themeModal?.open({
+        title: "Pane Theme",
+        initialPrefs,
+        onCommit: (prefs) => {
+          paneThemeRestore = null;
+          applyPaneTheme(paneId, prefs);
+          persistCurrentWorkspaceTabLayout();
+        },
+      });
+    };
   }
 
   window.addEventListener(
     "keydown",
     (e) => {
+      if (e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.key === "o" || e.key === "O")) {
+        const t = e.target as HTMLElement | null;
+        if (t?.closest("#command-palette") || t?.closest("#settings-panel") || t?.closest(".term-search")) return;
+        e.preventDefault();
+        e.stopPropagation();
+        toggleFocusedPaneFloating();
+        return;
+      }
       if (!e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key !== "f" && e.key !== "F") return;
       const t = e.target as HTMLElement | null;
@@ -2513,7 +2663,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   }
 
   const settingsApi = settingsPanelEl
-    ? createSettingsPanel(settingsPanelEl, async (saved: TermiePrefs, previous: TermiePrefs) => {
+    ? createSettingsPanel(settingsPanelEl, async (saved: ParttyPrefs, previous: ParttyPrefs) => {
         syncRuntimeShedFromPrefs(saved);
         focusFollowsRef.v = saved.focus_follows_cursor;
         autoCopySelectionRef.v = saved.auto_copy_selection;
@@ -2535,6 +2685,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         const prevUi = pickUiPrefs(previous as unknown as Record<string, unknown>);
         const nextUi = pickUiPrefs(saved as unknown as Record<string, unknown>);
         if (uiPrefsChanged(prevUi, nextUi)) {
+          currentUiPrefs = nextUi;
           applyUiTheme(nextUi);
           syncMinimapThemeFromCss();
           disposeAllMinimaps();
@@ -2557,7 +2708,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   const cpToolbar = document.querySelector(".command-palette-toolbar");
   if (cpPanel instanceof HTMLElement && cpToolbar instanceof HTMLElement) {
     cpPanel.style.position = "fixed";
-    attachDraggablePanel(cpPanel, cpToolbar, "termie.commandPalette.pos");
+    attachDraggablePanel(cpPanel, cpToolbar, "partty.commandPalette.pos");
   }
 
   if (settingsPanelEl) {
@@ -2565,7 +2716,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     const head = settingsPanelEl.querySelector(".settings-panel-head");
     if (card instanceof HTMLElement && head instanceof HTMLElement) {
       card.style.position = "fixed";
-      attachDraggablePanel(card, head, "termie.settingsPanel.pos");
+      attachDraggablePanel(card, head, "partty.settingsPanel.pos");
     }
   }
 
@@ -2574,7 +2725,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     const hhead = helpPanelEl.querySelector(".help-panel-head");
     if (hcard instanceof HTMLElement && hhead instanceof HTMLElement) {
       hcard.style.position = "fixed";
-      attachDraggablePanel(hcard, hhead, "termie.helpPanel.pos");
+      attachDraggablePanel(hcard, hhead, "partty.helpPanel.pos");
     }
   }
 
@@ -2745,9 +2896,15 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       },
       {
         id: "open-themes",
-        label: "Themes…",
-        keywords: "theme appearance colors ui palette",
-        run: () => themeModal?.open(),
+        label: "Change app theme…",
+        keywords: "theme appearance colors ui palette app global",
+        run: () => themeModal?.open({ title: "App Theme" }),
+      },
+      {
+        id: "open-pane-theme",
+        label: "Pane: Change focused theme…",
+        keywords: "theme appearance colors focused pane local override",
+        run: () => openFocusedPaneTheme(),
       },
       {
         id: "open-theme-builder",
@@ -2861,14 +3018,14 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       },
       {
         id: "hide-overlay",
-        label: "Window: Hide Termie",
+        label: "Window: Hide Partty",
         keywords: "close overlay tray background hotkey",
         hotkey: "Alt+Shift+T",
         run: () => void invoke("toggle_overlay").catch(() => {}),
       },
       {
         id: "quit-app",
-        label: "App: Quit Termie",
+        label: "App: Quit Partty",
         keywords: "exit app quit close traffic light red",
         run: () => void appWindow.destroy().catch(() => {}),
       },
@@ -2904,6 +3061,15 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         keywords: "remove split",
         run: () => {
           void closeFocusedPane();
+        },
+      },
+      {
+        id: "pane-toggle-floating",
+        label: "Pane: Float or tile focused",
+        keywords: "float pop out pop in tile hyprland layout",
+        hotkey: "Ctrl+Shift+O",
+        run: () => {
+          toggleFocusedPaneFloating();
         },
       },
       {
@@ -3186,7 +3352,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       scheduleFileTreeRefresh();
       scheduleCwdSync();
     }),
-    listen("termie-hide", () => {
+    listen("partty-hide", () => {
       if (paneHost && lp.destroy_webview_on_hide) {
         persistCurrentWorkspaceTabLayout();
       }
@@ -3202,15 +3368,15 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       }
       // WebView teardown is scheduled from Rust after hide (see `schedule_destroy_webview_after_hide`).
     }),
-    listen("termie-prepare-show", () => {
+    listen("partty-prepare-show", () => {
       void runPrepareShow().catch((e) => {
-        console.error("termie-prepare-show", e);
+        console.error("partty-prepare-show", e);
         void invoke("commit_show_window").catch(() => {
           /* still try to show */
         });
       });
     }),
-    listen("termie-show", async () => {
+    listen("partty-show", async () => {
       await mountWebglForFocused();
       getFocusedTerm()?.focus();
       scheduleResizeImmediate();
@@ -3230,7 +3396,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     }),
   ]);
 
-  // After destroy+recreate, Rust no longer emits `termie-prepare-show` until we signal listeners exist.
+  // After destroy+recreate, Rust no longer emits `partty-prepare-show` until we signal listeners exist.
   await invoke("webview_boot_complete").catch(() => {
     /* ignore */
   });

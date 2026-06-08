@@ -44,6 +44,7 @@
   --term-pad-y: 14px;
   --term-minimap-gutter: 13px;
   --pane-outer-gap: 6px;
+  --pane-sandbox-padding: 0px;
   --pane-inner-pad-x: 10px;
   --pane-inner-pad-y: 8px;
   --file-tree-user-width: 260px;
@@ -51,6 +52,7 @@
   --termie-animation-scale: 1;
   --termie-app-bg-alpha: 1;
   --termie-pane-bg-alpha: 1;
+  --partty-pane-bg-blur: 0px;
   --termie-pane-radius: 6px;
   
   /* ===== Minimap Colors ===== */
@@ -1206,7 +1208,7 @@ button.file-tree-label:hover {
   height: 100%;
   width: 100%;
   gap: var(--pane-outer-gap);
-  padding: var(--pane-outer-gap);
+  padding: var(--pane-sandbox-padding);
 }
 
 .pane-leaf {
@@ -1221,8 +1223,8 @@ button.file-tree-label:hover {
   border-radius: var(--termie-pane-radius);
   overflow: hidden;
   background: color-mix(in srgb, var(--term-bg) calc(var(--termie-pane-bg-alpha) * 100%), transparent);
-  backdrop-filter: blur(0) saturate(1);
-  -webkit-backdrop-filter: blur(0) saturate(1);
+  backdrop-filter: blur(var(--partty-pane-bg-blur)) saturate(1.08);
+  -webkit-backdrop-filter: blur(var(--partty-pane-bg-blur)) saturate(1.08);
   transition:
     border-color 0.2s ease,
     opacity 0.22s ease,
@@ -1231,20 +1233,15 @@ button.file-tree-label:hover {
     outline 0.12s ease;
 }
 
-html.pane-bg-transparent .pane-leaf {
-  backdrop-filter: blur(18px) saturate(1.12);
-  -webkit-backdrop-filter: blur(18px) saturate(1.12);
-}
-
-html.pane-bg-transparent .pane-leaf::before {
+html.pane-bg-blurred .pane-leaf::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
   background: color-mix(in srgb, var(--term-bg) calc(var(--termie-pane-bg-alpha) * 100%), transparent);
-  backdrop-filter: blur(18px) saturate(1.12);
-  -webkit-backdrop-filter: blur(18px) saturate(1.12);
+  backdrop-filter: blur(var(--partty-pane-bg-blur)) saturate(1.12);
+  -webkit-backdrop-filter: blur(var(--partty-pane-bg-blur)) saturate(1.12);
 }
 
 html.pane-bg-transparent .pane-terminal-row,
@@ -1296,6 +1293,88 @@ html.terminal-no-round .term-tab-group {
   outline-offset: -2px;
 }
 
+.pane-leaf--floating {
+  position: absolute;
+  flex: none !important;
+  min-width: 220px;
+  min-height: 160px;
+  border-color: color-mix(in srgb, var(--accent-primary) 48%, transparent) !important;
+  box-shadow:
+    0 18px 54px rgba(0, 0, 0, 0.42),
+    0 0 0 1px color-mix(in srgb, var(--ui-chrome-fg) 10%, transparent) inset;
+  resize: none;
+}
+
+.pane-leaf--floating-moving,
+.pane-leaf--floating-resizing {
+  cursor: grabbing;
+  box-shadow:
+    0 24px 72px rgba(0, 0, 0, 0.55),
+    0 0 0 1px color-mix(in srgb, var(--accent-primary) 48%, transparent) inset;
+}
+
+.pane-floating-resize {
+  display: none;
+  position: absolute;
+  z-index: 7;
+  opacity: 0;
+  touch-action: none;
+}
+
+.pane-leaf--floating .pane-floating-resize {
+  display: block;
+}
+
+.pane-floating-resize--left,
+.pane-floating-resize--right {
+  top: 12px;
+  bottom: 12px;
+  width: 10px;
+  cursor: ew-resize;
+}
+
+.pane-floating-resize--left {
+  left: -4px;
+}
+
+.pane-floating-resize--right {
+  right: -4px;
+}
+
+.pane-floating-resize--top,
+.pane-floating-resize--bottom {
+  left: 12px;
+  right: 12px;
+  height: 10px;
+  cursor: ns-resize;
+}
+
+.pane-floating-resize--top {
+  top: -4px;
+}
+
+.pane-floating-resize--bottom {
+  bottom: -4px;
+}
+
+@keyframes pane-float-out {
+  0% { transform: scale(0.985); opacity: 0.84; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes pane-float-return {
+  0% { transform: scale(1.018); opacity: 0.88; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.pane-leaf--floating-enter {
+  animation: pane-float-out calc(0.14s * var(--termie-animation-scale)) cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
+.pane-leaf--floating-return {
+  animation: pane-float-return calc(0.13s * var(--termie-animation-scale)) cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
 /* When split: all panes get a subtle boundary */
 .pane-host:has(.pane-split) .pane-leaf {
   border-color: color-mix(in srgb, var(--ui-gray-600) 50%, transparent);
@@ -1323,7 +1402,7 @@ html.pane-blur-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--
 }
 
 .pane-leaf--entering {
-  animation: pane-enter calc(0.28s * var(--termie-animation-scale)) cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation: pane-enter calc(0.18s * var(--termie-animation-scale)) cubic-bezier(0.34, 1.25, 0.64, 1) both;
 }
 
 @keyframes pane-leave {
@@ -1338,12 +1417,14 @@ html.pane-blur-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--
 }
 
 .pane-leaf--leaving {
-  animation: pane-leave calc(0.26s * var(--termie-animation-scale)) cubic-bezier(0.4, 0, 0.55, 1) forwards;
+  animation: pane-leave calc(0.16s * var(--termie-animation-scale)) cubic-bezier(0.4, 0, 0.55, 1) forwards;
   pointer-events: none;
 }
 
 html.terminal-motion-off .pane-leaf--entering,
-html.terminal-motion-off .pane-leaf--leaving {
+html.terminal-motion-off .pane-leaf--leaving,
+html.terminal-motion-off .pane-leaf--floating-enter,
+html.terminal-motion-off .pane-leaf--floating-return {
   animation: none !important;
 }
 

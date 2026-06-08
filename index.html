@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Termie</title>
+    <title>Partty</title>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
@@ -145,6 +145,16 @@
               <div class="help-shortcut">
                 <kbd class="help-key">Ctrl</kbd>
                 <kbd class="help-key">Shift</kbd>
+                <kbd class="help-key">O</kbd>
+                <span class="help-desc">Float or tile focused pane</span>
+              </div>
+              <div class="help-shortcut">
+                <kbd class="help-key">Alt</kbd>
+                <span class="help-desc">Drag floating pane to move it</span>
+              </div>
+              <div class="help-shortcut">
+                <kbd class="help-key">Ctrl</kbd>
+                <kbd class="help-key">Shift</kbd>
                 <kbd class="help-key">W</kbd>
                 <span class="help-desc">Close focused pane</span>
               </div>
@@ -227,6 +237,10 @@
                 <label class="settings-label" for="setting-terminal-pane-gap">Pane gap</label>
                 <input id="setting-terminal-pane-gap" name="terminal_pane_gap" type="number" min="0" max="32" step="1" class="settings-input" />
               </div>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-terminal-sandbox-padding">Edge padding</label>
+                <input id="setting-terminal-sandbox-padding" name="terminal_sandbox_padding" type="number" min="0" max="32" step="1" class="settings-input" />
+              </div>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_no_round" /><span>Square panes</span></label>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="focus_follows_cursor" /><span>Pointer focus</span></label>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="blur_unfocused_panes" /><span>Blur inactive</span></label>
@@ -272,6 +286,10 @@
                 <input id="setting-pane-background-opacity" name="pane_background_opacity" type="number" min="0" max="1" step="0.05" class="settings-input" />
               </div>
               <div class="settings-field">
+                <label class="settings-label" for="setting-pane-background-blur">Pane blur</label>
+                <input id="setting-pane-background-blur" name="pane_background_blur" type="number" min="0" max="40" step="1" class="settings-input" />
+              </div>
+              <div class="settings-field">
                 <label class="settings-label" for="setting-pane-corner-radius">Pane radius</label>
                 <input id="setting-pane-corner-radius" name="pane_corner_radius" type="number" min="0" max="32" step="1" class="settings-input" />
               </div>
@@ -315,7 +333,7 @@
         aria-hidden="true"
       >
         <div class="shed-exit-dialog-card">
-          <h2 id="shed-exit-title" class="shed-exit-dialog-title">Exit Termie</h2>
+            <h2 id="shed-exit-title" class="shed-exit-dialog-title">Exit Partty</h2>
           <p class="shed-exit-dialog-text">Save your workspace (tabs and layouts) for next launch, or discard it?</p>
           <div class="shed-exit-dialog-actions">
             <button type="button" id="shed-exit-keep" class="shed-exit-dialog-btn shed-exit-dialog-btn--primary">
@@ -341,10 +359,10 @@
             title="Move"
           ></div>
           <div class="window-controls" aria-label="Window controls">
-            <button type="button" id="window-quit" class="traffic-light traffic-light--quit" title="Quit" aria-label="Quit Termie"></button>
+            <button type="button" id="window-quit" class="traffic-light traffic-light--quit" title="Quit" aria-label="Quit Partty"></button>
             <button type="button" id="window-minimize" class="traffic-light traffic-light--minimize" title="Minimize" aria-label="Minimize"></button>
             <button type="button" id="window-maximize" class="traffic-light traffic-light--maximize" title="Maximize" aria-label="Maximize"></button>
-            <button type="button" id="window-suspend" class="traffic-light traffic-light--suspend" title="Hide" aria-label="Hide Termie"></button>
+            <button type="button" id="window-suspend" class="traffic-light traffic-light--suspend" title="Hide" aria-label="Hide Partty"></button>
           </div>
         </div>
 

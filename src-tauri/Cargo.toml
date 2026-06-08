@@ -1,12 +1,12 @@
 [package]
-name = "termie"
+name = "partty"
 version = "0.1.0"
 description = "Raycast-style terminal overlay for Windows"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "termie_lib"
+name = "partty_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

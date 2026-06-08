@@ -2,7 +2,7 @@ import type { Terminal } from "@xterm/xterm";
 import type { WebglAddon } from "@xterm/addon-webgl";
 
 /** Subset of Rust `Prefs` used by the webview lifecycle (snake_case from JSON). */
-export type TermieLifecyclePrefs = {
+export type ParttyLifecyclePrefs = {
   webgl_shed_on_hide: boolean;
   discard_buffer_on_hide: boolean;
   scrollback_lines: number;
@@ -16,7 +16,7 @@ export type TermieLifecyclePrefs = {
   focus_follows_cursor: boolean;
 };
 
-export const defaultLifecyclePrefs: TermieLifecyclePrefs = {
+export const defaultLifecyclePrefs: ParttyLifecyclePrefs = {
   webgl_shed_on_hide: true,
   discard_buffer_on_hide: false,
   scrollback_lines: 2500,
@@ -37,7 +37,7 @@ function b(v: unknown, fallback: boolean): boolean {
 }
 
 /** Merge Rust `prefs` JSON (may include unrelated keys) into lifecycle options. */
-export function mergeLifecyclePrefs(raw: Record<string, unknown> | undefined): TermieLifecyclePrefs {
+export function mergeLifecyclePrefs(raw: Record<string, unknown> | undefined): ParttyLifecyclePrefs {
   if (!raw) return { ...defaultLifecyclePrefs };
   return {
     webgl_shed_on_hide: b(raw.webgl_shed_on_hide, defaultLifecyclePrefs.webgl_shed_on_hide),

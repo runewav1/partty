@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { TermiePrefs } from "./settingsPanel";
+import type { ParttyPrefs } from "./settingsPanel";
 import {
   applyUiTheme,
   collectCurrentThemeCssVars,
@@ -247,8 +247,8 @@ export function createThemeBuilderModal(
         registerCustomThemeInCache(slug, vars);
         await loadCustomThemesIntoCache();
         const data = await invoke<{ prefs: Record<string, unknown> }>("get_persisted_state");
-        const prev = data.prefs as TermiePrefs;
-        const nextPrefs: TermiePrefs = {
+        const prev = data.prefs as ParttyPrefs;
+        const nextPrefs: ParttyPrefs = {
           ...prev,
           ui_theme: `custom:${slug}`,
           ui_theme_variant: "default",

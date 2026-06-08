@@ -1,7 +1,7 @@
 import type { PaneHost } from "./paneHost";
 import { findMatchingBufferLines, mergeHitsForNavigation, type SearchHit } from "./terminalSearch";
 
-const POS_KEY = "termie.searchModal.pos";
+const POS_KEY = "partty.searchModal.pos";
 
 export type SearchMinimap = {
   setSearchHighlights(lines: Iterable<number> | null): void;

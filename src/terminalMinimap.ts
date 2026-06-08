@@ -1,7 +1,7 @@
 import type { Terminal } from "@xterm/xterm";
 
 import { cellInkRgb } from "./minimapColors";
-import { termiePerf } from "./perf";
+import { parttyPerf } from "./perf";
 
 /**
  * IDE-style minimap: colored buffer preview + viewport thumb.
@@ -160,8 +160,8 @@ export class TerminalMinimap {
       this.lastDrawAt = performance.now();
       const started = performance.now();
       this.draw();
-      termiePerf.mark("minimap.draw");
-      termiePerf.time("minimap.draw.ms", performance.now() - started);
+      parttyPerf.mark("minimap.draw");
+      parttyPerf.time("minimap.draw.ms", performance.now() - started);
     });
   }
 

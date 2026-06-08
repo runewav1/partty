@@ -28,11 +28,31 @@ export function duplicateTabLayout(layout: PersistedPaneLayout, fromTabId: strin
     return { ...n, a: mapNode(n.a), b: mapNode(n.b) };
   }
   const focused = m.get(layout.focusedId) ?? newRoot;
-  return { v: 1, tree: mapNode(layout.tree), focusedId: focused };
+  const floating = layout.floating
+    ? Object.fromEntries(
+        Object.entries(layout.floating)
+          .map(([id, state]) => {
+            const nid = m.get(id);
+            return nid ? [nid, { ...state }] : null;
+          })
+          .filter((entry): entry is [string, NonNullable<typeof layout.floating>[string]] => entry !== null),
+      )
+    : undefined;
+  const paneThemes = layout.paneThemes
+    ? Object.fromEntries(
+        Object.entries(layout.paneThemes)
+          .map(([id, theme]) => {
+            const nid = m.get(id);
+            return nid ? [nid, { ...theme }] : null;
+          })
+          .filter((entry): entry is [string, NonNullable<typeof layout.paneThemes>[string]] => entry !== null),
+      )
+    : undefined;
+  return { v: 1, tree: mapNode(layout.tree), focusedId: focused, floating, paneThemes };
 }
 
-const TABS_STATE_KEY = "termie.tabs.v1";
-const TAB_LAYOUT_PREFIX = "termie.tab.layout.v1.";
+const TABS_STATE_KEY = "partty.tabs.v1";
+const TAB_LAYOUT_PREFIX = "partty.tab.layout.v1.";
 
 export type TabGroup = {
   id: string;
@@ -73,7 +93,17 @@ export function migrateLayoutFromLegacyMain(layout: PersistedPaneLayout, tabId: 
     return { ...n, a: mapNode(n.a), b: mapNode(n.b) };
   }
   const focusedId = layout.focusedId === "main" ? rid : layout.focusedId;
-  return { v: 1, tree: mapNode(layout.tree), focusedId };
+  const floating = layout.floating
+    ? Object.fromEntries(
+        Object.entries(layout.floating).map(([id, state]) => [id === "main" ? rid : id, { ...state }]),
+      )
+    : undefined;
+  const paneThemes = layout.paneThemes
+    ? Object.fromEntries(
+        Object.entries(layout.paneThemes).map(([id, theme]) => [id === "main" ? rid : id, { ...theme }]),
+      )
+    : undefined;
+  return { v: 1, tree: mapNode(layout.tree), focusedId, floating, paneThemes };
 }
 
 function loadRawTabs(): TabsStateV1 {

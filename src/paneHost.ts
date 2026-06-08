@@ -1,6 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal, type ITheme } from "@xterm/xterm";
-import { termiePerf } from "./perf";
+import { parttyPerf } from "./perf";
 
 export const MAIN_PANE_ID = "main";
 
@@ -25,10 +25,25 @@ export type PaneTerminal = {
   minimapCanvas: HTMLCanvasElement;
 };
 
+export type FloatingPaneState = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  z: number;
+};
+
+export type PaneDescriptor = {
+  id: string;
+  focused: boolean;
+  floating: boolean;
+};
+
 export type PaneHostOptions = {
   scrollbackLines: number;
   fontStack: string;
-  getTheme: () => ITheme;
+  getTheme: (paneId: string) => ITheme;
+  getPaneCssVars?: (paneId: string) => Record<string, string> | null;
   focusFollowsCursor: () => boolean;
   onPaneFocus: (paneId: string) => void;
   onPaneCreated: (paneId: string, pt: PaneTerminal) => void;
@@ -43,6 +58,8 @@ export type PaneHostOptions = {
 
 type SplitResizeAxis = "h" | "v";
 type CornerEdge = "left" | "right" | "top" | "bottom";
+type ResizeEdgeX = "left" | "right" | "none";
+type ResizeEdgeY = "top" | "bottom" | "none";
 
 type AncestorSplitInfo = {
   splitEl: HTMLElement;
@@ -128,6 +145,7 @@ function swapLeafNodesInTree(tree: PaneNode, idA: string, idB: string): PaneNode
 export type PaneHostInit = {
   initialTree?: PaneNode;
   initialFocusedId?: string;
+  initialFloating?: Record<string, FloatingPaneState>;
 };
 
 export class PaneHost {
@@ -136,6 +154,10 @@ export class PaneHost {
   private rootPaneId: string;
   private readonly terminals = new Map<string, PaneTerminal>();
   private readonly root: HTMLElement;
+  private readonly floating = new Map<string, FloatingPaneState>();
+  private readonly justFloated = new Set<string>();
+  private readonly justTiled = new Set<string>();
+  private floatingZ = 50;
   private resizeObs: ResizeObserver | null = null;
   private focusFollowPointer: ((ev: PointerEvent) => void) | null = null;
   private focusFollowRaf = 0;
@@ -156,7 +178,8 @@ export class PaneHost {
     if (ids.length < 2) return;
     e.preventDefault();
     e.stopPropagation();
-    this.beginPaneSwapDrag(leaf, paneId, e);
+    if (this.floating.has(paneId)) this.beginFloatingPaneMove(leaf, paneId, e);
+    else this.beginPaneSwapDrag(leaf, paneId, e);
   };
 
   constructor(
@@ -172,6 +195,11 @@ export class PaneHost {
       const fid = init.initialFocusedId;
       if (fid && findPaneLeaf(this.tree, fid)) this.focusedId = fid;
     }
+    for (const [id, state] of Object.entries(init?.initialFloating ?? {})) {
+      if (!findPaneLeaf(this.tree, id)) continue;
+      this.floating.set(id, { ...state });
+      this.floatingZ = Math.max(this.floatingZ, state.z + 1);
+    }
     this.root = document.createElement("div");
     this.root.className = "pane-host";
     this.container.appendChild(this.root);
@@ -183,6 +211,24 @@ export class PaneHost {
 
   getTree(): PaneNode {
     return this.tree;
+  }
+
+  getFloatingState(): Record<string, FloatingPaneState> {
+    for (const [id, state] of this.floating) {
+      const el = this.root.querySelector(`.pane-leaf--floating[data-pane-id="${CSS.escape(id)}"]`) as HTMLElement | null;
+      if (!el) continue;
+      state.width = el.offsetWidth || state.width;
+      state.height = el.offsetHeight || state.height;
+      state.x = el.offsetLeft;
+      state.y = el.offsetTop;
+    }
+    return Object.fromEntries([...this.floating.entries()].map(([id, state]) => [id, { ...state }]));
+  }
+
+  getPaneDescriptors(): PaneDescriptor[] {
+    const ids: string[] = [];
+    collectLeafIds(this.tree, ids);
+    return ids.map((id) => ({ id, focused: id === this.focusedId, floating: this.floating.has(id) }));
   }
 
   /** Root `.pane-host` element (for layout snapshot before webview teardown). */
@@ -204,6 +250,7 @@ export class PaneHost {
     this.focusedId = id;
     this.updateFocusClass();
     this.opts.onPaneFocus(id);
+    if (this.floating.has(id)) this.bringFloatingPaneToFront(id);
   }
 
   private updateFocusClass(): void {
@@ -214,6 +261,7 @@ export class PaneHost {
   }
 
   splitFocused(dir: "h" | "v"): string | null {
+    if (this.floating.has(this.focusedId)) return null;
     const newId = crypto.randomUUID();
     const from = this.focusedId;
     const rep: PaneSplit = {
@@ -259,6 +307,7 @@ export class PaneHost {
     const notifyDisposed = opts?.notifyDisposed !== false;
     const run = (): void => {
       this.tree = next;
+      this.floating.delete(paneId);
       const pt = this.terminals.get(paneId);
       if (pt) {
         try {
@@ -327,6 +376,7 @@ export class PaneHost {
       }
     }
     this.tree = { kind: "leaf", id: this.rootPaneId };
+    this.floating.clear();
     this.focusedId = this.rootPaneId;
     this.mountTree();
     this.opts.onPaneLayout?.();
@@ -359,6 +409,9 @@ export class PaneHost {
         this.opts.onPaneDisposed(id);
       }
     }
+    for (const id of [...this.floating.keys()]) {
+      if (!keep.has(id)) this.floating.delete(id);
+    }
     this.rootPaneId = rootPaneId;
     this.tree = tree;
     this.focusedId = focusedId;
@@ -373,6 +426,7 @@ export class PaneHost {
    */
   swapPanes(idA: string, idB: string): boolean {
     if (idA === idB) return false;
+    if (this.floating.has(idA) || this.floating.has(idB)) return false;
     if (!findPaneLeaf(this.tree, idA) || !findPaneLeaf(this.tree, idB)) return false;
     const ids: string[] = [];
     collectLeafIds(this.tree, ids);
@@ -384,6 +438,43 @@ export class PaneHost {
     this.opts.onPaneLayout?.();
     this.opts.onPaneReorder?.();
     this.setFocusedPaneId(idA);
+    return true;
+  }
+
+  toggleFocusedFloating(): boolean {
+    return this.togglePaneFloating(this.focusedId);
+  }
+
+  togglePaneFloating(paneId: string): boolean {
+    if (!findPaneLeaf(this.tree, paneId)) return false;
+    if (this.floating.has(paneId)) {
+      this.floating.delete(paneId);
+      this.justTiled.add(paneId);
+      this.mountTree();
+      this.setFocusedPaneId(paneId);
+      this.opts.onPaneLayout?.();
+      this.opts.onPaneReorder?.();
+      return true;
+    }
+
+    const ids: string[] = [];
+    collectLeafIds(this.tree, ids);
+    if (ids.length - this.floating.size <= 1) return false;
+    const leaf = this.root.querySelector(`.pane-leaf[data-pane-id="${CSS.escape(paneId)}"]`) as HTMLElement | null;
+    const hostRect = this.root.getBoundingClientRect();
+    const rect = leaf?.getBoundingClientRect();
+    const fallbackW = Math.max(320, Math.floor(hostRect.width * 0.48));
+    const fallbackH = Math.max(220, Math.floor(hostRect.height * 0.48));
+    const width = Math.max(220, Math.min(rect?.width ?? fallbackW, hostRect.width));
+    const height = Math.max(160, Math.min(rect?.height ?? fallbackH, hostRect.height));
+    const x = Math.max(-hostRect.left, Math.min((rect?.left ?? hostRect.left + 24) - hostRect.left, window.innerWidth - hostRect.left - width));
+    const y = Math.max(-hostRect.top, Math.min((rect?.top ?? hostRect.top + 24) - hostRect.top, window.innerHeight - hostRect.top - height));
+    this.floating.set(paneId, { x, y, width, height, z: this.floatingZ++ });
+    this.justFloated.add(paneId);
+    this.mountTree();
+    this.setFocusedPaneId(paneId);
+    this.opts.onPaneLayout?.();
+    this.opts.onPaneReorder?.();
     return true;
   }
 
@@ -406,6 +497,10 @@ export class PaneHost {
     for (const [, pt] of this.terminals) {
       pt.fit.fit();
     }
+  }
+
+  remountPaneSurfaces(): void {
+    this.mountTree();
   }
 
   dispose(): void {
@@ -435,11 +530,51 @@ export class PaneHost {
 
   private mountTree(): void {
     this.root.replaceChildren();
-    const el = this.renderNode(this.tree);
-    this.root.appendChild(el);
+    const tiledTree = this.pruneFloatingLeaves(this.tree);
+    if (tiledTree) {
+      const el = this.renderNode(tiledTree);
+      this.root.appendChild(el);
+    }
+    for (const paneId of this.getFloatingIdsInTreeOrder()) {
+      const el = this.renderNode({ kind: "leaf", id: paneId });
+      const state = this.floating.get(paneId);
+      if (!state) continue;
+      el.classList.add("pane-leaf--floating");
+      if (this.justFloated.delete(paneId)) el.classList.add("pane-leaf--floating-enter");
+      el.style.left = `${state.x}px`;
+      el.style.top = `${state.y}px`;
+      el.style.width = `${state.width}px`;
+      el.style.height = `${state.height}px`;
+      el.style.zIndex = String(state.z);
+      this.root.appendChild(el);
+    }
     this.wireFocus();
     this.updateFocusClass();
     this.opts.onPaneLayout?.();
+  }
+
+  private pruneFloatingLeaves(node: PaneNode): PaneNode | null {
+    if (node.kind === "leaf") return this.floating.has(node.id) ? null : node;
+    const a = this.pruneFloatingLeaves(node.a);
+    const b = this.pruneFloatingLeaves(node.b);
+    if (!a) return b;
+    if (!b) return a;
+    return { ...node, a, b };
+  }
+
+  private getFloatingIdsInTreeOrder(): string[] {
+    const ids: string[] = [];
+    collectLeafIds(this.tree, ids);
+    return ids.filter((id) => this.floating.has(id));
+  }
+
+  private bringFloatingPaneToFront(paneId: string): void {
+    const state = this.floating.get(paneId);
+    if (!state) return;
+    state.z = this.floatingZ++;
+    const leaf = this.root.querySelector(`.pane-leaf[data-pane-id="${CSS.escape(paneId)}"]`) as HTMLElement | null;
+    if (leaf) leaf.style.zIndex = String(state.z);
+    this.opts.onPaneReorder?.();
   }
 
   private wireFocus(): void {
@@ -490,11 +625,39 @@ export class PaneHost {
         e.stopPropagation();
         const leaf = corner.closest(".pane-leaf") as HTMLElement | null;
         if (!leaf) return;
+        const paneId = leaf.dataset.paneId;
+        if (paneId && this.floating.has(paneId)) {
+          this.beginFloatingPaneResize(
+            leaf,
+            paneId,
+            e,
+            corner.dataset.edgeX as ResizeEdgeX | undefined,
+            corner.dataset.edgeY as ResizeEdgeY | undefined,
+          );
+          return;
+        }
         this.beginCornerResize(
           e,
           leaf,
           corner.dataset.edgeX as CornerEdge | undefined,
           corner.dataset.edgeY as CornerEdge | undefined,
+        );
+      });
+    });
+
+    this.root.querySelectorAll<HTMLElement>(".pane-floating-resize").forEach((edge) => {
+      edge.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const leaf = edge.closest(".pane-leaf") as HTMLElement | null;
+        const paneId = leaf?.dataset.paneId;
+        if (!leaf || !paneId || !this.floating.has(paneId)) return;
+        this.beginFloatingPaneResize(
+          leaf,
+          paneId,
+          e,
+          edge.dataset.edgeX as ResizeEdgeX | undefined,
+          edge.dataset.edgeY as ResizeEdgeY | undefined,
         );
       });
     });
@@ -568,6 +731,107 @@ export class PaneHost {
       }
     };
 
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp, { once: true });
+  }
+
+  private beginFloatingPaneMove(leaf: HTMLElement, paneId: string, e: PointerEvent): void {
+    const state = this.floating.get(paneId);
+    if (!state) return;
+    this.paneDragActive = true;
+    this.bringFloatingPaneToFront(paneId);
+    state.width = leaf.offsetWidth || state.width;
+    state.height = leaf.offsetHeight || state.height;
+    leaf.classList.add("pane-leaf--floating-moving");
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startLeft = state.x;
+    const startTop = state.y;
+    const onMove = (ev: PointerEvent): void => {
+      const hostRect = this.root.getBoundingClientRect();
+      state.x = Math.max(-hostRect.left, Math.min(startLeft + ev.clientX - startX, window.innerWidth - hostRect.left - state.width));
+      state.y = Math.max(-hostRect.top, Math.min(startTop + ev.clientY - startY, window.innerHeight - hostRect.top - state.height));
+      leaf.style.left = `${state.x}px`;
+      leaf.style.top = `${state.y}px`;
+      this.opts.onPaneLayout?.();
+    };
+    const onUp = (): void => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      leaf.classList.remove("pane-leaf--floating-moving");
+      this.paneDragActive = false;
+      this.opts.onPaneReorder?.();
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp, { once: true });
+  }
+
+  private beginFloatingPaneResize(
+    leaf: HTMLElement,
+    paneId: string,
+    e: PointerEvent,
+    edgeX: ResizeEdgeX = "none",
+    edgeY: ResizeEdgeY = "none",
+  ): void {
+    const state = this.floating.get(paneId);
+    if (!state) return;
+    const minW = 220;
+    const minH = 160;
+    this.paneDragActive = true;
+    this.bringFloatingPaneToFront(paneId);
+    leaf.classList.add("pane-leaf--floating-resizing");
+
+    const hostRect = this.root.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startLeft = leaf.offsetLeft;
+    const startTop = leaf.offsetTop;
+    const startWidth = leaf.offsetWidth || state.width;
+    const startHeight = leaf.offsetHeight || state.height;
+    const minLeft = -hostRect.left;
+    const minTop = -hostRect.top;
+    const maxRight = window.innerWidth - hostRect.left;
+    const maxBottom = window.innerHeight - hostRect.top;
+
+    const onMove = (ev: PointerEvent): void => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      let left = startLeft;
+      let top = startTop;
+      let width = startWidth;
+      let height = startHeight;
+
+      if (edgeX === "left") {
+        left = Math.max(minLeft, Math.min(startLeft + dx, startLeft + startWidth - minW));
+        width = startWidth + startLeft - left;
+      } else if (edgeX === "right") {
+        width = Math.max(minW, Math.min(startWidth + dx, maxRight - startLeft));
+      }
+
+      if (edgeY === "top") {
+        top = Math.max(minTop, Math.min(startTop + dy, startTop + startHeight - minH));
+        height = startHeight + startTop - top;
+      } else if (edgeY === "bottom") {
+        height = Math.max(minH, Math.min(startHeight + dy, maxBottom - startTop));
+      }
+
+      state.x = left;
+      state.y = top;
+      state.width = width;
+      state.height = height;
+      leaf.style.left = `${left}px`;
+      leaf.style.top = `${top}px`;
+      leaf.style.width = `${width}px`;
+      leaf.style.height = `${height}px`;
+      this.opts.onPaneLayout?.();
+    };
+    const onUp = (): void => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      leaf.classList.remove("pane-leaf--floating-resizing");
+      this.paneDragActive = false;
+      this.opts.onPaneReorder?.();
+    };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp, { once: true });
   }
@@ -667,6 +931,12 @@ export class PaneHost {
       const wrap = document.createElement("div");
       wrap.className = "pane-leaf";
       wrap.dataset.paneId = node.id;
+      const cssVars = this.opts.getPaneCssVars?.(node.id);
+      if (cssVars) {
+        for (const [key, value] of Object.entries(cssVars)) {
+          if (key.startsWith("--")) wrap.style.setProperty(key, value);
+        }
+      }
       for (const [cls, edgeX, edgeY] of [
         ["pane-corner-handle--nw", "left", "top"],
         ["pane-corner-handle--ne", "right", "top"],
@@ -679,6 +949,19 @@ export class PaneHost {
         corner.dataset.edgeY = edgeY;
         corner.setAttribute("aria-hidden", "true");
         wrap.appendChild(corner);
+      }
+      for (const [cls, edgeX, edgeY] of [
+        ["pane-floating-resize--left", "left", "none"],
+        ["pane-floating-resize--right", "right", "none"],
+        ["pane-floating-resize--top", "none", "top"],
+        ["pane-floating-resize--bottom", "none", "bottom"],
+      ] as const) {
+        const edge = document.createElement("div");
+        edge.className = `pane-floating-resize ${cls}`;
+        edge.dataset.edgeX = edgeX;
+        edge.dataset.edgeY = edgeY;
+        edge.setAttribute("aria-hidden", "true");
+        wrap.appendChild(edge);
       }
 
       let pt = this.terminals.get(node.id);
@@ -708,19 +991,25 @@ export class PaneHost {
           cursorStyle: "block",
           fontFamily: this.opts.fontStack,
           fontSize: 12,
-          theme: this.opts.getTheme(),
+          theme: this.opts.getTheme(node.id),
           scrollback: this.opts.scrollbackLines,
         });
         const fit = new FitAddon();
         term.loadAddon(fit);
         term.open(host);
-        termiePerf.mark("pane.terminal.create");
-        termiePerf.time("pane.terminal.create.ms", performance.now() - createStarted);
+        parttyPerf.mark("pane.terminal.create");
+        parttyPerf.time("pane.terminal.create.ms", performance.now() - createStarted);
         pt = { term, fit, host, row, minimapAside, minimapCanvas: canvas };
         this.terminals.set(node.id, pt);
         this.opts.onPaneCreated(node.id, pt);
       }
       wrap.appendChild(pt.row);
+      if (this.justTiled.delete(node.id)) {
+        wrap.classList.add("pane-leaf--floating-return");
+        wrap.addEventListener("animationend", () => {
+          wrap.classList.remove("pane-leaf--floating-return");
+        }, { once: true });
+      }
       if (isNew) {
         wrap.classList.add("pane-leaf--entering");
         wrap.addEventListener("animationend", () => {

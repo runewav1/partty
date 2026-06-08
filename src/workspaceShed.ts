@@ -1,19 +1,19 @@
 import { clearPaneLayout } from "./paneLayout";
 
 /** Mirrors `prefs.shed_workspace_exit` (`keep` | `shed` | `ask`). */
-export const RUNTIME_SHED_WORKSPACE_EXIT_KEY = "termie.runtime.shed_workspace_exit";
+export const RUNTIME_SHED_WORKSPACE_EXIT_KEY = "partty.runtime.shed_workspace_exit";
 
-const TABS_STATE_KEY = "termie.tabs.v1";
-const TAB_LAYOUT_PREFIX = "termie.tab.layout.v1.";
-const MINIMAP_STORAGE_KEY = "termie.minimap.enabled";
-const MINIMAP_HIDDEN_PANES_KEY = "termie.minimap.hiddenPanes";
-const ZEN_MODE_STORAGE_KEY = "termie.zen.enabled";
-const DEFER_PTY_REINIT_KEY = "termie.defer_pty_reinit";
-const THEME_MODAL_POS = "termie.themeModal.pos";
-const SEARCH_MODAL_POS = "termie.searchModal.pos";
-const SETTINGS_PANEL_POS = "termie.settingsPanel.pos";
-const HELP_PANEL_POS = "termie.helpPanel.pos";
-const COMMAND_PALETTE_POS = "termie.commandPalette.pos";
+const TABS_STATE_KEY = "partty.tabs.v1";
+const TAB_LAYOUT_PREFIX = "partty.tab.layout.v1.";
+const MINIMAP_STORAGE_KEY = "partty.minimap.enabled";
+const MINIMAP_HIDDEN_PANES_KEY = "partty.minimap.hiddenPanes";
+const ZEN_MODE_STORAGE_KEY = "partty.zen.enabled";
+const DEFER_PTY_REINIT_KEY = "partty.defer_pty_reinit";
+const THEME_MODAL_POS = "partty.themeModal.pos";
+const SEARCH_MODAL_POS = "partty.searchModal.pos";
+const SETTINGS_PANEL_POS = "partty.settingsPanel.pos";
+const HELP_PANEL_POS = "partty.helpPanel.pos";
+const COMMAND_PALETTE_POS = "partty.commandPalette.pos";
 
 export type ShedWorkspaceExitMode = "keep" | "shed" | "ask";
 

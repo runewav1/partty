@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Termie",
+  "productName": "Partty",
   "version": "0.1.0",
-  "identifier": "com.termie.desktop",
+  "identifier": "com.partty.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -14,7 +14,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Termie",
+        "title": "Partty",
         "width": 920,
         "height": 520,
         "resizable": true,

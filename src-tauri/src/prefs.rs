@@ -72,6 +72,10 @@ fn default_terminal_pane_gap() -> f64 {
     6.0
 }
 
+fn default_terminal_sandbox_padding() -> f64 {
+    0.0
+}
+
 fn default_window_effect_mode() -> String {
     "off".to_string()
 }
@@ -82,6 +86,10 @@ fn default_window_effect_opacity() -> f64 {
 
 fn default_pane_background_opacity() -> f64 {
     1.0
+}
+
+fn default_pane_background_blur() -> f64 {
+    0.0
 }
 
 fn default_pane_corner_radius() -> f64 {
@@ -173,6 +181,9 @@ pub struct Prefs {
     /// Pane/container gap in px.
     #[serde(default = "default_terminal_pane_gap")]
     pub terminal_pane_gap: f64,
+    /// Padding around the pane sandbox in px.
+    #[serde(default = "default_terminal_sandbox_padding")]
+    pub terminal_sandbox_padding: f64,
     /// Remove rounded pane/chrome corners for dense terminal layouts.
     #[serde(default)]
     pub terminal_no_round: bool,
@@ -188,6 +199,9 @@ pub struct Prefs {
     /// CSS opacity for terminal pane backgrounds (0 = fully transparent, 1 = opaque).
     #[serde(default = "default_pane_background_opacity")]
     pub pane_background_opacity: f64,
+    /// CSS backdrop blur for terminal pane backgrounds in px.
+    #[serde(default = "default_pane_background_blur")]
+    pub pane_background_blur: f64,
     /// Pane corner radius in px when square panes are disabled.
     #[serde(default = "default_pane_corner_radius")]
     pub pane_corner_radius: f64,
@@ -244,11 +258,13 @@ impl Default for Prefs {
             always_open_in_zen_mode: false,
             terminal_no_gap: false,
             terminal_pane_gap: default_terminal_pane_gap(),
+            terminal_sandbox_padding: default_terminal_sandbox_padding(),
             terminal_no_round: false,
             terminal_animation_speed: default_terminal_animation_speed(),
             window_effect_mode: default_window_effect_mode(),
             window_effect_opacity: default_window_effect_opacity(),
             pane_background_opacity: default_pane_background_opacity(),
+            pane_background_blur: default_pane_background_blur(),
             pane_corner_radius: default_pane_corner_radius(),
         }
     }
@@ -271,8 +287,30 @@ impl Default for PersistedState {
 }
 
 pub fn state_path() -> Option<PathBuf> {
-    let mut dir = dirs::data_local_dir()?;
-    dir.push("termie");
+    let base = dirs::data_local_dir()?;
+    let dir = base.join("partty");
+    let old_dir = base.join("termie");
+    if !dir.exists() && old_dir.exists() {
+        let _ = fs::create_dir_all(&dir);
+        let old_state = old_dir.join("state.json");
+        let new_state = dir.join("state.json");
+        if old_state.exists() && !new_state.exists() {
+            let _ = fs::copy(old_state, new_state);
+        }
+        let old_themes = old_dir.join("custom_themes");
+        let new_themes = dir.join("custom_themes");
+        if old_themes.exists() && !new_themes.exists() {
+            let _ = fs::create_dir_all(&new_themes);
+            if let Ok(entries) = fs::read_dir(old_themes) {
+                for entry in entries.flatten() {
+                    let from = entry.path();
+                    if from.is_file() {
+                        let _ = fs::copy(&from, new_themes.join(entry.file_name()));
+                    }
+                }
+            }
+        }
+    }
     fs::create_dir_all(&dir).ok()?;
     Some(dir.join("state.json"))
 }
@@ -323,7 +361,7 @@ pub fn save_state(state: &PersistedState) {
     }
 }
 
-/// Same parent directory as `state.json`, e.g. `%LOCALAPPDATA%/termie/custom_themes/`.
+/// Same parent directory as `state.json`, e.g. `%LOCALAPPDATA%/partty/custom_themes/`.
 pub fn custom_themes_dir() -> Result<PathBuf, String> {
     let mut p = state_path().ok_or_else(|| "could not resolve app data dir".to_string())?;
     p.pop();

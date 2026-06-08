@@ -9,10 +9,10 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
-const SHELL_INTEGRATION_PWSH: &str = include_str!("../scripts/termie-shell-integration.ps1");
-const SHELL_INTEGRATION_BASH: &str = include_str!("../scripts/termie-shell-integration.bash");
+const SHELL_INTEGRATION_PWSH: &str = include_str!("../scripts/partty-shell-integration.ps1");
+const SHELL_INTEGRATION_BASH: &str = include_str!("../scripts/partty-shell-integration.bash");
 #[allow(dead_code)]
-const SHELL_INTEGRATION_ZSH: &str = include_str!("../scripts/termie-shell-integration.zsh");
+const SHELL_INTEGRATION_ZSH: &str = include_str!("../scripts/partty-shell-integration.zsh");
 const PTY_OUTPUT_BATCH_BYTES: usize = 64 * 1024;
 const PTY_OUTPUT_BATCH_MS: u64 = 4;
 
@@ -488,7 +488,7 @@ fn encode_pwsh_encoded_command(source: &str) -> String {
 
 /// Injects OSC 7 cwd, then delegates to the shell's built-in prompt (pwsh vs Windows PowerShell stay distinct).
 #[cfg(not(windows))]
-const PWSH_OSC7_PROMPT_SCRIPT: &str = r#"$script:__termie_prev_prompt = (Get-Command prompt -CommandType Function).ScriptBlock; function global:prompt { $p=$PWD.Path; $u='file:///'+($p-replace [char]92,[char]47); [Console]::Out.Write([char]27+']7;'+$u+[char]7); & $script:__termie_prev_prompt }"#;
+const PWSH_OSC7_PROMPT_SCRIPT: &str = r#"$script:__partty_prev_prompt = (Get-Command prompt -CommandType Function).ScriptBlock; function global:prompt { $p=$PWD.Path; $u='file:///'+($p-replace [char]92,[char]47); [Console]::Out.Write([char]27+']7;'+$u+[char]7); & $script:__partty_prev_prompt }"#;
 
 #[cfg(not(windows))]
 fn pwsh_powershell_osc7_args() -> Vec<String> {
@@ -557,7 +557,7 @@ fn windows_host_shell(prefs: &Prefs) -> Result<CommandBuilder, String> {
 
 #[cfg(windows)]
 fn write_shell_integration_script(name: &str, contents: &str) -> Result<PathBuf, String> {
-    let dir = std::env::temp_dir().join("termie-shell-integration");
+    let dir = std::env::temp_dir().join("partty-shell-integration");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(name);
     std::fs::write(&path, contents).map_err(|e| e.to_string())?;
@@ -576,7 +576,7 @@ fn windows_shell_command(prefs: &Prefs) -> Result<CommandBuilder, String> {
                 PathBuf::from("powershell.exe")
             };
             let script = write_shell_integration_script(
-                "termie-shell-integration.ps1",
+                "partty-shell-integration.ps1",
                 SHELL_INTEGRATION_PWSH,
             )?;
             let command = format!(". '{}'", script.to_string_lossy().replace('\'', "''"));
@@ -587,18 +587,18 @@ fn windows_shell_command(prefs: &Prefs) -> Result<CommandBuilder, String> {
                 "-Command".to_string(),
                 command,
             ]);
-            c.env("TERM_PROGRAM", "termie");
-            c.env("TERMIE_SHELL_INTEGRATION", "1");
+            c.env("TERM_PROGRAM", "partty");
+            c.env("PARTTY_SHELL_INTEGRATION", "1");
             apply_cwd(c, prefs)
         }
         ShellKind::Bash => {
             let bash = resolve_windows_bash_executable()?;
             let script = write_shell_integration_script(
-                "termie-shell-integration.bash",
+                "partty-shell-integration.bash",
                 SHELL_INTEGRATION_BASH,
             )?;
             let init = write_shell_integration_script(
-                "termie-bash-init.sh",
+                "partty-bash-init.sh",
                 &format!(
                     r#"[[ -f ~/.bashrc ]] && source ~/.bashrc
 source "{}"
@@ -612,13 +612,13 @@ source "{}"
                 init.to_string_lossy().to_string(),
                 "-i".to_string(),
             ]);
-            c.env("TERM_PROGRAM", "termie");
-            c.env("TERMIE_SHELL_INTEGRATION", "1");
+            c.env("TERM_PROGRAM", "partty");
+            c.env("PARTTY_SHELL_INTEGRATION", "1");
             apply_cwd(c, prefs)
         }
         ShellKind::Zsh => {
             let script = write_shell_integration_script(
-                "termie-shell-integration.zsh",
+                "partty-shell-integration.zsh",
                 SHELL_INTEGRATION_ZSH,
             )?;
             let command = format!(
@@ -627,8 +627,8 @@ source "{}"
             );
             let mut c = CommandBuilder::new("zsh.exe");
             c.args(["-i".to_string(), "-c".to_string(), command]);
-            c.env("TERM_PROGRAM", "termie");
-            c.env("TERMIE_SHELL_INTEGRATION", "1");
+            c.env("TERM_PROGRAM", "partty");
+            c.env("PARTTY_SHELL_INTEGRATION", "1");
             apply_cwd(c, prefs)
         }
         ShellKind::Cmd => windows_host_shell(prefs),

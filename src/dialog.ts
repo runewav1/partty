@@ -11,7 +11,7 @@ function ensureHost(): HTMLElement {
   return el;
 }
 
-export function showAlert(message: string, title = "Termie"): Promise<void> {
+export function showAlert(message: string, title = "Partty"): Promise<void> {
   return new Promise((resolve) => {
     const host = ensureHost();
     const backdrop = document.createElement("div");
@@ -45,7 +45,7 @@ export function showAlert(message: string, title = "Termie"): Promise<void> {
   });
 }
 
-export function showPrompt(message: string, defaultValue = "", title = "Termie"): Promise<string | null> {
+export function showPrompt(message: string, defaultValue = "", title = "Partty"): Promise<string | null> {
   return new Promise((resolve) => {
     const host = ensureHost();
     const backdrop = document.createElement("div");
@@ -96,7 +96,7 @@ export function showPrompt(message: string, defaultValue = "", title = "Termie")
 
 export function showConfirm(
   message: string,
-  title = "Termie",
+  title = "Partty",
   confirmLabel = "OK",
   danger = false,
 ): Promise<boolean> {

@@ -1,6 +1,6 @@
 [[permission]]
-identifier = "termie-ipc"
-description = "Termie PTY, window, palette, persistence IPC, and local directory listing."
+identifier = "partty-ipc"
+description = "Partty PTY, window, palette, persistence IPC, and local directory listing."
 commands.allow = [
   "pty_ensure",
   "pty_spawn",

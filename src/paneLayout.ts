@@ -1,12 +1,15 @@
-import type { PaneNode } from "./paneHost";
+import type { FloatingPaneState, PaneNode } from "./paneHost";
+import type { PaneThemePrefs } from "./uiTheme";
 import { findPaneLeaf, MAIN_PANE_ID } from "./paneHost";
 
-export const PANE_LAYOUT_STORAGE_KEY = "termie.pane_layout.v1";
+export const PANE_LAYOUT_STORAGE_KEY = "partty.pane_layout.v1";
 
 export type PersistedPaneLayout = {
   v: 1;
   tree: PaneNode;
   focusedId: string;
+  floating?: Record<string, FloatingPaneState>;
+  paneThemes?: Record<string, PaneThemePrefs>;
 };
 
 function collectLeafIdsArr(node: PaneNode, out: string[]): void {
@@ -50,7 +53,7 @@ export function loadPaneLayout(): PersistedPaneLayout | null {
     if (parsed.v !== 1 || !parsed.tree || typeof parsed.focusedId !== "string") return null;
     if (!validatePaneTree(parsed.tree)) return null;
     if (!layoutContainsWorkspaceRoot(parsed.tree)) return null;
-    return { v: 1, tree: parsed.tree, focusedId: parsed.focusedId };
+    return { v: 1, tree: parsed.tree, focusedId: parsed.focusedId, floating: parsed.floating, paneThemes: parsed.paneThemes };
   } catch {
     return null;
   }

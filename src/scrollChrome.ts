@@ -1,5 +1,5 @@
 /** Show scrollbar thumb briefly while scrolling (paired with `.termie-scroll-fade` in CSS). */
-export function initTermieScrollFade(): void {
+export function initParttyScrollFade(): void {
   let timer = 0;
   document.addEventListener(
     "scroll",

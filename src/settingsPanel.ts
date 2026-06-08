@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 /** Mirrors `prefs::Prefs` JSON (snake_case). */
-export type TermiePrefs = {
+export type ParttyPrefs = {
   shell: string;
   shed_on_hide: boolean;
   always_on_top: boolean;
@@ -47,6 +47,7 @@ export type TermiePrefs = {
   /** Remove pane/container gaps. */
   terminal_no_gap: boolean;
   terminal_pane_gap: number;
+  terminal_sandbox_padding: number;
   /** Remove rounded pane/chrome corners. */
   terminal_no_round: boolean;
   /** off | fast | normal | slow */
@@ -55,12 +56,13 @@ export type TermiePrefs = {
   window_effect_mode: string;
   window_effect_opacity: number;
   pane_background_opacity: number;
+  pane_background_blur: number;
   pane_corner_radius: number;
 };
 
 type DetectedShell = { name: string; path: string };
 
-type Persisted = { window: Record<string, unknown>; prefs: TermiePrefs };
+type Persisted = { window: Record<string, unknown>; prefs: ParttyPrefs };
 type LocalFontDescriptor = { family: string; fullName?: string; postscriptName?: string };
 
 declare global {
@@ -106,7 +108,7 @@ async function discoverFontFamilies(): Promise<string[]> {
 
 export function createSettingsPanel(
   root: HTMLElement,
-  onSaved?: (next: TermiePrefs, previous: TermiePrefs) => void | Promise<void>,
+  onSaved?: (next: ParttyPrefs, previous: ParttyPrefs) => void | Promise<void>,
 ): SettingsPanelApi {
   let open = false;
 
@@ -123,7 +125,7 @@ export function createSettingsPanel(
     const form = root.querySelector("#settings-form") as HTMLFormElement | null;
     if (!form) return;
 
-    const pr = p as Partial<TermiePrefs>;
+    const pr = p as Partial<ParttyPrefs>;
 
     const shellInput = form.querySelector("#setting-shell") as HTMLInputElement;
     const shellDatalist = form.querySelector("#shell-suggestions") as HTMLDataListElement;
@@ -183,11 +185,15 @@ export function createSettingsPanel(
     if (effectOpacity) effectOpacity.value = String(pr.window_effect_opacity ?? 0);
     const paneOpacity = form.querySelector('[name="pane_background_opacity"]') as HTMLInputElement | null;
     if (paneOpacity) paneOpacity.value = String(pr.pane_background_opacity ?? 1);
+    const paneBlur = form.querySelector('[name="pane_background_blur"]') as HTMLInputElement | null;
+    if (paneBlur) paneBlur.value = String(pr.pane_background_blur ?? 0);
     const paneRadius = form.querySelector('[name="pane_corner_radius"]') as HTMLInputElement | null;
     if (paneRadius) paneRadius.value = String(pr.pane_corner_radius ?? 6);
     const paneGap = form.querySelector('[name="terminal_pane_gap"]') as HTMLInputElement | null;
     if (paneGap) paneGap.value = String(pr.terminal_pane_gap ?? (pr.terminal_no_gap ? 0 : 6));
-    const setChk = (name: keyof TermiePrefs, v: boolean) => {
+    const sandboxPadding = form.querySelector('[name="terminal_sandbox_padding"]') as HTMLInputElement | null;
+    if (sandboxPadding) sandboxPadding.value = String(pr.terminal_sandbox_padding ?? 0);
+    const setChk = (name: keyof ParttyPrefs, v: boolean) => {
       const el = form.querySelector(`[name="${name}"]`) as HTMLInputElement | null;
       if (el) el.checked = v;
     };
@@ -235,7 +241,7 @@ export function createSettingsPanel(
     void (async () => {
       try {
         const data = await invoke<Persisted>("get_persisted_state");
-        const previous = { ...(data.prefs as TermiePrefs) };
+        const previous = { ...(data.prefs as ParttyPrefs) };
         const shedRaw = gs("shed_workspace_exit").toLowerCase();
         const shed_workspace_exit = shedRaw === "shed" || shedRaw === "ask" ? shedRaw : "keep";
         const animationRaw = gs("terminal_animation_speed").toLowerCase();
@@ -251,12 +257,17 @@ export function createSettingsPanel(
           const n = Number.parseFloat(raw);
           return Number.isFinite(n) ? Math.max(0, Math.min(32, n)) : fallback;
         };
+        const clampBlur = (raw: string, fallback: number) => {
+          const n = Number.parseFloat(raw);
+          return Number.isFinite(n) ? Math.max(0, Math.min(40, n)) : fallback;
+        };
         const clampGap = (raw: string, fallback: number) => {
           const n = Number.parseFloat(raw);
           return Number.isFinite(n) ? Math.max(0, Math.min(32, n)) : fallback;
         };
         const terminal_pane_gap = clampGap(g("terminal_pane_gap"), previous.terminal_pane_gap ?? 6);
-        const prefs: TermiePrefs = {
+        const terminal_sandbox_padding = clampGap(g("terminal_sandbox_padding"), previous.terminal_sandbox_padding ?? 0);
+        const prefs: ParttyPrefs = {
           shell: g("shell").trim() || "pwsh",
           shed_on_hide: gc("shed_on_hide"),
           always_on_top: gc("always_on_top"),
@@ -292,11 +303,13 @@ export function createSettingsPanel(
           always_open_in_zen_mode: gc("always_open_in_zen_mode"),
           terminal_no_gap: terminal_pane_gap <= 0,
           terminal_pane_gap,
+          terminal_sandbox_padding,
           terminal_no_round: gc("terminal_no_round"),
           terminal_animation_speed,
           window_effect_mode,
           window_effect_opacity: clamp01(g("window_effect_opacity"), 0),
           pane_background_opacity: clamp01(g("pane_background_opacity"), 1),
+          pane_background_blur: clampBlur(g("pane_background_blur"), 0),
           pane_corner_radius: clampRadius(g("pane_corner_radius"), 6),
         };
         const merged = { ...previous, ...prefs };

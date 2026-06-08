@@ -14,6 +14,8 @@ export type UiThemePrefs = {
   font_file_tree: string;
 };
 
+export type PaneThemePrefs = Pick<UiThemePrefs, "ui_theme" | "ui_theme_variant">;
+
 /** Nerd-font-friendly default; no single font hard-required. */
 export const DEFAULT_TERMINAL_FONT_STACK = String.raw`"JetBrains Mono","Cascadia Code","Sarasa Term SC","Symbols Nerd Font Mono",Consolas,"Liberation Mono",monospace`;
 
@@ -659,6 +661,30 @@ export function buildXtermThemeFromDocument(): ITheme {
     selectionBackground: sel,
     ...ansi,
   };
+}
+
+export function buildXtermThemeFromPrefs(prefs: PaneThemePrefs): ITheme {
+  if (!prefs.ui_theme || prefs.ui_theme === "system") return buildXtermThemeFromDocument();
+  const vars = resolvePreset(prefs.ui_theme, prefs.ui_theme_variant);
+  const bg = vars["--term-bg"] || TERM_BG_FALLBACK;
+  const fg = vars["--term-fg"] || TERM_FG_FALLBACK;
+  const cursor = vars["--term-cursor"] || TERM_CURSOR_FALLBACK;
+  const sel = vars["--term-selection-bg"] || TERM_SELECTION_BG_FALLBACK;
+  const bgRgb = parseCssColorToRgb(bg);
+  const ansi = bgRgb && isLightBackground(bgRgb) ? XTERM_ANSI_LIGHT : XTERM_ANSI_DARK;
+  return {
+    background: bg,
+    foreground: fg,
+    cursor,
+    cursorAccent: bg,
+    selectionBackground: sel,
+    ...ansi,
+  };
+}
+
+export function themeCssVarsForPrefs(prefs: PaneThemePrefs): ThemeCssVars {
+  if (!prefs.ui_theme || prefs.ui_theme === "system") return {};
+  return resolvePreset(prefs.ui_theme, prefs.ui_theme_variant);
 }
 
 /** Remap neutral grays + hover overlays for light vs dark chrome. */

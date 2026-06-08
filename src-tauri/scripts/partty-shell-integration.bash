@@ -1,5 +1,5 @@
 #!/bin/bash
-# Termie shell integration for bash (improved).
+# Partty shell integration for bash (improved).
 
 [[ -n "$__TERMIE_SHELL_INTEGRATION" ]] && return 0
 export __TERMIE_SHELL_INTEGRATION=1
@@ -192,6 +192,6 @@ case "$__TERMIE_PLATFORM" in
   *) __termie_emit_osc "633" "P" "IsWindows=False" ;;
 esac
 __termie_emit_osc "633" "P" "ShellType=bash"
-export TERMIE_SHELL_INTEGRATION=1
-export TERM_PROGRAM="termie"
+export PARTTY_SHELL_INTEGRATION=1
+export TERM_PROGRAM="partty"
 export TERM_PROGRAM_VERSION="1.0.0"

@@ -48,7 +48,7 @@ pub struct AppState {
     pub focused_pane_id: Mutex<Option<String>>,
     /// Set before programmatic destroy on hide so `ExitRequested` keeps the app alive.
     pub webview_destroyed_for_hide: AtomicBool,
-    /// After recreating the main webview, hold `termie-prepare-show` until JS calls `webview_boot_complete`.
+    /// After recreating the main webview, hold `partty-prepare-show` until JS calls `webview_boot_complete`.
     pub defer_prepare_show_until_webview_ready: AtomicBool,
     /// Filesystem watcher for file tree live-updating.
     pub fs_watcher: fs_watcher::WatcherHandle,
@@ -1054,7 +1054,7 @@ fn window_effect_config(prefs: &prefs::Prefs) -> Option<tauri::utils::config::Wi
 
 fn apply_window_effects(win: &tauri::WebviewWindow, prefs: &prefs::Prefs) {
     if let Err(e) = win.set_effects(window_effect_config(prefs)) {
-        eprintln!("termie: set window effects for {}: {e}", win.label());
+        eprintln!("partty: set window effects for {}: {e}", win.label());
     }
 }
 
@@ -1274,7 +1274,7 @@ fn close_detached_pane(
     close_detached_pane_inner(&app, &state, &window_label, true)
 }
 
-/// Let the `termie-hide` handler finish WebGL/buffer work on the JS thread, then destroy the
+/// Let the `partty-hide` handler finish WebGL/buffer work on the JS thread, then destroy the
 /// webview from Rust. Avoids `invoke(request_destroy_webview)` from JS, which can tear down the
 /// webview while the IPC promise is still pending (white window, broken show).
 fn schedule_destroy_webview_after_hide(app: &AppHandle) {
@@ -1374,14 +1374,14 @@ fn spawn_show_main_window(app: AppHandle) {
             return;
         }
         // Set before `recreate_main_window` so the first navigation cannot load JS before the flag exists
-        // (otherwise `webview_boot_complete` may no-op and `termie-prepare-show` is never emitted).
+        // (otherwise `webview_boot_complete` may no-op and `partty-prepare-show` is never emitted).
         if defer_prep {
             app.state::<AppState>()
                 .defer_prepare_show_until_webview_ready
                 .store(true, Ordering::SeqCst);
         }
         if let Err(e) = recreate_main_window(&app).await {
-            eprintln!("termie: recreate main window: {e}");
+            eprintln!("partty: recreate main window: {e}");
             if defer_prep {
                 app.state::<AppState>()
                     .defer_prepare_show_until_webview_ready
@@ -1398,12 +1398,12 @@ fn spawn_show_main_window(app: AppHandle) {
             return;
         };
         if defer_prep {
-            // `termie-prepare-show` is emitted from `webview_boot_complete` once listeners exist.
+            // `partty-prepare-show` is emitted from `webview_boot_complete` once listeners exist.
         } else {
             position_main_at_cursor_if_prefs(&app);
             let _ = w.show();
             let _ = w.set_focus();
-            let _ = w.emit("termie-show", ());
+            let _ = w.emit("partty-show", ());
         }
     });
 }
@@ -1421,7 +1421,7 @@ fn toggle_window(app: &AppHandle) {
             clear_pty_session(&state);
             let _ = win.emit("pty-session-shed", ());
         }
-        let _ = win.emit("termie-hide", ());
+        let _ = win.emit("partty-hide", ());
         let _ = win.hide();
         schedule_destroy_webview_after_hide(app);
     } else {
@@ -1433,7 +1433,7 @@ fn toggle_window(app: &AppHandle) {
             )
         };
         if defer {
-            let _ = win.emit("termie-prepare-show", ());
+            let _ = win.emit("partty-prepare-show", ());
         } else {
             if !summon {
                 position_main_at_cursor_if_prefs(app);
@@ -1443,13 +1443,13 @@ fn toggle_window(app: &AppHandle) {
                 let _ = win.maximize();
             }
             let _ = win.set_focus();
-            let _ = win.emit("termie-show", ());
+            let _ = win.emit("partty-show", ());
         }
     }
 }
 
-/// Call from the frontend after `termie-prepare-show` listeners are registered (e.g. end of `boot()`).
-/// If the main window was just recreated with deferred show, emits `termie-prepare-show` once.
+/// Call from the frontend after `partty-prepare-show` listeners are registered (e.g. end of `boot()`).
+/// If the main window was just recreated with deferred show, emits `partty-prepare-show` once.
 #[tauri::command]
 fn webview_boot_complete(app: AppHandle) -> Result<(), String> {
     let st = app.state::<AppState>();
@@ -1462,7 +1462,7 @@ fn webview_boot_complete(app: AppHandle) -> Result<(), String> {
     let Some(w) = app.get_webview_window("main") else {
         return Ok(());
     };
-    let _ = w.emit("termie-prepare-show", ());
+    let _ = w.emit("partty-prepare-show", ());
     Ok(())
 }
 
@@ -1485,7 +1485,7 @@ fn commit_show_window(app: AppHandle) -> Result<(), String> {
         let _ = win.maximize();
     }
     let _ = win.set_focus();
-    let _ = win.emit("termie-show", ());
+    let _ = win.emit("partty-show", ());
     Ok(())
 }
 
@@ -1742,12 +1742,12 @@ pub fn run() {
             let defer_prep = load_state().prefs.defer_window_show_until_prepared;
             if let Some(w) = app.get_webview_window("main") {
                 if defer_prep {
-                    let _ = w.emit("termie-prepare-show", ());
+                    let _ = w.emit("partty-prepare-show", ());
                 } else {
                     position_main_at_cursor_if_prefs(app);
                     let _ = w.show();
                     let _ = w.set_focus();
-                    let _ = w.emit("termie-show", ());
+                    let _ = w.emit("partty-show", ());
                 }
             } else if app.try_state::<AppState>().is_some() {
                 spawn_show_main_window(app.clone());

@@ -1,5 +1,5 @@
 # ============================================================================
-# Termie Shell Integration for PowerShell (pwsh 7+ / Windows PowerShell 5.1+)
+# Partty Shell Integration for PowerShell (pwsh 7+ / Windows PowerShell 5.1+)
 # ============================================================================
 
 # Guard: prevent double-sourcing
@@ -16,13 +16,13 @@ $Global:__TermieState = @{
     HasPSReadLine       = $false
     OriginalPSConsoleHostReadLine = $null
     SessionId           = [guid]::NewGuid().ToString("N").Substring(0, 8)
-    DebugMode           = $env:TERMIE_DEBUG -eq "1"
+    DebugMode           = $env:PARTTY_DEBUG -eq "1"
 }
 
 function __Termie-Debug {
     param([string]$Message)
     if ($Global:__TermieState.DebugMode) {
-        [Console]::Error.WriteLine("[TERMIE-DEBUG] $Message")
+        [Console]::Error.WriteLine("[PARTTY-DEBUG] $Message")
     }
 }
 
@@ -250,6 +250,6 @@ if ($initialCwd) {
     __Termie-Emit-OSC "7" @("$(__Termie-Path-To-FileUri $initialCwd)")
 }
 
-$env:TERMIE_SHELL_INTEGRATION = "1"
-$env:TERM_PROGRAM = "termie"
+$env:PARTTY_SHELL_INTEGRATION = "1"
+$env:TERM_PROGRAM = "partty"
 $env:TERM_PROGRAM_VERSION = "1.0.0"

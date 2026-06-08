@@ -4,7 +4,7 @@ type TimingBucket = {
   maxMs: number;
 };
 
-export type TermiePerfSnapshot = {
+export type ParttyPerfSnapshot = {
   counters: Record<string, number>;
   gauges: Record<string, number>;
   timings: Record<string, TimingBucket>;
@@ -16,13 +16,13 @@ const timings: Record<string, TimingBucket> = {};
 
 function readEnabled(): boolean {
   try {
-    return localStorage.getItem("termie.perf") === "1" || new URLSearchParams(location.search).has("termiePerf");
+    return localStorage.getItem("partty.perf") === "1" || new URLSearchParams(location.search).has("parttyPerf");
   } catch {
     return false;
   }
 }
 
-export const termiePerf = {
+export const parttyPerf = {
   enabled: readEnabled(),
   mark(name: string, amount = 1): void {
     if (!this.enabled) return;
@@ -43,7 +43,7 @@ export const termiePerf = {
   measure(name: string, start: number): void {
     this.time(name, performance.now() - start);
   },
-  snapshot(): TermiePerfSnapshot {
+  snapshot(): ParttyPerfSnapshot {
     return {
       counters: { ...counters },
       gauges: { ...gauges },
@@ -61,14 +61,14 @@ export const termiePerf = {
 
 declare global {
   interface Window {
-    __termiePerf?: typeof termiePerf;
+    __parttyPerf?: typeof parttyPerf;
   }
 }
 
-if (termiePerf.enabled) {
-  window.__termiePerf = termiePerf;
+if (parttyPerf.enabled) {
+  window.__parttyPerf = parttyPerf;
   window.setInterval(() => {
-    const snap = termiePerf.snapshot();
-    console.debug("[termie:perf]", snap);
+    const snap = parttyPerf.snapshot();
+    console.debug("[partty:perf]", snap);
   }, 5000);
 }

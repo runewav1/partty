@@ -1,16 +1,22 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { TermiePrefs } from "./settingsPanel";
+import type { ParttyPrefs } from "./settingsPanel";
 import { loadCustomThemesIntoCache, pickUiPrefs, THEME_OPTIONS, type UiThemePrefs } from "./uiTheme";
 
-const POS_KEY = "termie.themeModal.pos";
+const POS_KEY = "partty.themeModal.pos";
 
 type Persisted = { prefs: Record<string, unknown> };
 
 export type ThemeModalApi = {
-  open(): void;
+  open(options?: ThemeModalOpenOptions): void;
   close(): void;
   isOpen(): boolean;
+};
+
+export type ThemeModalOpenOptions = {
+  title?: string;
+  initialPrefs?: UiThemePrefs;
+  onCommit?: (prefs: UiThemePrefs) => void | Promise<void>;
 };
 
 export function createThemeModal(
@@ -19,6 +25,7 @@ export function createThemeModal(
 ): ThemeModalApi {
   let open = false;
   let initial: UiThemePrefs | null = null;
+  let commitOverride: ThemeModalOpenOptions["onCommit"] | null = null;
   let fontBase = { font_terminal: "", font_ui: "", font_file_tree: "" };
   let selectedFlat = 0;
   const builtinFlat: { themeId: string; variantId: string; label: string }[] = [];
@@ -180,23 +187,31 @@ export function createThemeModal(
   async function commitAt(i: number): Promise<void> {
     const row = flat[i];
     if (!row) return;
+    const picked: UiThemePrefs = {
+      ui_theme: row.themeId,
+      ui_theme_variant: row.variantId,
+      font_terminal: fontBase.font_terminal,
+      font_ui: fontBase.font_ui,
+      font_file_tree: fontBase.font_file_tree,
+    };
     try {
+      if (commitOverride) {
+        await commitOverride(picked);
+        initial = null;
+        onPreview(picked);
+        close();
+        return;
+      }
       const data = await invoke<Persisted>("get_persisted_state");
-      const prev = data.prefs as TermiePrefs;
-      const next: TermiePrefs = {
+      const prev = data.prefs as ParttyPrefs;
+      const next: ParttyPrefs = {
         ...prev,
         ui_theme: row.themeId,
         ui_theme_variant: row.variantId,
       };
       await invoke("set_prefs", { prefs: next });
       initial = null;
-      onPreview({
-        ui_theme: row.themeId,
-        ui_theme_variant: row.variantId,
-        font_terminal: fontBase.font_terminal,
-        font_ui: fontBase.font_ui,
-        font_file_tree: fontBase.font_file_tree,
-      });
+      onPreview(picked);
       close();
     } catch (e) {
       console.error("theme commit", e);
@@ -250,17 +265,25 @@ export function createThemeModal(
       onPreview(initial);
     }
     initial = null;
+    commitOverride = null;
+    title.textContent = "Themes";
   }
 
   return {
-    open: () => {
+    open: (options?: ThemeModalOpenOptions) => {
       if (open) return;
       open = true;
+      commitOverride = options?.onCommit ?? null;
+      title.textContent = options?.title ?? "Themes";
       window.addEventListener("keydown", onKey, true);
       void (async () => {
         try {
-          const data = await invoke<Persisted>("get_persisted_state");
-          initial = pickUiPrefs(data.prefs as Record<string, unknown>);
+          if (options?.initialPrefs) {
+            initial = options.initialPrefs;
+          } else {
+            const data = await invoke<Persisted>("get_persisted_state");
+            initial = pickUiPrefs(data.prefs as Record<string, unknown>);
+          }
           fontBase = {
             font_terminal: initial.font_terminal,
             font_ui: initial.font_ui,
