@@ -752,7 +752,7 @@ html.file-tree-on .term-toolbar-icon-btn--sidebar .sidebar-bar--mid {
   flex: 1;
   min-height: 0;
   width: 100%;
-  padding: 0 var(--term-pad-x) var(--term-pad-y);
+  padding: 0;
   box-sizing: border-box;
   margin-top: 0;
   position: relative;
@@ -1621,7 +1621,7 @@ html.zen-mode .terminal-chrome-bridge {
 }
 
 html.zen-mode #terminal-stage {
-  padding: var(--term-pad-y);
+  padding: 0;
 }
 
 html.zen-mode #main-workspace {
