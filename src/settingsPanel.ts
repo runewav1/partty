@@ -9,6 +9,13 @@ export type ParttyPrefs = {
   webgl_shed_on_hide: boolean;
   discard_buffer_on_hide: boolean;
   scrollback_lines: number;
+  command_history_enabled: boolean;
+  command_history_flush_interval_sec: number;
+  command_history_flush_on_command_end: boolean;
+  command_history_max_records_per_pane: number;
+  command_history_capture_output: boolean;
+  command_history_max_output_bytes: number;
+  command_history_flush_on_hide: boolean;
   snapshot_max_lines: number;
   preload_pty_on_startup: boolean;
   preload_webgl_on_startup: boolean;
@@ -163,6 +170,9 @@ export function createSettingsPanel(
     (form.querySelector('[name="scrollback_lines"]') as HTMLInputElement).value = String(
       p.scrollback_lines,
     );
+    (form.querySelector('[name="command_history_flush_interval_sec"]') as HTMLInputElement).value = String(pr.command_history_flush_interval_sec ?? 0);
+    (form.querySelector('[name="command_history_max_records_per_pane"]') as HTMLInputElement).value = String(pr.command_history_max_records_per_pane ?? 2000);
+    (form.querySelector('[name="command_history_max_output_bytes"]') as HTMLInputElement).value = String(pr.command_history_max_output_bytes ?? 262144);
     (form.querySelector('[name="snapshot_max_lines"]') as HTMLInputElement).value = String(
       p.snapshot_max_lines,
     );
@@ -201,6 +211,10 @@ export function createSettingsPanel(
     setChk("always_on_top", p.always_on_top);
     setChk("webgl_shed_on_hide", p.webgl_shed_on_hide);
     setChk("discard_buffer_on_hide", p.discard_buffer_on_hide);
+    setChk("command_history_enabled", pr.command_history_enabled ?? true);
+    setChk("command_history_capture_output", pr.command_history_capture_output ?? true);
+    setChk("command_history_flush_on_command_end", pr.command_history_flush_on_command_end ?? true);
+    setChk("command_history_flush_on_hide", pr.command_history_flush_on_hide ?? true);
     setChk("preload_pty_on_startup", p.preload_pty_on_startup);
     setChk("preload_webgl_on_startup", p.preload_webgl_on_startup);
     setChk("defer_window_show_until_prepared", p.defer_window_show_until_prepared);
@@ -274,7 +288,14 @@ export function createSettingsPanel(
           initial_cwd: cwd ? cwd : null,
           webgl_shed_on_hide: gc("webgl_shed_on_hide"),
           discard_buffer_on_hide: gc("discard_buffer_on_hide"),
-          scrollback_lines: Math.max(100, Math.min(50000, parseInt(g("scrollback_lines"), 10) || 2500)),
+          scrollback_lines: Math.max(0, Math.min(50000, parseInt(g("scrollback_lines"), 10) || 0)),
+          command_history_enabled: gc("command_history_enabled"),
+          command_history_flush_interval_sec: Math.max(0, Math.min(86400, Number.parseFloat(g("command_history_flush_interval_sec")) || 0)),
+          command_history_flush_on_command_end: gc("command_history_flush_on_command_end"),
+          command_history_max_records_per_pane: Math.max(50, Math.min(50000, parseInt(g("command_history_max_records_per_pane"), 10) || 2000)),
+          command_history_capture_output: gc("command_history_capture_output"),
+          command_history_max_output_bytes: Math.max(4096, Math.min(10485760, parseInt(g("command_history_max_output_bytes"), 10) || 262144)),
+          command_history_flush_on_hide: gc("command_history_flush_on_hide"),
           snapshot_max_lines: Math.max(50, Math.min(50000, parseInt(g("snapshot_max_lines"), 10) || 2500)),
           preload_pty_on_startup: gc("preload_pty_on_startup"),
           preload_webgl_on_startup: gc("preload_webgl_on_startup"),

@@ -35,6 +35,7 @@ export type FloatingPaneState = {
 
 export type PaneDescriptor = {
   id: string;
+  name?: string;
   focused: boolean;
   floating: boolean;
 };
@@ -43,6 +44,7 @@ export type PaneHostOptions = {
   scrollbackLines: number;
   fontStack: string;
   getTheme: (paneId: string) => ITheme;
+  getPaneName?: (paneId: string) => string | undefined;
   getPaneCssVars?: (paneId: string) => Record<string, string> | null;
   focusFollowsCursor: () => boolean;
   onPaneFocus: (paneId: string) => void;
@@ -228,7 +230,20 @@ export class PaneHost {
   getPaneDescriptors(): PaneDescriptor[] {
     const ids: string[] = [];
     collectLeafIds(this.tree, ids);
-    return ids.map((id) => ({ id, focused: id === this.focusedId, floating: this.floating.has(id) }));
+    return ids.map((id) => ({
+      id,
+      name: this.opts.getPaneName?.(id),
+      focused: id === this.focusedId,
+      floating: this.floating.has(id),
+    }));
+  }
+
+  setScrollbackLines(lines: number): void {
+    const scrollback = Math.max(0, Math.min(50_000, Math.floor(lines)));
+    this.opts.scrollbackLines = scrollback;
+    for (const pt of this.terminals.values()) {
+      pt.term.options.scrollback = scrollback;
+    }
   }
 
   /** Root `.pane-host` element (for layout snapshot before webview teardown). */

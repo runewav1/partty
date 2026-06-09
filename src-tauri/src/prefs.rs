@@ -49,7 +49,19 @@ fn default_terminal_backspace_delete_selection() -> bool {
 }
 
 fn default_scrollback_lines() -> u32 {
-    2500
+    1000
+}
+
+fn default_command_history_flush_interval_sec() -> f64 {
+    0.0
+}
+
+fn default_command_history_max_records_per_pane() -> usize {
+    2000
+}
+
+fn default_command_history_max_output_bytes() -> usize {
+    256 * 1024
 }
 
 fn default_snapshot_max_lines() -> u32 {
@@ -112,6 +124,27 @@ pub struct Prefs {
     /// xterm scrollback capacity (older lines discarded by xterm when over limit).
     #[serde(default = "default_scrollback_lines")]
     pub scrollback_lines: u32,
+    /// Persist shell-integration command history per pane.
+    #[serde(default = "default_true")]
+    pub command_history_enabled: bool,
+    /// Flush pending command history every N seconds while the app is open (0 = disabled).
+    #[serde(default = "default_command_history_flush_interval_sec")]
+    pub command_history_flush_interval_sec: f64,
+    /// Flush pending command history immediately after a command finishes.
+    #[serde(default = "default_true")]
+    pub command_history_flush_on_command_end: bool,
+    /// Max retained command records per pane on disk.
+    #[serde(default = "default_command_history_max_records_per_pane")]
+    pub command_history_max_records_per_pane: usize,
+    /// Capture command stdout/stderr text into history records.
+    #[serde(default = "default_true")]
+    pub command_history_capture_output: bool,
+    /// Max output bytes retained per command record before truncating oldest output.
+    #[serde(default = "default_command_history_max_output_bytes")]
+    pub command_history_max_output_bytes: usize,
+    /// Flush pending command records when the app is dismissed/hidden.
+    #[serde(default = "default_true")]
+    pub command_history_flush_on_hide: bool,
     /// Max lines kept when building a snapshot for `discard_buffer_on_hide`.
     #[serde(default = "default_snapshot_max_lines")]
     pub snapshot_max_lines: u32,
@@ -229,7 +262,14 @@ impl Default for Prefs {
             initial_cwd: None,
             webgl_shed_on_hide: true,
             discard_buffer_on_hide: false,
-            scrollback_lines: 2500,
+            scrollback_lines: 1000,
+            command_history_enabled: true,
+            command_history_flush_interval_sec: default_command_history_flush_interval_sec(),
+            command_history_flush_on_command_end: true,
+            command_history_max_records_per_pane: default_command_history_max_records_per_pane(),
+            command_history_capture_output: true,
+            command_history_max_output_bytes: default_command_history_max_output_bytes(),
+            command_history_flush_on_hide: true,
             snapshot_max_lines: 2500,
             preload_pty_on_startup: true,
             preload_webgl_on_startup: true,

@@ -48,7 +48,17 @@ export function duplicateTabLayout(layout: PersistedPaneLayout, fromTabId: strin
           .filter((entry): entry is [string, NonNullable<typeof layout.paneThemes>[string]] => entry !== null),
       )
     : undefined;
-  return { v: 1, tree: mapNode(layout.tree), focusedId: focused, floating, paneThemes };
+  const paneNames = layout.paneNames
+    ? Object.fromEntries(
+        Object.entries(layout.paneNames)
+          .map(([id, name]) => {
+            const nid = m.get(id);
+            return nid ? [nid, name] : null;
+          })
+          .filter((entry): entry is [string, string] => entry !== null),
+      )
+    : undefined;
+  return { v: 1, tree: mapNode(layout.tree), focusedId: focused, floating, paneThemes, paneNames };
 }
 
 const TABS_STATE_KEY = "partty.tabs.v1";
@@ -103,7 +113,12 @@ export function migrateLayoutFromLegacyMain(layout: PersistedPaneLayout, tabId: 
         Object.entries(layout.paneThemes).map(([id, theme]) => [id === "main" ? rid : id, { ...theme }]),
       )
     : undefined;
-  return { v: 1, tree: mapNode(layout.tree), focusedId, floating, paneThemes };
+  const paneNames = layout.paneNames
+    ? Object.fromEntries(
+        Object.entries(layout.paneNames).map(([id, name]) => [id === "main" ? rid : id, name]),
+      )
+    : undefined;
+  return { v: 1, tree: mapNode(layout.tree), focusedId, floating, paneThemes, paneNames };
 }
 
 function loadRawTabs(): TabsStateV1 {

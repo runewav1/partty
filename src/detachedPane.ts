@@ -162,7 +162,7 @@ async function mountDetachedPane(prefs: Record<string, unknown>): Promise<void> 
 
   paneHost = new PaneHost(root, {
     rootPaneId: paneId,
-    scrollbackLines: Math.max(100, Math.min(50000, Number(prefs.scrollback_lines) || 2500)),
+    scrollbackLines: Math.max(0, Math.min(50000, Number(prefs.scrollback_lines) || 0)),
     fontStack: terminalFontStackFromDocument(),
     getTheme: () => buildXtermThemeFromDocument(),
     focusFollowsCursor: () => false,

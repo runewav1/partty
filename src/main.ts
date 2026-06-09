@@ -64,7 +64,13 @@ import {
   isHelpHotkeysChord,
   type PaletteCommand,
 } from "./commandPalette";
-import { showAlert } from "./dialog";
+import {
+  CommandHistoryStore,
+  deleteCommandHistoriesWithPrefix,
+  type CommandHistoryPrefs,
+} from "./commandHistory";
+import { createTerminalHistoryModal, type TerminalHistoryModalApi } from "./terminalHistoryModal";
+import { showAlert, showPrompt } from "./dialog";
 import {
   type PaletteContext,
   type SavedPaletteCommand,
@@ -301,6 +307,7 @@ async function boot(): Promise<void> {
   migrateParttyLocalStorage();
   mountSettingsCogIcon();
   const persisted = await invoke<PersistedPayload>("get_persisted_state");
+  const appSessionId = await invoke<string>("get_app_session_id").catch(() => crypto.randomUUID());
   syncRuntimeShedFromPrefs(persisted.prefs as ParttyPrefs);
   await loadCustomThemesIntoCache();
   const lp: ParttyLifecyclePrefs = mergeLifecyclePrefs(persisted.prefs);
@@ -341,6 +348,14 @@ async function boot(): Promise<void> {
   let paneHost: PaneHost | null = null;
   const paneCwdHints = new Map<string, string>();
   const paneShellState = new Map<string, ShellIntegrationState>();
+  const commandHistory = new CommandHistoryStore(persisted.prefs as CommandHistoryPrefs, (paneIds) => {
+    if (!terminalHistory?.isOpen()) return;
+    const focusedPaneId = paneHost?.getFocusedPaneId();
+    if (!focusedPaneId) return;
+    if (paneIds.includes(historyPaneIdFor(focusedPaneId))) terminalHistory.refresh(focusedPaneId);
+  });
+  const rootHistoryPaneIds = new Set<string>();
+  const paneNames = new Map<string, string>();
   const paneThemes = new Map<string, PaneThemePrefs>();
   const lastPtyDims = new Map<string, { cols: number; rows: number }>();
   const focusFollowsRef = { v: lp.focus_follows_cursor };
@@ -368,6 +383,20 @@ async function boot(): Promise<void> {
   const confirmDeletePromptRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).confirm_delete_prompt ?? true,
   };
+
+  function historyPaneIdFor(paneId: string): string {
+    if (!paneId.startsWith("wsroot_")) return paneId;
+    const id = `${paneId}__${appSessionId}`;
+    rootHistoryPaneIds.add(id);
+    return id;
+  }
+
+  function cleanupOldRootHistoryFor(rootPaneId: string): void {
+    const current = historyPaneIdFor(rootPaneId);
+    void deleteCommandHistoriesWithPrefix(`${rootPaneId}__`, [current]).catch((e) => {
+      console.warn("delete_command_histories_with_prefix", e);
+    });
+  }
   const pendingPtyWriteByPane = new Map<string, string>();
   const pendingPtyOutputByPane = new Map<string, PendingPtyOutput>();
   let pendingPtyWriteRaf = 0;
@@ -403,6 +432,7 @@ async function boot(): Promise<void> {
 
   const queuePtyWrite = (paneId: string, data: string, immediate = false): void => {
     if (!data) return;
+    commandHistory.observeInput(historyPaneIdFor(paneId), data);
     if (immediate || isLatencySensitiveInput(data)) {
       flushPendingPtyWriteForPane(paneId);
       void ptyWrite(paneId, data).catch((e) => console.error("pty_write", e));
@@ -443,7 +473,8 @@ async function boot(): Promise<void> {
     const siState = ensureShellState(paneId);
     const parseStarted = performance.now();
     const focused = paneId === paneHost?.getFocusedPaneId();
-    const shouldParseShellIntegration = focused || siState.parserRemainder.length > 0 || parseInput.includes("\x1b]");
+    const historyPaneId = historyPaneIdFor(paneId);
+    const shouldParseShellIntegration = focused || commandHistory.hasActive(historyPaneId) || siState.parserRemainder.length > 0 || parseInput.includes("\x1b]");
     const si = shouldParseShellIntegration
       ? processShellIntegration(parseInput, siState, cwdHandler)
       : { cleaned: parseInput, events: [] };
@@ -452,6 +483,7 @@ async function boot(): Promise<void> {
     if (fileTreeCoordinator && si.events.length > 0) {
       fileTreeCoordinator.processShellIntegrationEvents(paneId, si.events);
     }
+    commandHistory.process(historyPaneId, si.events, si.cleaned, paneCwdHints.get(paneId) ?? null);
 
     if (si.cleaned) {
       const writeStarted = performance.now();
@@ -496,6 +528,21 @@ async function boot(): Promise<void> {
       processPtyOutputBatch(paneId, batch.data, batch.eventCount, batch.queuedAt);
     }
     if (pendingPtyOutputByPane.size > 0) schedulePtyOutputFlush();
+  }
+
+  function flushAllPendingPtyOutputs(): void {
+    clearPtyOutputFlushHandles();
+    if (pendingPtyOutputByPane.size === 0) return;
+    const batches = [...pendingPtyOutputByPane.entries()];
+    pendingPtyOutputByPane.clear();
+    for (const [paneId, batch] of batches) {
+      processPtyOutputBatch(paneId, batch.data, batch.eventCount, batch.queuedAt);
+    }
+  }
+
+  function finalizeCommandHistoryForTeardown(): void {
+    flushAllPendingPtyOutputs();
+    commandHistory.finishAllActive(null);
   }
 
   function schedulePtyOutputFlush(): void {
@@ -999,6 +1046,18 @@ async function boot(): Promise<void> {
     persistCurrentWorkspaceTabLayout();
     scheduleResizeImmediate();
     return true;
+  }
+
+  async function renameFocusedPane(): Promise<void> {
+    const paneId = paneHost?.getFocusedPaneId();
+    if (!paneId) return;
+    const current = paneNames.get(paneId) ?? "";
+    const next = await showPrompt("Pane name", current, "Rename Pane");
+    if (next == null) return;
+    const trimmed = next.trim();
+    if (trimmed) paneNames.set(paneId, trimmed);
+    else paneNames.delete(paneId);
+    persistCurrentWorkspaceTabLayout();
   }
 
   function attachTermKeyHandler(term: Terminal): void {
@@ -1583,10 +1642,12 @@ async function boot(): Promise<void> {
       scrollbackLines: lp.scrollback_lines,
       fontStack: terminalFontStackFromDocument(),
       getTheme: (paneId) => xtermThemeForPane(paneId),
+      getPaneName: (paneId) => paneNames.get(paneId),
       getPaneCssVars: (paneId) => cssVarsForPane(paneId),
       focusFollowsCursor: () => focusFollowsRef.v,
       onPaneFocus: (id) => {
         lastFocusedPaneId = id;
+        if (terminalHistory?.isOpen()) terminalHistory.setPane(id, paneNames.get(id));
         paneHost?.getPaneTerminal(id)?.term.focus();
         void ptyFocusPane(id).catch(() => {});
         fileTreePanel?.setActivePane(id);
@@ -1634,6 +1695,7 @@ async function boot(): Promise<void> {
       },
       onPaneDisposed: (pid) => {
         void ptyKillPane(pid).catch(() => {});
+        paneNames.delete(pid);
         paneThemes.delete(pid);
         cleanupPaneVisualState(pid);
         fileTreePanel?.clearPaneState(pid);
@@ -1654,6 +1716,7 @@ async function boot(): Promise<void> {
     shell.dataset.tabId = tabId;
     paneRoot.appendChild(shell);
     const rid = workspaceRootPaneId(tabId);
+    cleanupOldRootHistoryFor(rid);
     const host = createPaneHost(shell, init, rid);
     tabPaneHosts.set(tabId, host);
     tabPaneShells.set(tabId, shell);
@@ -1668,6 +1731,9 @@ async function boot(): Promise<void> {
     }
     for (const [paneId, theme] of Object.entries(layout.paneThemes ?? {})) {
       paneThemes.set(paneId, { ...theme });
+    }
+    for (const [paneId, name] of Object.entries(layout.paneNames ?? {})) {
+      if (name.trim()) paneNames.set(paneId, name.trim());
     }
     createTabPaneShellAndHost(tab.id, {
       initialTree: layout.tree,
@@ -1696,6 +1762,11 @@ async function boot(): Promise<void> {
         paneHost.getPaneDescriptors()
           .filter((pane) => paneThemes.has(pane.id))
           .map((pane) => [pane.id, paneThemes.get(pane.id)!]),
+      ),
+      paneNames: Object.fromEntries(
+        paneHost.getPaneDescriptors()
+          .filter((pane) => paneNames.has(pane.id))
+          .map((pane) => [pane.id, paneNames.get(pane.id)!]),
       ),
     };
     persistLayoutForTab(activeWorkspaceTabId, pl);
@@ -2378,6 +2449,8 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   window.addEventListener("beforeunload", () => {
     try {
       persistCurrentWorkspaceTabLayout();
+      finalizeCommandHistoryForTeardown();
+      void commandHistory.flush();
       if (shouldShedWorkspaceOnExitSilent()) {
         shedWorkspaceLocalState();
       }
@@ -2434,6 +2507,20 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         getMinimapForPane: (id) => paneMinimaps.get(id),
         focusPane: (id) => {
           paneHost?.setFocusedPaneId(id);
+        },
+      })
+    : null;
+
+  const terminalHistoryRoot = document.getElementById("terminal-history-root") as HTMLElement | null;
+  const terminalHistory: TerminalHistoryModalApi | null = terminalHistoryRoot
+    ? createTerminalHistoryModal({
+        root: terminalHistoryRoot,
+        getHistoryPaneId: historyPaneIdFor,
+        onCopy: copyToClipboard,
+        onRerun: (command) => {
+          const paneId = paneHost?.getFocusedPaneId();
+          if (!paneId || !command.trim()) return;
+          queuePtyWrite(paneId, `${command}\r`, true);
         },
       })
     : null;
@@ -2519,6 +2606,17 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         e.preventDefault();
         e.stopPropagation();
         toggleFocusedPaneFloating();
+        return;
+      }
+      if (e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.key === "h" || e.key === "H")) {
+        const t = e.target as HTMLElement | null;
+        if (t?.closest("#command-palette") || t?.closest("#settings-panel") || t?.closest(".term-search")) return;
+        const paneId = paneHost?.getFocusedPaneId();
+        if (!paneId) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (terminalHistory?.isOpen()) terminalHistory.close();
+        else terminalHistory?.open(paneId, paneNames.get(paneId));
         return;
       }
       if (!e.ctrlKey || e.metaKey || e.altKey) return;
@@ -2666,6 +2764,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     ? createSettingsPanel(settingsPanelEl, async (saved: ParttyPrefs, previous: ParttyPrefs) => {
         syncRuntimeShedFromPrefs(saved);
         focusFollowsRef.v = saved.focus_follows_cursor;
+        commandHistory.updatePrefs(saved as CommandHistoryPrefs);
         autoCopySelectionRef.v = saved.auto_copy_selection;
         showDiffCountsRef.v = saved.file_tree_show_diff_counts;
         showGitInfoRef.v = saved.file_tree_show_git_info;
@@ -2676,6 +2775,11 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         backspaceDeleteSelectionRef.v = saved.terminal_backspace_delete_selection ?? true;
         fileTreePanel?.setSearchEnabled(!(saved.file_tree_disable_search ?? false));
         applyTerminalDisplayPrefs(saved);
+        if (saved.scrollback_lines !== previous.scrollback_lines) {
+          for (const host of tabPaneHosts.values()) {
+            host.setScrollbackLines(saved.scrollback_lines);
+          }
+        }
         applyTooltipPolicy(document);
         document.documentElement.classList.toggle("pane-blur-unfocused", saved.blur_unfocused_panes);
         document.documentElement.classList.toggle("pane-dim-unfocused", saved.dim_unfocused_panes);
@@ -2954,6 +3058,16 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         run: () => terminalSearch?.openAllPanes(),
       },
       {
+        id: "pane-command-history",
+        label: "Pane: Command history",
+        keywords: "terminal history commands output exit code",
+        hotkey: "Ctrl+Shift+H",
+        run: () => {
+          const paneId = paneHost?.getFocusedPaneId();
+          if (paneId) terminalHistory?.open(paneId, paneNames.get(paneId));
+        },
+      },
+      {
         id: "new-custom",
         label: "New command…",
         keywords: "create builder save",
@@ -3071,6 +3185,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         run: () => {
           toggleFocusedPaneFloating();
         },
+      },
+      {
+        id: "pane-rename",
+        label: "Pane: Rename focused…",
+        keywords: "pane name title label friendly id",
+        run: () => void renameFocusedPane(),
       },
       {
         id: "pane-pop-out",
@@ -3334,6 +3454,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         pendingPtyOutputByPane.delete(pane_id);
         processPtyOutputBatch(pane_id, pending.data, pending.eventCount, pending.queuedAt);
       }
+      commandHistory.finishActive(historyPaneIdFor(pane_id), null);
       await ptyAckExit(pane_id);
       const pt = getPaneTerminalById(pane_id);
       pt?.term.write("\r\n\x1b[90mReconnecting…\x1b[0m\r\n");
@@ -3356,12 +3477,13 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       if (paneHost && lp.destroy_webview_on_hide) {
         persistCurrentWorkspaceTabLayout();
       }
+      if ((persisted.prefs as CommandHistoryPrefs).command_history_flush_on_hide !== false) {
+        finalizeCommandHistoryForTeardown();
+        void commandHistory.flush();
+      }
       if (lp.discard_buffer_on_hide) {
-        const t = getFocusedTerm();
-        if (t) {
-          pendingSnapshot = capturePlainBuffer(t, lp.snapshot_max_lines);
-          t.reset();
-        }
+        pendingSnapshot = null;
+        paneHost?.forEachPane((_id, p) => p.term.reset());
       }
       if (lp.webgl_shed_on_hide) {
         shedWebgl();
@@ -3486,6 +3608,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   });
 
   window.addEventListener("beforeunload", () => {
+    finalizeCommandHistoryForTeardown();
     bridgeScrollCleanup?.();
     fileTreePanel?.dispose();
     fileTreeCoordinator?.dispose();

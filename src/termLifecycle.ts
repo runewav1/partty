@@ -19,7 +19,7 @@ export type ParttyLifecyclePrefs = {
 export const defaultLifecyclePrefs: ParttyLifecyclePrefs = {
   webgl_shed_on_hide: true,
   discard_buffer_on_hide: false,
-  scrollback_lines: 2500,
+  scrollback_lines: 1000,
   snapshot_max_lines: 2500,
   preload_pty_on_startup: true,
   preload_webgl_on_startup: true,
@@ -42,7 +42,7 @@ export function mergeLifecyclePrefs(raw: Record<string, unknown> | undefined): P
   return {
     webgl_shed_on_hide: b(raw.webgl_shed_on_hide, defaultLifecyclePrefs.webgl_shed_on_hide),
     discard_buffer_on_hide: b(raw.discard_buffer_on_hide, defaultLifecyclePrefs.discard_buffer_on_hide),
-    scrollback_lines: Math.max(100, Math.min(50_000, Math.floor(n(raw.scrollback_lines, defaultLifecyclePrefs.scrollback_lines)))),
+    scrollback_lines: Math.max(0, Math.min(50_000, Math.floor(n(raw.scrollback_lines, defaultLifecyclePrefs.scrollback_lines)))),
     snapshot_max_lines: Math.max(50, Math.min(50_000, Math.floor(n(raw.snapshot_max_lines, defaultLifecyclePrefs.snapshot_max_lines)))),
     preload_pty_on_startup: b(raw.preload_pty_on_startup, defaultLifecyclePrefs.preload_pty_on_startup),
     preload_webgl_on_startup: b(raw.preload_webgl_on_startup, defaultLifecyclePrefs.preload_webgl_on_startup),

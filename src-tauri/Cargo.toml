@@ -30,6 +30,7 @@ opener = "0.7"
 git2 = "0.20"
 miniz_oxide = "0.8"
 crc32fast = "1.4"
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [target.'cfg(windows)'.dependencies]
 ntapi = { version = "0.4", features = ["user"] }

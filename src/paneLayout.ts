@@ -10,6 +10,7 @@ export type PersistedPaneLayout = {
   focusedId: string;
   floating?: Record<string, FloatingPaneState>;
   paneThemes?: Record<string, PaneThemePrefs>;
+  paneNames?: Record<string, string>;
 };
 
 function collectLeafIdsArr(node: PaneNode, out: string[]): void {
@@ -53,7 +54,14 @@ export function loadPaneLayout(): PersistedPaneLayout | null {
     if (parsed.v !== 1 || !parsed.tree || typeof parsed.focusedId !== "string") return null;
     if (!validatePaneTree(parsed.tree)) return null;
     if (!layoutContainsWorkspaceRoot(parsed.tree)) return null;
-    return { v: 1, tree: parsed.tree, focusedId: parsed.focusedId, floating: parsed.floating, paneThemes: parsed.paneThemes };
+    return {
+      v: 1,
+      tree: parsed.tree,
+      focusedId: parsed.focusedId,
+      floating: parsed.floating,
+      paneThemes: parsed.paneThemes,
+      paneNames: parsed.paneNames,
+    };
   } catch {
     return null;
   }

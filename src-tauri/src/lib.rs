@@ -1,3 +1,4 @@
+mod command_history;
 mod fs_watcher;
 mod fs_workspace;
 mod palette_commands;
@@ -15,10 +16,10 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command as StdCommand;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
@@ -50,10 +51,27 @@ pub struct AppState {
     pub webview_destroyed_for_hide: AtomicBool,
     /// After recreating the main webview, hold `partty-prepare-show` until JS calls `webview_boot_complete`.
     pub defer_prepare_show_until_webview_ready: AtomicBool,
+    /// Incremented whenever a delayed destroy should be invalidated (e.g. window was shown again).
+    pub hide_destroy_generation: AtomicU64,
+    pub app_session_id: String,
+    pub command_history: command_history::CommandHistoryStore,
     /// Filesystem watcher for file tree live-updating.
     pub fs_watcher: fs_watcher::WatcherHandle,
     /// Detached pane windows keyed by window label.
     detached_panes: Mutex<HashMap<String, DetachedPaneState>>,
+}
+
+fn make_app_session_id() -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default();
+    format!("{:x}-{:x}", std::process::id(), now)
+}
+
+#[tauri::command]
+fn get_app_session_id(state: State<'_, AppState>) -> String {
+    state.app_session_id.clone()
 }
 
 impl AppState {
@@ -1287,11 +1305,24 @@ fn schedule_destroy_webview_after_hide(app: &AppHandle) {
     if !destroy {
         return;
     }
+    let generation = app
+        .state::<AppState>()
+        .hide_destroy_generation
+        .fetch_add(1, Ordering::SeqCst)
+        + 1;
     let app = app.clone();
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(160));
         let app2 = app.clone();
         let _ = app.run_on_main_thread(move || {
+            if app2
+                .state::<AppState>()
+                .hide_destroy_generation
+                .load(Ordering::SeqCst)
+                != generation
+            {
+                return;
+            }
             app2.state::<AppState>()
                 .webview_destroyed_for_hide
                 .store(true, Ordering::SeqCst);
@@ -1373,6 +1404,9 @@ fn spawn_show_main_window(app: AppHandle) {
         if app.try_state::<AppState>().is_none() {
             return;
         }
+        app.state::<AppState>()
+            .hide_destroy_generation
+            .fetch_add(1, Ordering::SeqCst);
         // Set before `recreate_main_window` so the first navigation cannot load JS before the flag exists
         // (otherwise `webview_boot_complete` may no-op and `partty-prepare-show` is never emitted).
         if defer_prep {
@@ -1425,6 +1459,7 @@ fn toggle_window(app: &AppHandle) {
         let _ = win.hide();
         schedule_destroy_webview_after_hide(app);
     } else {
+        state.hide_destroy_generation.fetch_add(1, Ordering::SeqCst);
         let (defer, summon) = {
             let p = state.persisted.lock();
             (
@@ -1433,6 +1468,9 @@ fn toggle_window(app: &AppHandle) {
             )
         };
         if defer {
+            state
+                .defer_prepare_show_until_webview_ready
+                .store(true, Ordering::SeqCst);
             let _ = win.emit("partty-prepare-show", ());
         } else {
             if !summon {
@@ -1477,6 +1515,12 @@ fn commit_show_window(app: AppHandle) -> Result<(), String> {
         .lock()
         .prefs
         .always_summon_maximized;
+    app.state::<AppState>()
+        .hide_destroy_generation
+        .fetch_add(1, Ordering::SeqCst);
+    app.state::<AppState>()
+        .defer_prepare_show_until_webview_ready
+        .store(false, Ordering::SeqCst);
     if !summon {
         position_main_at_cursor_if_prefs(&app);
     }
@@ -1500,6 +1544,9 @@ async fn request_destroy_webview_for_hide(app: AppHandle) -> Result<(), String> 
     if !destroy {
         return Ok(());
     }
+    app.state::<AppState>()
+        .hide_destroy_generation
+        .fetch_add(1, Ordering::SeqCst);
     app.state::<AppState>()
         .webview_destroyed_for_hide
         .store(true, Ordering::SeqCst);
@@ -1732,6 +1779,7 @@ fn toggle_overlay(app: AppHandle) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let loaded = load_state();
+    let command_history = command_history::create_store().expect("create in-memory command history store");
 
     tauri::Builder::default()
         // Single-instance must run before global shortcuts: otherwise a second process tries to
@@ -1778,6 +1826,9 @@ pub fn run() {
             focused_pane_id: Mutex::new(Some("main".into())),
             webview_destroyed_for_hide: AtomicBool::new(false),
             defer_prepare_show_until_webview_ready: AtomicBool::new(false),
+            hide_destroy_generation: AtomicU64::new(0),
+            app_session_id: make_app_session_id(),
+            command_history,
             fs_watcher: fs_watcher::create_watcher_handle(),
             detached_panes: Mutex::new(HashMap::new()),
         })
@@ -1793,6 +1844,11 @@ pub fn run() {
             pty_shell_cwd,
             pty_shell_exe_token,
             get_persisted_state,
+            command_history::append_command_history_records,
+            command_history::get_command_history,
+            command_history::delete_command_history,
+            command_history::delete_command_histories_with_prefix,
+            get_app_session_id,
             list_custom_theme_names,
             read_custom_theme_json,
             write_custom_theme_json,
