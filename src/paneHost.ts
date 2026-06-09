@@ -36,8 +36,14 @@ export type FloatingPaneState = {
 export type PaneDescriptor = {
   id: string;
   name?: string;
+  type: "terminal";
   focused: boolean;
   floating: boolean;
+  cols?: number;
+  rows?: number;
+  cellWidth?: number;
+  cellHeight?: number;
+  fontSize?: number;
 };
 
 export type PaneHostOptions = {
@@ -233,9 +239,48 @@ export class PaneHost {
     return ids.map((id) => ({
       id,
       name: this.opts.getPaneName?.(id),
+      type: "terminal" as const,
       focused: id === this.focusedId,
       floating: this.floating.has(id),
     }));
+  }
+
+  getFocusedPaneDescriptor(): PaneDescriptor | null {
+    return this.getPaneDescriptor(this.focusedId);
+  }
+
+  getPaneDescriptor(paneId: string, includeMetrics = false): PaneDescriptor | null {
+    if (!findPaneLeaf(this.tree, paneId)) return null;
+    const base: PaneDescriptor = {
+      id: paneId,
+      name: this.opts.getPaneName?.(paneId),
+      type: "terminal",
+      focused: paneId === this.focusedId,
+      floating: this.floating.has(paneId),
+    };
+    if (!includeMetrics) return base;
+    const pt = this.terminals.get(paneId);
+    if (!pt) return { ...base, cols: 0, rows: 0, cellWidth: 0, cellHeight: 0, fontSize: 12 };
+    const rect = pt.host.getBoundingClientRect();
+    const cols = pt.term.cols;
+    const rows = pt.term.rows;
+    return {
+      ...base,
+      cols,
+      rows,
+      cellWidth: cols > 0 ? rect.width / cols : 0,
+      cellHeight: rows > 0 ? rect.height / rows : 0,
+      fontSize: Number(pt.term.options.fontSize ?? 12),
+    };
+  }
+
+  setPaneFontSize(paneId: string, fontSize: number): boolean {
+    const pt = this.terminals.get(paneId);
+    if (!pt) return false;
+    pt.term.options.fontSize = Math.max(6, Math.min(32, fontSize));
+    pt.fit.fit();
+    this.opts.onPaneLayout?.();
+    return true;
   }
 
   setScrollbackLines(lines: number): void {

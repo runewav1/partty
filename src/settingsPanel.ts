@@ -16,6 +16,8 @@ export type ParttyPrefs = {
   command_history_capture_output: boolean;
   command_history_max_output_bytes: number;
   command_history_flush_on_hide: boolean;
+  command_history_include_commands: string[];
+  command_history_exclude_commands: string[];
   snapshot_max_lines: number;
   preload_pty_on_startup: boolean;
   preload_webgl_on_startup: boolean;
@@ -173,6 +175,10 @@ export function createSettingsPanel(
     (form.querySelector('[name="command_history_flush_interval_sec"]') as HTMLInputElement).value = String(pr.command_history_flush_interval_sec ?? 0);
     (form.querySelector('[name="command_history_max_records_per_pane"]') as HTMLInputElement).value = String(pr.command_history_max_records_per_pane ?? 2000);
     (form.querySelector('[name="command_history_max_output_bytes"]') as HTMLInputElement).value = String(pr.command_history_max_output_bytes ?? 262144);
+    const includeCommands = form.querySelector('[name="command_history_include_commands"]') as HTMLTextAreaElement | null;
+    if (includeCommands) includeCommands.value = (pr.command_history_include_commands ?? []).join("\n");
+    const excludeCommands = form.querySelector('[name="command_history_exclude_commands"]') as HTMLTextAreaElement | null;
+    if (excludeCommands) excludeCommands.value = (pr.command_history_exclude_commands ?? ["nvim", "vim", "vi", "nano", "emacs", "less", "more", "man", "top", "htop", "btop", "btm", "opencode", "lazygit", "tig", "fzf"]).join("\n");
     (form.querySelector('[name="snapshot_max_lines"]') as HTMLInputElement).value = String(
       p.snapshot_max_lines,
     );
@@ -281,6 +287,7 @@ export function createSettingsPanel(
         };
         const terminal_pane_gap = clampGap(g("terminal_pane_gap"), previous.terminal_pane_gap ?? 6);
         const terminal_sandbox_padding = clampGap(g("terminal_sandbox_padding"), previous.terminal_sandbox_padding ?? 0);
+        const gl = (n: string) => g(n).split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
         const prefs: ParttyPrefs = {
           shell: g("shell").trim() || "pwsh",
           shed_on_hide: gc("shed_on_hide"),
@@ -296,6 +303,8 @@ export function createSettingsPanel(
           command_history_capture_output: gc("command_history_capture_output"),
           command_history_max_output_bytes: Math.max(4096, Math.min(10485760, parseInt(g("command_history_max_output_bytes"), 10) || 262144)),
           command_history_flush_on_hide: gc("command_history_flush_on_hide"),
+          command_history_include_commands: gl("command_history_include_commands"),
+          command_history_exclude_commands: gl("command_history_exclude_commands"),
           snapshot_max_lines: Math.max(50, Math.min(50000, parseInt(g("snapshot_max_lines"), 10) || 2500)),
           preload_pty_on_startup: gc("preload_pty_on_startup"),
           preload_webgl_on_startup: gc("preload_webgl_on_startup"),

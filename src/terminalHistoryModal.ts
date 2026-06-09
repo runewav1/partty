@@ -1,4 +1,10 @@
-import { loadCommandHistory, type CommandHistoryRecord } from "./commandHistory";
+import {
+  deleteCommandHistory,
+  deleteCommandHistoryRecord,
+  loadCommandHistory,
+  stripAnsi,
+  type CommandHistoryRecord,
+} from "./commandHistory";
 
 export type TerminalHistoryModalApi = {
   open(paneId: string, label?: string): void;
@@ -35,7 +41,7 @@ function exitLabel(code: number | null): string {
 }
 
 function searchable(value: string): string {
-  return value.toLowerCase();
+  return stripAnsi(value).toLowerCase();
 }
 
 function rankRecord(rec: CommandHistoryRecord, query: string): number {
@@ -71,7 +77,7 @@ function filterAndRank(records: CommandHistoryRecord[], query: string): CommandH
 }
 
 function commandAndOutput(rec: CommandHistoryRecord): string {
-  return rec.output ? `$ ${rec.command}\n${rec.output}` : `$ ${rec.command}`;
+  return rec.output ? `$ ${rec.command}\n${stripAnsi(rec.output)}` : `$ ${rec.command}`;
 }
 
 export function createTerminalHistoryModal(opts: {
@@ -92,14 +98,23 @@ export function createTerminalHistoryModal(opts: {
     <section class="terminal-history-panel" role="dialog" aria-label="Terminal history">
       <header class="terminal-history-head">
         <div class="terminal-history-heading">
-          <h2 class="terminal-history-title">Pane History</h2>
+          <h2 class="terminal-history-title"></h2>
         </div>
       </header>
       <div class="terminal-history-search-row">
         <input class="terminal-history-search" type="search" placeholder="Search commands and output…" aria-label="Search command history" spellcheck="false" />
         <span class="terminal-history-count"></span>
+        <button type="button" class="terminal-history-clear" title="Clear this pane's in-memory history">Clear</button>
       </div>
       <div class="terminal-history-list termie-scroll-fade"></div>
+      <div class="terminal-history-resize terminal-history-resize--left" data-edge-x="left" data-edge-y="none"></div>
+      <div class="terminal-history-resize terminal-history-resize--right" data-edge-x="right" data-edge-y="none"></div>
+      <div class="terminal-history-resize terminal-history-resize--top" data-edge-x="none" data-edge-y="top"></div>
+      <div class="terminal-history-resize terminal-history-resize--bottom" data-edge-x="none" data-edge-y="bottom"></div>
+      <div class="terminal-history-resize terminal-history-resize--nw" data-edge-x="left" data-edge-y="top"></div>
+      <div class="terminal-history-resize terminal-history-resize--ne" data-edge-x="right" data-edge-y="top"></div>
+      <div class="terminal-history-resize terminal-history-resize--sw" data-edge-x="left" data-edge-y="bottom"></div>
+      <div class="terminal-history-resize terminal-history-resize--se" data-edge-x="right" data-edge-y="bottom"></div>
     </section>
   `;
   const panel = root.querySelector(".terminal-history-panel") as HTMLElement;
@@ -110,7 +125,8 @@ export function createTerminalHistoryModal(opts: {
   const search = root.querySelector(".terminal-history-search") as HTMLInputElement;
 
   function setTitle(): void {
-    title.textContent = `History · ${activeLabel || activePaneId}`;
+    title.textContent = activePaneId;
+    title.title = activeLabel ? `${activeLabel} · ${activePaneId}` : activePaneId;
   }
 
   function button(label: string, titleText: string, action: () => void): HTMLButtonElement {
@@ -164,13 +180,14 @@ export function createTerminalHistoryModal(opts: {
         button("Run", "Run this command again in the focused pane", () => onRerun(rec.command)),
         button("Copy cmd", "Copy command", () => onCopy(rec.command)),
         button("Copy all", "Copy command and output", () => onCopy(commandAndOutput(rec))),
-        button("Copy out", "Copy output", () => onCopy(rec.output)),
+        button("Copy out", "Copy output", () => onCopy(stripAnsi(rec.output))),
+        button("Delete", "Remove this history entry", () => void removeRecord(rec.id)),
       );
       summary.append(command, actions, meta);
 
       const pre = document.createElement("pre");
       pre.className = "terminal-history-output";
-      pre.textContent = rec.output || "<no captured output>";
+      pre.textContent = rec.output ? stripAnsi(rec.output) : "<no captured output>";
       item.append(summary, pre);
       list.appendChild(item);
     }
@@ -187,6 +204,20 @@ export function createTerminalHistoryModal(opts: {
       return;
     }
     search.value = priorQuery;
+    render();
+  }
+
+  async function removeRecord(recordId: string): Promise<void> {
+    const historyPaneId = getHistoryPaneId?.(activePaneId) ?? activePaneId;
+    await deleteCommandHistoryRecord(historyPaneId, recordId).catch((e) => console.warn("delete_command_history_record", e));
+    records = records.filter((rec) => rec.id !== recordId);
+    render();
+  }
+
+  async function clearHistory(): Promise<void> {
+    const historyPaneId = getHistoryPaneId?.(activePaneId) ?? activePaneId;
+    await deleteCommandHistory(historyPaneId).catch((e) => console.warn("delete_command_history", e));
+    records = [];
     render();
   }
 
@@ -239,7 +270,53 @@ export function createTerminalHistoryModal(opts: {
     window.addEventListener("pointerup", done, { once: true });
   }
 
+  function beginResize(e: PointerEvent): void {
+    if (e.button !== 0) return;
+    const target = e.currentTarget as HTMLElement;
+    const edgeX = target.dataset.edgeX as "left" | "right" | "none";
+    const edgeY = target.dataset.edgeY as "top" | "bottom" | "none";
+    const rect = panel.getBoundingClientRect();
+    const minW = 420;
+    const minH = 260;
+    e.preventDefault();
+    e.stopPropagation();
+    const move = (ev: PointerEvent): void => {
+      let left = rect.left;
+      let top = rect.top;
+      let width = rect.width;
+      let height = rect.height;
+      if (edgeX === "left") {
+        const nextLeft = Math.max(0, Math.min(rect.right - minW, ev.clientX));
+        width = rect.right - nextLeft;
+        left = nextLeft;
+      } else if (edgeX === "right") {
+        width = Math.max(minW, Math.min(window.innerWidth - rect.left, ev.clientX - rect.left));
+      }
+      if (edgeY === "top") {
+        const nextTop = Math.max(0, Math.min(rect.bottom - minH, ev.clientY));
+        height = rect.bottom - nextTop;
+        top = nextTop;
+      } else if (edgeY === "bottom") {
+        height = Math.max(minH, Math.min(window.innerHeight - rect.top, ev.clientY - rect.top));
+      }
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+      panel.style.width = `${width}px`;
+      panel.style.height = `${height}px`;
+    };
+    const done = (): void => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", done);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", done, { once: true });
+  }
+
   search.addEventListener("input", render);
+  root.querySelector(".terminal-history-clear")?.addEventListener("click", () => void clearHistory());
+  root.querySelectorAll<HTMLElement>(".terminal-history-resize").forEach((el) => {
+    el.addEventListener("pointerdown", beginResize);
+  });
   head.addEventListener("pointerdown", beginDrag);
   panel.addEventListener("keydown", (e) => {
     if (e.key === "Escape") close();

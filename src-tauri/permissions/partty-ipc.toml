@@ -16,6 +16,7 @@ commands.allow = [
   "append_command_history_records",
   "get_command_history",
   "delete_command_history",
+  "delete_command_history_record",
   "delete_command_histories_with_prefix",
   "get_app_session_id",
   "list_custom_theme_names",

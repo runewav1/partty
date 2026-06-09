@@ -70,7 +70,8 @@ import {
   type CommandHistoryPrefs,
 } from "./commandHistory";
 import { createTerminalHistoryModal, type TerminalHistoryModalApi } from "./terminalHistoryModal";
-import { showAlert, showPrompt } from "./dialog";
+import { createPaneRenamePanel, type PaneRenamePanelApi } from "./paneRenamePanel";
+import { showAlert } from "./dialog";
 import {
   type PaletteContext,
   type SavedPaletteCommand,
@@ -1048,21 +1049,78 @@ async function boot(): Promise<void> {
     return true;
   }
 
-  async function renameFocusedPane(): Promise<void> {
-    const paneId = paneHost?.getFocusedPaneId();
-    if (!paneId) return;
-    const current = paneNames.get(paneId) ?? "";
-    const next = await showPrompt("Pane name", current, "Rename Pane");
-    if (next == null) return;
-    const trimmed = next.trim();
-    if (trimmed) paneNames.set(paneId, trimmed);
-    else paneNames.delete(paneId);
-    persistCurrentWorkspaceTabLayout();
+  function zoomPaneTerminal(paneId: string, direction: number): void {
+    const pt = paneHost?.getPaneTerminal(paneId);
+    if (!pt || !paneHost) return;
+    const current = Number(pt.term.options.fontSize ?? 12);
+    const next = Math.max(6, Math.min(32, current + direction));
+    if (next === current) return;
+    paneHost.setPaneFontSize(paneId, next);
+    lastPtyDims.delete(paneId);
+    scheduleResizeImmediate(true);
   }
 
-  function attachTermKeyHandler(term: Terminal): void {
+  const pendingZoomByPane = new Map<string, number>();
+  let zoomRaf = 0;
+
+  function flushPendingPaneZoom(): void {
+    zoomRaf = 0;
+    const entries = [...pendingZoomByPane.entries()];
+    pendingZoomByPane.clear();
+    for (const [paneId, delta] of entries) {
+      zoomPaneTerminal(paneId, Math.sign(delta));
+    }
+  }
+
+  function handlePaneZoomWheel(paneId: string, ev: WheelEvent): void {
+    if (!ev.ctrlKey) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const direction = ev.deltaY < 0 ? 1 : -1;
+    pendingZoomByPane.set(paneId, (pendingZoomByPane.get(paneId) ?? 0) + direction);
+    if (!zoomRaf) zoomRaf = requestAnimationFrame(flushPendingPaneZoom);
+  }
+
+  function openFocusedPaneRename(): void {
+    const paneId = paneHost?.getFocusedPaneId();
+    if (!paneId) return;
+    terminalHistory?.close();
+    paneRenamePanel?.open(paneId, paneNames.get(paneId) ?? "");
+  }
+
+  function installPaneControlSurface(): void {
+    (window as unknown as { parttyPanes?: unknown }).parttyPanes = {
+      list: () => paneHost?.getPaneDescriptors() ?? [],
+      focused: () => paneHost?.getFocusedPaneDescriptor() ?? null,
+      metrics: (paneId?: string) => {
+        const id = paneId || paneHost?.getFocusedPaneId();
+        return id ? paneHost?.getPaneDescriptor(id, true) ?? null : null;
+      },
+      focus: (paneId: string) => paneHost?.setFocusedPaneId(paneId),
+      rename: (paneId: string, name: string) => {
+        const trimmed = String(name ?? "").trim();
+        if (trimmed) paneNames.set(paneId, trimmed);
+        else paneNames.delete(paneId);
+        persistCurrentWorkspaceTabLayout();
+      },
+      zoom: (paneId: string, delta: number) => zoomPaneTerminal(paneId, Number(delta) || 0),
+    };
+  }
+
+  function attachTermKeyHandler(term: Terminal, paneId: string): void {
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
+      if (
+        e.shiftKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.metaKey &&
+        e.key === "Enter"
+      ) {
+        e.preventDefault();
+        queuePtyWrite(paneId, "\n", true);
+        return false;
+      }
       if (
         e.ctrlKey &&
         !e.shiftKey &&
@@ -1648,6 +1706,7 @@ async function boot(): Promise<void> {
       onPaneFocus: (id) => {
         lastFocusedPaneId = id;
         if (terminalHistory?.isOpen()) terminalHistory.setPane(id, paneNames.get(id));
+        if (paneRenamePanel?.isOpen()) paneRenamePanel.setPane(id, paneNames.get(id) ?? "");
         paneHost?.getPaneTerminal(id)?.term.focus();
         void ptyFocusPane(id).catch(() => {});
         fileTreePanel?.setActivePane(id);
@@ -1665,7 +1724,7 @@ async function boot(): Promise<void> {
         void remountAuxiliaryForFocus(id);
       },
       onPaneCreated: (id, pt) => {
-        attachTermKeyHandler(pt.term);
+        attachTermKeyHandler(pt.term, id);
         pt.term.onData((data) => {
           queuePtyWrite(id, data);
           if (data.includes("\r") || data.includes("\n")) {
@@ -1676,6 +1735,7 @@ async function boot(): Promise<void> {
           if (openLinkFromCtrlClick(pt.term, pt.host, ev)) return;
           repositionCursorFromClick(id, pt.term, pt.host, ev);
         });
+        pt.host.addEventListener("wheel", (ev) => handlePaneZoomWheel(id, ev), { passive: false });
         pt.host.addEventListener("mousemove", (ev) => {
           updateCtrlLinkHover(pt.term, pt.host, ev);
         });
@@ -1746,6 +1806,7 @@ async function boot(): Promise<void> {
   }
   paneHost = tabPaneHosts.get(activeWorkspaceTabId)!;
   lastFocusedPaneId = paneHost.getFocusedPaneId();
+  installPaneControlSurface();
   syncAllPaneMinimapClasses();
 
   function persistCurrentWorkspaceTabLayout(): void {
@@ -1753,18 +1814,19 @@ async function boot(): Promise<void> {
     const tree = paneHost.getTree();
     const rid = paneHost.getRootPaneId();
     if (!tree || !findPaneLeaf(tree, rid)) return;
+    const panes = paneHost.getPaneDescriptors();
     const pl: PersistedPaneLayout = {
       v: 1,
       tree,
       focusedId: paneHost.getFocusedPaneId(),
       floating: paneHost.getFloatingState(),
       paneThemes: Object.fromEntries(
-        paneHost.getPaneDescriptors()
+        panes
           .filter((pane) => paneThemes.has(pane.id))
           .map((pane) => [pane.id, paneThemes.get(pane.id)!]),
       ),
       paneNames: Object.fromEntries(
-        paneHost.getPaneDescriptors()
+        panes
           .filter((pane) => paneNames.has(pane.id))
           .map((pane) => [pane.id, paneNames.get(pane.id)!]),
       ),
@@ -2525,6 +2587,22 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       })
     : null;
 
+  const paneRenameRoot = document.getElementById("pane-rename-root") as HTMLElement | null;
+  const paneRenamePanel: PaneRenamePanelApi | null = paneRenameRoot
+    ? createPaneRenamePanel({
+        root: paneRenameRoot,
+        onCommit: (paneId, name) => {
+          const trimmed = name.trim();
+          if (trimmed) paneNames.set(paneId, trimmed);
+          else paneNames.delete(paneId);
+          if (terminalHistory?.isOpen() && paneId === paneHost?.getFocusedPaneId()) {
+            terminalHistory.setPane(paneId, paneNames.get(paneId));
+          }
+          persistCurrentWorkspaceTabLayout();
+        },
+      })
+    : null;
+
   const themeBuilderRoot = document.getElementById("theme-builder-root");
   let themeBuilder: ThemeBuilderApi | null = null;
   if (themeBuilderRoot) {
@@ -2616,7 +2694,10 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         e.preventDefault();
         e.stopPropagation();
         if (terminalHistory?.isOpen()) terminalHistory.close();
-        else terminalHistory?.open(paneId, paneNames.get(paneId));
+        else {
+          paneRenamePanel?.close();
+          terminalHistory?.open(paneId, paneNames.get(paneId));
+        }
         return;
       }
       if (!e.ctrlKey || e.metaKey || e.altKey) return;
@@ -3064,7 +3145,10 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         hotkey: "Ctrl+Shift+H",
         run: () => {
           const paneId = paneHost?.getFocusedPaneId();
-          if (paneId) terminalHistory?.open(paneId, paneNames.get(paneId));
+          if (paneId) {
+            paneRenamePanel?.close();
+            terminalHistory?.open(paneId, paneNames.get(paneId));
+          }
         },
       },
       {
@@ -3190,7 +3274,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         id: "pane-rename",
         label: "Pane: Rename focused…",
         keywords: "pane name title label friendly id",
-        run: () => void renameFocusedPane(),
+        run: () => openFocusedPaneRename(),
       },
       {
         id: "pane-pop-out",

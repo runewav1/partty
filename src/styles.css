@@ -277,6 +277,10 @@ html.term-search-open #main-workspace {
   display: none !important;
 }
 
+.pane-rename--hidden {
+  display: none !important;
+}
+
 .terminal-history {
   position: fixed;
   inset: 0;
@@ -301,7 +305,6 @@ html.term-search-open #main-workspace {
   backdrop-filter: blur(18px) saturate(1.12);
   -webkit-backdrop-filter: blur(18px) saturate(1.12);
   overflow: auto;
-  resize: both;
   pointer-events: auto;
 }
 
@@ -328,6 +331,23 @@ html.term-search-open #main-workspace {
   white-space: nowrap;
   font-size: 13px;
   line-height: 1.2;
+  color: var(--ui-chrome-muted);
+  font-weight: 500;
+}
+
+.terminal-history-clear {
+  flex: 0 0 auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--button-bg) 76%, transparent);
+  color: var(--button-text);
+  padding: 4px 9px;
+  font: 600 10.5px var(--font-ui);
+  cursor: pointer;
+}
+
+.terminal-history-clear:hover {
+  background: var(--button-hover-bg);
 }
 
 .terminal-history-search-row {
@@ -443,6 +463,91 @@ html.term-search-open #main-workspace {
   white-space: pre;
   font: 11px/1.45 var(--font-terminal);
   color: var(--term-fg);
+}
+
+.pane-rename-panel {
+  min-width: 320px;
+  min-height: 96px;
+  overflow: hidden;
+}
+
+.pane-rename-form {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+}
+
+.pane-rename-input {
+  min-width: 0;
+}
+
+.terminal-history-resize {
+  position: absolute;
+  z-index: 2;
+}
+
+.terminal-history-resize--left,
+.terminal-history-resize--right {
+  top: 10px;
+  bottom: 10px;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.terminal-history-resize--left {
+  left: -2px;
+}
+
+.terminal-history-resize--right {
+  right: -2px;
+}
+
+.terminal-history-resize--top,
+.terminal-history-resize--bottom {
+  left: 10px;
+  right: 10px;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.terminal-history-resize--top {
+  top: -2px;
+}
+
+.terminal-history-resize--bottom {
+  bottom: -2px;
+}
+
+.terminal-history-resize--nw,
+.terminal-history-resize--ne,
+.terminal-history-resize--sw,
+.terminal-history-resize--se {
+  width: 14px;
+  height: 14px;
+}
+
+.terminal-history-resize--nw {
+  left: -2px;
+  top: -2px;
+  cursor: nwse-resize;
+}
+
+.terminal-history-resize--ne {
+  right: -2px;
+  top: -2px;
+  cursor: nesw-resize;
+}
+
+.terminal-history-resize--sw {
+  left: -2px;
+  bottom: -2px;
+  cursor: nesw-resize;
+}
+
+.terminal-history-resize--se {
+  right: -2px;
+  bottom: -2px;
+  cursor: nwse-resize;
 }
 
 #main-workspace {

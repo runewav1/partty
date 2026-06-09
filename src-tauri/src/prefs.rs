@@ -64,6 +64,16 @@ fn default_command_history_max_output_bytes() -> usize {
     256 * 1024
 }
 
+fn default_command_history_exclude_commands() -> Vec<String> {
+    [
+        "nvim", "vim", "vi", "nano", "emacs", "less", "more", "man", "top", "htop", "btop", "btm",
+        "opencode", "lazygit", "tig", "fzf",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
 fn default_snapshot_max_lines() -> u32 {
     2500
 }
@@ -145,6 +155,12 @@ pub struct Prefs {
     /// Flush pending command records when the app is dismissed/hidden.
     #[serde(default = "default_true")]
     pub command_history_flush_on_hide: bool,
+    /// If non-empty, matching commands are always tracked, even if also excluded.
+    #[serde(default)]
+    pub command_history_include_commands: Vec<String>,
+    /// Commands excluded from history capture/tracking.
+    #[serde(default = "default_command_history_exclude_commands")]
+    pub command_history_exclude_commands: Vec<String>,
     /// Max lines kept when building a snapshot for `discard_buffer_on_hide`.
     #[serde(default = "default_snapshot_max_lines")]
     pub snapshot_max_lines: u32,
@@ -270,6 +286,8 @@ impl Default for Prefs {
             command_history_capture_output: true,
             command_history_max_output_bytes: default_command_history_max_output_bytes(),
             command_history_flush_on_hide: true,
+            command_history_include_commands: Vec::new(),
+            command_history_exclude_commands: default_command_history_exclude_commands(),
             snapshot_max_lines: 2500,
             preload_pty_on_startup: true,
             preload_webgl_on_startup: true,

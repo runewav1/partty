@@ -191,6 +191,7 @@
       <div id="theme-modal-root" class="theme-modal theme-modal--hidden" aria-hidden="true"></div>
       <div id="search-modal-root"></div>
       <div id="terminal-history-root"></div>
+      <div id="pane-rename-root"></div>
 
       <!-- Settings Panel -->
       <div id="settings-panel" class="settings-panel settings-panel--hidden" aria-hidden="true">
@@ -253,6 +254,14 @@
               <div class="settings-field">
                 <label class="settings-label" for="setting-command-history-output">Output bytes</label>
                 <input id="setting-command-history-output" name="command_history_max_output_bytes" type="number" min="4096" max="10485760" step="4096" class="settings-input" />
+              </div>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-command-history-include">History include</label>
+                <textarea id="setting-command-history-include" name="command_history_include_commands" class="settings-input" rows="2"></textarea>
+              </div>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-command-history-exclude">History exclude</label>
+                <textarea id="setting-command-history-exclude" name="command_history_exclude_commands" class="settings-input" rows="3"></textarea>
               </div>
               <div class="settings-field">
                 <label class="settings-label" for="setting-snapshot-max">Snapshot lines</label>

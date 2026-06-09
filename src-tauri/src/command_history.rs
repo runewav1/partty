@@ -165,6 +165,24 @@ pub fn delete_command_history(state: State<'_, AppState>, pane_id: String) -> Re
 }
 
 #[tauri::command]
+pub fn delete_command_history_record(
+    state: State<'_, AppState>,
+    pane_id: String,
+    record_id: String,
+) -> Result<(), String> {
+    state
+        .command_history
+        .conn
+        .lock()
+        .execute(
+            "DELETE FROM command_history WHERE pane_id = ?1 AND id = ?2",
+            params![pane_id, record_id],
+        )
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn delete_command_histories_with_prefix(
     state: State<'_, AppState>,
     prefix: String,

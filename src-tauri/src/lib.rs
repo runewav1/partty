@@ -1847,6 +1847,7 @@ pub fn run() {
             command_history::append_command_history_records,
             command_history::get_command_history,
             command_history::delete_command_history,
+            command_history::delete_command_history_record,
             command_history::delete_command_histories_with_prefix,
             get_app_session_id,
             list_custom_theme_names,
