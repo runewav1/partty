@@ -454,10 +454,8 @@ html.term-search-open #main-workspace {
   gap: 5px;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.12s ease;
+  transition: opacity var(--motion-fast) var(--motion-ease-out);
 }
-
-.terminal-history-item:hover .terminal-history-actions,
 .terminal-history-item:focus-within .terminal-history-actions {
   opacity: 1;
   pointer-events: auto;
@@ -1315,7 +1313,7 @@ html.file-tree-right.file-tree-on .file-tree-dock {
   pointer-events: auto;
   opacity: 0.78;
   font-family: inherit;
-  transition: opacity 0.15s ease, color 0.15s ease;
+  transition: opacity var(--motion-fast) var(--motion-ease-out), color var(--motion-fast) var(--motion-ease-out);
 }
 
 .file-tree-summary-link:hover {
@@ -1774,11 +1772,12 @@ html.pane-blur-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--
   will-change: transform, opacity;
 }
 
-html.terminal-motion-off .pane-leaf--entering,
-html.terminal-motion-off .pane-leaf--leaving,
-html.terminal-motion-off .pane-leaf--floating-enter,
-html.terminal-motion-off .pane-leaf--floating-return {
-  animation: none !important;
+html.terminal-motion-off *,
+html.terminal-motion-off *::before,
+html.terminal-motion-off *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2379,7 +2378,7 @@ html.file-tree-right .command-palette {
   background: var(--hover-overlay-light);
   color: var(--ui-chrome-muted);
   cursor: pointer;
-  transition: background 0.12s ease;
+  transition: background var(--motion-fast) var(--motion-ease-out);
 }
 
 .file-tree-quick-btn:hover {
@@ -2437,7 +2436,7 @@ html.file-tree-right .command-palette {
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
   line-height: 1;
   outline: none;
-  transition: border-color 0.15s ease;
+  transition: border-color var(--motion-fast) var(--motion-ease-out);
 }
 
 .file-tree-search-input:focus {
@@ -2476,7 +2475,7 @@ html.file-tree-right .command-palette {
   display: none;
   align-items: center;
   justify-content: center;
-  transition: color 0.12s ease, background 0.12s ease;
+  transition: color var(--motion-fast) var(--motion-ease-out), background var(--motion-fast) var(--motion-ease-out);
 }
 
 .file-tree-search-clear--visible {
@@ -3267,7 +3266,7 @@ html.file-tree-right .command-palette {
   cursor: pointer;
   background: var(--input-bg);
   color: var(--ui-chrome-fg);
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background var(--motion-fast) var(--motion-ease-out), border-color var(--motion-fast) var(--motion-ease-out);
 }
 
 .shed-exit-dialog-btn:hover {

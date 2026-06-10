@@ -290,10 +290,11 @@ async function boot(): Promise<void> {
 
   paneShellState = createShellIntegrationState();
   await mountDetachedPane(persisted.prefs);
-  refreshTerminalChrome();
   paneHost?.getPaneTerminal(paneId)?.term.focus();
   await new Promise((r) => requestAnimationFrame(r));
   document.documentElement.classList.remove("partty-booting");
+  refreshTerminalChrome();
+  void ensureWebgl();
 
   await Promise.all([
     listen<{ pane_id: string; data: string }>("pty-output", (event) => {
