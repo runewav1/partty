@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import type { ParttyPrefs } from "./settingsPanel";
-import { loadCustomThemesIntoCache, pickUiPrefs, THEME_OPTIONS, type UiThemePrefs } from "./uiTheme";
+import { loadCustomThemesIntoCache, pickUiPrefs, themeCssVarsForPrefs, THEME_OPTIONS, type ThemeCssVars, type UiThemePrefs } from "./uiTheme";
 
 const POS_KEY = "partty.themeModal.pos";
 
@@ -19,26 +19,49 @@ export type ThemeModalOpenOptions = {
   onCommit?: (prefs: UiThemePrefs) => void | Promise<void>;
 };
 
+export type ThemeModalCloneRequest = {
+  vars: ThemeCssVars;
+  suggestedName: string;
+};
+
+type FlatThemeRow = { themeId: string; variantId: string; label: string; search: string; builtin: boolean };
+
 export function createThemeModal(
   root: HTMLElement,
   onPreview: (prefs: UiThemePrefs) => void,
+  onCloneTheme?: (request: ThemeModalCloneRequest) => void,
 ): ThemeModalApi {
   let open = false;
   let initial: UiThemePrefs | null = null;
   let commitOverride: ThemeModalOpenOptions["onCommit"] | null = null;
   let fontBase = { font_terminal: "", font_ui: "", font_file_tree: "" };
   let selectedFlat = 0;
-  const builtinFlat: { themeId: string; variantId: string; label: string }[] = [];
+  const builtinFlat: FlatThemeRow[] = [];
   for (const t of THEME_OPTIONS) {
     for (const v of t.variants) {
       builtinFlat.push({
         themeId: t.id,
         variantId: v.id,
         label: `${t.label} — ${v.label}`,
+        search: `${t.label} ${t.description} ${v.label}`.toLowerCase(),
+        builtin: true,
       });
     }
   }
-  let flat: { themeId: string; variantId: string; label: string }[] = [...builtinFlat];
+  let allFlat: FlatThemeRow[] = [...builtinFlat];
+  let flat: FlatThemeRow[] = [...builtinFlat];
+
+  function slugForRow(row: FlatThemeRow): string {
+    return `${row.themeId}-${row.variantId}`.replace(/^custom:/, "").replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase();
+  }
+
+  function applyFilter(): void {
+    const q = searchInput.value.trim().toLowerCase();
+    flat = q ? allFlat.filter((row) => row.search.includes(q) || row.label.toLowerCase().includes(q)) : [...allFlat];
+    selectedFlat = Math.min(selectedFlat, Math.max(0, flat.length - 1));
+    rebuildListDom();
+    updateSelection();
+  }
 
   function rebuildListDom(): void {
     list.replaceChildren();
@@ -47,7 +70,25 @@ export function createThemeModal(
       const li = document.createElement("li");
       li.className = "theme-modal-item";
       li.dataset.index = String(i);
-      li.textContent = row.label;
+      const label = document.createElement("span");
+      label.className = "theme-modal-item-label";
+      label.textContent = row.label;
+      li.appendChild(label);
+      if (row.builtin && row.themeId !== "system" && onCloneTheme) {
+        const clone = document.createElement("button");
+        clone.type = "button";
+        clone.className = "theme-modal-clone";
+        clone.textContent = "Clone";
+        clone.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const vars = themeCssVarsForPrefs({ ui_theme: row.themeId, ui_theme_variant: row.variantId });
+          const suggestedName = slugForRow(row);
+          close();
+          onCloneTheme({ vars, suggestedName });
+        });
+        li.appendChild(clone);
+      }
       li.addEventListener("mouseenter", () => {
         selectedFlat = i;
         updateSelection();
@@ -68,15 +109,17 @@ export function createThemeModal(
     } catch {
       names = [];
     }
-    flat = [...builtinFlat];
+    allFlat = [...builtinFlat];
     for (const name of names) {
-      flat.push({
+      allFlat.push({
         themeId: `custom:${name}`,
         variantId: "default",
         label: `Custom — ${name}`,
+        search: `custom ${name}`.toLowerCase(),
+        builtin: false,
       });
     }
-    rebuildListDom();
+    applyFilter();
   }
 
   const backdrop = document.createElement("div");
@@ -105,12 +148,19 @@ export function createThemeModal(
   hint.className = "theme-modal-hint";
   hint.textContent = "↑↓ preview · Enter save · Esc";
 
+  const searchInput = document.createElement("input");
+  searchInput.type = "search";
+  searchInput.className = "theme-modal-search";
+  searchInput.placeholder = "Search themes";
+  searchInput.spellcheck = false;
+
   const list = document.createElement("ul");
   list.className = "theme-modal-list termie-scroll-fade";
 
   rebuildListDom();
 
   panel.appendChild(head);
+  panel.appendChild(searchInput);
   panel.appendChild(hint);
   panel.appendChild(list);
 
@@ -220,6 +270,7 @@ export function createThemeModal(
 
   const onKey = (e: KeyboardEvent): void => {
     if (!open) return;
+    if (e.target === searchInput && e.key !== "Escape" && e.key !== "Enter" && e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -253,6 +304,11 @@ export function createThemeModal(
 
   closeBtn.addEventListener("click", () => close());
   backdrop.addEventListener("click", () => close());
+  searchInput.addEventListener("input", () => {
+    selectedFlat = 0;
+    applyFilter();
+    previewAt(selectedFlat);
+  });
 
   function close(): void {
     if (!open) return;
@@ -267,6 +323,7 @@ export function createThemeModal(
     initial = null;
     commitOverride = null;
     title.textContent = "Themes";
+    searchInput.value = "";
   }
 
   return {
@@ -315,7 +372,7 @@ export function createThemeModal(
         previewAt(selectedFlat);
         const ae = document.activeElement;
         if (ae instanceof HTMLElement && ae.closest(".xterm")) ae.blur();
-        panel.focus();
+        searchInput.focus();
       })();
     },
     close,

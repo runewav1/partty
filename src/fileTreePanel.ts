@@ -32,6 +32,8 @@ type DragState = {
   dropPosition: "before" | "after" | "inside" | null;
 };
 
+type FileTreeSide = "left" | "right";
+
 
 const GIT_STATUS_LETTER: Map<string, string> = new Map([
   ["untracked", "U"],
@@ -236,6 +238,8 @@ export class FileTreePanel {
     private readonly getShowGitInfo: () => boolean = () => true,
     private readonly getConfirmDeletePrompt: () => boolean = () => true,
     private readonly setConfirmDeletePrompt: (enabled: boolean) => void = () => {},
+    private readonly getPanelSide: () => FileTreeSide = () => "left",
+    private readonly setPanelSide: (side: FileTreeSide) => void = () => {},
   ) {
     this.setupKeyboardNav();
     this.setupVirtualScroll();
@@ -1421,6 +1425,9 @@ export class FileTreePanel {
         void showAlert(String(e), "Terminal"),
       );
     });
+    add("Move panel " + (this.getPanelSide() === "right" ? "left" : "right"), () => {
+      this.setPanelSide(this.getPanelSide() === "right" ? "left" : "right");
+    });
     document.body.appendChild(menu);
     this.ctxEl = menu;
     this.positionCtxMenu(menu, x, y);
@@ -1525,6 +1532,10 @@ export class FileTreePanel {
     if (!isDir && isRunnableFile(path)) {
       add("Run", () => void invoke("run_file", { path }).catch((e) => void showAlert(String(e), "Run")));
     }
+    addSeparator();
+    add("Move panel " + (this.getPanelSide() === "right" ? "left" : "right"), () => {
+      this.setPanelSide(this.getPanelSide() === "right" ? "left" : "right");
+    });
     addSeparator();
 
     add("Copy name", () => void this.copyText(basename(path), "Name"));

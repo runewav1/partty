@@ -5,6 +5,7 @@ commands.allow = [
   "pty_ensure",
   "pty_spawn",
   "pty_write",
+  "pty_replay_snapshot",
   "pty_resize",
   "pty_kill",
   "pty_kill_pane",

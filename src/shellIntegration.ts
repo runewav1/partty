@@ -106,8 +106,10 @@ export function processShellIntegration(
   raw: string,
   state: ShellIntegrationState,
   onCwd?: OscCwdCallback,
+  options?: { commandEvents?: boolean },
 ): ProcessResult {
   const events: ShellIntegrationEvent[] = [];
+  const commandEvents = options?.commandEvents !== false;
   let cleaned = "";
   const input = state.parserRemainder + raw;
   state.parserRemainder = "";
@@ -128,27 +130,27 @@ export function processShellIntegration(
         const letter = parts[1] ?? "";
         switch (letter) {
           case "A": {
-            events.push({ kind: "prompt-start" });
+            if (commandEvents) events.push({ kind: "prompt-start" });
             break;
           }
           case "B": {
-            events.push({ kind: "prompt-end" });
+            if (commandEvents) events.push({ kind: "prompt-end" });
             break;
           }
           case "C": {
-            events.push({ kind: "pre-exec" });
+            if (commandEvents) events.push({ kind: "pre-exec" });
             break;
           }
           case "D": {
             const exitStr = parts[2]?.trim();
             const parsed = exitStr ? parseInt(exitStr, 10) : null;
             const exitCode = Number.isFinite(parsed) ? parsed : null;
-            events.push({ kind: "command-done", exitCode });
+            if (commandEvents) events.push({ kind: "command-done", exitCode });
             break;
           }
           case "E": {
             const cmdLine = unescapeOsc(parts.slice(2).join(";"));
-            events.push({ kind: "command-line", text: cmdLine });
+            if (commandEvents) events.push({ kind: "command-line", text: cmdLine });
             break;
           }
           case "P": {
@@ -197,4 +199,12 @@ export function processShellIntegration(
   }
 
   return { cleaned, events };
+}
+
+export function processCwdShellIntegration(
+  raw: string,
+  state: ShellIntegrationState,
+  onCwd?: OscCwdCallback,
+): ProcessResult {
+  return processShellIntegration(raw, state, onCwd, { commandEvents: false });
 }

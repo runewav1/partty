@@ -43,6 +43,8 @@ export type ParttyPrefs = {
   file_tree_show_git_info: boolean;
   /** File tree: hide the file name/content search bar. */
   file_tree_disable_search: boolean;
+  /** File tree dock side: left | right. */
+  file_tree_side: string;
   /** Ask for delete confirmation before file/folder removal in file tree. */
   confirm_delete_prompt: boolean;
   /** Disable native hover tooltips in the UI. */
@@ -59,6 +61,10 @@ export type ParttyPrefs = {
   terminal_sandbox_padding: number;
   /** Remove rounded pane/chrome corners. */
   terminal_no_round: boolean;
+  terminal_no_pane_border: boolean;
+  terminal_no_focus_border: boolean;
+  /** balanced | dwindle | master */
+  split_layout_style: string;
   /** off | fast | normal | slow */
   terminal_animation_speed: string;
   /** off | transparent */
@@ -126,6 +132,28 @@ export function createSettingsPanel(
     open = false;
     root.classList.add("settings-panel--hidden");
     root.setAttribute("aria-hidden", "true");
+  }
+
+  function applySettingsSearch(): void {
+    const input = root.querySelector("#settings-search") as HTMLInputElement | null;
+    const q = input?.value.trim().toLowerCase() ?? "";
+    const domains = root.querySelectorAll<HTMLElement>(".settings-domain");
+    for (const domain of domains) {
+      const title = domain.querySelector(".settings-domain-title")?.textContent?.toLowerCase() ?? "";
+      const domainMatch = q.length > 0 && title.includes(q);
+      let anyVisible = q.length === 0 || domainMatch;
+      const rows = domain.querySelectorAll<HTMLElement>(".settings-field, .settings-checkbox-label");
+      for (const row of rows) {
+        const controls = [...row.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select")]
+          .map((el) => `${el.name} ${el.id} ${"placeholder" in el ? el.placeholder : ""}`)
+          .join(" ");
+        const text = `${row.textContent ?? ""} ${controls}`.toLowerCase().replace(/[_-]/g, " ");
+        const visible = q.length === 0 || domainMatch || text.includes(q);
+        row.hidden = !visible;
+        if (visible) anyVisible = true;
+      }
+      domain.hidden = !anyVisible;
+    }
   }
 
   async function loadAndRender(): Promise<void> {
@@ -205,6 +233,13 @@ export function createSettingsPanel(
     if (paneBlur) paneBlur.value = String(pr.pane_background_blur ?? 0);
     const paneRadius = form.querySelector('[name="pane_corner_radius"]') as HTMLInputElement | null;
     if (paneRadius) paneRadius.value = String(pr.pane_corner_radius ?? 6);
+    const fileTreeSide = form.querySelector('[name="file_tree_side"]') as HTMLSelectElement | null;
+    if (fileTreeSide) fileTreeSide.value = pr.file_tree_side === "right" ? "right" : "left";
+    const splitStyle = form.querySelector('[name="split_layout_style"]') as HTMLSelectElement | null;
+    if (splitStyle) {
+      const raw = (pr.split_layout_style ?? "balanced").toLowerCase();
+      splitStyle.value = raw === "dwindle" || raw === "master" ? raw : "balanced";
+    }
     const paneGap = form.querySelector('[name="terminal_pane_gap"]') as HTMLInputElement | null;
     if (paneGap) paneGap.value = String(pr.terminal_pane_gap ?? (pr.terminal_no_gap ? 0 : 6));
     const sandboxPadding = form.querySelector('[name="terminal_sandbox_padding"]') as HTMLInputElement | null;
@@ -217,7 +252,7 @@ export function createSettingsPanel(
     setChk("always_on_top", p.always_on_top);
     setChk("webgl_shed_on_hide", p.webgl_shed_on_hide);
     setChk("discard_buffer_on_hide", p.discard_buffer_on_hide);
-    setChk("command_history_enabled", pr.command_history_enabled ?? true);
+    setChk("command_history_enabled", pr.command_history_enabled === true);
     setChk("command_history_capture_output", pr.command_history_capture_output ?? true);
     setChk("command_history_flush_on_command_end", pr.command_history_flush_on_command_end ?? true);
     setChk("command_history_flush_on_hide", pr.command_history_flush_on_hide ?? true);
@@ -241,12 +276,16 @@ export function createSettingsPanel(
     setChk("terminal_backspace_delete_selection", pr.terminal_backspace_delete_selection ?? true);
     setChk("always_open_in_zen_mode", pr.always_open_in_zen_mode ?? false);
     setChk("terminal_no_round", pr.terminal_no_round ?? false);
+    setChk("terminal_no_pane_border", pr.terminal_no_pane_border ?? false);
+    setChk("terminal_no_focus_border", pr.terminal_no_focus_border ?? false);
+    applySettingsSearch();
   }
 
   root.querySelector(".settings-panel-backdrop")?.addEventListener("click", (e) => {
     if (e.target === e.currentTarget) close();
   });
   root.querySelector("#settings-close")?.addEventListener("click", () => close());
+  root.querySelector("#settings-search")?.addEventListener("input", () => applySettingsSearch());
   root.addEventListener("keydown", (e) => {
     if (e.key === "Escape") close();
   });
@@ -267,6 +306,8 @@ export function createSettingsPanel(
         const animationRaw = gs("terminal_animation_speed").toLowerCase();
         const terminal_animation_speed =
           animationRaw === "off" || animationRaw === "fast" || animationRaw === "slow" ? animationRaw : "normal";
+        const splitRaw = gs("split_layout_style").toLowerCase();
+        const split_layout_style = splitRaw === "dwindle" || splitRaw === "master" ? splitRaw : "balanced";
         const effectRaw = gs("window_effect_mode").toLowerCase().replace(/-/g, "_");
         const window_effect_mode = effectRaw === "transparent" ? "transparent" : "off";
         const clamp01 = (raw: string, fallback: number) => {
@@ -326,6 +367,7 @@ export function createSettingsPanel(
           file_tree_show_diff_counts: gc("file_tree_show_diff_counts"),
           file_tree_show_git_info: gc("file_tree_show_git_info"),
           file_tree_disable_search: gc("file_tree_disable_search"),
+          file_tree_side: gs("file_tree_side") === "right" ? "right" : "left",
           confirm_delete_prompt: gc("confirm_delete_prompt"),
           ui_disable_tooltips: gc("ui_disable_tooltips"),
           terminal_click_to_cursor: gc("terminal_click_to_cursor"),
@@ -335,6 +377,9 @@ export function createSettingsPanel(
           terminal_pane_gap,
           terminal_sandbox_padding,
           terminal_no_round: gc("terminal_no_round"),
+          terminal_no_pane_border: gc("terminal_no_pane_border"),
+          terminal_no_focus_border: gc("terminal_no_focus_border"),
+          split_layout_style,
           terminal_animation_speed,
           window_effect_mode,
           window_effect_opacity: clamp01(g("window_effect_opacity"), 0),
@@ -361,9 +406,12 @@ export function createSettingsPanel(
       open = true;
       root.classList.remove("settings-panel--hidden");
       root.setAttribute("aria-hidden", "false");
+      const search = root.querySelector("#settings-search") as HTMLInputElement | null;
+      if (search) search.value = "";
+      applySettingsSearch();
       void loadAndRender();
       requestAnimationFrame(() => {
-        (root.querySelector('[name="shell"]') as HTMLInputElement | null)?.focus();
+        (root.querySelector("#settings-search") as HTMLInputElement | null)?.focus();
       });
     },
     close,

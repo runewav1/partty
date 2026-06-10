@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="partty-booting">
   <head>
     <meta charset="UTF-8" />
     <style>
@@ -11,6 +11,11 @@
         height: 100%;
         overflow: hidden;
         background: #2e2e32;
+      }
+      html.partty-booting,
+      html.partty-booting body,
+      html.partty-booting #app {
+        background: #2e2e32 !important;
       }
     </style>
     <link rel="stylesheet" href="/src/styles.css" />
@@ -201,6 +206,9 @@
             <h2 class="settings-panel-title">Settings</h2>
             <button id="settings-close" type="button" class="settings-panel-close" aria-label="Close">×</button>
           </div>
+          <div class="settings-panel-search-row">
+            <input id="settings-search" type="search" class="settings-input settings-search" placeholder="Search settings" spellcheck="false" autocomplete="off" />
+          </div>
           <form id="settings-form" class="settings-panel-body termie-scroll-fade">
             <datalist id="shell-suggestions"></datalist>
             <datalist id="font-suggestions"></datalist>
@@ -285,6 +293,16 @@
                 <input id="setting-terminal-sandbox-padding" name="terminal_sandbox_padding" type="number" min="0" max="32" step="1" class="settings-input" />
               </div>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_no_round" /><span>Square panes</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_no_pane_border" /><span>Hide pane borders</span></label>
+              <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_no_focus_border" /><span>No focus border highlight</span></label>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-split-layout-style">Split style</label>
+                <select id="setting-split-layout-style" name="split_layout_style" class="settings-input">
+                  <option value="balanced">Balanced</option>
+                  <option value="dwindle">Dwindle</option>
+                  <option value="master">Master</option>
+                </select>
+              </div>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="focus_follows_cursor" /><span>Pointer focus</span></label>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="blur_unfocused_panes" /><span>Blur inactive</span></label>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="dim_unfocused_panes" /><span>Dim inactive</span></label>
@@ -350,6 +368,13 @@
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="file_tree_show_diff_counts" /><span>Diff counts</span></label>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="file_tree_show_git_info" /><span>Git panel</span></label>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="file_tree_disable_search" /><span>Disable search</span></label>
+              <div class="settings-field">
+                <label class="settings-label" for="setting-file-tree-side">Panel side</label>
+                <select id="setting-file-tree-side" name="file_tree_side" class="settings-input">
+                  <option value="left">Left</option>
+                  <option value="right">Right</option>
+                </select>
+              </div>
               <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="confirm_delete_prompt" /><span>Confirm delete</span></label>
             </section>
             <div class="settings-panel-foot">

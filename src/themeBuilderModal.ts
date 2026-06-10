@@ -14,9 +14,14 @@ import {
 } from "./uiTheme";
 
 export type ThemeBuilderApi = {
-  open(): void;
+  open(options?: ThemeBuilderOpenOptions): void;
   close(): void;
   isOpen(): boolean;
+};
+
+export type ThemeBuilderOpenOptions = {
+  initialVars?: ThemeCssVars;
+  suggestedName?: string;
 };
 
 const LABELS: Record<string, string> = {
@@ -265,7 +270,7 @@ export function createThemeBuilderModal(
   });
 
   return {
-    open: () => {
+    open: (options?: ThemeBuilderOpenOptions) => {
       if (open) return;
       open = true;
       void (async () => {
@@ -281,8 +286,8 @@ export function createThemeBuilderModal(
             font_file_tree: "",
           };
         }
-        vars = collectCurrentThemeCssVars();
-        nameInput.value = "";
+        vars = options?.initialVars ? { ...options.initialVars } : collectCurrentThemeCssVars();
+        nameInput.value = options?.suggestedName ?? "";
         renderVarRows();
         previewThemeCssVars(vars);
         await refreshCustomList();

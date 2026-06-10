@@ -13,6 +13,7 @@ import {
   ptyAckExit,
   ptyEnsure,
   ptyFocusPane,
+  ptyReplaySnapshot,
   ptyResize,
   ptyWrite,
 } from "./ptyIpc";
@@ -26,6 +27,7 @@ import {
 } from "./uiTheme";
 import {
   createShellIntegrationState,
+  processCwdShellIntegration,
   processShellIntegration,
   type ShellIntegrationState,
 } from "./shellIntegration";
@@ -69,6 +71,14 @@ let paneWebgl: WebglAddon | null = null;
 let resizeObs: ResizeObserver | null = null;
 let resizeTimer = 0;
 let snapshotReplay: string | null = null;
+let commandHistoryEnabled = false;
+let backendReplayRestored = false;
+
+function isTerminalVisiblyEmpty(pt: PaneTerminal): boolean {
+  const active = pt.term.buffer.active;
+  if (active.length > 1) return false;
+  return (active.getLine(0)?.translateToString(false).trim() ?? "") === "";
+}
 
 function scheduleResize(): void {
   if (resizeTimer) window.clearTimeout(resizeTimer);
@@ -146,6 +156,11 @@ async function ensurePtyForPane(ptIn?: PaneTerminal): Promise<void> {
   const safe = clampPtyColsRows(raw.cols, raw.rows);
   try {
     await ptyEnsure(paneId, safe.cols, safe.rows);
+    if (!backendReplayRestored && isTerminalVisiblyEmpty(pt)) {
+      backendReplayRestored = true;
+      const replay = await ptyReplaySnapshot(paneId).catch(() => null);
+      if (replay) pt.term.write(replay);
+    }
   } catch (e) {
     console.error("detached pty_ensure failed:", e);
     try {
@@ -250,6 +265,7 @@ async function toggleMaximize(): Promise<void> {
 async function boot(): Promise<void> {
   document.documentElement.classList.add("detached-pane-root-html");
   const persisted = await invoke<PersistedPayload>("get_persisted_state");
+  commandHistoryEnabled = persisted.prefs.command_history_enabled === true;
   await loadCustomThemesIntoCache();
   applyUiTheme(pickUiPrefs(persisted.prefs));
 
@@ -263,6 +279,8 @@ async function boot(): Promise<void> {
   await mountDetachedPane(persisted.prefs);
   refreshTerminalChrome();
   paneHost?.getPaneTerminal(paneId)?.term.focus();
+  await new Promise((r) => requestAnimationFrame(r));
+  document.documentElement.classList.remove("partty-booting");
 
   await Promise.all([
     listen<{ pane_id: string; data: string }>("pty-output", (event) => {
@@ -270,8 +288,15 @@ async function boot(): Promise<void> {
       if (pane_id !== paneId) return;
       const pt = paneHost?.getPaneTerminal(pane_id);
       if (!pt || !paneShellState) return;
-      const si = processShellIntegration(data, paneShellState);
-      pt.term.write(si.cleaned);
+      if (commandHistoryEnabled) {
+        const si = processShellIntegration(data, paneShellState);
+        pt.term.write(si.cleaned);
+      } else if (data.includes("\x1b]")) {
+        const si = processCwdShellIntegration(data, paneShellState);
+        pt.term.write(si.cleaned);
+      } else {
+        pt.term.write(data);
+      }
     }),
     listen<{ pane_id: string }>("pty-exit", async (event) => {
       const { pane_id } = event.payload;

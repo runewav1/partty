@@ -52,12 +52,15 @@ export type PaneHostOptions = {
   getTheme: (paneId: string) => ITheme;
   getPaneName?: (paneId: string) => string | undefined;
   getPaneCssVars?: (paneId: string) => Record<string, string> | null;
+  getSplitLayoutStyle?: () => "balanced" | "dwindle" | "master";
   focusFollowsCursor: () => boolean;
   onPaneFocus: (paneId: string) => void;
   onPaneCreated: (paneId: string, pt: PaneTerminal) => void;
   onPaneDisposed: (paneId: string) => void;
   /** Called after internal layout changes (split, gutter drag, mount) so PTY cols/rows stay in sync. */
   onPaneLayout?: () => void;
+  /** Called while resize interactions preview DOM geometry so terminal fitting can be deferred. */
+  onPaneLayoutDrag?: (dragging: boolean) => void;
   /** Called after pane positions change (e.g. drag-drop swap) so layout can be persisted. */
   onPaneReorder?: () => void;
   /** Root leaf id (per workspace tab). Defaults to `"main"`. */
@@ -167,6 +170,7 @@ export class PaneHost {
   private readonly justTiled = new Set<string>();
   private floatingZ = 50;
   private resizeObs: ResizeObserver | null = null;
+  private layoutDragDepth = 0;
   private focusFollowPointer: ((ev: PointerEvent) => void) | null = null;
   private focusFollowRaf = 0;
   private pendingFocusFollowId: string | null = null;
@@ -213,7 +217,10 @@ export class PaneHost {
     this.container.appendChild(this.root);
     this.root.addEventListener("pointerdown", this.onPaneAltDragPointerDown, true);
     this.mountTree();
-    this.resizeObs = new ResizeObserver(() => this.opts.onPaneLayout?.());
+    this.resizeObs = new ResizeObserver(() => {
+      if (this.layoutDragDepth > 0) return;
+      this.opts.onPaneLayout?.();
+    });
     this.resizeObs.observe(this.root);
   }
 
@@ -323,21 +330,83 @@ export class PaneHost {
   splitFocused(dir: "h" | "v"): string | null {
     if (this.floating.has(this.focusedId)) return null;
     const newId = crypto.randomUUID();
+    return this.insertPaneNearFocused(newId, dir, true);
+  }
+
+  takePane(paneId: string): PaneTerminal | null {
+    if (paneId === this.rootPaneId) return null;
+    const pt = this.terminals.get(paneId);
+    if (!pt) return null;
+    if (!this.removePaneFromTree(paneId)) return null;
+    this.terminals.delete(paneId);
+    this.floating.delete(paneId);
+    this.mountTree();
+    this.opts.onPaneLayout?.();
+    if (this.focusedId === paneId) {
+      const rest: string[] = [];
+      collectLeafIds(this.tree, rest);
+      this.setFocusedPaneId(rest[0] ?? this.rootPaneId);
+    } else {
+      this.updateFocusClass();
+    }
+    return pt;
+  }
+
+  receivePane(paneId: string, pt: PaneTerminal, dir: "h" | "v" = "h"): boolean {
+    if (findPaneLeaf(this.tree, paneId)) return false;
+    this.terminals.set(paneId, pt);
+    const inserted = this.insertPaneNearFocused(paneId, dir, false);
+    if (!inserted) {
+      this.terminals.delete(paneId);
+      return false;
+    }
+    this.setFocusedPaneId(paneId);
+    return true;
+  }
+
+  private splitRatioForFocused(): number {
+    const style = this.opts.getSplitLayoutStyle?.() ?? "balanced";
+    if (style === "dwindle") return 0.62;
+    if (style === "master" && this.focusedId === this.rootPaneId) return 0.68;
+    return 0.5;
+  }
+
+  private insertPaneNearFocused(paneId: string, dir: "h" | "v", createTerminal: boolean): string | null {
+    if (this.floating.has(this.focusedId)) return null;
     const from = this.focusedId;
     const rep: PaneSplit = {
       kind: "split",
       dir,
-      ratio: 0.5,
+      ratio: this.splitRatioForFocused(),
       a: { kind: "leaf", id: from },
-      b: { kind: "leaf", id: newId },
+      b: { kind: "leaf", id: paneId },
     };
     const next = replaceLeaf(this.tree, from, rep);
     if (!next) return null;
     this.tree = next;
     this.mountTree();
     this.opts.onPaneLayout?.();
-    this.setFocusedPaneId(newId);
-    return newId;
+    this.setFocusedPaneId(paneId);
+    return createTerminal || this.terminals.has(paneId) ? paneId : null;
+  }
+
+  private removePaneFromTree(paneId: string): boolean {
+    if (paneId === this.rootPaneId) return false;
+    const ids: string[] = [];
+    collectLeafIds(this.tree, ids);
+    if (ids.length <= 1) return false;
+    const disposeBranch = (node: PaneNode): PaneNode | null => {
+      if (node.kind === "leaf") return node.id === paneId ? null : node;
+      const a = disposeBranch(node.a);
+      const b = disposeBranch(node.b);
+      if (a == null) return b;
+      if (b == null) return a;
+      return { ...node, a, b };
+    };
+    const next = disposeBranch(this.tree);
+    if (!next) return false;
+    this.tree = next;
+    return true;
   }
 
   removePane(paneId: string, opts?: { notifyDisposed?: boolean }): boolean {
@@ -799,6 +868,7 @@ export class PaneHost {
     const state = this.floating.get(paneId);
     if (!state) return;
     this.paneDragActive = true;
+    this.beginLayoutDrag();
     this.bringFloatingPaneToFront(paneId);
     state.width = leaf.offsetWidth || state.width;
     state.height = leaf.offsetHeight || state.height;
@@ -813,7 +883,6 @@ export class PaneHost {
       state.y = Math.max(-hostRect.top, Math.min(startTop + ev.clientY - startY, window.innerHeight - hostRect.top - state.height));
       leaf.style.left = `${state.x}px`;
       leaf.style.top = `${state.y}px`;
-      this.opts.onPaneLayout?.();
     };
     const onUp = (): void => {
       window.removeEventListener("pointermove", onMove);
@@ -821,6 +890,7 @@ export class PaneHost {
       leaf.classList.remove("pane-leaf--floating-moving");
       this.paneDragActive = false;
       this.opts.onPaneReorder?.();
+      this.endLayoutDrag(true);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp, { once: true });
@@ -838,6 +908,7 @@ export class PaneHost {
     const minW = 220;
     const minH = 160;
     this.paneDragActive = true;
+    this.beginLayoutDrag();
     this.bringFloatingPaneToFront(paneId);
     leaf.classList.add("pane-leaf--floating-resizing");
 
@@ -883,7 +954,6 @@ export class PaneHost {
       leaf.style.top = `${top}px`;
       leaf.style.width = `${width}px`;
       leaf.style.height = `${height}px`;
-      this.opts.onPaneLayout?.();
     };
     const onUp = (): void => {
       window.removeEventListener("pointermove", onMove);
@@ -891,12 +961,14 @@ export class PaneHost {
       leaf.classList.remove("pane-leaf--floating-resizing");
       this.paneDragActive = false;
       this.opts.onPaneReorder?.();
+      this.endLayoutDrag(true);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp, { once: true });
   }
 
   private beginSingleSplitResize(e: PointerEvent, splitEl: HTMLElement, dir: SplitResizeAxis): void {
+    this.beginLayoutDrag();
     const start = dir === "h" ? e.clientX : e.clientY;
     const rect = splitEl.getBoundingClientRect();
     const startRatio = Number(splitEl.dataset.ratio ?? "0.5");
@@ -904,11 +976,12 @@ export class PaneHost {
       const cur = dir === "h" ? ev.clientX : ev.clientY;
       const delta = cur - start;
       const span = dir === "h" ? rect.width : rect.height;
-      this.applySplitRatio(splitEl, startRatio + delta / Math.max(1, span));
+      this.applySplitRatio(splitEl, startRatio + delta / Math.max(1, span), false);
     };
     const onUp = (): void => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      this.endLayoutDrag(true);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp, { once: true });
@@ -923,21 +996,23 @@ export class PaneHost {
     const hInfo = edgeX ? this.findAncestorSplitForLeaf(leaf, "h", edgeX) : null;
     const vInfo = edgeY ? this.findAncestorSplitForLeaf(leaf, "v", edgeY) : null;
     if (!hInfo && !vInfo) return;
+    this.beginLayoutDrag();
     const startX = e.clientX;
     const startY = e.clientY;
     const onMove = (ev: PointerEvent): void => {
       if (hInfo) {
         const deltaX = ev.clientX - startX;
-        this.applySplitRatio(hInfo.splitEl, hInfo.startRatio + (deltaX * hInfo.sign) / hInfo.span);
+        this.applySplitRatio(hInfo.splitEl, hInfo.startRatio + (deltaX * hInfo.sign) / hInfo.span, false);
       }
       if (vInfo) {
         const deltaY = ev.clientY - startY;
-        this.applySplitRatio(vInfo.splitEl, vInfo.startRatio + (deltaY * vInfo.sign) / vInfo.span);
+        this.applySplitRatio(vInfo.splitEl, vInfo.startRatio + (deltaY * vInfo.sign) / vInfo.span, false);
       }
     };
     const onUp = (): void => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      this.endLayoutDrag(true);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp, { once: true });
@@ -975,7 +1050,7 @@ export class PaneHost {
     return null;
   }
 
-  private applySplitRatio(splitEl: HTMLElement, nextRatio: number): void {
+  private applySplitRatio(splitEl: HTMLElement, nextRatio: number, notify = true): void {
     const next = Math.max(0.15, Math.min(0.85, nextRatio));
     splitEl.dataset.ratio = String(next);
     const cells = splitEl.querySelectorAll(":scope > :not(.pane-gutter)");
@@ -983,7 +1058,23 @@ export class PaneHost {
       (cells[0] as HTMLElement).style.flex = String(next);
       (cells[1] as HTMLElement).style.flex = String(1 - next);
     }
-    this.opts.onPaneLayout?.();
+    if (notify) this.opts.onPaneLayout?.();
+  }
+
+  private beginLayoutDrag(): void {
+    this.layoutDragDepth += 1;
+    if (this.layoutDragDepth === 1) {
+      this.root.classList.add("pane-host--layout-dragging");
+      this.opts.onPaneLayoutDrag?.(true);
+    }
+  }
+
+  private endLayoutDrag(commitLayout: boolean): void {
+    this.layoutDragDepth = Math.max(0, this.layoutDragDepth - 1);
+    if (this.layoutDragDepth > 0) return;
+    this.root.classList.remove("pane-host--layout-dragging");
+    this.opts.onPaneLayoutDrag?.(false);
+    if (commitLayout) this.opts.onPaneLayout?.();
   }
 
   private renderNode(node: PaneNode): HTMLElement {

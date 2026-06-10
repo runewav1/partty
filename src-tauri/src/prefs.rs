@@ -36,6 +36,10 @@ fn default_file_tree_show_git_info() -> bool {
     true
 }
 
+fn default_file_tree_side() -> String {
+    "left".to_string()
+}
+
 fn default_ui_disable_tooltips() -> bool {
     false
 }
@@ -90,6 +94,10 @@ fn default_terminal_animation_speed() -> String {
     "normal".to_string()
 }
 
+fn default_split_layout_style() -> String {
+    "balanced".to_string()
+}
+
 fn default_terminal_pane_gap() -> f64 {
     6.0
 }
@@ -134,8 +142,8 @@ pub struct Prefs {
     /// xterm scrollback capacity (older lines discarded by xterm when over limit).
     #[serde(default = "default_scrollback_lines")]
     pub scrollback_lines: u32,
-    /// Persist shell-integration command history per pane.
-    #[serde(default = "default_true")]
+    /// Persist shell-integration command history per pane. Opt-in; disabled favors terminal throughput.
+    #[serde(default)]
     pub command_history_enabled: bool,
     /// Flush pending command history every N seconds while the app is open (0 = disabled).
     #[serde(default = "default_command_history_flush_interval_sec")]
@@ -209,6 +217,9 @@ pub struct Prefs {
     /// Disable the file tree search/filter bar (reclaims vertical space).
     #[serde(default)]
     pub file_tree_disable_search: bool,
+    /// `left` | `right` — dock side for the file tree.
+    #[serde(default = "default_file_tree_side")]
+    pub file_tree_side: String,
     /// Ask for confirmation before deleting items from the file tree.
     #[serde(default = "default_confirm_delete_prompt")]
     pub confirm_delete_prompt: bool,
@@ -236,9 +247,18 @@ pub struct Prefs {
     /// Remove rounded pane/chrome corners for dense terminal layouts.
     #[serde(default)]
     pub terminal_no_round: bool,
+    /// Hide pane borders entirely, including split/floating borders.
+    #[serde(default)]
+    pub terminal_no_pane_border: bool,
+    /// Keep pane borders but do not accent the focused split pane border.
+    #[serde(default)]
+    pub terminal_no_focus_border: bool,
     /// `off` | `fast` | `normal` | `slow` — scales terminal UI animations.
     #[serde(default = "default_terminal_animation_speed")]
     pub terminal_animation_speed: String,
+    /// `balanced` | `dwindle` | `master` — pane split insertion math.
+    #[serde(default = "default_split_layout_style")]
+    pub split_layout_style: String,
     /// `off` | `transparent` — Tauri window backdrop mode.
     #[serde(default = "default_window_effect_mode")]
     pub window_effect_mode: String,
@@ -279,7 +299,7 @@ impl Default for Prefs {
             webgl_shed_on_hide: true,
             discard_buffer_on_hide: false,
             scrollback_lines: 1000,
-            command_history_enabled: true,
+            command_history_enabled: false,
             command_history_flush_interval_sec: default_command_history_flush_interval_sec(),
             command_history_flush_on_command_end: true,
             command_history_max_records_per_pane: default_command_history_max_records_per_pane(),
@@ -309,6 +329,7 @@ impl Default for Prefs {
             file_tree_show_diff_counts: false,
             file_tree_show_git_info: true,
             file_tree_disable_search: false,
+            file_tree_side: default_file_tree_side(),
             confirm_delete_prompt: true,
             ui_disable_tooltips: false,
             terminal_click_to_cursor: true,
@@ -318,7 +339,10 @@ impl Default for Prefs {
             terminal_pane_gap: default_terminal_pane_gap(),
             terminal_sandbox_padding: default_terminal_sandbox_padding(),
             terminal_no_round: false,
+            terminal_no_pane_border: false,
+            terminal_no_focus_border: false,
             terminal_animation_speed: default_terminal_animation_speed(),
+            split_layout_style: default_split_layout_style(),
             window_effect_mode: default_window_effect_mode(),
             window_effect_opacity: default_window_effect_opacity(),
             pane_background_opacity: default_pane_background_opacity(),

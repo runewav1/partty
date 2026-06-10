@@ -14,7 +14,8 @@ const SHELL_INTEGRATION_BASH: &str = include_str!("../scripts/partty-shell-integ
 #[allow(dead_code)]
 const SHELL_INTEGRATION_ZSH: &str = include_str!("../scripts/partty-shell-integration.zsh");
 const PTY_OUTPUT_BATCH_BYTES: usize = 64 * 1024;
-const PTY_OUTPUT_BATCH_MS: u64 = 4;
+const PTY_OUTPUT_BATCH_MS: u64 = 1;
+const PTY_REPLAY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, serde::Serialize)]
 pub struct PtyOutputEvent {
@@ -34,6 +35,7 @@ pub struct PtySession {
     /// Root shell process (pwsh/cmd/…); used to query real cwd (with pwsh, OSC 7 is also injected on each prompt).
     shell_pid: Option<u32>,
     stop: Arc<AtomicBool>,
+    replay_buffer: Arc<parking_lot::Mutex<String>>,
     /// Emitted on `pty-output` / `pty-exit` for multi-pane routing.
     pub pane_id: String,
     _reader: JoinHandle<()>,
@@ -70,6 +72,7 @@ impl PtySession {
         let writer = Arc::new(parking_lot::Mutex::new(writer));
         let child = Arc::new(parking_lot::Mutex::new(Some(child)));
         let stop = Arc::new(AtomicBool::new(false));
+        let replay_buffer = Arc::new(parking_lot::Mutex::new(String::with_capacity(256 * 1024)));
 
         let (tx, rx) = sync_channel::<Vec<u8>>(48);
         let stop_reader = Arc::clone(&stop);
@@ -116,6 +119,7 @@ impl PtySession {
         });
 
         let stop_emitter = Arc::clone(&stop);
+        let replay_emitter = Arc::clone(&replay_buffer);
         let app_emit = app.clone();
         let pane_emit = pane_id.clone();
         let _emitter = thread::spawn(move || {
@@ -149,13 +153,12 @@ impl PtySession {
                 if !pending.is_empty() {
                     let text = String::from_utf8_lossy(&pending).into_owned();
                     pending.clear();
+                    append_replay_buffer(&replay_emitter, &text);
                     let ev = PtyOutputEvent {
                         pane_id: pane_emit.clone(),
                         data: text,
                     };
-                    if app_emit.emit("pty-output", ev).is_err() {
-                        break;
-                    }
+                    let _ = app_emit.emit("pty-output", ev);
                 }
 
                 if disconnected {
@@ -170,6 +173,7 @@ impl PtySession {
             child,
             shell_pid,
             stop,
+            replay_buffer,
             pane_id,
             _reader,
             _emitter,
@@ -196,7 +200,12 @@ impl PtySession {
 
     pub fn write(&self, data: &[u8]) -> Result<(), String> {
         let mut w = self.writer.lock();
-        w.write_all(data).map_err(|e| e.to_string())
+        w.write_all(data).map_err(|e| e.to_string())?;
+        w.flush().map_err(|e| e.to_string())
+    }
+
+    pub fn replay_snapshot(&self) -> String {
+        self.replay_buffer.lock().clone()
     }
 
     pub fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
@@ -217,6 +226,20 @@ impl PtySession {
             let _ = c.kill();
         }
     }
+}
+
+fn append_replay_buffer(buf: &Arc<parking_lot::Mutex<String>>, text: &str) {
+    let mut replay = buf.lock();
+    replay.push_str(text);
+    if replay.len() <= PTY_REPLAY_BUFFER_BYTES {
+        return;
+    }
+    let excess = replay.len() - PTY_REPLAY_BUFFER_BYTES;
+    let mut drain_to = excess;
+    while drain_to < replay.len() && !replay.is_char_boundary(drain_to) {
+        drain_to += 1;
+    }
+    replay.drain(..drain_to);
 }
 
 impl Drop for PtySession {

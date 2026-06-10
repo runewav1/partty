@@ -210,8 +210,12 @@ export class CommandHistoryStore {
     this.reschedule();
   }
 
+  isEnabled(): boolean {
+    return this.prefs.command_history_enabled === true;
+  }
+
   hasActive(paneId: string): boolean {
-    return this.active.has(paneId);
+    return this.isEnabled() && this.active.has(paneId);
   }
 
   private shouldTrackCommand(command: string): boolean {
@@ -225,9 +229,10 @@ export class CommandHistoryStore {
   }
 
   observeInput(paneId: string, data: string): void {
-    if (this.prefs.command_history_enabled === false) return;
+    if (!this.isEnabled()) return;
     let buf = this.inputBuffers.get(paneId) ?? "";
-    for (const ch of stripTerminalControls(data)) {
+    const input = data.length === 1 && data >= " " && data !== "\x7f" ? data : stripTerminalControls(data);
+    for (const ch of input) {
       if (ch === "\r" || ch === "\n") {
         const cmd = normalizeHistoryCommand(buf);
         if (cmd && this.shouldTrackCommand(cmd)) {
@@ -250,7 +255,7 @@ export class CommandHistoryStore {
   }
 
   process(paneId: string, events: ShellIntegrationEvent[], cleanedOutput: string, cwd: string | null): void {
-    if (this.prefs.command_history_enabled === false) return;
+    if (!this.isEnabled()) return;
     for (const ev of events) {
       if (ev.kind === "command-line") {
         const command = normalizeHistoryCommand(ev.text);
@@ -297,7 +302,7 @@ export class CommandHistoryStore {
   }
 
   async flush(): Promise<void> {
-    if (this.prefs.command_history_enabled === false) return;
+    if (!this.isEnabled()) return;
     const maxRecords = Math.max(50, Math.min(50_000, this.prefs.command_history_max_records_per_pane ?? 2000));
     const entries = [...this.pending.entries()].filter(([, records]) => records.length > 0);
     this.pending.clear();
@@ -366,7 +371,7 @@ export class CommandHistoryStore {
     if (this.flushTimer) window.clearInterval(this.flushTimer);
     this.flushTimer = 0;
     const sec = this.prefs.command_history_flush_interval_sec ?? 0;
-    if (this.prefs.command_history_enabled === false || sec <= 0) return;
+    if (!this.isEnabled() || sec <= 0) return;
     this.flushTimer = window.setInterval(() => void this.flush(), Math.max(0.25, sec) * 1000);
   }
 }

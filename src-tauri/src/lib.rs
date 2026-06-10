@@ -1607,11 +1607,23 @@ fn pty_spawn(
 
 #[tauri::command]
 fn pty_write(state: State<'_, AppState>, pane_id: String, data: String) -> Result<(), String> {
-    let g = state.pty_panes.lock();
-    let Some(s) = g.get(&pane_id) else {
+    let session = {
+        let g = state.pty_panes.lock();
+        g.get(&pane_id).cloned()
+    };
+    let Some(s) = session else {
         return Err("no active pty for pane".into());
     };
     s.write(data.as_bytes())
+}
+
+#[tauri::command]
+fn pty_replay_snapshot(state: State<'_, AppState>, pane_id: String) -> Result<Option<String>, String> {
+    let session = {
+        let g = state.pty_panes.lock();
+        g.get(&pane_id).cloned()
+    };
+    Ok(session.map(|s| s.replay_snapshot()).filter(|s| !s.is_empty()))
 }
 
 #[tauri::command]
@@ -1836,6 +1848,7 @@ pub fn run() {
             pty_ensure,
             pty_spawn,
             pty_write,
+            pty_replay_snapshot,
             pty_resize,
             pty_kill,
             pty_kill_pane,

@@ -14,6 +14,10 @@ export function ptyWrite(paneId: string, data: string): Promise<void> {
   return invoke("pty_write", { paneId, data });
 }
 
+export function ptyReplaySnapshot(paneId: string): Promise<string | null> {
+  return invoke<string | null>("pty_replay_snapshot", { paneId });
+}
+
 export function ptyKillPane(paneId: string): Promise<void> {
   return invoke("pty_kill_pane", { paneId });
 }
