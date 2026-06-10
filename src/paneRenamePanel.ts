@@ -12,6 +12,7 @@ export function createPaneRenamePanel(opts: {
   const { root, onCommit } = opts;
   let open = false;
   let activePaneId = "";
+  let activePaneName = "";
 
   root.className = "terminal-history pane-rename pane-rename--hidden";
   root.setAttribute("aria-hidden", "true");
@@ -35,8 +36,8 @@ export function createPaneRenamePanel(opts: {
   const form = root.querySelector(".pane-rename-form") as HTMLFormElement;
 
   function setTitle(): void {
-    title.textContent = activePaneId;
-    title.title = activePaneId;
+    title.textContent = activePaneName || activePaneId;
+    title.title = activePaneName || activePaneId;
   }
 
   function positionForFirstOpen(): void {
@@ -79,6 +80,10 @@ export function createPaneRenamePanel(opts: {
     onCommit(activePaneId, input.value);
     close();
   });
+  input.addEventListener("input", () => {
+    activePaneName = input.value;
+    setTitle();
+  });
   head.addEventListener("pointerdown", beginDrag);
   panel.addEventListener("keydown", (e) => {
     if (e.key === "Escape") close();
@@ -86,6 +91,7 @@ export function createPaneRenamePanel(opts: {
 
   function setPane(paneId: string, currentName = ""): void {
     activePaneId = paneId;
+    activePaneName = currentName;
     setTitle();
     input.value = currentName;
   }

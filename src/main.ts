@@ -381,6 +381,7 @@ async function boot(): Promise<void> {
   const paneNames = new Map<string, string>();
   const paneThemes = new Map<string, PaneThemePrefs>();
   const lastPtyDims = new Map<string, { cols: number; rows: number }>();
+  const pendingNewPaneCwd = { v: null as string | null };
   const focusFollowsRef = { v: lp.focus_follows_cursor };
   const autoCopySelectionRef = {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).auto_copy_selection),
@@ -1163,6 +1164,15 @@ async function boot(): Promise<void> {
     return true;
   }
 
+  function splitFocusedWithCwd(dir: "h" | "v"): string | null {
+    const parentId = paneHost?.getFocusedPaneId();
+    if (!parentId) return null;
+    pendingNewPaneCwd.v = paneCwdHints.get(parentId) ?? null;
+    const newId = paneHost?.splitFocused(dir) ?? null;
+    if (!newId) pendingNewPaneCwd.v = null;
+    return newId;
+  }
+
   function zoomPaneTerminal(paneId: string, direction: number): void {
     const pt = paneHost?.getPaneTerminal(paneId);
     if (!pt || !paneHost) return;
@@ -1328,7 +1338,7 @@ async function boot(): Promise<void> {
         (e.key === "v" || e.key === "V")
       ) {
         e.preventDefault();
-        paneHost?.splitFocused("h");
+        splitFocusedWithCwd("h");
         return false;
       }
       if (
@@ -1339,7 +1349,7 @@ async function boot(): Promise<void> {
         (e.key === "h" || e.key === "H")
       ) {
         e.preventDefault();
-        paneHost?.splitFocused("v");
+        splitFocusedWithCwd("v");
         return false;
       }
       if (
@@ -1731,7 +1741,7 @@ async function boot(): Promise<void> {
     }
   }
 
-  async function ensurePtyForPane(paneId: string, ptIn?: PaneTerminal): Promise<void> {
+  async function ensurePtyForPane(paneId: string, ptIn?: PaneTerminal, initialCwd?: string | null): Promise<void> {
     const pt = ptIn ?? paneHost?.getPaneTerminal(paneId);
     if (!pt) return;
     const ensureStarted = performance.now();
@@ -1760,7 +1770,7 @@ async function boot(): Promise<void> {
         safe = clampPtyColsRows(raw.cols, raw.rows);
       }
       try {
-        await ptyEnsure(paneId, safe.cols, safe.rows);
+        await ptyEnsure(paneId, safe.cols, safe.rows, initialCwd);
         await replayBackendSnapshotOnce(paneId, pt);
         lastPtyDims.set(paneId, safe);
         parttyPerf.mark("pty.ensure.success");
@@ -1889,8 +1899,11 @@ async function boot(): Promise<void> {
         });
         if (lp.preload_webgl_on_startup) void ensureWebglOnPane(id);
         if (minimapOn && !minimapHiddenPanes.has(id)) void ensureMinimapForPane(id);
+        const inheritedCwd = pendingNewPaneCwd.v;
+        pendingNewPaneCwd.v = null;
+        if (inheritedCwd) paneCwdHints.set(id, inheritedCwd);
         queueMicrotask(() => {
-          void ensurePtyForPane(id, pt);
+          void ensurePtyForPane(id, pt, inheritedCwd);
         });
       },
       onPaneDisposed: (pid) => {
@@ -2158,8 +2171,44 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     renderWorkspaceTabsBar();
   }
 
+  function openZenRenameModal(): void {
+    const modal = document.getElementById("zen-rename-modal");
+    const input = document.getElementById("zen-rename-input") as HTMLInputElement | null;
+    const form = modal?.querySelector(".zen-rename-form") as HTMLFormElement | null;
+    if (!modal || !input || !form) return;
+    const tab = tabsState.tabs.find((t) => t.id === renamingTabId);
+    input.value = tab?.name ?? "";
+    modal.classList.remove("zen-rename-modal--hidden");
+    modal.setAttribute("aria-hidden", "false");
+    requestAnimationFrame(() => { input.focus(); input.select(); });
+  }
+
+  function closeZenRenameModal(commit: boolean): void {
+    const modal = document.getElementById("zen-rename-modal");
+    if (!modal) return;
+    modal.classList.add("zen-rename-modal--hidden");
+    modal.setAttribute("aria-hidden", "true");
+    if (commit) {
+      const id = renamingTabId;
+      const input = document.getElementById("zen-rename-input") as HTMLInputElement | null;
+      const v = input?.value.trim();
+      if (id && v) {
+        const t = tabsState.tabs.find((x) => x.id === id);
+        if (t) t.name = v;
+        saveTabsState(tabsState);
+      }
+    }
+    renamingTabId = null;
+    renderWorkspaceTabsBar();
+    getFocusedTerm()?.focus();
+  }
+
   function beginTabRename(tabId: string): void {
     renamingTabId = tabId;
+    if (document.documentElement.classList.contains("zen-mode")) {
+      openZenRenameModal();
+      return;
+    }
     renderWorkspaceTabsBar();
     requestAnimationFrame(() => {
       const strip = document.getElementById("term-tabs-strip");
@@ -2946,19 +2995,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         focusFileTreeFilter();
         return;
       }
-      if (!e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.key !== "f" && e.key !== "F") return;
-      const t = e.target as HTMLElement | null;
-      if (t?.closest("#command-palette") || t?.closest("#settings-panel")) return;
-      if (terminalSearch?.isOpen()) return;
-      if (t?.closest(".term-search")) return;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA") && !t.closest(".pane-terminal-host")) {
-        return;
-      }
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.shiftKey) terminalSearch?.openAllPanes();
-      else terminalSearch?.openSinglePane();
     },
     true,
   );
@@ -3280,13 +3316,28 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   }
 
   function getTabPaletteCommands(): PaletteCommand[] {
-    return visibleWorkspaceTabsInOrder().map((tab, index) => ({
-      id: `tab-switch-${tab.id}`,
-      label: `: ${tab.name}`,
-      keywords: `tab workspace ${tab.name} alt ${index + 1}`,
-      hotkey: index < 9 ? `Alt+${index + 1}` : index === 9 ? "Alt+0" : undefined,
-      run: () => switchWorkspaceTab(tab.id),
-    }));
+    return visibleWorkspaceTabsInOrder().map((tab, index) => {
+      const host = tabPaneHosts.get(tab.id);
+      const leafIds = host?.getLeafIdsInOrder() ?? [];
+      const paneKeywords: string[] = [];
+      for (const lid of leafIds) {
+        const pn = paneNames.get(lid);
+        if (pn) paneKeywords.push(pn.toLowerCase());
+        const cwd = paneCwdHints.get(lid);
+        if (cwd) {
+          const parts = cwd.replace(/\\/g, "/").split("/").filter(Boolean);
+          for (const part of parts) paneKeywords.push(part.toLowerCase());
+        }
+      }
+      const extra = [...new Set(paneKeywords)].slice(0, 32).join(" ");
+      return {
+        id: `tab-switch-${tab.id}`,
+        label: `: ${tab.name}`,
+        keywords: `tab workspace ${tab.name} ${extra} alt ${index + 1}`,
+        hotkey: index < 9 ? `Alt+${index + 1}` : index === 9 ? "Alt+0" : undefined,
+        run: () => switchWorkspaceTab(tab.id),
+      };
+    });
   }
 
   function getMergedPaletteCommands(query: string): PaletteCommand[] {
@@ -3403,20 +3454,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         run: () => beginTabRename(activeWorkspaceTabId),
       },
       {
-        id: "find-in-pane",
-        label: "Find pane",
-        keywords: "search buffer ctrl f",
-        hotkey: "Ctrl+F",
-        run: () => terminalSearch?.openSinglePane(),
-      },
-      {
-        id: "find-in-workspace",
-        label: "Find workspace",
-        keywords: "search workspace multi ctrl shift f",
-        hotkey: "Ctrl+Shift+F",
-        run: () => terminalSearch?.openAllPanes(),
-      },
-      {
         id: "pane-command-history",
         label: "Pane: Command history",
         keywords: "terminal history commands output exit code",
@@ -3528,7 +3565,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         keywords: "split columns layout",
         hotkey: "Alt+V",
         run: () => {
-          paneHost?.splitFocused("h");
+          splitFocusedWithCwd("h");
         },
       },
       {
@@ -3537,7 +3574,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         keywords: "split rows layout",
         hotkey: "Alt+H",
         run: () => {
-          paneHost?.splitFocused("v");
+          splitFocusedWithCwd("v");
         },
       },
       {
@@ -3597,7 +3634,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       rows.push({ hotkey, label: cmd.label.replace(/…$/, "") });
     }
     rows.push(
-      { hotkey: "Shift+Enter", label: "Send newline to TUI" },
       { hotkey: "Ctrl+Wheel", label: "Zoom focused pane" },
       { hotkey: "Alt+Drag", label: "Move floating pane or swap tiled panes" },
       { hotkey: "Right-click", label: "Paste from clipboard" },
@@ -3659,6 +3695,22 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
 
   document.getElementById("help-close")?.addEventListener("click", () => closeHelpPanel());
   helpPanelEl?.querySelector("[data-close-help]")?.addEventListener("click", () => closeHelpPanel());
+
+  // Zen tab rename modal
+  const zenModal = document.getElementById("zen-rename-modal");
+  zenModal?.querySelector(".zen-rename-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    closeZenRenameModal(true);
+  });
+  zenModal?.querySelectorAll("[data-zen-rename-close]").forEach((el) => {
+    el.addEventListener("click", () => closeZenRenameModal(false));
+  });
+  zenModal?.querySelector(".zen-rename-backdrop")?.addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) closeZenRenameModal(false);
+  });
+  zenModal?.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeZenRenameModal(false);
+  });
   document.getElementById("settings-toggle")?.addEventListener("click", () => settingsApi?.open());
   const appWindow = getCurrentWindow();
   async function syncMaximizeButtonTitle(): Promise<void> {

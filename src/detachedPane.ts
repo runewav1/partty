@@ -269,6 +269,19 @@ async function boot(): Promise<void> {
   await loadCustomThemesIntoCache();
   applyUiTheme(pickUiPrefs(persisted.prefs));
 
+  const p = persisted.prefs as Record<string, unknown>;
+  const doc = document.documentElement;
+  const paneAlpha = typeof p.pane_background_opacity === "number" ? p.pane_background_opacity : 1;
+  const paneBlur = typeof p.pane_background_blur === "number" ? p.pane_background_blur : 0;
+  const paneRadius = typeof p.pane_corner_radius === "number" ? p.pane_corner_radius : 6;
+  doc.style.setProperty("--termie-pane-bg-alpha", String(Math.max(0, Math.min(1, paneAlpha))));
+  doc.style.setProperty("--partty-pane-bg-blur", `${Math.max(0, Math.min(40, paneBlur))}px`);
+  doc.style.setProperty("--termie-pane-radius", `${Math.max(0, Math.min(32, paneRadius))}px`);
+  doc.classList.toggle("pane-bg-transparent", paneAlpha < 0.999);
+  doc.classList.toggle("pane-bg-blurred", paneBlur > 0.01);
+  if (typeof p.terminal_no_pane_border === "boolean") doc.classList.toggle("terminal-no-pane-border", p.terminal_no_pane_border);
+  if (typeof p.terminal_no_focus_border === "boolean") doc.classList.toggle("terminal-no-focus-border", p.terminal_no_focus_border);
+
   const bootstrap = await getDetachedPaneBootstrap(windowLabel);
   paneId = bootstrap.pane_id;
   snapshotReplay = bootstrap.snapshot;

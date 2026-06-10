@@ -70,10 +70,33 @@ export function createThemeModal(
       const li = document.createElement("li");
       li.className = "theme-modal-item";
       li.dataset.index = String(i);
+
+      const vars = themeCssVarsForPrefs({ ui_theme: row.themeId, ui_theme_variant: row.variantId });
+      const paletteColors = [
+        vars["--term-bg"] ?? "",
+        vars["--term-fg"] ?? "",
+        vars["--accent-primary"] ?? "",
+        vars["--term-cursor"] ?? "",
+        vars["--term-selection-bg"] ?? "",
+      ].filter(Boolean);
+
       const label = document.createElement("span");
       label.className = "theme-modal-item-label";
       label.textContent = row.label;
       li.appendChild(label);
+
+      if (paletteColors.length > 0) {
+        const palette = document.createElement("span");
+        palette.className = "theme-modal-palette";
+        for (const color of paletteColors) {
+          const swatch = document.createElement("span");
+          swatch.className = "theme-modal-swatch";
+          swatch.style.backgroundColor = color;
+          palette.appendChild(swatch);
+        }
+        li.appendChild(palette);
+      }
+
       if (row.builtin && row.themeId !== "system" && onCloneTheme) {
         const clone = document.createElement("button");
         clone.type = "button";
@@ -82,10 +105,10 @@ export function createThemeModal(
         clone.addEventListener("click", (e) => {
           e.preventDefault();
           e.stopPropagation();
-          const vars = themeCssVarsForPrefs({ ui_theme: row.themeId, ui_theme_variant: row.variantId });
+          const cvars = themeCssVarsForPrefs({ ui_theme: row.themeId, ui_theme_variant: row.variantId });
           const suggestedName = slugForRow(row);
           close();
-          onCloneTheme({ vars, suggestedName });
+          onCloneTheme({ vars: cvars, suggestedName });
         });
         li.appendChild(clone);
       }

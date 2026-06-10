@@ -49,7 +49,12 @@ impl PtySession {
         cols: u16,
         rows: u16,
         prefs: &Prefs,
+        initial_cwd: Option<String>,
     ) -> Result<Self, String> {
+        let mut prefs = prefs.clone();
+        if let Some(cwd) = initial_cwd {
+            prefs.initial_cwd = Some(cwd);
+        }
         let system = native_pty_system();
         let pair = system
             .openpty(PtySize {
@@ -60,7 +65,7 @@ impl PtySession {
             })
             .map_err(|e| e.to_string())?;
 
-        let cmd = shell_command(prefs)?;
+        let cmd = shell_command(&prefs)?;
         let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
         let shell_pid = child.process_id();
 

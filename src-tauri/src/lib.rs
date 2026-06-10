@@ -88,7 +88,6 @@ impl AppState {
         p.window.width = sz.width;
         p.window.height = sz.height;
         p.window.maximized = window.is_maximized().unwrap_or(false);
-        save_state(&p);
     }
 }
 
@@ -1055,11 +1054,11 @@ fn run_file(path: String) -> Result<(), String> {
     Ok(())
 }
 
-fn pty_identity(prefs: &prefs::Prefs) -> String {
+fn pty_identity(prefs: &prefs::Prefs, pane_cwd: Option<&str>) -> String {
     format!(
         "{}\0{}",
         prefs.shell.trim().to_lowercase(),
-        prefs.initial_cwd.as_deref().unwrap_or("")
+        pane_cwd.unwrap_or(prefs.initial_cwd.as_deref().unwrap_or(""))
     )
 }
 
@@ -1358,6 +1357,7 @@ fn register_main_window_events(handle: &AppHandle, win: &tauri::WebviewWindow) {
             }
             WindowEvent::CloseRequested { .. } => {
                 state.snapshot_window(&w);
+                save_state(&state.persisted.lock());
             }
             _ => {}
         }
@@ -1455,6 +1455,7 @@ fn toggle_window(app: &AppHandle) {
             clear_pty_session(&state);
             let _ = win.emit("pty-session-shed", ());
         }
+        save_state(&state.persisted.lock());
         let _ = win.emit("partty-hide", ());
         let _ = win.hide();
         schedule_destroy_webview_after_hide(app);
@@ -1563,9 +1564,10 @@ fn pty_ensure(
     pane_id: String,
     cols: u16,
     rows: u16,
+    initial_cwd: Option<String>,
 ) -> Result<(), String> {
     let prefs = state.persisted.lock().prefs.clone();
-    let want = pty_identity(&prefs);
+    let want = pty_identity(&prefs, initial_cwd.as_deref());
     {
         let panes = state.pty_panes.lock();
         let ids = state.pty_spawn_identity.lock();
@@ -1579,7 +1581,7 @@ fn pty_ensure(
         old.kill();
     }
     state.pty_spawn_identity.lock().remove(&pane_id);
-    let session = Arc::new(PtySession::spawn(app, pane_id.clone(), cols, rows, &prefs)?);
+    let session = Arc::new(PtySession::spawn(app, pane_id.clone(), cols, rows, &prefs, initial_cwd)?);
     state.pty_panes.lock().insert(pane_id.clone(), session);
     state.pty_spawn_identity.lock().insert(pane_id, want);
     Ok(())
@@ -1592,14 +1594,15 @@ fn pty_spawn(
     pane_id: String,
     cols: u16,
     rows: u16,
+    initial_cwd: Option<String>,
 ) -> Result<(), String> {
     if let Some(old) = state.pty_panes.lock().remove(&pane_id) {
         old.kill();
     }
     state.pty_spawn_identity.lock().remove(&pane_id);
     let prefs = state.persisted.lock().prefs.clone();
-    let want = pty_identity(&prefs);
-    let session = Arc::new(PtySession::spawn(app, pane_id.clone(), cols, rows, &prefs)?);
+    let want = pty_identity(&prefs, initial_cwd.as_deref());
+    let session = Arc::new(PtySession::spawn(app, pane_id.clone(), cols, rows, &prefs, initial_cwd)?);
     state.pty_panes.lock().insert(pane_id.clone(), session);
     state.pty_spawn_identity.lock().insert(pane_id, want);
     Ok(())
@@ -1773,7 +1776,6 @@ fn set_prefs(
     {
         let mut p = state.persisted.lock();
         p.prefs = prefs.clone();
-        save_state(&p);
     }
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_skip_taskbar(prefs.hidden_from_taskbar);
@@ -1947,6 +1949,8 @@ pub fn run() {
                     .swap(false, Ordering::SeqCst)
                 {
                     api.prevent_exit();
+                } else {
+                    save_state(&app.state::<AppState>().persisted.lock());
                 }
             }
         });

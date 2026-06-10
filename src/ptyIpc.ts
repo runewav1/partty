@@ -2,8 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 
 /** Tauri deserializes command args with camelCase keys; Rust `pane_id` → `paneId`. */
 
-export function ptyEnsure(paneId: string, cols: number, rows: number): Promise<void> {
-  return invoke("pty_ensure", { paneId, cols, rows });
+export function ptyEnsure(paneId: string, cols: number, rows: number, initialCwd?: string | null): Promise<void> {
+  return invoke("pty_ensure", { paneId, cols, rows, initialCwd: initialCwd || null });
 }
 
 export function ptyResize(paneId: string, cols: number, rows: number): Promise<void> {

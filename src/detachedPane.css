@@ -98,10 +98,6 @@ body.detached-pane-body {
   border-radius: 0 0 10px 10px;
 }
 
-.detached-pane-root .pane-leaf {
-  background: var(--term-bg);
-}
-
 .detached-pane-root .pane-minimap {
   display: none !important;
 }
