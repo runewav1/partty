@@ -59,8 +59,7 @@ export class FileTreeCoordinator {
       this.handleCwdChange(paneId, cwd);
     });
 
-    // Native FS events drive most updates; polling remains a low-frequency fallback.
-    this.fileTreeBackend.startGitPolling(8000);
+    // Native FS events (notify watcher) drive all updates — no polling.
   }
 
   /**

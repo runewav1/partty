@@ -24,6 +24,10 @@ commands.allow = [
   "read_custom_theme_json",
   "write_custom_theme_json",
   "delete_custom_theme_json",
+  "list_preset_names",
+  "read_preset_json",
+  "write_preset_json",
+  "delete_preset_json",
   "set_prefs",
   "toggle_overlay",
   "pop_out_pane",
@@ -53,4 +57,6 @@ commands.allow = [
   "open_with_editor",
   "run_file",
   "git_workdir_status",
+  "search_file_contents",
+  "search_files_root",
 ]

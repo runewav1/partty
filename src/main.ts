@@ -80,9 +80,11 @@ import {
 } from "./paletteCommands";
 import { normalizeFsPathKey, stripOscCwd } from "./oscCwd";
 import { createSettingsPanel, type ParttyPrefs } from "./settingsPanel";
-import { createTerminalSearch } from "./searchModal";
 import { createThemeBuilderModal, type ThemeBuilderApi } from "./themeBuilderModal";
 import { createThemeModal, type ThemeModalApi } from "./themeModal";
+import { createPresetsModal, type PresetsModalApi } from "./presetsModal";
+import { createPresetEditorModal, type PresetEditorApi } from "./presetEditorModal";
+import { writePresetJson, type Preset } from "./presets";
 import { FileTreePanel } from "./fileTreePanel";
 import { FileTreeCoordinator } from "./fileTreeCoordinator";
 import { FileTreeBackend } from "./fileTreeBackend";
@@ -400,6 +402,9 @@ async function boot(): Promise<void> {
   };
   const disableSearchRef = {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).file_tree_disable_search),
+  };
+  const gitAwareSearchRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).file_search_git_aware ?? true,
   };
   const disableTooltipsRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).ui_disable_tooltips ?? false,
@@ -1456,12 +1461,15 @@ async function boot(): Promise<void> {
   }
 
   function refreshAllTerminalThemes(): void {
-    paneHost?.remountPaneSurfaces();
-    paneHost?.forEachPane((id, pt) => {
-      const th = xtermThemeForPane(id);
-      pt.term.options.theme = { ...th, cursorAccent: th.background ?? TERM_BG_FALLBACK };
-      pt.term.refresh(0, pt.term.rows - 1);
-    });
+    // Refresh all tabs so theme changes don't drift on inactive tabs
+    for (const host of tabPaneHosts.values()) {
+      host.remountPaneSurfaces();
+      host.forEachPane((id, pt) => {
+        const th = xtermThemeForPane(id);
+        pt.term.options.theme = { ...th, cursorAccent: th.background ?? TERM_BG_FALLBACK };
+        pt.term.refresh(0, pt.term.rows - 1);
+      });
+    }
   }
 
   function applyPaneTheme(paneId: string, prefs: PaneThemePrefs | null): void {
@@ -1744,6 +1752,7 @@ async function boot(): Promise<void> {
   async function ensurePtyForPane(paneId: string, ptIn?: PaneTerminal, initialCwd?: string | null): Promise<void> {
     const pt = ptIn ?? paneHost?.getPaneTerminal(paneId);
     if (!pt) return;
+    const effectiveCwd = initialCwd ?? paneCwdHints.get(paneId) ?? null;
     const ensureStarted = performance.now();
     pt.fit.fit();
     let d = ptyDims(pt.fit);
@@ -1770,7 +1779,7 @@ async function boot(): Promise<void> {
         safe = clampPtyColsRows(raw.cols, raw.rows);
       }
       try {
-        await ptyEnsure(paneId, safe.cols, safe.rows, initialCwd);
+        await ptyEnsure(paneId, safe.cols, safe.rows, effectiveCwd);
         await replayBackendSnapshotOnce(paneId, pt);
         lastPtyDims.set(paneId, safe);
         parttyPerf.mark("pty.ensure.success");
@@ -1899,8 +1908,9 @@ async function boot(): Promise<void> {
         });
         if (lp.preload_webgl_on_startup) void ensureWebglOnPane(id);
         if (minimapOn && !minimapHiddenPanes.has(id)) void ensureMinimapForPane(id);
-        const inheritedCwd = pendingNewPaneCwd.v;
+        const explicitCwd = pendingNewPaneCwd.v;
         pendingNewPaneCwd.v = null;
+        const inheritedCwd = explicitCwd ?? paneCwdHints.get(id) ?? null;
         if (inheritedCwd) paneCwdHints.set(id, inheritedCwd);
         queueMicrotask(() => {
           void ensurePtyForPane(id, pt, inheritedCwd);
@@ -2827,18 +2837,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
 
   void remountAuxiliaryForFocus(paneHost?.getFocusedPaneId() ?? paneHost.getRootPaneId());
 
-  const searchModalRoot = document.getElementById("search-modal-root");
-  const terminalSearch = searchModalRoot
-    ? createTerminalSearch({
-        root: searchModalRoot,
-        getPaneHost: () => paneHost,
-        getMinimapForPane: (id) => paneMinimaps.get(id),
-        focusPane: (id) => {
-          paneHost?.setFocusedPaneId(id);
-        },
-      })
-    : null;
-
   const terminalHistoryRoot = document.getElementById("terminal-history-root") as HTMLElement | null;
   const terminalHistory: TerminalHistoryModalApi | null = terminalHistoryRoot
     ? createTerminalHistoryModal({
@@ -2943,6 +2941,140 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         },
       });
     };
+  }
+
+  const presetsModalRoot = document.getElementById("presets-modal-root");
+  const presetEditorRoot = document.getElementById("preset-editor-root");
+  const presetEditor: PresetEditorApi | null = presetEditorRoot
+    ? createPresetEditorModal(presetEditorRoot as HTMLElement)
+    : null;
+  let presetsModal: PresetsModalApi | null = null;
+  if (presetsModalRoot) {
+    presetsModal = createPresetsModal({
+      root: presetsModalRoot as HTMLElement,
+      onEdit: (preset) => presetEditor?.open(preset),
+      onSave: async (name) => {
+        const pl = paneHost ? layoutForPaneHost(paneHost) : null;
+        if (!pl) return null;
+        const pids: string[] = [];
+        (function collect(n: typeof pl.tree): void {
+          if (n.kind === "leaf") { pids.push(n.id); return; }
+          collect(n.a); collect(n.b);
+        })(pl.tree);
+        // Normalize root pane id to a stable neutral value
+        const rootId = pids[0] ?? "";
+        const idNorm = new Map<string, string>();
+        if (rootId) idNorm.set(rootId, "root");
+        for (let i = 1; i < pids.length; i++) idNorm.set(pids[i]!, `p${i}`);
+        function normTree(n: NonNullable<typeof pl>["tree"]): NonNullable<typeof pl>["tree"] {
+          if (n.kind === "leaf") return { kind: "leaf", id: idNorm.get(n.id) ?? n.id };
+          return { ...n, a: normTree(n.a), b: normTree(n.b) };
+        }
+        function normMap<T>(src: Record<string, T>): Record<string, T> {
+          const out: Record<string, T> = {};
+          for (const [id, val] of Object.entries(src)) {
+            const nid = idNorm.get(id) ?? id;
+            out[nid] = val;
+          }
+          return out;
+        }
+        const preset: Preset = {
+          v: 1,
+          name,
+          tabName: tabsState.tabs.find((t) => t.id === activeWorkspaceTabId)?.name ?? name,
+          tree: normTree(pl!.tree),
+          focusedId: idNorm.get(pl!.focusedId) ?? pl!.focusedId,
+          floating: Object.fromEntries(
+            Object.entries(pl!.floating ?? {}).map(([id, state]) => [idNorm.get(id) ?? id, state]),
+          ),
+          paneThemes: normMap(Object.fromEntries(pids.filter((id) => paneThemes.has(id)).map((id) => [id, paneThemes.get(id)!]))),
+          paneNames: normMap(Object.fromEntries(pids.filter((id) => paneNames.has(id)).map((id) => [id, paneNames.get(id)!]))),
+          paneCwds: normMap(Object.fromEntries(pids.filter((id) => paneCwdHints.has(id)).map((id) => [id, paneCwdHints.get(id)!]))),
+          paneFontSizes: normMap(Object.fromEntries(
+            pids.map((id) => {
+              const pt = paneHost?.getPaneTerminal(id);
+              const sz = pt ? Number(pt.term.options.fontSize ?? 12) : 12;
+              return [id, sz] as [string, number];
+            }).filter(([, sz]) => sz !== 12),
+          )),
+          startupCommands: {},
+        };
+        // Preserve existing startup commands when re-saving
+        try {
+          const existing = await invoke<string>("read_preset_json", { name }).catch(() => null);
+          if (existing) {
+            const prev = JSON.parse(existing) as Preset;
+            if (prev.startupCommands) preset.startupCommands = { ...prev.startupCommands };
+          }
+        } catch { /* first save, no existing file */ }
+        await writePresetJson(name, JSON.stringify(preset));
+        return name;
+      },
+      onLoad: async (preset) => {
+        const ids: string[] = [];
+        (function collect(n: typeof preset.tree): void {
+          if (n.kind === "leaf") { ids.push(n.id); return; }
+          collect(n.a); collect(n.b);
+        })(preset.tree);
+        const newTabId = crypto.randomUUID();
+        const newRoot = workspaceRootPaneId(newTabId);
+        const idMap = new Map<string, string>();
+        // First leaf is the root — map it to the tab's root pane id
+        if (ids.length > 0) idMap.set(ids[0]!, newRoot);
+        for (const id of ids) {
+          if (!idMap.has(id)) idMap.set(id, crypto.randomUUID());
+        }
+        function mapNode(n: typeof preset.tree): typeof preset.tree {
+          if (n.kind === "leaf") return { kind: "leaf", id: idMap.get(n.id) ?? crypto.randomUUID() };
+          return { ...n, a: mapNode(n.a), b: mapNode(n.b) };
+        }
+        const tree = mapNode(preset.tree);
+        const focusedId = idMap.get(preset.focusedId) ?? "";
+        const floating: Record<string, typeof preset.floating[string]> = {};
+        for (const [oid, state] of Object.entries(preset.floating)) {
+          const nid = idMap.get(oid);
+          if (nid) floating[nid] = { ...state };
+        }
+
+        const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
+        tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newTabId, name: preset.tabName || preset.name, groupId: null, color: null, order: maxOrder + 1 }] };
+        saveTabsState(tabsState);
+        const pl: PersistedPaneLayout = { v: 1, tree, focusedId, floating };
+        persistLayoutForTab(newTabId, pl);
+        // Seed pane state BEFORE creating host so PTYs inherit parent cwd/theme on spawn
+        for (const [oid, theme] of Object.entries(preset.paneThemes)) {
+          const nid = idMap.get(oid);
+          if (nid && theme) paneThemes.set(nid, { ...theme });
+        }
+        for (const [oid, pn] of Object.entries(preset.paneNames)) {
+          const nid = idMap.get(oid);
+          if (nid && pn) paneNames.set(nid, pn);
+        }
+        for (const [oid, cwd] of Object.entries(preset.paneCwds)) {
+          const nid = idMap.get(oid);
+          if (nid && cwd) paneCwdHints.set(nid, cwd);
+        }
+        createTabPaneShellAndHost(newTabId, { initialTree: tree, initialFocusedId: focusedId, initialFloating: floating });
+        switchWorkspaceTab(newTabId);
+        // Send startup commands after PTYs are spawned.
+        // Root pane: inject cd to its cwd first, then the startup command.
+        const rootOldId = ids[0];
+        const rootNewId = idMap.get(rootOldId ?? "");
+        if (preset.startupCommands && Object.keys(preset.startupCommands).length > 0) {
+          setTimeout(() => {
+            for (const [oid, cmd] of Object.entries(preset.startupCommands)) {
+              const nid = idMap.get(oid);
+              if (!nid || !cmd) continue;
+              if (nid === rootNewId) {
+                const cwd = preset.paneCwds?.[oid];
+                if (cwd) void ptyWrite(nid, `cd "${cwd}"\r`).catch(() => {});
+              }
+              void ptyWrite(nid, cmd + "\r").catch(() => {});
+            }
+          }, 1500);
+        }
+      },
+    });
   }
 
   window.addEventListener(
@@ -3151,6 +3283,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         applyFileTreeSide(fileTreeSideRef.v);
         splitLayoutStyleRef.v = normalizeSplitLayoutStyle(saved.split_layout_style);
         disableSearchRef.v = saved.file_tree_disable_search ?? false;
+        gitAwareSearchRef.v = saved.file_search_git_aware ?? true;
         confirmDeletePromptRef.v = saved.confirm_delete_prompt ?? true;
         disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
         clickToCursorRef.v = saved.terminal_click_to_cursor ?? true;
@@ -3509,6 +3642,18 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         run: () => void reloadFileTree(),
       },
       {
+        id: "presets-save",
+        label: "Presets: Save tab as preset\u2026",
+        keywords: "workspace layout snapshot save template reuse",
+        run: () => presetsModal?.open(),
+      },
+      {
+        id: "presets-open",
+        label: "Presets: Open preset\u2026",
+        keywords: "workspace layout restore load template",
+        run: () => presetsModal?.open(),
+      },
+      {
         id: "toggle-zen-mode",
         label: document.documentElement.classList.contains("zen-mode")
           ? "Exit zen"
@@ -3852,11 +3997,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         themeModal.close();
         return;
       }
-      if (terminalSearch?.isOpen()) {
-        e.preventDefault();
-        terminalSearch.close();
-        return;
-      }
       if (helpPanelEl && !helpPanelEl.classList.contains("help-panel--hidden")) {
         e.preventDefault();
         closeHelpPanel();
@@ -4048,6 +4188,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
           (side) => {
             void setFileTreeSide(side);
           },
+          () => gitAwareSearchRef.v,
         );
         fileTreePanel.setSearchEnabled(!disableSearchRef.v);
         const focusedPaneId = paneHost?.getFocusedPaneId();

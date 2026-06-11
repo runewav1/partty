@@ -217,6 +217,9 @@ pub struct Prefs {
     /// Disable the file tree search/filter bar (reclaims vertical space).
     #[serde(default)]
     pub file_tree_disable_search: bool,
+    /// When true, file panel search respects .gitignore patterns. When false, searches everything.
+    #[serde(default = "default_true")]
+    pub file_search_git_aware: bool,
     /// `left` | `right` — dock side for the file tree.
     #[serde(default = "default_file_tree_side")]
     pub file_tree_side: String,
@@ -329,6 +332,7 @@ impl Default for Prefs {
             file_tree_show_diff_counts: false,
             file_tree_show_git_info: true,
             file_tree_disable_search: false,
+            file_search_git_aware: true,
             file_tree_side: default_file_tree_side(),
             confirm_delete_prompt: true,
             ui_disable_tooltips: false,
@@ -461,6 +465,28 @@ pub fn validate_custom_theme_name(name: &str) -> Result<(), String> {
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     {
         return Err("theme name: use letters, numbers, dashes, underscores only".into());
+    }
+    Ok(())
+}
+
+/// Presets directory: `%LOCALAPPDATA%/partty/presets/`.
+pub fn presets_dir() -> Result<PathBuf, String> {
+    let mut p = state_path().ok_or_else(|| "could not resolve app data dir".to_string())?;
+    p.pop();
+    p.push("presets");
+    fs::create_dir_all(&p).map_err(|e| e.to_string())?;
+    Ok(p)
+}
+
+pub fn validate_preset_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > 64 {
+        return Err("invalid preset name length".into());
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err("preset name: use letters, numbers, dashes, underscores only".into());
     }
     Ok(())
 }

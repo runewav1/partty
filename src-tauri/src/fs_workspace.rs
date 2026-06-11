@@ -193,7 +193,7 @@ fn normalize_remote_url_for_link(remote: &str) -> Option<String> {
 fn remote_url_from_name(repo: &Repository, name: &str) -> Option<String> {
     repo.find_remote(name)
         .ok()
-        .and_then(|remote| remote.url().map(str::to_owned))
+        .and_then(|remote| remote.url().ok().map(|s| s.to_owned()))
         .and_then(|url| normalize_remote_url_for_link(&url))
 }
 
@@ -204,7 +204,7 @@ fn detect_remote_url(repo: &Repository) -> Option<String> {
 
     if let Ok(head) = repo.head() {
         if head.is_branch() {
-            if let Some(local_branch) = head.shorthand() {
+            if let Ok(local_branch) = head.shorthand() {
                 if let Ok(branch) = repo.find_branch(local_branch, BranchType::Local) {
                     if let Ok(upstream) = branch.upstream() {
                         if let Ok(Some(name)) = upstream.name() {
@@ -222,7 +222,7 @@ fn detect_remote_url(repo: &Repository) -> Option<String> {
 
     if let Ok(remotes) = repo.remotes() {
         for i in 0..remotes.len() {
-            if let Some(name) = remotes.get(i) {
+            if let Ok(Some(name)) = remotes.get(i) {
                 if let Some(url) = remote_url_from_name(repo, name) {
                     return Some(url);
                 }
@@ -599,7 +599,7 @@ pub fn fs_create_dir(path: String) -> Result<(), String> {
     fs::create_dir_all(&p).map_err(|e| e.to_string())
 }
 
-/// Result from a content search (grep/rg) operation.
+/// Result from a file search operation.
 #[derive(serde::Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchResult {
@@ -607,130 +607,141 @@ pub struct SearchResult {
     pub matches: u32,
 }
 
-/// Search file contents in `root` using rg (ripgrep) with fallbacks.
-/// Uses `--count-matches` to report per-file match counts, sorted most-matches-first.
-pub fn search_file_contents(root: String, query: String) -> Result<Vec<SearchResult>, String> {
+pub type SearchMode = String; // "name" | "content" | "all"
+
+/// Unified file search — walks the directory tree and matches by name and/or content.
+/// When `git_aware` is true, respects .gitignore patterns from the root upward.
+pub fn search_files_root(root: String, query: String, mode: SearchMode, git_aware: bool) -> Result<Vec<SearchResult>, String> {
     let root_path = PathBuf::from(&root);
-    if !root_path.is_absolute() {
-        return Err("root must be an absolute path".into());
+    if !root_path.is_absolute() || !root_path.is_dir() {
+        return Err("root must be an absolute directory".into());
     }
-    if !root_path.is_dir() {
-        return Err("root must be a directory".into());
-    }
-    if query.trim().is_empty() {
-        return Ok(Vec::new());
-    }
+    let q = query.trim();
+    if q.is_empty() { return Ok(Vec::new()); }
 
-    // Try ripgrep first
-    if let Ok(results) = run_rg_search(&root_path, &query) {
-        if !results.is_empty() {
-            return Ok(results);
+    let content = mode == "content" || mode == "all";
+    let name_match = mode == "name" || mode == "all";
+
+    let re = match regex::RegexBuilder::new(&regex::escape(q))
+        .case_insensitive(true)
+        .build()
+    {
+        Ok(r) => r,
+        Err(e) => return Err(format!("invalid pattern: {e}")),
+    };
+
+    let git_patterns = if git_aware { read_gitignore_patterns(&root_path) } else { Vec::new() };
+
+    let skip_exts: &[&str] = &["exe", "dll", "pdb", "obj", "o", "a", "lib", "so", "dylib",
+        "png", "jpg", "jpeg", "gif", "ico", "webp",
+        "zip", "tar", "gz", "bz2", "7z", "rar",
+        "pdf", "mp3", "mp4", "wav", "ogg", "avi", "mov",
+        "ttf", "otf", "woff", "woff2",
+        "wasm", "bin", "dat", "db", "sqlite"];
+
+    let mut results: Vec<SearchResult> = Vec::new();
+    let mut buf = String::with_capacity(8192);
+
+    for entry in walkdir::WalkDir::new(&root_path)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            if name.as_ref() == ".git" { return false; }
+            if git_aware && !git_patterns.is_empty() {
+                let rel = e.path().strip_prefix(&root_path).unwrap_or(e.path());
+                return !is_ignored_by_patterns(rel, &git_patterns);
+            }
+            true
+        })
+    {
+        let entry = entry.map_err(|e| e.to_string())?;
+        if !entry.file_type().is_file() { continue; }
+        let path = entry.path();
+        let abs_path = path.to_string_lossy().replace('/', "\\");
+
+        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            if skip_exts.contains(&ext.to_lowercase().as_str()) { continue; }
         }
-    }
 
-    // Fallback: try `git grep` if in a git repo
-    if root_path.join(".git").exists() {
-        if let Ok(results) = run_git_grep_search(&root_path, &query) {
-            if !results.is_empty() {
-                return Ok(results);
+        let mut matched = false;
+        let mut count: u32 = 0;
+
+        if name_match {
+            let rel = path.strip_prefix(&root_path).unwrap_or(path);
+            let rel_str = rel.to_string_lossy().replace('\\', "/");
+            if re.is_match(&rel_str) {
+                matched = true;
+                count = 1;
             }
         }
-    }
 
-    // Last resort: `grep -r`
-    run_grep_search(&root_path, &query)
-}
-
-fn run_rg_search(root: &Path, query: &str) -> Result<Vec<SearchResult>, String> {
-    let mut cmd = Command::new("rg");
-    cmd.args(["--count-matches", "--no-heading", "--", query, "."])
-        .current_dir(root);
-    crate::subprocess::hide_console_window(&mut cmd);
-
-    let output = cmd.output().map_err(|e| e.to_string())?;
-
-    // rg exits 1 when no matches found — that's not an error
-    if !output.status.success() && output.status.code() != Some(1) {
-        return Err(format!("rg exited with {}", output.status));
-    }
-
-    parse_count_output(root, &output.stdout)
-}
-
-fn run_git_grep_search(root: &Path, query: &str) -> Result<Vec<SearchResult>, String> {
-    let mut cmd = Command::new("git");
-    cmd.args([
-        "grep", "-c", // count matches per file
-        "-I", // ignore binary files
-        "--", query,
-    ])
-    .current_dir(root);
-    crate::subprocess::hide_console_window(&mut cmd);
-
-    let output = cmd.output().map_err(|e| e.to_string())?;
-
-    if !output.status.success() && output.status.code() != Some(1) {
-        return Err(format!("git grep exited with {}", output.status));
-    }
-
-    parse_count_output(root, &output.stdout)
-}
-
-fn run_grep_search(root: &Path, query: &str) -> Result<Vec<SearchResult>, String> {
-    let mut cmd = Command::new("grep");
-    cmd.args([
-        "-r", "-c", // count matches per file
-        "-I", // ignore binary
-        "--", query, ".",
-    ])
-    .current_dir(root);
-    crate::subprocess::hide_console_window(&mut cmd);
-
-    let output = cmd.output().map_err(|e| e.to_string())?;
-
-    // grep returns 1 when no matches found — that's not an error
-    if !output.status.success() && output.status.code() != Some(1) {
-        return Err(format!("grep exited with {}", output.status));
-    }
-
-    parse_count_output(root, &output.stdout)
-}
-
-/// Parse `path:count` output (one line per file, colon-separated).
-fn parse_count_output(root: &Path, stdout: &[u8]) -> Result<Vec<SearchResult>, String> {
-    let text = String::from_utf8_lossy(stdout);
-    let mut results: Vec<SearchResult> = Vec::new();
-
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
+        if content && !matched {
+            buf.clear();
+            match fs::read_to_string(path) {
+                Ok(s) => { buf = s; }
+                Err(_) => {
+                    if let Ok(raw) = fs::read(path) {
+                        buf = String::from_utf8_lossy(&raw).into_owned();
+                    }
+                }
+            }
+            if !buf.is_empty() {
+                for _ in re.find_iter(&buf) { count += 1; }
+                if count > 0 { matched = true; }
+            }
         }
 
-        // Format: "path:count"  or  "path:line:count" (git grep may include line numbers)
-        // Split on the LAST colon to get the count
-        let (path_part, count_str) = if let Some(idx) = trimmed.rfind(':') {
-            (&trimmed[..idx], &trimmed[idx + 1..])
-        } else {
-            (trimmed, "1")
-        };
-
-        let count: u32 = count_str.parse().unwrap_or(1);
-        let full_path = root.join(path_part);
-        let abs_path = full_path.to_string_lossy().replace('/', "\\");
-
-        // Deduplicate by path, summing counts
-        if let Some(existing) = results.iter_mut().find(|r| r.path == abs_path) {
-            existing.matches += count;
-        } else {
-            results.push(SearchResult {
-                path: abs_path,
-                matches: count,
-            });
+        if matched {
+            results.push(SearchResult { path: abs_path, matches: count });
         }
     }
 
-    // Sort by match count descending (most matches first)
-    results.sort_by(|a, b| b.matches.cmp(&a.matches));
+    results.sort_by(|a, b| b.matches.cmp(&a.matches).then_with(|| a.path.cmp(&b.path)));
     Ok(results)
+}
+
+fn read_gitignore_patterns(root: &Path) -> Vec<String> {
+    let mut patterns: Vec<String> = Vec::new();
+    let mut current = Some(root.to_path_buf());
+    let root_str = root.to_string_lossy().to_string();
+    while let Some(dir) = current {
+        let gi = dir.join(".gitignore");
+        if let Ok(content) = fs::read_to_string(&gi) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
+                patterns.push(trimmed.to_string());
+            }
+        }
+        // Stop at the nearest .git boundary
+        let dir_str = dir.to_string_lossy().to_string();
+        if dir_str != root_str && dir.join(".git").exists() { break; }
+        current = dir.parent().map(|p| p.to_path_buf());
+    }
+    patterns
+}
+
+fn is_ignored_by_patterns(rel: &Path, patterns: &[String]) -> bool {
+    let rel_str = rel.to_string_lossy().replace('\\', "/");
+    for pat in patterns {
+        let mut p = pat.trim().to_string();
+        if p.is_empty() || p.starts_with('!') { continue; }
+        if p.starts_with('/') { p = p[1..].to_string(); }
+        let dir_only = p.ends_with('/');
+        if dir_only { p = p[..p.len()-1].to_string(); }
+
+        if rel.file_name().map(|n| n.to_string_lossy() == p.as_str()).unwrap_or(false) { return true; }
+        if rel_str.ends_with(&format!("/{}", p)) || rel_str == p { return true; }
+        if p.contains('*') || p.contains('?') {
+            let re_str = p.replace('.', "\\.").replace('*', ".*").replace('?', ".");
+            if regex::Regex::new(&format!("(^|/){}$", re_str)).map(|r| r.is_match(&rel_str)).unwrap_or(false) { return true; }
+        }
+    }
+    false
+}
+
+/// Backward-compat: content-only search via the unified function.
+pub fn search_file_contents(root: String, query: String) -> Result<Vec<SearchResult>, String> {
+    search_files_root(root, query, "content".into(), true)
 }

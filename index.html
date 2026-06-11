@@ -88,7 +88,6 @@
       </div>
 
       <div id="theme-modal-root" class="theme-modal theme-modal--hidden" aria-hidden="true"></div>
-      <div id="search-modal-root"></div>
       <div id="terminal-history-root"></div>
       <div id="pane-rename-root"></div>
 
@@ -292,6 +291,7 @@
                   <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="file_tree_show_diff_counts" /><span>Diff counts</span></label>
                   <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="file_tree_show_git_info" /><span>Git panel</span></label>
                   <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="file_tree_disable_search" /><span>Hide search</span></label>
+                  <label class="settings-checkbox-label" data-child-of="file_tree_disable_search"><input class="settings-checkbox-input" type="checkbox" name="file_search_git_aware" /><span>Git-aware</span></label>
                   <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="confirm_delete_prompt" /><span>Confirm delete</span></label>
                 </div>
               </div>
@@ -321,6 +321,8 @@
       </div>
 
       <div id="theme-builder-root" class="theme-builder-root theme-builder-root--hidden" aria-hidden="true"></div>
+      <div id="presets-modal-root" class="theme-modal theme-modal--hidden" aria-hidden="true"></div>
+      <div id="preset-editor-root" class="theme-builder-root theme-builder-root--hidden" aria-hidden="true"></div>
 
       <div id="zen-rename-modal" class="zen-rename-modal zen-rename-modal--hidden" aria-hidden="true">
         <div class="zen-rename-backdrop" data-zen-rename-close></div>

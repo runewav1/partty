@@ -268,7 +268,7 @@ fn query_cwd_for_pid_sysinfo(pid: u32) -> Option<String> {
     sys.refresh_processes_specifics(
         ProcessesToUpdate::Some(&[p]),
         false,
-        ProcessRefreshKind::new().with_cwd(UpdateKind::Always),
+        ProcessRefreshKind::nothing().with_cwd(UpdateKind::Always),
     );
     sys.process(p)
         .and_then(|proc| proc.cwd())
@@ -282,7 +282,7 @@ fn query_exe_token_for_pid(pid: u32) -> Option<String> {
     sys.refresh_processes_specifics(
         ProcessesToUpdate::Some(&[p]),
         false,
-        ProcessRefreshKind::new().with_exe(UpdateKind::Always),
+        ProcessRefreshKind::nothing().with_exe(UpdateKind::Always),
     );
     sys.process(p).map(|proc| {
         let name = proc.name().to_string_lossy();

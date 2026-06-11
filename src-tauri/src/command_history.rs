@@ -105,7 +105,7 @@ pub fn append_command_history_records(
               LIMIT max((SELECT count(*) FROM command_history WHERE pane_id = ?1) - ?2, 0)
           )
         "#,
-        params![pane_id, cap],
+        params![pane_id, cap as i64],
     )
     .map_err(|e| e.to_string())?;
     tx.commit().map_err(|e| e.to_string())
@@ -131,7 +131,7 @@ pub fn get_command_history(
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
-        .query_map(params![pane_id, limit], |row| {
+        .query_map(params![pane_id, limit as i64], |row| {
             Ok(CommandHistoryRecord {
                 id: row.get(0)?,
                 pane_id: row.get(1)?,
