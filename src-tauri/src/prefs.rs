@@ -138,6 +138,10 @@ fn default_minimap_opacity() -> f64 {
     0.12
 }
 
+fn default_cursor_style() -> String {
+    "block".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
@@ -301,6 +305,9 @@ pub struct Prefs {
     /// Background opacity of the minimap overlay (0 = fully transparent, 1 = opaque).
     #[serde(default = "default_minimap_opacity")]
     pub minimap_opacity: f64,
+    /// `block` | `underline` | `bar` — terminal cursor style.
+    #[serde(default = "default_cursor_style")]
+    pub terminal_cursor_style: String,
     /// App chrome + terminal palette id (see frontend `themePresets`).
     #[serde(default = "default_ui_theme")]
     pub ui_theme: String,
@@ -380,6 +387,7 @@ impl Default for Prefs {
             minimap_width: default_minimap_width(),
             minimap_auto_hide: false,
             minimap_opacity: default_minimap_opacity(),
+            terminal_cursor_style: default_cursor_style(),
         }
     }
 }

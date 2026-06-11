@@ -426,6 +426,9 @@ async function boot(): Promise<void> {
   const minimapOpacityRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).minimap_opacity ?? 0.12,
   };
+  const cursorStyleRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_style as "block" | "underline" | "bar" | undefined ?? "block",
+  };
 
   document.documentElement.classList.toggle("minimap-auto-hide", minimapAutoHideRef.v);
   document.documentElement.style.setProperty("--minimap-width", `${minimapWidthRef.v}px`);
@@ -500,24 +503,24 @@ async function boot(): Promise<void> {
     parttyPerf.mark("pty.output.chars", data.length);
     parttyPerf.time("pty.output.queue.ms", performance.now() - queuedAt);
 
-    // For hidden-tab panes: skip shell integration parsing, just stream to xterm buffer.
+    // Hidden-tab panes: skip all processing, just stream to xterm buffer.
     const inActiveTab = paneHost?.getPaneTerminal(paneId) !== null;
     if (!inActiveTab) {
       try { pt.term.write(data); } catch { /* ignore */ }
       return;
     }
 
+    // Fast path: history disabled + no OSC escape in data → no parsing at all.
+    if (!commandHistoryEnabledRef.v && !data.includes("\x1b]")) {
+      try { pt.term.write(data); } catch { /* ignore */ }
+      return;
+    }
+
     const siState = ensureShellState(paneId);
+
+    // Extended fast path: history disabled, no OSC in batch, no pending parser state.
     if (!commandHistoryEnabledRef.v && !data.includes("\x1b]") && siState.parserRemainder.length === 0) {
-      const writeStarted = performance.now();
-      try {
-        pt.term.write(data, () => {
-          parttyPerf.time("xterm.write.callback.ms", performance.now() - writeStarted);
-        });
-        parttyPerf.time("xterm.write.call.ms", performance.now() - writeStarted);
-      } catch (e) {
-        console.warn("xterm.write", e);
-      }
+      try { pt.term.write(data); } catch { /* ignore */ }
       return;
     }
 
@@ -1859,6 +1862,7 @@ async function boot(): Promise<void> {
       rootPaneId,
       scrollbackLines: lp.scrollback_lines,
       fontStack: terminalFontStackFromDocument(),
+      cursorStyle: cursorStyleRef.v,
       getTheme: (paneId) => xtermThemeForPane(paneId),
       getPaneName: (paneId) => paneNames.get(paneId),
       getPaneCssVars: (paneId) => cssVarsForPane(paneId),
@@ -2011,37 +2015,37 @@ async function boot(): Promise<void> {
     if (!nextHost) return;
     persistCurrentWorkspaceTabLayout();
 
-    const prevShell = tabPaneShells.get(activeWorkspaceTabId);
     const nextShell = tabPaneShells.get(tabId);
 
     activeWorkspaceTabId = tabId;
     tabsState = { ...tabsState, activeTabId: tabId };
     saveTabsState(tabsState);
 
-    // Animate: mark old shell as leaving, new as entering
-    if (prevShell) {
-      prevShell.classList.add("term-tab-pane-shell--leaving");
+    // Clean up stale animation classes from any previous rapid switches,
+    // then hide all shells except the target. We'll animate just the target entering.
+    for (const shell of tabPaneShells.values()) {
+      shell.classList.remove("term-tab-pane-shell--entering", "term-tab-pane-shell--leaving");
     }
+    for (const [id, shell] of tabPaneShells) {
+      shell.classList.toggle("term-tab-pane-shell--hidden", id !== tabId);
+    }
+
     if (nextShell) {
       nextShell.classList.remove("term-tab-pane-shell--hidden");
       nextShell.classList.add("term-tab-pane-shell--entering");
+      const capturedTabId = tabId;
       const onDone = () => {
         nextShell.removeEventListener("animationend", onDone);
+        if (activeWorkspaceTabId !== capturedTabId) {
+          nextShell.classList.remove("term-tab-pane-shell--entering");
+          if (!tabPaneShells.get(capturedTabId)?.classList.contains("term-tab-pane-shell--entering")) {
+            tabPaneShells.get(capturedTabId)?.classList.add("term-tab-pane-shell--hidden");
+          }
+          return;
+        }
         nextShell.classList.remove("term-tab-pane-shell--entering");
-        if (prevShell) {
-          prevShell.classList.add("term-tab-pane-shell--hidden");
-          prevShell.classList.remove("term-tab-pane-shell--leaving");
-        }
-        for (const [id, shell] of tabPaneShells) {
-          if (id !== tabId) shell.classList.add("term-tab-pane-shell--hidden");
-        }
       };
       nextShell.addEventListener("animationend", onDone);
-    } else {
-      // Fallback: no animation
-      for (const [id, shell] of tabPaneShells) {
-        shell.classList.toggle("term-tab-pane-shell--hidden", id !== tabId);
-      }
     }
 
     paneHost = nextHost;
@@ -3323,6 +3327,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         if ((saved.minimap_opacity ?? 0.12) !== minimapOpacityRef.v) {
           minimapOpacityRef.v = saved.minimap_opacity ?? 0.12;
           document.documentElement.style.setProperty("--minimap-opacity", String(minimapOpacityRef.v));
+        }
+        if ((saved.terminal_cursor_style ?? "block") !== cursorStyleRef.v) {
+          cursorStyleRef.v = (saved.terminal_cursor_style as "block" | "underline" | "bar") ?? "block";
+          for (const host of tabPaneHosts.values()) {
+            host.setCursorStyle(cursorStyleRef.v);
+          }
         }
         fileTreePanel?.setSearchEnabled(!(saved.file_tree_disable_search ?? false));
         applyTerminalDisplayPrefs(saved);

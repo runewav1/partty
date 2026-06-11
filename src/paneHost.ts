@@ -49,6 +49,7 @@ export type PaneDescriptor = {
 export type PaneHostOptions = {
   scrollbackLines: number;
   fontStack: string;
+  cursorStyle: "block" | "underline" | "bar";
   getTheme: (paneId: string) => ITheme;
   getPaneName?: (paneId: string) => string | undefined;
   getPaneCssVars?: (paneId: string) => Record<string, string> | null;
@@ -295,6 +296,13 @@ export class PaneHost {
     this.opts.scrollbackLines = scrollback;
     for (const pt of this.terminals.values()) {
       pt.term.options.scrollback = scrollback;
+    }
+  }
+
+  setCursorStyle(style: "block" | "underline" | "bar"): void {
+    this.opts.cursorStyle = style;
+    for (const pt of this.terminals.values()) {
+      pt.term.options.cursorStyle = style;
     }
   }
 
@@ -1139,7 +1147,7 @@ export class PaneHost {
           allowProposedApi: true,
           allowTransparency: false,
           cursorBlink: true,
-          cursorStyle: "block",
+          cursorStyle: this.opts.cursorStyle,
           customGlyphs: true,
           drawBoldTextInBrightColors: true,
           fontFamily: this.opts.fontStack,

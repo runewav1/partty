@@ -68,6 +68,8 @@ export type ParttyPrefs = {
   minimap_auto_hide: boolean;
   /** Background opacity of the minimap overlay (0–1). */
   minimap_opacity: number;
+  /** `block` | `underline` | `bar` — terminal cursor style. */
+  terminal_cursor_style: string;
 };
 
 type DetectedShell = { name: string; path: string };
@@ -174,6 +176,7 @@ export function createSettingsPanel(
       minimap_width: clampW(g("minimap_width"), 48),
       minimap_auto_hide: gc("minimap_auto_hide"),
       minimap_opacity: clamp01(g("minimap_opacity"), 0.12),
+      terminal_cursor_style: ((v: string) => v === "underline" || v === "bar" ? v : "block")(gs("terminal_cursor_style")),
     };
   }
 
@@ -307,6 +310,7 @@ export function createSettingsPanel(
     setVal("minimap_width", String(pr.minimap_width ?? 48));
     setChk("minimap_auto_hide", pr.minimap_auto_hide === true);
     setVal("minimap_opacity", String(pr.minimap_opacity ?? 0.12));
+    setSel("terminal_cursor_style", ((v?: string) => v === "underline" || v === "bar" ? v : "block")(pr.terminal_cursor_style));
     setSel("split_layout_style", ((v?: string) => { v = (v ?? "balanced").toLowerCase(); return v === "dwindle" || v === "master" ? v : "balanced"; })(pr.split_layout_style));
 
     setChk("command_history_enabled", pr.command_history_enabled === true);

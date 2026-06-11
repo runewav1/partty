@@ -179,6 +179,7 @@ async function mountDetachedPane(prefs: Record<string, unknown>): Promise<void> 
     rootPaneId: paneId,
     scrollbackLines: Math.max(0, Math.min(50000, Number(prefs.scrollback_lines) || 0)),
     fontStack: terminalFontStackFromDocument(),
+    cursorStyle: (prefs.terminal_cursor_style as "block" | "underline" | "bar") ?? "block",
     getTheme: () => buildXtermThemeFromDocument(),
     focusFollowsCursor: () => false,
     onPaneFocus: (id) => {
