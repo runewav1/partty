@@ -126,6 +126,18 @@ fn default_pane_corner_radius() -> f64 {
     6.0
 }
 
+fn default_minimap_granularity() -> String {
+    "row".to_string()
+}
+
+fn default_minimap_width() -> f64 {
+    48.0
+}
+
+fn default_minimap_opacity() -> f64 {
+    0.12
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
@@ -277,6 +289,18 @@ pub struct Prefs {
     /// Pane corner radius in px when square panes are disabled.
     #[serde(default = "default_pane_corner_radius")]
     pub pane_corner_radius: f64,
+    /// `cell` | `row` — minimap rendering granularity. `cell` shows column-level text shapes; `row` uses averaged per-line color (faster).
+    #[serde(default = "default_minimap_granularity")]
+    pub minimap_granularity: String,
+    /// Minimap column width in px.
+    #[serde(default = "default_minimap_width")]
+    pub minimap_width: f64,
+    /// When true, the minimap is hidden until the cursor hovers over its strip.
+    #[serde(default)]
+    pub minimap_auto_hide: bool,
+    /// Background opacity of the minimap overlay (0 = fully transparent, 1 = opaque).
+    #[serde(default = "default_minimap_opacity")]
+    pub minimap_opacity: f64,
     /// App chrome + terminal palette id (see frontend `themePresets`).
     #[serde(default = "default_ui_theme")]
     pub ui_theme: String,
@@ -352,6 +376,10 @@ impl Default for Prefs {
             pane_background_opacity: default_pane_background_opacity(),
             pane_background_blur: default_pane_background_blur(),
             pane_corner_radius: default_pane_corner_radius(),
+            minimap_granularity: default_minimap_granularity(),
+            minimap_width: default_minimap_width(),
+            minimap_auto_hide: false,
+            minimap_opacity: default_minimap_opacity(),
         }
     }
 }

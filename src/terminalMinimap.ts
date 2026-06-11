@@ -3,9 +3,12 @@ import type { Terminal } from "@xterm/xterm";
 import { cellInkRgb } from "./minimapColors";
 import { parttyPerf } from "./perf";
 
+export type MinimapGranularity = "cell" | "row";
+
 /**
- * IDE-style minimap: colored buffer preview + viewport thumb.
- * Visibility: #terminal-stage:hover #terminal-minimap.
+ * Minimap overlay — renders a scaled-down view of the terminal buffer into a
+ * narrow column on the right side of the pane. Uses row-averaged colors
+ * by default (fast); switch to cell-level rendering for column detail.
  */
 export class TerminalMinimap {
   private readonly canvas: HTMLCanvasElement;
@@ -18,30 +21,23 @@ export class TerminalMinimap {
   private dragging = false;
   private readonly unsubs: Array<() => void> = [];
 
-  private readonly theme: {
-    track: string;
-    thumb: string;
-    thumbBorder: string;
-    defaultFg: [number, number, number];
-    defaultBg: [number, number, number];
-    emptyLineRgb: [number, number, number];
-    searchHighlight: string;
-  };
-  /** Buffer line indices (0-based) to draw as search markers; null = clear. */
+  private readonly thumbColor: string;
+  private readonly defaultFg: [number, number, number];
+  private readonly defaultBg: [number, number, number];
+  private readonly searchHighlight: string;
   private searchLines: Set<number> | null = null;
+  private granularity: MinimapGranularity;
 
   constructor(
     private readonly term: Terminal,
     private readonly host: HTMLElement,
     canvas: HTMLCanvasElement,
     opts: {
+      granularity: MinimapGranularity;
       theme: {
-        track: string;
         thumb: string;
-        thumbBorder: string;
         defaultFg: [number, number, number];
         defaultBg: [number, number, number];
-        emptyLineRgb: [number, number, number];
         searchHighlight: string;
       };
     },
@@ -50,7 +46,11 @@ export class TerminalMinimap {
     if (!ctx) throw new Error("minimap 2d context required");
     this.canvas = canvas;
     this.ctx = ctx;
-    this.theme = opts.theme;
+    this.granularity = opts.granularity;
+    this.thumbColor = opts.theme.thumb;
+    this.defaultFg = opts.theme.defaultFg;
+    this.defaultBg = opts.theme.defaultBg;
+    this.searchHighlight = opts.theme.searchHighlight;
   }
 
   attach(): void {
@@ -77,7 +77,12 @@ export class TerminalMinimap {
     this.requestDraw(true);
   }
 
-  /** Highlight buffer lines in the minimap (bright markers). Pass null to clear. */
+  setGranularity(g: MinimapGranularity): void {
+    if (g === this.granularity) return;
+    this.granularity = g;
+    this.requestDraw(true);
+  }
+
   setSearchHighlights(lines: Iterable<number> | null): void {
     if (lines == null) {
       this.searchLines = null;
@@ -120,8 +125,15 @@ export class TerminalMinimap {
     this.requestDraw(true);
   };
 
+  private findScrollElement(): HTMLElement | null {
+    const el = this.term.element;
+    if (!el) return null;
+    return (el.querySelector(".xterm-scrollable-element") as HTMLElement | null)
+      ?? (el.querySelector(".xterm-viewport") as HTMLElement | null);
+  }
+
   private bindScrollTarget(): void {
-    const vp = this.term.element?.querySelector(".xterm-viewport") as HTMLElement | null;
+    const vp = this.findScrollElement();
     if (vp === this.scrollVp) return;
     this.unbindScrollTarget();
     this.scrollVp = vp;
@@ -144,7 +156,7 @@ export class TerminalMinimap {
     }
     if (this.pending) return;
     const now = performance.now();
-    const waitMs = force ? 0 : Math.max(0, 66 - (now - this.lastDrawAt));
+    const waitMs = force ? 0 : Math.max(0, 50 - (now - this.lastDrawAt));
     if (waitMs > 0) {
       if (!this.pendingTimer) {
         this.pendingTimer = window.setTimeout(() => {
@@ -166,38 +178,85 @@ export class TerminalMinimap {
   }
 
   private draw(): void {
-    const vp =
-      this.scrollVp ??
-      (this.term.element?.querySelector(".xterm-viewport") as HTMLElement | null);
-    if (!vp) return;
-
     const ctx = this.ctx;
     const cw = this.canvas.width / (window.devicePixelRatio || 1);
     const ch = this.canvas.height / (window.devicePixelRatio || 1);
     ctx.clearRect(0, 0, cw, ch);
 
-    ctx.fillStyle = this.theme.track;
-    ctx.fillRect(0, 0, cw, ch);
+    if (this.granularity === "cell") {
+      this.drawCell(ctx, cw, ch);
+    } else {
+      this.drawRow(ctx, cw, ch);
+    }
 
+    this.drawOverlays(ctx, cw, ch);
+  }
+
+  private drawCell(
+    ctx: CanvasRenderingContext2D,
+    cw: number,
+    ch: number,
+  ): void {
     const buf = this.term.buffer.active;
     const totalLines = Math.max(1, buf.length);
-    const maxSample = Math.min(totalLines, 12000);
     const cols = Math.max(1, this.term.cols);
     const cell = buf.getNullCell();
-    const { defaultFg, defaultBg, emptyLineRgb } = this.theme;
-    const [er, eg, eb] = emptyLineRgb;
+    const { defaultFg, defaultBg } = this;
+
+    const pxPerLine = ch / totalLines;
+    const lineStep = pxPerLine < 0.6 ? Math.ceil(1 / pxPerLine) : 1;
+    const colStep = Math.max(1, Math.round(cols / Math.max(cw, 40)));
+
+    for (let li = 0; li < totalLines; li += lineStep) {
+      const py = Math.round(li * pxPerLine);
+      const h = Math.max(1, Math.ceil(pxPerLine * lineStep));
+      if (py + h <= 0 || py >= ch) continue;
+
+      const line = buf.getLine(li);
+      if (!line) continue;
+      const lineLen = Math.min(line.length, cols);
+      if (lineLen < 1) continue;
+
+      const pxPerCol = cw / cols;
+
+      for (let ci = 0; ci < lineLen; ci += colStep) {
+        const c = line.getCell(ci, cell);
+        if (!c || c.getWidth() === 0) continue;
+
+        const chars = c.getChars();
+        if ((chars === "" || chars === " ") && c.isAttributeDefault()) continue;
+
+        const [r, g, b] = cellInkRgb(c, defaultFg, defaultBg);
+        const px = Math.round(ci * pxPerCol);
+        const pw = Math.max(1, Math.round(colStep * pxPerCol));
+
+        ctx.fillStyle = `rgba(${r},${g},${b},0.8)`;
+        ctx.fillRect(px, py, pw, h);
+      }
+    }
+  }
+
+  private drawRow(
+    ctx: CanvasRenderingContext2D,
+    cw: number,
+    ch: number,
+  ): void {
+    const buf = this.term.buffer.active;
+    const totalLines = Math.max(1, buf.length);
+    const cols = Math.max(1, this.term.cols);
+    const cell = buf.getNullCell();
+    const { defaultFg, defaultBg } = this;
 
     for (let py = 0; py < ch; py++) {
-      const y0 = (py / ch) * maxSample;
-      const y1 = ((py + 1) / ch) * maxSample;
+      const y0 = (py / ch) * totalLines;
+      const y1 = ((py + 1) / ch) * totalLines;
       const i0 = Math.floor(y0);
-      const i1 = Math.min(Math.ceil(y1), maxSample);
+      const i1 = Math.min(Math.ceil(y1), totalLines);
 
       let sr = 0;
       let sg = 0;
       let sb = 0;
       let sc = 0;
-      let density = 0;
 
       for (let i = i0; i < i1; i++) {
         const line = buf.getLine(i);
@@ -215,7 +274,6 @@ export class TerminalMinimap {
           sg += g;
           sb += b;
           sc++;
-          density += Math.min(chars.length, 3);
         }
       }
 
@@ -223,23 +281,32 @@ export class TerminalMinimap {
         const ar = sr / sc;
         const ag = sg / sc;
         const ab = sb / sc;
-        const a = Math.min(0.9, 0.12 + Math.min(density / 120, 0.55));
-        ctx.fillStyle = `rgba(${ar | 0},${ag | 0},${ab | 0},${a})`;
-        ctx.fillRect(0, py, cw, 1);
-      } else {
-        const a = 0.04;
-        ctx.fillStyle = `rgba(${er},${eg},${eb},${a})`;
+        ctx.fillStyle = `rgba(${ar | 0},${ag | 0},${ab | 0},0.72)`;
         ctx.fillRect(0, py, cw, 1);
       }
     }
+  }
+
+  private drawOverlays(
+    ctx: CanvasRenderingContext2D,
+    cw: number,
+    ch: number,
+  ): void {
+    const vp = this.scrollVp ?? this.findScrollElement();
+    if (!vp) return;
+
+    const buf = this.term.buffer.active;
+    const totalLines = Math.max(1, buf.length);
+    const pxPerLine = ch / totalLines;
 
     const sl = this.searchLines;
     if (sl && sl.size > 0) {
-      ctx.fillStyle = this.theme.searchHighlight;
-      for (const line of sl) {
-        if (line < 0 || line >= maxSample) continue;
-        const py = (line / maxSample) * ch;
-        ctx.fillRect(0, py, cw, Math.max(2, ch / maxSample));
+      const sH = Math.max(2, Math.ceil(pxPerLine));
+      for (const sLine of sl) {
+        if (sLine < 0 || sLine >= totalLines) continue;
+        const sy = Math.round(sLine * pxPerLine);
+        ctx.fillStyle = this.searchHighlight;
+        ctx.fillRect(0, sy, cw, sH);
       }
     }
 
@@ -247,27 +314,29 @@ export class TerminalMinimap {
     const vh = vp.clientHeight;
     const st = vp.scrollTop;
     const maxScroll = Math.max(1, sh - vh);
-    const thumbH = Math.max((vh / sh) * ch, 10);
+    let thumbH = Math.max(12, (vh / sh) * ch);
+
+    // When there's no scrollback the thumb fills the whole strip — skip it.
+    if (thumbH >= ch * 0.98) return;
+
     const thumbY = (st / maxScroll) * Math.max(0, ch - thumbH);
 
-    ctx.strokeStyle = this.theme.thumbBorder;
-    ctx.lineWidth = 1;
-    ctx.fillStyle = this.theme.thumb;
-    const r = 2;
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.45)";
+    ctx.shadowBlur = 3;
+    ctx.fillStyle = this.thumbColor;
     if (typeof ctx.roundRect === "function") {
       ctx.beginPath();
-      ctx.roundRect(0.5, thumbY + 0.5, cw - 1, thumbH - 1, r);
+      ctx.roundRect(1, thumbY, cw - 2, thumbH, 3);
       ctx.fill();
-      ctx.stroke();
     } else {
       ctx.fillRect(0, thumbY, cw, thumbH);
     }
+    ctx.restore();
   }
 
   private scrollFromClientY(clientY: number): void {
-    const vp =
-      this.scrollVp ??
-      (this.term.element?.querySelector(".xterm-viewport") as HTMLElement | null);
+    const vp = this.scrollVp ?? this.findScrollElement();
     if (!vp) return;
     const rect = this.canvas.getBoundingClientRect();
     const ch = rect.height;
@@ -275,7 +344,7 @@ export class TerminalMinimap {
     const sh = vp.scrollHeight;
     const vh = vp.clientHeight;
     const maxScroll = Math.max(0, sh - vh);
-    const thumbH = Math.max((vh / sh) * ch, 10);
+    const thumbH = Math.max((vh / sh) * ch, 12);
     const track = Math.max(0, ch - thumbH);
     const thumbY = Math.min(Math.max(0, y - thumbH / 2), track);
     vp.scrollTop = track > 0 ? (thumbY / track) * maxScroll : 0;

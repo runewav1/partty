@@ -60,6 +60,14 @@ export type ParttyPrefs = {
   pane_background_opacity: number;
   pane_background_blur: number;
   pane_corner_radius: number;
+  /** `cell` | `row` — minimap rendering granularity. */
+  minimap_granularity: string;
+  /** Minimap column width in px. */
+  minimap_width: number;
+  /** When true, minimap is hidden until the cursor hovers over it. */
+  minimap_auto_hide: boolean;
+  /** Background opacity of the minimap overlay (0–1). */
+  minimap_opacity: number;
 };
 
 type DetectedShell = { name: string; path: string };
@@ -118,6 +126,7 @@ export function createSettingsPanel(
     const window_effect_mode = gs("window_effect_mode").replace(/-/g, "_") === "transparent" ? "transparent" : "off";
     const clamp01 = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fb; };
     const clampR = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(32, n)) : fb; };
+    const clampW = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(16, Math.min(200, n)) : fb; };
     const clampB = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(40, n)) : fb; };
     const clampG = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(32, n)) : fb; };
     const terminal_pane_gap = clampG(g("terminal_pane_gap"), previous.terminal_pane_gap ?? 6);
@@ -161,6 +170,10 @@ export function createSettingsPanel(
       pane_background_opacity: clamp01(g("pane_background_opacity"), 1),
       pane_background_blur: clampB(g("pane_background_blur"), 0),
       pane_corner_radius: clampR(g("pane_corner_radius"), 6),
+      minimap_granularity: g("minimap_granularity") === "cell" ? "cell" : "row",
+      minimap_width: clampW(g("minimap_width"), 48),
+      minimap_auto_hide: gc("minimap_auto_hide"),
+      minimap_opacity: clamp01(g("minimap_opacity"), 0.12),
     };
   }
 
@@ -290,6 +303,10 @@ export function createSettingsPanel(
     setSel("terminal_animation_speed", ((v?: string) => { v = (v ?? "normal").toLowerCase(); return v === "off" || v === "fast" || v === "slow" ? v : "normal"; })(pr.terminal_animation_speed));
     setSel("window_effect_mode", (pr.window_effect_mode ?? "off").toLowerCase() === "transparent" ? "transparent" : "off");
     setSel("file_tree_side", pr.file_tree_side === "right" ? "right" : "left");
+    setSel("minimap_granularity", pr.minimap_granularity === "cell" ? "cell" : "row");
+    setVal("minimap_width", String(pr.minimap_width ?? 48));
+    setChk("minimap_auto_hide", pr.minimap_auto_hide === true);
+    setVal("minimap_opacity", String(pr.minimap_opacity ?? 0.12));
     setSel("split_layout_style", ((v?: string) => { v = (v ?? "balanced").toLowerCase(); return v === "dwindle" || v === "master" ? v : "balanced"; })(pr.split_layout_style));
 
     setChk("command_history_enabled", pr.command_history_enabled === true);

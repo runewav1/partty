@@ -186,6 +186,27 @@
               </div>
             </div>
 
+            <div class="settings-section">
+              <div class="settings-section-hd">Minimap</div>
+              <div class="settings-section-bd">
+                <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">Granularity</span>
+                  <select id="setting-minimap-granularity" name="minimap_granularity" class="settings-input settings-input--narrow">
+                    <option value="row">Row</option><option value="cell">Cell</option>
+                  </select>
+                </div>
+                <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">Width</span>
+                  <input id="setting-minimap-width" name="minimap_width" type="number" min="16" max="200" step="1" class="settings-input settings-input--narrow" />
+                </div>
+                <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">Opacity</span>
+                  <input id="setting-minimap-opacity" name="minimap_opacity" type="number" min="0" max="1" step="0.01" class="settings-input settings-input--narrow" />
+                </div>
+                <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="minimap_auto_hide" /><span>Auto-hide</span></label>
+              </div>
+            </div>
+
             <div class="settings-section" data-parent-section="command_history_enabled">
               <div class="settings-section-hd">Command History</div>
               <div class="settings-section-bd">

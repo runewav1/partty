@@ -282,6 +282,7 @@ type MinimapHandle = {
   attach(): void;
   resizeToHost(): void;
   setSearchHighlights(lines: Iterable<number> | null): void;
+  setGranularity(g: "cell" | "row"): void;
 };
 
 type PtyOutputEvent = { pane_id: string; data: string };
@@ -307,7 +308,7 @@ function isTargetInsideXterm(target: EventTarget | null): boolean {
   return Boolean(el?.closest?.(".xterm"));
 }
 
-/** Block browser print (Ctrl+P) only when focus is not in a terminal so TUIs receive Ctrl+P. */
+/** Block browser print dialog (Ctrl+P) when focus is not in a terminal so TUIs receive Ctrl+P. */
 function maybeBlockBrowserPrintShortcut(e: KeyboardEvent): void {
   if (!e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
   const k = e.key;
@@ -359,11 +360,6 @@ async function boot(): Promise<void> {
   const TERM_FG = getComputedStyle(document.documentElement).getPropertyValue("--term-fg").trim() || TERM_FG_FALLBACK;
   const defaultFg = hexRgb(TERM_FG);
   const defaultBg = hexRgb(TERM_BG);
-  const emptyLineRgb: [number, number, number] = [
-    Math.round(defaultFg[0] * 0.5 + defaultBg[0] * 0.5),
-    Math.round(defaultFg[1] * 0.5 + defaultBg[1] * 0.5),
-    Math.round(defaultFg[2] * 0.5 + defaultBg[2] * 0.5),
-  ];
 
   const releaseBootSurface = (): void => {
     document.documentElement.classList.remove("partty-booting");
@@ -418,6 +414,22 @@ async function boot(): Promise<void> {
   const confirmDeletePromptRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).confirm_delete_prompt ?? true,
   };
+  const minimapGranularityRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).minimap_granularity ?? "row",
+  };
+  const minimapWidthRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).minimap_width ?? 48,
+  };
+  const minimapAutoHideRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).minimap_auto_hide ?? false,
+  };
+  const minimapOpacityRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).minimap_opacity ?? 0.12,
+  };
+
+  document.documentElement.classList.toggle("minimap-auto-hide", minimapAutoHideRef.v);
+  document.documentElement.style.setProperty("--minimap-width", `${minimapWidthRef.v}px`);
+  document.documentElement.style.setProperty("--minimap-opacity", String(minimapOpacityRef.v));
 
   function historyPaneIdFor(paneId: string): string {
     if (!paneId.startsWith("wsroot_")) return paneId;
@@ -1421,20 +1433,14 @@ async function boot(): Promise<void> {
   let cwdSyncTimer = 0;
 
   const minimapTheme: {
-    track: string;
     thumb: string;
-    thumbBorder: string;
     defaultFg: [number, number, number];
     defaultBg: [number, number, number];
-    emptyLineRgb: [number, number, number];
     searchHighlight: string;
   } = {
-    track: getComputedStyle(document.documentElement).getPropertyValue("--minimap-track").trim() || "rgba(0,0,0,0.32)",
-    thumb: getComputedStyle(document.documentElement).getPropertyValue("--minimap-thumb").trim() || "rgba(255,255,255,0.26)",
-    thumbBorder: getComputedStyle(document.documentElement).getPropertyValue("--minimap-thumb-border").trim() || "rgba(255,255,255,0.48)",
+    thumb: getComputedStyle(document.documentElement).getPropertyValue("--minimap-thumb").trim() || "rgba(255,255,255,0.35)",
     defaultFg,
     defaultBg,
-    emptyLineRgb,
     searchHighlight:
       getComputedStyle(document.documentElement).getPropertyValue("--minimap-search-highlight").trim() ||
       "rgba(255, 230, 90, 0.92)",
@@ -1442,20 +1448,13 @@ async function boot(): Promise<void> {
 
   function syncMinimapThemeFromCss(): void {
     const cs = getComputedStyle(document.documentElement);
-    minimapTheme.track = cs.getPropertyValue("--minimap-track").trim() || "rgba(0,0,0,0.32)";
-    minimapTheme.thumb = cs.getPropertyValue("--minimap-thumb").trim() || "rgba(255,255,255,0.26)";
-    minimapTheme.thumbBorder = cs.getPropertyValue("--minimap-thumb-border").trim() || "rgba(255,255,255,0.48)";
+    minimapTheme.thumb = cs.getPropertyValue("--minimap-thumb").trim() || "rgba(255,255,255,0.35)";
     const fg = cs.getPropertyValue("--term-fg").trim() || TERM_FG_FALLBACK;
     const bg = cs.getPropertyValue("--term-bg").trim() || TERM_BG_FALLBACK;
     const f = hexRgb(fg);
     const b = hexRgb(bg);
     minimapTheme.defaultFg = f;
     minimapTheme.defaultBg = b;
-    minimapTheme.emptyLineRgb = [
-      Math.round(f[0] * 0.5 + b[0] * 0.5),
-      Math.round(f[1] * 0.5 + b[1] * 0.5),
-      Math.round(f[2] * 0.5 + b[2] * 0.5),
-    ];
     minimapTheme.searchHighlight =
       cs.getPropertyValue("--minimap-search-highlight").trim() || "rgba(255, 230, 90, 0.92)";
   }
@@ -1484,13 +1483,6 @@ async function boot(): Promise<void> {
     }
   }
 
-  function setMinimapGutter(css: string): void {
-    document.documentElement.style.setProperty("--term-minimap-gutter", css);
-  }
-
-  if (minimapOn) setMinimapGutter("11px");
-  else setMinimapGutter("0px");
-
   function disposeMinimapForPane(paneId: string): void {
     paneMinimaps.get(paneId)?.dispose();
     paneMinimaps.delete(paneId);
@@ -1513,6 +1505,7 @@ async function boot(): Promise<void> {
     if (!compact) return;
     const minimapMod = await import("./terminalMinimap");
     const m = new minimapMod.TerminalMinimap(pt.term, compact, pt.minimapCanvas, {
+      granularity: minimapGranularityRef.v as "cell" | "row",
       theme: minimapTheme,
     });
     m.attach();
@@ -1529,9 +1522,7 @@ async function boot(): Promise<void> {
     document.documentElement.classList.toggle("minimap-off", !on);
     if (!on) {
       disposeAllMinimaps();
-      setMinimapGutter("0px");
     } else {
-      setMinimapGutter("11px");
       paneHost?.forEachPane((id) => {
         if (!minimapHiddenPanes.has(id)) void ensureMinimapForPane(id);
       });
@@ -3119,14 +3110,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         settingsApi?.open();
         return;
       }
-      if (e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey && (e.key === "p" || e.key === "P")) {
-        const t = e.target as HTMLElement | null;
-        if (t?.closest("#command-palette") || t?.closest("#settings-panel") || t?.closest(".term-search")) return;
-        e.preventDefault();
-        e.stopPropagation();
-        focusFileTreeFilter();
-        return;
-      }
     },
     true,
   );
@@ -3288,6 +3271,20 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
         clickToCursorRef.v = saved.terminal_click_to_cursor ?? true;
         backspaceDeleteSelectionRef.v = saved.terminal_backspace_delete_selection ?? true;
+        if ((saved.minimap_granularity ?? "cell") !== minimapGranularityRef.v) {
+          minimapGranularityRef.v = saved.minimap_granularity ?? "row";
+          for (const m of paneMinimaps.values()) m.setGranularity(minimapGranularityRef.v as "cell" | "row");
+        }
+        if ((saved.minimap_width ?? 48) !== minimapWidthRef.v) {
+          minimapWidthRef.v = saved.minimap_width ?? 48;
+          document.documentElement.style.setProperty("--minimap-width", `${minimapWidthRef.v}px`);
+        }
+        minimapAutoHideRef.v = saved.minimap_auto_hide ?? false;
+        document.documentElement.classList.toggle("minimap-auto-hide", minimapAutoHideRef.v);
+        if ((saved.minimap_opacity ?? 0.12) !== minimapOpacityRef.v) {
+          minimapOpacityRef.v = saved.minimap_opacity ?? 0.12;
+          document.documentElement.style.setProperty("--minimap-opacity", String(minimapOpacityRef.v));
+        }
         fileTreePanel?.setSearchEnabled(!(saved.file_tree_disable_search ?? false));
         applyTerminalDisplayPrefs(saved);
         if (saved.scrollback_lines !== previous.scrollback_lines) {
@@ -3629,8 +3626,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       {
         id: "filter-file-tree",
         label: "Find in files",
-        keywords: "filter search grep rg find ctrl p",
-        hotkey: "Ctrl+P",
+        keywords: "filter search grep rg find",
         run: () => {
           focusFileTreeFilter();
         },

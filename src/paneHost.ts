@@ -19,7 +19,7 @@ export type PaneTerminal = {
   term: Terminal;
   fit: FitAddon;
   host: HTMLElement;
-  /** Row: terminal host + per-pane scroll minimap (scales with pane). */
+  /** Row wrapping the terminal host element. */
   row: HTMLElement;
   minimapAside: HTMLElement;
   minimapCanvas: HTMLCanvasElement;
@@ -1134,14 +1134,19 @@ export class PaneHost {
         compact.appendChild(canvas);
         minimapAside.appendChild(compact);
         row.appendChild(host);
-        row.appendChild(minimapAside);
         const createStarted = performance.now();
         const term = new Terminal({
           allowProposedApi: true,
+          allowTransparency: false,
           cursorBlink: true,
           cursorStyle: "block",
+          customGlyphs: true,
+          drawBoldTextInBrightColors: true,
           fontFamily: this.opts.fontStack,
           fontSize: 12,
+          rescaleOverlappingGlyphs: false,
+          scrollOnEraseInDisplay: false,
+          smoothScrollDuration: 0,
           theme: this.opts.getTheme(node.id),
           scrollback: this.opts.scrollbackLines,
         });
@@ -1155,6 +1160,7 @@ export class PaneHost {
         this.opts.onPaneCreated(node.id, pt);
       }
       wrap.appendChild(pt.row);
+      wrap.appendChild(pt.minimapAside);
       if (this.justTiled.delete(node.id)) {
         wrap.classList.add("pane-leaf--floating-return");
         wrap.addEventListener("animationend", () => {
