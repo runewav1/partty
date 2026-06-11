@@ -124,7 +124,7 @@ export function createPresetEditorModal(root: HTMLElement): PresetEditorApi {
   propId.style.overflow = "hidden";
   propId.style.textOverflow = "ellipsis";
   propId.style.whiteSpace = "nowrap";
-  propId.style.fontFamily = "ui-monospace, monospace";
+  propId.style.fontFamily = "var(--font-terminal)";
 
   const paneNameIpt = mkRow("Name", propCol) as HTMLInputElement;
   const cwdIpt = mkRow("Directory", propCol) as HTMLInputElement;

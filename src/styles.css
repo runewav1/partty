@@ -29,10 +29,9 @@
 
 :root {
   /* Font stacks (optional overrides from settings → inline --font-* on html) */
-  --font-terminal: "JetBrains Mono", "Cascadia Code", "Sarasa Term SC", "Symbols Nerd Font Mono",
-    Consolas, "Liberation Mono", monospace;
-  --font-ui: system-ui, "Segoe UI", sans-serif;
-  --font-file-tree: var(--font-ui);
+  --font-terminal: Consolas, "Cascadia Code", "Courier New", monospace;
+  --font-ui: "Segoe UI", system-ui, sans-serif;
+  --font-file-tree: var(--font-terminal);
 
   /* ===== Terminal Core Colors ===== */
   --term-bg: #2e2e32;
@@ -873,6 +872,9 @@ html:not(.term-tabs-multiple) .term-tabs-strip {
 .term-tab--active {
   color: var(--ui-chrome-fg);
   background: color-mix(in srgb, var(--accent-primary) 14%, transparent);
+  transition:
+    color var(--motion-fast) var(--motion-ease-out),
+    background var(--motion-fast) var(--motion-ease-out);
 }
 
 .term-tab[style*="--tab-color"] {
@@ -1502,6 +1504,37 @@ button.file-tree-label:hover {
 
 .term-tab-pane-shell--hidden {
   display: none !important;
+}
+
+/* ── Tab switch animations ── */
+@keyframes tab-pane-enter {
+  0% {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes tab-pane-leave {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+
+.term-tab-pane-shell--entering {
+  animation: tab-pane-enter var(--motion-medium) var(--motion-ease-emphasized) both;
+}
+
+.term-tab-pane-shell--leaving {
+  animation: tab-pane-leave var(--motion-fast) var(--motion-ease-out) both;
 }
 
 .pane-host {
@@ -2915,7 +2948,15 @@ html.file-tree-right .command-palette {
   font-size: 12px;
   outline: none;
   min-width: 0;
+  -moz-appearance: textfield;
 }
+
+.settings-row .settings-input::-webkit-inner-spin-button,
+.settings-row .settings-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .settings-row .settings-input:focus {
   border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--input-border));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 18%, transparent);
@@ -2923,8 +2964,7 @@ html.file-tree-right .command-palette {
 .settings-row textarea.settings-input {
   resize: vertical;
   min-height: 52px;
-  font-size: 11px;
-  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-family: var(--font-terminal);
 }
 .settings-input--narrow {
   max-width: 96px;

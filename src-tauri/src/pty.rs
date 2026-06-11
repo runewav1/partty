@@ -262,8 +262,11 @@ fn query_cwd_for_pid(pid: u32) -> Option<String> {
 }
 
 fn query_cwd_for_pid_sysinfo(pid: u32) -> Option<String> {
+    use std::sync::Mutex;
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
-    let mut sys = System::new();
+    static SYS: Mutex<Option<System>> = Mutex::new(None);
+    let mut sys_opt = SYS.lock().unwrap();
+    let sys = sys_opt.get_or_insert_with(System::new);
     let p = Pid::from_u32(pid);
     sys.refresh_processes_specifics(
         ProcessesToUpdate::Some(&[p]),
@@ -585,10 +588,18 @@ fn windows_host_shell(prefs: &Prefs) -> Result<CommandBuilder, String> {
 
 #[cfg(windows)]
 fn write_shell_integration_script(name: &str, contents: &str) -> Result<PathBuf, String> {
+    use std::sync::Mutex;
+    static CACHE: Mutex<Option<std::collections::HashMap<String, PathBuf>>> = Mutex::new(None);
+    let mut cache = CACHE.lock().unwrap();
+    let map = cache.get_or_insert_with(std::collections::HashMap::new);
+    if let Some(p) = map.get(name) {
+        return Ok(p.clone());
+    }
     let dir = std::env::temp_dir().join("partty-shell-integration");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(name);
     std::fs::write(&path, contents).map_err(|e| e.to_string())?;
+    map.insert(name.to_string(), path.clone());
     Ok(path)
 }
 

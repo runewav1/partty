@@ -16,10 +16,10 @@ export type UiThemePrefs = {
 
 export type PaneThemePrefs = Pick<UiThemePrefs, "ui_theme" | "ui_theme_variant">;
 
-/** Nerd-font-friendly default; no single font hard-required. */
-export const DEFAULT_TERMINAL_FONT_STACK = String.raw`"JetBrains Mono","Cascadia Code","Sarasa Term SC","Symbols Nerd Font Mono",Consolas,"Liberation Mono",monospace`;
+/** Windows-default monospace stack; Consolas is guaranteed on all Win10+ machines. */
+export const DEFAULT_TERMINAL_FONT_STACK = String.raw`Consolas,"Cascadia Code","Courier New",monospace`;
 
-export const DEFAULT_UI_FONT = String.raw`system-ui,"Segoe UI",sans-serif`;
+export const DEFAULT_UI_FONT = String.raw`"Segoe UI",system-ui,sans-serif`;
 
 export type ThemeCssVars = Record<string, string>;
 

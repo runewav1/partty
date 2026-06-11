@@ -500,6 +500,13 @@ async function boot(): Promise<void> {
     parttyPerf.mark("pty.output.chars", data.length);
     parttyPerf.time("pty.output.queue.ms", performance.now() - queuedAt);
 
+    // For hidden-tab panes: skip shell integration parsing, just stream to xterm buffer.
+    const inActiveTab = paneHost?.getPaneTerminal(paneId) !== null;
+    if (!inActiveTab) {
+      try { pt.term.write(data); } catch { /* ignore */ }
+      return;
+    }
+
     const siState = ensureShellState(paneId);
     if (!commandHistoryEnabledRef.v && !data.includes("\x1b]") && siState.parserRemainder.length === 0) {
       const writeStarted = performance.now();
@@ -1779,6 +1786,10 @@ async function boot(): Promise<void> {
         return;
       } catch (e) {
         lastErr = e;
+        const msg = String(e).toLowerCase();
+        if (/not found|cannot find|does not exist|no such file|access denied|permission denied|invalid/i.test(msg)) {
+          break;
+        }
       }
     }
     const msg = String(lastErr);
@@ -1999,12 +2010,40 @@ async function boot(): Promise<void> {
     const nextHost = tabPaneHosts.get(tabId);
     if (!nextHost) return;
     persistCurrentWorkspaceTabLayout();
+
+    const prevShell = tabPaneShells.get(activeWorkspaceTabId);
+    const nextShell = tabPaneShells.get(tabId);
+
     activeWorkspaceTabId = tabId;
     tabsState = { ...tabsState, activeTabId: tabId };
     saveTabsState(tabsState);
-    for (const [id, shell] of tabPaneShells) {
-      shell.classList.toggle("term-tab-pane-shell--hidden", id !== tabId);
+
+    // Animate: mark old shell as leaving, new as entering
+    if (prevShell) {
+      prevShell.classList.add("term-tab-pane-shell--leaving");
     }
+    if (nextShell) {
+      nextShell.classList.remove("term-tab-pane-shell--hidden");
+      nextShell.classList.add("term-tab-pane-shell--entering");
+      const onDone = () => {
+        nextShell.removeEventListener("animationend", onDone);
+        nextShell.classList.remove("term-tab-pane-shell--entering");
+        if (prevShell) {
+          prevShell.classList.add("term-tab-pane-shell--hidden");
+          prevShell.classList.remove("term-tab-pane-shell--leaving");
+        }
+        for (const [id, shell] of tabPaneShells) {
+          if (id !== tabId) shell.classList.add("term-tab-pane-shell--hidden");
+        }
+      };
+      nextShell.addEventListener("animationend", onDone);
+    } else {
+      // Fallback: no animation
+      for (const [id, shell] of tabPaneShells) {
+        shell.classList.toggle("term-tab-pane-shell--hidden", id !== tabId);
+      }
+    }
+
     paneHost = nextHost;
     lastFocusedPaneId = paneHost.getFocusedPaneId();
     fileTreePanel?.setActivePane(lastFocusedPaneId);
@@ -4144,9 +4183,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
 
   scheduleIdle(() => {
     void (async () => {
-      if (lp.preload_webgl_on_startup) {
-        await mountWebglForFocused();
-      }
       if (minimapOn) {
         paneHost?.forEachPane((id) => {
           void ensureMinimapForPane(id);
