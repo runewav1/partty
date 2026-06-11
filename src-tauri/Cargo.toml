@@ -1,6 +1,6 @@
 [package]
 name = "partty"
-version = "0.1.0"
+version = "0.2.0"
 description = "Raycast-style terminal overlay for Windows"
 authors = ["you"]
 edition = "2021"
@@ -26,10 +26,10 @@ sysinfo = { version = "0.39", default-features = false, features = ["system"] }
 base64 = "0.22"
 notify = { version = "8", default-features = false, features = ["macos_kqueue"] }
 notify-debouncer-mini = "0.7"
-opener = "0.7"
+opener = "0.8"
 git2 = "0.21"
-miniz_oxide = "0.8"
-crc32fast = "1.4"
+miniz_oxide = "0.9"
+crc32fast = "1.5"
 rusqlite = { version = "0.40", features = ["bundled"] }
 walkdir = "2"
 regex = "1"

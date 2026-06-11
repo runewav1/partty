@@ -13,8 +13,7 @@ dist-ssr
 *.local
 
 # Editor directories and files
-.vscode/*
-!.vscode/extensions.json
+.vscode/
 .idea
 .DS_Store
 *.suo
@@ -22,12 +21,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-.vscode/
-README.md
-packag-lock.json
+
+# Tauri
 src-tauri/target/
-package-lock.json
-src/assets/
-src/cursorTrail.ts
+
+# Tool artifacts
 src-tauri/icons/.lemon/
 .lime/
