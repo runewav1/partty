@@ -44,10 +44,6 @@ fn default_ui_disable_tooltips() -> bool {
     false
 }
 
-fn default_terminal_click_to_cursor() -> bool {
-    true
-}
-
 fn default_terminal_backspace_delete_selection() -> bool {
     true
 }
@@ -110,6 +106,46 @@ fn default_minimap_opacity() -> f64 {
 
 fn default_cursor_style() -> String {
     "block".to_string()
+}
+
+fn default_cursor_inactive_style() -> String {
+    "outline".to_string()
+}
+
+fn default_cursor_width() -> f64 {
+    1.0
+}
+
+fn default_font_size() -> f64 {
+    12.0
+}
+
+fn default_font_weight() -> String {
+    "normal".to_string()
+}
+
+fn default_font_weight_bold() -> String {
+    "bold".to_string()
+}
+
+fn default_line_height() -> f64 {
+    1.0
+}
+
+fn default_letter_spacing() -> f64 {
+    0.0
+}
+
+fn default_scroll_sensitivity() -> f64 {
+    1.0
+}
+
+fn default_fast_scroll_sensitivity() -> f64 {
+    5.0
+}
+
+fn default_minimum_contrast_ratio() -> f64 {
+    1.0
 }
 
 fn default_process_notification_threshold() -> f64 {
@@ -196,9 +232,6 @@ pub struct Prefs {
     /// Disable native hover tooltips in the UI (also forced while in zen mode).
     #[serde(default = "default_ui_disable_tooltips")]
     pub ui_disable_tooltips: bool,
-    /// Allow single-click repositioning of cursor on the active prompt line.
-    #[serde(default = "default_terminal_click_to_cursor")]
-    pub terminal_click_to_cursor: bool,
     /// When true, backspace deletes the selected text block in the terminal.
     #[serde(default = "default_terminal_backspace_delete_selection")]
     pub terminal_backspace_delete_selection: bool,
@@ -253,6 +286,51 @@ pub struct Prefs {
     /// `block` | `underline` | `bar` — terminal cursor style.
     #[serde(default = "default_cursor_style")]
     pub terminal_cursor_style: String,
+    /// Whether the cursor blinks.
+    #[serde(default = "default_true")]
+    pub terminal_cursor_blink: bool,
+    /// `outline` | `block` | `bar` | `underline` | `none` — cursor style when unfocused.
+    #[serde(default = "default_cursor_inactive_style")]
+    pub terminal_cursor_inactive_style: String,
+    /// Cursor width in px when `cursor_style` is `bar`.
+    #[serde(default = "default_cursor_width")]
+    pub terminal_cursor_width: f64,
+    /// Alt+click repositions the terminal cursor (xterm built-in).
+    #[serde(default = "default_true")]
+    pub terminal_alt_click_moves_cursor: bool,
+    /// Font size in px.
+    #[serde(default = "default_font_size")]
+    pub terminal_font_size: f64,
+    /// Font weight for non‑bold text (CSS value).
+    #[serde(default = "default_font_weight")]
+    pub terminal_font_weight: String,
+    /// Font weight for bold text (CSS value).
+    #[serde(default = "default_font_weight_bold")]
+    pub terminal_font_weight_bold: String,
+    /// Line height multiplier.
+    #[serde(default = "default_line_height")]
+    pub terminal_line_height: f64,
+    /// Letter spacing in px.
+    #[serde(default = "default_letter_spacing")]
+    pub terminal_letter_spacing: f64,
+    /// Draw bold text in bright ANSI colors.
+    #[serde(default = "default_true")]
+    pub terminal_draw_bold_bright: bool,
+    /// Draw custom glyphs for box‑drawing characters.
+    #[serde(default = "default_true")]
+    pub terminal_custom_glyphs: bool,
+    /// Smooth‑scroll duration in ms (0 = instant).
+    #[serde(default)]
+    pub terminal_smooth_scroll_duration: f64,
+    /// Normal scroll speed multiplier.
+    #[serde(default = "default_scroll_sensitivity")]
+    pub terminal_scroll_sensitivity: f64,
+    /// Fast‑scroll (Alt+wheel) speed multiplier.
+    #[serde(default = "default_fast_scroll_sensitivity")]
+    pub terminal_fast_scroll_sensitivity: f64,
+    /// Minimum contrast ratio for foreground text (1 = off).
+    #[serde(default = "default_minimum_contrast_ratio")]
+    pub terminal_minimum_contrast_ratio: f64,
     /// Minimum command duration (seconds) before a completion notification fires.
     /// Sub‑second granularity is supported (e.g. 2.5 = 2.5 s). Default 5.0.
     #[serde(default = "default_process_notification_threshold")]
@@ -310,7 +388,6 @@ impl Default for Prefs {
             file_tree_side: default_file_tree_side(),
             confirm_delete_prompt: true,
             ui_disable_tooltips: false,
-            terminal_click_to_cursor: true,
             terminal_backspace_delete_selection: true,
             always_open_in_zen_mode: false,
             terminal_no_gap: false,
@@ -329,6 +406,21 @@ impl Default for Prefs {
             minimap_auto_hide: false,
             minimap_opacity: default_minimap_opacity(),
             terminal_cursor_style: default_cursor_style(),
+            terminal_cursor_blink: true,
+            terminal_cursor_inactive_style: default_cursor_inactive_style(),
+            terminal_cursor_width: default_cursor_width(),
+            terminal_alt_click_moves_cursor: true,
+            terminal_font_size: default_font_size(),
+            terminal_font_weight: default_font_weight(),
+            terminal_font_weight_bold: default_font_weight_bold(),
+            terminal_line_height: default_line_height(),
+            terminal_letter_spacing: default_letter_spacing(),
+            terminal_draw_bold_bright: true,
+            terminal_custom_glyphs: true,
+            terminal_smooth_scroll_duration: 0.0,
+            terminal_scroll_sensitivity: default_scroll_sensitivity(),
+            terminal_fast_scroll_sensitivity: default_fast_scroll_sensitivity(),
+            terminal_minimum_contrast_ratio: default_minimum_contrast_ratio(),
             process_notification_threshold: default_process_notification_threshold(),
             process_notification_show_for: default_process_notification_show_for(),
         }

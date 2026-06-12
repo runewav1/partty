@@ -1835,6 +1835,11 @@ fn toggle_overlay(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn get_windows_pty_info() -> Option<pty::WindowsPtyInfo> {
+    pty::windows_pty_info()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let loaded = load_state();
@@ -1913,6 +1918,7 @@ pub fn run() {
             delete_preset_json,
             set_prefs,
             toggle_overlay,
+            get_windows_pty_info,
             pop_out_pane,
             get_detached_pane_bootstrap,
             close_detached_pane,

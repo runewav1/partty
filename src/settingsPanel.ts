@@ -35,7 +35,6 @@ export type ParttyPrefs = {
   file_tree_side: string;
   confirm_delete_prompt: boolean;
   ui_disable_tooltips: boolean;
-  terminal_click_to_cursor: boolean;
   terminal_backspace_delete_selection: boolean;
   always_open_in_zen_mode: boolean;
   terminal_no_gap: boolean;
@@ -59,6 +58,36 @@ export type ParttyPrefs = {
   minimap_opacity: number;
   /** `block` | `underline` | `bar` — terminal cursor style. */
   terminal_cursor_style: string;
+  /** Whether the cursor blinks. */
+  terminal_cursor_blink?: boolean;
+  /** `outline` | `block` | `bar` | `underline` | `none` — cursor style when unfocused. */
+  terminal_cursor_inactive_style?: string;
+  /** Cursor width in px when cursor_style is `bar`. */
+  terminal_cursor_width?: number;
+  /** Alt+click repositions the terminal cursor to the click position. */
+  terminal_alt_click_moves_cursor?: boolean;
+  /** Terminal font size in px. */
+  terminal_font_size?: number;
+  /** Font weight for non‑bold text (CSS value). */
+  terminal_font_weight?: string;
+  /** Font weight for bold text (CSS value). */
+  terminal_font_weight_bold?: string;
+  /** Line height multiplier. */
+  terminal_line_height?: number;
+  /** Letter spacing in px. */
+  terminal_letter_spacing?: number;
+  /** Draw bold text in bright ANSI colors. */
+  terminal_draw_bold_bright?: boolean;
+  /** Draw box‑drawing characters with custom glyphs instead of font. */
+  terminal_custom_glyphs?: boolean;
+  /** Smooth‑scroll duration in ms (0 = instant). */
+  terminal_smooth_scroll_duration?: number;
+  /** Normal scroll speed multiplier. */
+  terminal_scroll_sensitivity?: number;
+  /** Fast (Alt+wheel) scroll speed multiplier. */
+  terminal_fast_scroll_sensitivity?: number;
+  /** Minimum contrast ratio for foreground text (1 = off, 4.5 = WCAG AA). */
+  terminal_minimum_contrast_ratio?: number;
   /** Minimum seconds a command must run before a completion toast is shown (default 5.0). */
   process_notification_threshold: number;
   /** How long the toast stays visible in ms (default 5000, min 1000, max 30000). */
@@ -123,6 +152,8 @@ export function createSettingsPanel(
     const clampR = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(32, n)) : fb; };
     const clampW = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(16, Math.min(200, n)) : fb; };
     const clampG = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(32, n)) : fb; };
+    const clampf = (raw: string, fb: number, min: number, max: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fb; };
+    const clamp1p = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(1, Math.min(10, n)) : fb; };
     const terminal_pane_gap = clampG(g("terminal_pane_gap"), previous.terminal_pane_gap ?? 6);
     const terminal_sandbox_padding = clampG(g("terminal_sandbox_padding"), previous.terminal_sandbox_padding ?? 0);
 
@@ -145,7 +176,7 @@ export function createSettingsPanel(
       file_search_git_aware: gc("file_search_git_aware"),
       file_tree_side: gs("file_tree_side") === "right" ? "right" : "left",
       confirm_delete_prompt: gc("confirm_delete_prompt"), ui_disable_tooltips: gc("ui_disable_tooltips"),
-      terminal_click_to_cursor: gc("terminal_click_to_cursor"), terminal_backspace_delete_selection: gc("terminal_backspace_delete_selection"),
+      terminal_alt_click_moves_cursor: gc("terminal_alt_click_moves_cursor"), terminal_backspace_delete_selection: gc("terminal_backspace_delete_selection"),
       always_open_in_zen_mode: gc("always_open_in_zen_mode"),
       terminal_no_gap: terminal_pane_gap <= 0, terminal_pane_gap, terminal_sandbox_padding,
       terminal_no_round: gc("terminal_no_round"), terminal_no_pane_border: gc("terminal_no_pane_border"),
@@ -157,6 +188,20 @@ export function createSettingsPanel(
       minimap_auto_hide: gc("minimap_auto_hide"),
       minimap_opacity: clamp01(g("minimap_opacity"), 0.12),
       terminal_cursor_style: ((v: string) => v === "underline" || v === "bar" ? v : "block")(gs("terminal_cursor_style")),
+      terminal_cursor_blink: gc("terminal_cursor_blink"),
+      terminal_cursor_inactive_style: gs("terminal_cursor_inactive_style"),
+      terminal_cursor_width: clamp1p(g("terminal_cursor_width"), 1),
+      terminal_font_size: clampf(g("terminal_font_size"), 12, 8, 48),
+      terminal_font_weight: g("terminal_font_weight") || "normal",
+      terminal_font_weight_bold: g("terminal_font_weight_bold") || "bold",
+      terminal_line_height: clampf(g("terminal_line_height"), 1, 0.5, 4),
+      terminal_letter_spacing: clampf(g("terminal_letter_spacing"), 0, -2, 10),
+      terminal_draw_bold_bright: gc("terminal_draw_bold_bright"),
+      terminal_custom_glyphs: gc("terminal_custom_glyphs"),
+      terminal_smooth_scroll_duration: clampf(g("terminal_smooth_scroll_duration"), 0, 0, 1000),
+      terminal_scroll_sensitivity: clampf(g("terminal_scroll_sensitivity"), 1, 0.1, 10),
+      terminal_fast_scroll_sensitivity: clampf(g("terminal_fast_scroll_sensitivity"), 5, 1, 50),
+      terminal_minimum_contrast_ratio: clampf(g("terminal_minimum_contrast_ratio"), 1, 1, 21),
       process_notification_threshold: ((): number => {
         const raw = g("process_notification_threshold");
         const n = Number.parseFloat(raw);
@@ -278,6 +323,21 @@ export function createSettingsPanel(
     setChk("minimap_auto_hide", pr.minimap_auto_hide === true);
     setVal("minimap_opacity", String(pr.minimap_opacity ?? 0.12));
     setSel("terminal_cursor_style", ((v?: string) => v === "underline" || v === "bar" ? v : "block")(pr.terminal_cursor_style));
+    setChk("terminal_cursor_blink", pr.terminal_cursor_blink ?? true);
+    setSel("terminal_cursor_inactive_style", ((v?: string) => (v === "outline" || v === "block" || v === "bar" || v === "underline" || v === "none") ? v : "outline")(pr.terminal_cursor_inactive_style));
+    setVal("terminal_cursor_width", String(pr.terminal_cursor_width ?? 1));
+    setChk("terminal_alt_click_moves_cursor", pr.terminal_alt_click_moves_cursor ?? true);
+    setVal("terminal_font_size", String(pr.terminal_font_size ?? 12));
+    setVal("terminal_font_weight", pr.terminal_font_weight ?? "normal");
+    setVal("terminal_font_weight_bold", pr.terminal_font_weight_bold ?? "bold");
+    setVal("terminal_line_height", String(pr.terminal_line_height ?? 1));
+    setVal("terminal_letter_spacing", String(pr.terminal_letter_spacing ?? 0));
+    setChk("terminal_draw_bold_bright", pr.terminal_draw_bold_bright ?? true);
+    setChk("terminal_custom_glyphs", pr.terminal_custom_glyphs ?? true);
+    setVal("terminal_smooth_scroll_duration", String(pr.terminal_smooth_scroll_duration ?? 0));
+    setVal("terminal_scroll_sensitivity", String(pr.terminal_scroll_sensitivity ?? 1));
+    setVal("terminal_fast_scroll_sensitivity", String(pr.terminal_fast_scroll_sensitivity ?? 5));
+    setVal("terminal_minimum_contrast_ratio", String(pr.terminal_minimum_contrast_ratio ?? 1));
     setVal("process_notification_threshold", String(pr.process_notification_threshold ?? 5.0));
     setVal("process_notification_show_for", String(pr.process_notification_show_for ?? 5000));
     setSel("split_layout_style", ((v?: string) => { v = (v ?? "balanced").toLowerCase(); return v === "dwindle" || v === "master" ? v : "balanced"; })(pr.split_layout_style));
@@ -303,7 +363,6 @@ export function createSettingsPanel(
     setChk("file_search_git_aware", pr.file_search_git_aware ?? true);
     setChk("confirm_delete_prompt", pr.confirm_delete_prompt ?? true);
     setChk("ui_disable_tooltips", pr.ui_disable_tooltips ?? false);
-    setChk("terminal_click_to_cursor", pr.terminal_click_to_cursor ?? true);
     setChk("terminal_backspace_delete_selection", pr.terminal_backspace_delete_selection ?? true);
     setChk("always_open_in_zen_mode", pr.always_open_in_zen_mode ?? false);
     setChk("terminal_no_round", pr.terminal_no_round ?? false);

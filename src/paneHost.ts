@@ -50,6 +50,21 @@ export type PaneHostOptions = {
   scrollbackLines: number;
   fontStack: string;
   cursorStyle: "block" | "underline" | "bar";
+  cursorBlink: boolean;
+  cursorInactiveStyle?: "outline" | "block" | "bar" | "underline" | "none";
+  cursorWidth?: number;
+  altClickMovesCursor: boolean;
+  fontSize: number;
+  fontWeight?: string;
+  fontWeightBold?: string;
+  lineHeight?: number;
+  letterSpacing?: number;
+  drawBoldTextInBrightColors: boolean;
+  customGlyphs: boolean;
+  smoothScrollDuration: number;
+  scrollSensitivity?: number;
+  fastScrollSensitivity?: number;
+  minimumContrastRatio?: number;
   getTheme: (paneId: string) => ITheme;
   getPaneName?: (paneId: string) => string | undefined;
   getPaneCssVars?: (paneId: string) => Record<string, string> | null;
@@ -66,6 +81,14 @@ export type PaneHostOptions = {
   onPaneReorder?: () => void;
   /** Root leaf id (per workspace tab). Defaults to `"main"`. */
   rootPaneId?: string;
+  /** Windows ConPTY backend info for xterm.js heuristics. */
+  windowsPty?: { backend: "conpty" | "winpty"; buildNumber: number };
+  /** Handler for OSC 8 semantic hyperlinks. */
+  linkHandler?: {
+    activate: (event: MouseEvent, uri: string) => void;
+    hover?: (event: MouseEvent, uri: string) => void;
+    leave?: () => void;
+  };
 };
 
 type SplitResizeAxis = "h" | "v";
@@ -178,7 +201,7 @@ export class PaneHost {
   private paneDragActive = false;
 
   private readonly onPaneAltDragPointerDown = (e: PointerEvent): void => {
-    if (!e.altKey || e.button !== 0) return;
+    if (!e.altKey || !e.ctrlKey || e.button !== 0) return;
     const t = e.target as HTMLElement | null;
     if (!t) return;
     if (t.closest(".pane-gutter") || t.closest(".pane-corner-handle")) return;
@@ -800,7 +823,7 @@ export class PaneHost {
     });
   }
 
-  /** Alt+primary-button drag from a pane leaf to swap with another pane (same as former drag handle). */
+  /** Ctrl+Alt+primary-button drag from a pane leaf to swap with another pane. */
   private beginPaneSwapDrag(leaf: HTMLElement, paneId: string, e: PointerEvent): void {
     const DRAG_THRESHOLD = 6;
     const startX = e.clientX;
@@ -1146,17 +1169,32 @@ export class PaneHost {
         const term = new Terminal({
           allowProposedApi: true,
           allowTransparency: false,
-          cursorBlink: true,
+          altClickMovesCursor: this.opts.altClickMovesCursor,
+          cursorBlink: this.opts.cursorBlink,
+          cursorInactiveStyle: this.opts.cursorInactiveStyle ?? "outline",
           cursorStyle: this.opts.cursorStyle,
-          customGlyphs: true,
-          drawBoldTextInBrightColors: true,
+          cursorWidth: this.opts.cursorWidth ?? 1,
+          customGlyphs: this.opts.customGlyphs,
+          drawBoldTextInBrightColors: this.opts.drawBoldTextInBrightColors,
+          fastScrollSensitivity: this.opts.fastScrollSensitivity ?? 5,
           fontFamily: this.opts.fontStack,
-          fontSize: 12,
+          fontSize: this.opts.fontSize,
+          fontWeight: (this.opts.fontWeight ?? "normal") as any,
+          fontWeightBold: (this.opts.fontWeightBold ?? "bold") as any,
+          letterSpacing: this.opts.letterSpacing ?? 0,
+          lineHeight: this.opts.lineHeight ?? 1,
+          minimumContrastRatio: this.opts.minimumContrastRatio ?? 1,
           rescaleOverlappingGlyphs: false,
           scrollOnEraseInDisplay: false,
-          smoothScrollDuration: 0,
+          scrollSensitivity: this.opts.scrollSensitivity ?? 1,
+          smoothScrollDuration: this.opts.smoothScrollDuration,
           theme: this.opts.getTheme(node.id),
           scrollback: this.opts.scrollbackLines,
+          windowsPty: this.opts.windowsPty ? {
+            backend: this.opts.windowsPty.backend,
+            buildNumber: this.opts.windowsPty.buildNumber,
+          } : undefined,
+          linkHandler: this.opts.linkHandler ?? undefined,
         });
         const fit = new FitAddon();
         term.loadAddon(fit);

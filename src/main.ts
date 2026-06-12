@@ -383,8 +383,50 @@ async function boot(): Promise<void> {
   const disableTooltipsRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).ui_disable_tooltips ?? false,
   };
-  const clickToCursorRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_click_to_cursor ?? true,
+  const altClickCursorRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_alt_click_moves_cursor ?? true,
+  };
+  const cursorBlinkRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_blink ?? true,
+  };
+  const cursorInactiveStyleRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_inactive_style as "outline" | "block" | "bar" | "underline" | "none" | undefined ?? "outline",
+  };
+  const cursorWidthRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_width ?? 1,
+  };
+  const fontSizeRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_font_size ?? 12,
+  };
+  const fontWeightRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_font_weight ?? "normal",
+  };
+  const fontWeightBoldRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_font_weight_bold ?? "bold",
+  };
+  const lineHeightRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_line_height ?? 1,
+  };
+  const letterSpacingRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_letter_spacing ?? 0,
+  };
+  const drawBoldBrightRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_draw_bold_bright ?? true,
+  };
+  const customGlyphsRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_custom_glyphs ?? true,
+  };
+  const smoothScrollRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_smooth_scroll_duration ?? 0,
+  };
+  const scrollSensitivityRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_scroll_sensitivity ?? 1,
+  };
+  const fastScrollSensitivityRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_fast_scroll_sensitivity ?? 5,
+  };
+  const contrastRatioRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_minimum_contrast_ratio ?? 1,
   };
   const backspaceDeleteSelectionRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).terminal_backspace_delete_selection ?? true,
@@ -416,6 +458,14 @@ async function boot(): Promise<void> {
 
   const activeProcesses = new Map<string, { command: string; startedAt: number; cwd: string }>();
   const processInputBuffers = new Map<string, string>();
+  let windowsPtyInfo: { backend: "conpty" | "winpty"; buildNumber: number } | undefined;
+
+  // Fetch Windows ConPTY info for xterm.js heuristics (scrollback, reflow).
+  invoke<{ backend: string; build_number: number } | null>("get_windows_pty_info").then((info) => {
+    if (info && info.backend === "conpty") {
+      windowsPtyInfo = { backend: "conpty", buildNumber: info.build_number };
+    }
+  }).catch(() => {});
 
   document.documentElement.classList.toggle("minimap-auto-hide", minimapAutoHideRef.v);
   document.documentElement.style.setProperty("--minimap-width", `${minimapWidthRef.v}px`);
@@ -716,33 +766,6 @@ async function boot(): Promise<void> {
     }
     host.classList.add("pane-terminal-host--ctrl-link-hover");
     host.setAttribute("title", `Ctrl+Click to open ${url}`);
-  };
-
-  const repositionCursorFromClick = (
-    paneId: string,
-    term: Terminal,
-    host: HTMLElement,
-    ev: MouseEvent,
-  ): void => {
-    if (!clickToCursorRef.v) return;
-    if (ev.button !== 0 || ev.defaultPrevented) return;
-    if (ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
-    if (ev.detail !== 1) return;
-    if (term.hasSelection()) return;
-
-    const cell = getTerminalClickCell(term, host, ev);
-    if (!cell) return;
-
-    const b = term.buffer.active;
-    const cursorAbsY = b.baseY + b.cursorY;
-    const clickAbsY = b.viewportY + cell.row;
-    if (clickAbsY !== cursorAbsY) return;
-
-    const delta = cell.col - b.cursorX;
-    if (delta === 0) return;
-    const n = Math.abs(delta);
-    const seq = delta > 0 ? "\x1b[C".repeat(n) : "\x1b[D".repeat(n);
-    queuePtyWrite(paneId, seq);
   };
 
   const isTooltipSuppressed = (): boolean =>
@@ -1803,6 +1826,29 @@ async function boot(): Promise<void> {
       scrollbackLines: lp.scrollback_lines,
       fontStack: terminalFontStackFromDocument(),
       cursorStyle: cursorStyleRef.v,
+      cursorBlink: cursorBlinkRef.v,
+      cursorInactiveStyle: cursorInactiveStyleRef.v,
+      cursorWidth: cursorWidthRef.v,
+      altClickMovesCursor: altClickCursorRef.v,
+      fontSize: fontSizeRef.v,
+      fontWeight: fontWeightRef.v,
+      fontWeightBold: fontWeightBoldRef.v,
+      lineHeight: lineHeightRef.v,
+      letterSpacing: letterSpacingRef.v,
+      drawBoldTextInBrightColors: drawBoldBrightRef.v,
+      customGlyphs: customGlyphsRef.v,
+      smoothScrollDuration: smoothScrollRef.v,
+      scrollSensitivity: scrollSensitivityRef.v,
+      fastScrollSensitivity: fastScrollSensitivityRef.v,
+      minimumContrastRatio: contrastRatioRef.v,
+      windowsPty: windowsPtyInfo,
+      linkHandler: {
+        activate: (_event, uri) => {
+          if (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("mailto:")) {
+            void invoke("open_external_url", { url: uri }).catch((e) => void showAlert(String(e), "Open link"));
+          }
+        },
+      },
       getTheme: (paneId) => xtermThemeForPane(paneId),
       getPaneName: (paneId) => paneNames.get(paneId),
       getPaneCssVars: (paneId) => cssVarsForPane(paneId),
@@ -1919,7 +1965,6 @@ async function boot(): Promise<void> {
         });
         pt.host.addEventListener("click", (ev) => {
           if (openLinkFromCtrlClick(pt.term, pt.host, ev)) return;
-          repositionCursorFromClick(id, pt.term, pt.host, ev);
         });
         pt.host.addEventListener("wheel", (ev) => handlePaneZoomWheel(id, ev), { passive: false });
         pt.host.addEventListener("mousemove", (ev) => {
@@ -3278,6 +3323,32 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     return s.trim().replace(/\\/g, "/").toLowerCase();
   }
 
+  /** Apply live-updatable xterm.js options to all active terminals. */
+  const applyTerminalDisplayOptions = (): void => {
+    for (const host of tabPaneHosts.values()) {
+      for (const leafId of host.getLeafIdsInOrder()) {
+        const pt = host.getPaneTerminal(leafId);
+        if (!pt) continue;
+        const t = pt.term;
+        t.options.cursorBlink = cursorBlinkRef.v;
+        t.options.cursorInactiveStyle = cursorInactiveStyleRef.v;
+        t.options.cursorWidth = cursorWidthRef.v;
+        t.options.altClickMovesCursor = altClickCursorRef.v;
+        t.options.fontSize = fontSizeRef.v;
+        t.options.fontWeight = fontWeightRef.v as any;
+        t.options.fontWeightBold = fontWeightBoldRef.v as any;
+        t.options.lineHeight = lineHeightRef.v;
+        t.options.letterSpacing = letterSpacingRef.v;
+        t.options.drawBoldTextInBrightColors = drawBoldBrightRef.v;
+        t.options.customGlyphs = customGlyphsRef.v;
+        t.options.smoothScrollDuration = smoothScrollRef.v;
+        t.options.scrollSensitivity = scrollSensitivityRef.v;
+        t.options.fastScrollSensitivity = fastScrollSensitivityRef.v;
+        t.options.minimumContrastRatio = contrastRatioRef.v;
+      }
+    }
+  };
+
   const settingsApi = settingsPanelEl
     ? createSettingsPanel(settingsPanelEl, async (saved: ParttyPrefs, previous: ParttyPrefs) => {
         syncRuntimeShedFromPrefs(saved);
@@ -3294,7 +3365,22 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         gitAwareSearchRef.v = saved.file_search_git_aware ?? true;
         confirmDeletePromptRef.v = saved.confirm_delete_prompt ?? true;
         disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
-        clickToCursorRef.v = saved.terminal_click_to_cursor ?? true;
+        altClickCursorRef.v = saved.terminal_alt_click_moves_cursor ?? true;
+        cursorBlinkRef.v = saved.terminal_cursor_blink ?? true;
+        cursorInactiveStyleRef.v = (saved as Partial<ParttyPrefs>).terminal_cursor_inactive_style as "outline" | "block" | "bar" | "underline" | "none" | undefined ?? "outline";
+        cursorWidthRef.v = (saved as Partial<ParttyPrefs>).terminal_cursor_width ?? 1;
+        fontSizeRef.v = (saved as Partial<ParttyPrefs>).terminal_font_size ?? 12;
+        fontWeightRef.v = (saved as Partial<ParttyPrefs>).terminal_font_weight ?? "normal";
+        fontWeightBoldRef.v = (saved as Partial<ParttyPrefs>).terminal_font_weight_bold ?? "bold";
+        lineHeightRef.v = (saved as Partial<ParttyPrefs>).terminal_line_height ?? 1;
+        letterSpacingRef.v = (saved as Partial<ParttyPrefs>).terminal_letter_spacing ?? 0;
+        drawBoldBrightRef.v = (saved as Partial<ParttyPrefs>).terminal_draw_bold_bright ?? true;
+        customGlyphsRef.v = (saved as Partial<ParttyPrefs>).terminal_custom_glyphs ?? true;
+        smoothScrollRef.v = (saved as Partial<ParttyPrefs>).terminal_smooth_scroll_duration ?? 0;
+        scrollSensitivityRef.v = (saved as Partial<ParttyPrefs>).terminal_scroll_sensitivity ?? 1;
+        fastScrollSensitivityRef.v = (saved as Partial<ParttyPrefs>).terminal_fast_scroll_sensitivity ?? 5;
+        contrastRatioRef.v = (saved as Partial<ParttyPrefs>).terminal_minimum_contrast_ratio ?? 1;
+        applyTerminalDisplayOptions();
         backspaceDeleteSelectionRef.v = saved.terminal_backspace_delete_selection ?? true;
         if ((saved.minimap_granularity ?? "cell") !== minimapGranularityRef.v) {
           minimapGranularityRef.v = saved.minimap_granularity ?? "row";

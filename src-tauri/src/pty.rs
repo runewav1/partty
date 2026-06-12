@@ -851,3 +851,27 @@ fn shell_command_interactive(prefs: &Prefs) -> Result<CommandBuilder, String> {
 
     apply_cwd(cmd, prefs)
 }
+
+/// Return Windows ConPTY info for xterm.js' `windowsPty` option.
+/// On non-Windows or if the build number cannot be determined, returns None.
+#[cfg(windows)]
+pub fn windows_pty_info() -> Option<WindowsPtyInfo> {
+    let build = sysinfo::System::os_version()
+        .and_then(|v| v.split('.').last()?.parse::<u32>().ok())
+        .unwrap_or(0);
+    Some(WindowsPtyInfo {
+        backend: "conpty".to_string(),
+        build_number: build,
+    })
+}
+
+#[cfg(not(windows))]
+pub fn windows_pty_info() -> Option<WindowsPtyInfo> {
+    None
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct WindowsPtyInfo {
+    pub backend: String,
+    pub build_number: u32,
+}

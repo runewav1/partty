@@ -180,14 +180,77 @@
                       <option value="block">Block</option><option value="underline">Underline</option><option value="bar">Bar</option>
                     </select>
                   </div>
+                  <div class="settings-row settings-row--compact">
+                    <span class="settings-row-label">Cursor inactive</span>
+                    <select id="setting-cursor-inactive-style" name="terminal_cursor_inactive_style" class="settings-input settings-input--narrow">
+                      <option value="outline">Outline</option><option value="block">Block</option><option value="bar">Bar</option><option value="underline">Underline</option><option value="none">None</option>
+                    </select>
+                  </div>
+                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_cursor_blink" checked /><span>Blinking cursor</span></label>
+                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_alt_click_moves_cursor" checked /><span>Alt+click cursor</span></label>
+                  <div class="settings-row settings-row--compact">
+                    <span class="settings-row-label">Font size</span>
+                    <input name="terminal_font_size" type="number" min="8" max="48" step="1" class="settings-input settings-input--narrow" />
+                  </div>
+                  <div class="settings-row settings-row--compact">
+                    <span class="settings-row-label">Font weight</span>
+                    <select name="terminal_font_weight" class="settings-input settings-input--narrow">
+                      <option value="normal">normal</option><option value="bold">bold</option><option value="100">100</option><option value="200">200</option><option value="300">300</option><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option><option value="800">800</option><option value="900">900</option>
+                    </select>
+                  </div>
+                  <div class="settings-row settings-row--compact">
+                    <span class="settings-row-label">Bold weight</span>
+                    <select name="terminal_font_weight_bold" class="settings-input settings-input--narrow">
+                      <option value="normal">normal</option><option value="bold">bold</option><option value="100">100</option><option value="200">200</option><option value="300">300</option><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option><option value="800">800</option><option value="900">900</option>
+                    </select>
+                  </div>
+                  <div class="settings-row settings-row--compact">
+                    <span class="settings-row-label">Line height</span>
+                    <input name="terminal_line_height" type="number" min="0.5" max="4" step="0.1" class="settings-input settings-input--narrow" />
+                  </div>
+                  <div class="settings-row settings-row--compact">
+                    <span class="settings-row-label">Letter spacing</span>
+                    <input name="terminal_letter_spacing" type="number" min="-2" max="10" step="0.5" class="settings-input settings-input--narrow" />
+                  </div>
+                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_draw_bold_bright" checked /><span>Bold = bright colors</span></label>
+                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_custom_glyphs" checked /><span>Box‑drawing glyphs</span></label>
                   <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_no_round" /><span>Square panes</span></label>
                   <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_no_pane_border" /><span>Hide borders</span></label>
                   <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_no_focus_border" /><span>No focus accent</span></label>
                   <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="focus_follows_cursor" /><span>Pointer focus</span></label>
                   <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="blur_unfocused_panes" /><span>Blur inactive</span></label>
                   <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="dim_unfocused_panes" /><span>Dim inactive</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_click_to_cursor" /><span>Click cursor</span></label>
                   <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_backspace_delete_selection" checked /><span>Backspace selection</span></label>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="settings-section-hd">Scroll</div>
+              <div class="settings-section-bd">
+                <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">Smooth duration</span>
+                  <input name="terminal_smooth_scroll_duration" type="number" min="0" max="1000" step="50" class="settings-input settings-input--narrow" />
+                  <span class="settings-hint" style="margin-left:2px">ms</span>
+                </div>
+                <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">Sensitivity</span>
+                  <input name="terminal_scroll_sensitivity" type="number" min="0.1" max="10" step="0.1" class="settings-input settings-input--narrow" />
+                </div>
+                <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">Fast sensitivity</span>
+                  <input name="terminal_fast_scroll_sensitivity" type="number" min="1" max="50" step="1" class="settings-input settings-input--narrow" />
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div class="settings-section-hd">Accessibility</div>
+              <div class="settings-section-bd">
+                <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">Contrast ratio</span>
+                  <input name="terminal_minimum_contrast_ratio" type="number" min="1" max="21" step="0.5" class="settings-input settings-input--narrow" />
+                  <span class="settings-hint" style="margin-left:2px">(1=off, 4.5=AA)</span>
                 </div>
               </div>
             </div>
