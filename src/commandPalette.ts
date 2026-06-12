@@ -9,6 +9,8 @@ export type PaletteCommand = {
   keywords?: string;
   /** Shown dimmed on the right when set (e.g. Ctrl+Shift+E) */
   hotkey?: string;
+  /** Rich HTML label (optional). When set, innerHTML is used instead of textContent. */
+  labelHtml?: string;
   run: () => void | Promise<void>;
   remove?: () => void | Promise<void>;
   removeLabel?: string;
@@ -23,6 +25,12 @@ export type CommandPaletteMount = {
   onBeforeOpen?: () => Promise<void>;
   /** Called after close (success or cancel) so host can refocus terminal */
   onClosed?: () => void;
+  /** If set, Tab triggers pane-name autocomplete for @pane: syntax.
+   *  Receives the current input value and the currently selected command;
+   *  returns the new input value or null to do nothing. */
+  onTabComplete?: (currentInput: string, selectedCommand: PaletteCommand | null) => string | null;
+  /** If set, re‑renders the list every N ms while open (for live-updating labels). */
+  refreshMs?: number;
 };
 
 function normalizeQuery(raw: string): string[] {
@@ -45,12 +53,13 @@ export function createCommandPalette(mount: CommandPaletteMount): {
   isOpen(): boolean;
   dispose(): void;
 } {
-  const { root, input, list, getCommands, onBeforeOpen, onClosed } = mount;
+  const { root, input, list, getCommands, onBeforeOpen, onClosed, onTabComplete, refreshMs } = mount;
   let open = false;
   let opening = false;
   let selected = 0;
   let filtered: readonly PaletteCommand[] = [];
   let filterRaf = 0;
+  let refreshTimer = 0;
 
   function applyFilter(): void {
     const parts = normalizeQuery(input.value);
@@ -82,7 +91,11 @@ export function createCommandPalette(mount: CommandPaletteMount): {
       row.className = "command-palette-item-row";
       const lab = document.createElement("span");
       lab.className = "command-palette-item-label";
-      lab.textContent = cmd.label;
+      if (cmd.labelHtml) {
+        lab.innerHTML = cmd.labelHtml;
+      } else {
+        lab.textContent = cmd.label;
+      }
       row.appendChild(lab);
       if (cmd.remove) {
         const del = document.createElement("button");
@@ -159,6 +172,9 @@ export function createCommandPalette(mount: CommandPaletteMount): {
         input.value = "";
         selected = 0;
         applyFilter();
+        if (refreshMs) {
+          refreshTimer = window.setInterval(() => applyFilter(), refreshMs);
+        }
         requestAnimationFrame(() => {
           input.focus();
           input.select();
@@ -175,6 +191,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
     root.classList.add("command-palette--hidden");
     root.setAttribute("aria-hidden", "true");
     list.replaceChildren();
+    if (refreshTimer) { window.clearInterval(refreshTimer); refreshTimer = 0; }
     if (!skipFocus) onClosed?.();
   }
 
@@ -225,6 +242,19 @@ export function createCommandPalette(mount: CommandPaletteMount): {
       e.preventDefault();
       e.stopPropagation();
       void runSelected();
+      return;
+    }
+    if (e.key === "Tab" && onTabComplete) {
+      e.preventDefault();
+      e.stopPropagation();
+      const sel = filtered[selected] ?? null;
+      const next = onTabComplete(input.value, sel);
+      if (next !== null && next !== input.value) {
+        input.value = next;
+        selected = 0;
+        scheduleFilter();
+      }
+      return;
     }
   }
 

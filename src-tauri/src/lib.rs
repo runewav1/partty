@@ -1,4 +1,3 @@
-mod command_history;
 mod fs_watcher;
 mod fs_workspace;
 mod palette_commands;
@@ -54,7 +53,6 @@ pub struct AppState {
     /// Incremented whenever a delayed destroy should be invalidated (e.g. window was shown again).
     pub hide_destroy_generation: AtomicU64,
     pub app_session_id: String,
-    pub command_history: command_history::CommandHistoryStore,
     /// Filesystem watcher for file tree live-updating.
     pub fs_watcher: fs_watcher::WatcherHandle,
     /// Detached pane windows keyed by window label.
@@ -1840,7 +1838,6 @@ fn toggle_overlay(app: AppHandle) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let loaded = load_state();
-    let command_history = command_history::create_store().expect("create in-memory command history store");
 
     tauri::Builder::default()
         // Single-instance must run before global shortcuts: otherwise a second process tries to
@@ -1889,7 +1886,6 @@ pub fn run() {
             defer_prepare_show_until_webview_ready: AtomicBool::new(false),
             hide_destroy_generation: AtomicU64::new(0),
             app_session_id: make_app_session_id(),
-            command_history,
             fs_watcher: fs_watcher::create_watcher_handle(),
             detached_panes: Mutex::new(HashMap::new()),
         })
@@ -1906,11 +1902,6 @@ pub fn run() {
             pty_shell_cwd,
             pty_shell_exe_token,
             get_persisted_state,
-            command_history::append_command_history_records,
-            command_history::get_command_history,
-            command_history::delete_command_history,
-            command_history::delete_command_history_record,
-            command_history::delete_command_histories_with_prefix,
             get_app_session_id,
             list_custom_theme_names,
             read_custom_theme_json,

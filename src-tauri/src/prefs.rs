@@ -56,28 +56,6 @@ fn default_scrollback_lines() -> u32 {
     1000
 }
 
-fn default_command_history_flush_interval_sec() -> f64 {
-    0.0
-}
-
-fn default_command_history_max_records_per_pane() -> usize {
-    2000
-}
-
-fn default_command_history_max_output_bytes() -> usize {
-    256 * 1024
-}
-
-fn default_command_history_exclude_commands() -> Vec<String> {
-    [
-        "nvim", "vim", "vi", "nano", "emacs", "less", "more", "man", "top", "htop", "btop", "btm",
-        "opencode", "lazygit", "tig", "fzf",
-    ]
-    .into_iter()
-    .map(String::from)
-    .collect()
-}
-
 fn default_snapshot_max_lines() -> u32 {
     2500
 }
@@ -114,14 +92,6 @@ fn default_window_effect_opacity() -> f64 {
     0.0
 }
 
-fn default_pane_background_opacity() -> f64 {
-    1.0
-}
-
-fn default_pane_background_blur() -> f64 {
-    0.0
-}
-
 fn default_pane_corner_radius() -> f64 {
     6.0
 }
@@ -142,6 +112,14 @@ fn default_cursor_style() -> String {
     "block".to_string()
 }
 
+fn default_process_notification_threshold() -> f64 {
+    5.0
+}
+
+fn default_process_notification_show_for() -> f64 {
+    5000.0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
@@ -158,33 +136,6 @@ pub struct Prefs {
     /// xterm scrollback capacity (older lines discarded by xterm when over limit).
     #[serde(default = "default_scrollback_lines")]
     pub scrollback_lines: u32,
-    /// Persist shell-integration command history per pane. Opt-in; disabled favors terminal throughput.
-    #[serde(default)]
-    pub command_history_enabled: bool,
-    /// Flush pending command history every N seconds while the app is open (0 = disabled).
-    #[serde(default = "default_command_history_flush_interval_sec")]
-    pub command_history_flush_interval_sec: f64,
-    /// Flush pending command history immediately after a command finishes.
-    #[serde(default = "default_true")]
-    pub command_history_flush_on_command_end: bool,
-    /// Max retained command records per pane on disk.
-    #[serde(default = "default_command_history_max_records_per_pane")]
-    pub command_history_max_records_per_pane: usize,
-    /// Capture command stdout/stderr text into history records.
-    #[serde(default = "default_true")]
-    pub command_history_capture_output: bool,
-    /// Max output bytes retained per command record before truncating oldest output.
-    #[serde(default = "default_command_history_max_output_bytes")]
-    pub command_history_max_output_bytes: usize,
-    /// Flush pending command records when the app is dismissed/hidden.
-    #[serde(default = "default_true")]
-    pub command_history_flush_on_hide: bool,
-    /// If non-empty, matching commands are always tracked, even if also excluded.
-    #[serde(default)]
-    pub command_history_include_commands: Vec<String>,
-    /// Commands excluded from history capture/tracking.
-    #[serde(default = "default_command_history_exclude_commands")]
-    pub command_history_exclude_commands: Vec<String>,
     /// Max lines kept when building a snapshot for `discard_buffer_on_hide`.
     #[serde(default = "default_snapshot_max_lines")]
     pub snapshot_max_lines: u32,
@@ -284,12 +235,6 @@ pub struct Prefs {
     /// Reserved alpha value for window backdrop tinting.
     #[serde(default = "default_window_effect_opacity")]
     pub window_effect_opacity: f64,
-    /// CSS opacity for terminal pane backgrounds (0 = fully transparent, 1 = opaque).
-    #[serde(default = "default_pane_background_opacity")]
-    pub pane_background_opacity: f64,
-    /// CSS backdrop blur for terminal pane backgrounds in px.
-    #[serde(default = "default_pane_background_blur")]
-    pub pane_background_blur: f64,
     /// Pane corner radius in px when square panes are disabled.
     #[serde(default = "default_pane_corner_radius")]
     pub pane_corner_radius: f64,
@@ -308,6 +253,13 @@ pub struct Prefs {
     /// `block` | `underline` | `bar` — terminal cursor style.
     #[serde(default = "default_cursor_style")]
     pub terminal_cursor_style: String,
+    /// Minimum command duration (seconds) before a completion notification fires.
+    /// Sub‑second granularity is supported (e.g. 2.5 = 2.5 s). Default 5.0.
+    #[serde(default = "default_process_notification_threshold")]
+    pub process_notification_threshold: f64,
+    /// How long the completion toast stays visible in milliseconds (1000–30000). Default 5000.
+    #[serde(default = "default_process_notification_show_for")]
+    pub process_notification_show_for: f64,
     /// App chrome + terminal palette id (see frontend `themePresets`).
     #[serde(default = "default_ui_theme")]
     pub ui_theme: String,
@@ -333,15 +285,6 @@ impl Default for Prefs {
             webgl_shed_on_hide: true,
             discard_buffer_on_hide: false,
             scrollback_lines: 1000,
-            command_history_enabled: false,
-            command_history_flush_interval_sec: default_command_history_flush_interval_sec(),
-            command_history_flush_on_command_end: true,
-            command_history_max_records_per_pane: default_command_history_max_records_per_pane(),
-            command_history_capture_output: true,
-            command_history_max_output_bytes: default_command_history_max_output_bytes(),
-            command_history_flush_on_hide: true,
-            command_history_include_commands: Vec::new(),
-            command_history_exclude_commands: default_command_history_exclude_commands(),
             snapshot_max_lines: 2500,
             preload_pty_on_startup: true,
             preload_webgl_on_startup: true,
@@ -380,14 +323,14 @@ impl Default for Prefs {
             split_layout_style: default_split_layout_style(),
             window_effect_mode: default_window_effect_mode(),
             window_effect_opacity: default_window_effect_opacity(),
-            pane_background_opacity: default_pane_background_opacity(),
-            pane_background_blur: default_pane_background_blur(),
             pane_corner_radius: default_pane_corner_radius(),
             minimap_granularity: default_minimap_granularity(),
             minimap_width: default_minimap_width(),
             minimap_auto_hide: false,
             minimap_opacity: default_minimap_opacity(),
             terminal_cursor_style: default_cursor_style(),
+            process_notification_threshold: default_process_notification_threshold(),
+            process_notification_show_for: default_process_notification_show_for(),
         }
     }
 }

@@ -30,7 +30,6 @@ opener = "0.8"
 git2 = "0.21"
 miniz_oxide = "0.9"
 crc32fast = "1.5"
-rusqlite = { version = "0.40", features = ["bundled"] }
 walkdir = "2"
 regex = "1"
 

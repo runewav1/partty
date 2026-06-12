@@ -56,8 +56,6 @@
   --motion-medium: calc(0.2s * var(--termie-animation-scale));
   --motion-slow: calc(0.28s * var(--termie-animation-scale));
   --termie-app-bg-alpha: 1;
-  --termie-pane-bg-alpha: 1;
-  --partty-pane-bg-blur: 0px;
   --termie-pane-radius: 6px;
   
   /* ===== Minimap Colors ===== */
@@ -1559,9 +1557,7 @@ button.file-tree-label:hover {
   border: 1px solid transparent;
   border-radius: var(--termie-pane-radius);
   overflow: hidden;
-  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-pane-bg-alpha) * 100%), transparent);
-  backdrop-filter: blur(var(--partty-pane-bg-blur)) saturate(1.08);
-  -webkit-backdrop-filter: blur(var(--partty-pane-bg-blur)) saturate(1.08);
+  background: var(--term-bg);
   transition:
     border-color var(--motion-medium) var(--motion-ease-out),
     opacity var(--motion-medium) var(--motion-ease-out),
@@ -1570,24 +1566,6 @@ button.file-tree-label:hover {
     outline var(--motion-fast) var(--motion-ease-out);
 }
 
-html.pane-bg-blurred .pane-leaf::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-pane-bg-alpha) * 100%), transparent);
-  backdrop-filter: blur(var(--partty-pane-bg-blur)) saturate(1.12);
-  -webkit-backdrop-filter: blur(var(--partty-pane-bg-blur)) saturate(1.12);
-}
-
-html.pane-bg-transparent .pane-terminal-row,
-html.pane-bg-transparent .pane-terminal-host,
-html.pane-bg-transparent .xterm-viewport,
-html.pane-bg-transparent .pane-minimap {
-  background: transparent !important;
-  background-color: transparent !important;
-}
 
 .pane-leaf > * {
   position: relative;
@@ -1802,7 +1780,7 @@ html.terminal-motion-off *::after {
   height: 100%;
   gap: 0;
   padding: var(--pane-inner-pad-y) var(--pane-inner-pad-x);
-  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-pane-bg-alpha) * 100%), transparent);
+  background: var(--term-bg);
 }
 
 .pane-terminal-host {
@@ -1812,7 +1790,7 @@ html.terminal-motion-off *::after {
   overflow: hidden;
   padding: 0;
   position: relative;
-  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-pane-bg-alpha) * 100%), transparent);
+  background: var(--term-bg);
 }
 
 .pane-corner-handle {
@@ -1914,7 +1892,7 @@ html.terminal-motion-off *::after {
 
 /* Native scrollbar hidden; minimap + wheel handle scrolling */
 .xterm-viewport {
-  background-color: color-mix(in srgb, var(--term-bg) calc(var(--termie-pane-bg-alpha) * 100%), transparent) !important;
+  background-color: var(--term-bg) !important;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
@@ -1959,18 +1937,6 @@ html.terminal-motion-off *::after {
 .xterm-screen {
   width: 100% !important;
   cursor: text;
-}
-
-html.pane-bg-transparent .xterm,
-html.pane-bg-transparent .xterm-screen,
-html.pane-bg-transparent .xterm-rows,
-html.pane-bg-transparent .xterm-text-layer,
-html.pane-bg-transparent .xterm-link-layer,
-html.pane-bg-transparent .xterm-selection-layer,
-html.pane-bg-transparent .xterm-cursor-layer,
-html.pane-bg-transparent .xterm-screen canvas {
-  background: transparent !important;
-  background-color: transparent !important;
 }
 
 .pane-terminal-host--ctrl-link-hover .xterm-screen {
@@ -2296,6 +2262,27 @@ html.file-tree-right .command-palette {
   min-width: 0;
   font-size: 13px;
   color: var(--ui-chrome-fg);
+}
+
+.cp-label-prefix {
+  color: color-mix(in srgb, var(--accent-primary) 72%, var(--ui-chrome-fg));
+  font-weight: 600;
+}
+
+.cp-label-name {
+  color: var(--ui-chrome-fg);
+  font-weight: 600;
+}
+
+.cp-label-cwd {
+  color: var(--ui-chrome-muted);
+  margin-left: 0.4em;
+}
+
+.cp-label-tab {
+  color: color-mix(in srgb, var(--accent-primary) 52%, var(--ui-chrome-muted));
+  margin-left: 0.4em;
+  font-size: 0.88em;
 }
 
 .command-palette-item-hk {
@@ -2965,6 +2952,23 @@ html.file-tree-right .command-palette {
   resize: vertical;
   min-height: 52px;
   font-family: var(--font-terminal);
+}
+/* Standalone inputs (not in a settings-row) — e.g. whitelist textarea */
+.settings-section-bd > .settings-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--input-border);
+  border-radius: 5px;
+  background: var(--input-bg);
+  color: var(--input-text);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+  -moz-appearance: textfield;
+  font-family: var(--font-terminal);
+  resize: vertical;
 }
 .settings-input--narrow {
   max-width: 96px;
@@ -3864,4 +3868,59 @@ html.file-tree-right .command-palette {
 .theme-modal-item:hover .presets-item-actions,
 .theme-modal-item--active .presets-item-actions {
   opacity: 1;
+}
+
+/* ── Process completion notification toast ── */
+.proc-toast {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 2000;
+  max-width: 480px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--term-bg) 94%, var(--ui-chrome-fg) 6%);
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ui-chrome-fg);
+  transition: opacity var(--motion-medium) var(--motion-ease-out);
+  opacity: 1;
+}
+
+.proc-toast--hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.proc-toast-cmd {
+  color: color-mix(in srgb, var(--accent-primary) 78%, var(--ui-chrome-fg));
+  font-weight: 600;
+}
+
+.proc-toast-pane {
+  color: var(--ui-chrome-fg);
+  font-weight: 600;
+}
+
+.proc-toast-cwd {
+  color: var(--ui-chrome-muted);
+}
+
+.proc-toast-nav {
+  background: none;
+  border: 1px solid var(--input-border);
+  border-radius: 3px;
+  color: var(--accent-primary);
+  cursor: pointer;
+  font-size: inherit;
+  line-height: 1;
+  margin-left: 6px;
+  padding: 1px 6px;
+  transition: background 0.15s ease;
+}
+.proc-toast-nav:hover {
+  background: var(--pane-active-bg);
+  border-color: var(--accent-primary);
 }

@@ -213,34 +213,18 @@
               </div>
             </div>
 
-            <div class="settings-section" data-parent-section="command_history_enabled">
-              <div class="settings-section-hd">Command History</div>
+              <div class="settings-section">
+              <div class="settings-section-hd">Processes</div>
               <div class="settings-section-bd">
-                <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="command_history_enabled" /><span>Enable</span></label>
-                <div class="settings-toggles" data-child-of="command_history_enabled">
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="command_history_capture_output" checked /><span>Store output</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="command_history_flush_on_command_end" checked /><span>Flush after cmd</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="command_history_flush_on_hide" checked /><span>Flush on hide</span></label>
+                <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">Notify after</span>
+                  <input name="process_notification_threshold" class="settings-input settings-input--narrow" type="number" value="5.0" min="0.1" max="3600" step="0.1" style="width:4.8em" />
+                  <span class="settings-hint" style="margin-left:2px">s</span>
                 </div>
-                <div class="settings-row settings-row--compact" data-child-of="command_history_enabled">
-                  <span class="settings-row-label">Interval sec</span>
-                  <input id="setting-command-history-flush" name="command_history_flush_interval_sec" type="number" min="0" max="86400" step="0.25" class="settings-input settings-input--narrow" />
-                </div>
-                <div class="settings-row settings-row--compact" data-child-of="command_history_enabled">
-                  <span class="settings-row-label">Max records</span>
-                  <input id="setting-command-history-records" name="command_history_max_records_per_pane" type="number" min="50" max="50000" step="50" class="settings-input settings-input--narrow" />
-                </div>
-                <div class="settings-row settings-row--compact" data-child-of="command_history_enabled">
-                  <span class="settings-row-label">Output bytes</span>
-                  <input id="setting-command-history-output" name="command_history_max_output_bytes" type="number" min="4096" max="10485760" step="4096" class="settings-input settings-input--narrow" />
-                </div>
-                <div class="settings-row" data-child-of="command_history_enabled">
-                  <span class="settings-row-label">Include</span>
-                  <textarea id="setting-command-history-include" name="command_history_include_commands" class="settings-input" rows="2"></textarea>
-                </div>
-                <div class="settings-row" data-child-of="command_history_enabled">
-                  <span class="settings-row-label">Exclude</span>
-                  <textarea id="setting-command-history-exclude" name="command_history_exclude_commands" class="settings-input" rows="3"></textarea>
+                <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">Show for</span>
+                  <input name="process_notification_show_for" class="settings-input settings-input--narrow" type="number" value="5000" min="1000" max="30000" step="500" style="width:4.8em" />
+                  <span class="settings-hint" style="margin-left:2px">ms</span>
                 </div>
               </div>
             </div>
@@ -257,14 +241,6 @@
                 <div class="settings-row settings-row--compact">
                   <span class="settings-row-label">Backdrop α</span>
                   <input id="setting-window-effect-opacity" name="window_effect_opacity" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
-                </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Pane α</span>
-                  <input id="setting-pane-background-opacity" name="pane_background_opacity" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
-                </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Pane blur</span>
-                  <input id="setting-pane-background-blur" name="pane_background_blur" type="number" min="0" max="40" step="1" class="settings-input settings-input--narrow" />
                 </div>
               </div>
             </div>
@@ -392,5 +368,6 @@
         </div>
       </div>
     </div>
+    <div id="proc-toast" class="proc-toast proc-toast--hidden" aria-live="polite"></div>
   </body>
 </html>

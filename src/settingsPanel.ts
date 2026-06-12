@@ -9,15 +9,6 @@ export type ParttyPrefs = {
   webgl_shed_on_hide: boolean;
   discard_buffer_on_hide: boolean;
   scrollback_lines: number;
-  command_history_enabled: boolean;
-  command_history_flush_interval_sec: number;
-  command_history_flush_on_command_end: boolean;
-  command_history_max_records_per_pane: number;
-  command_history_capture_output: boolean;
-  command_history_max_output_bytes: number;
-  command_history_flush_on_hide: boolean;
-  command_history_include_commands: string[];
-  command_history_exclude_commands: string[];
   snapshot_max_lines: number;
   preload_pty_on_startup: boolean;
   preload_webgl_on_startup: boolean;
@@ -57,8 +48,6 @@ export type ParttyPrefs = {
   terminal_animation_speed: string;
   window_effect_mode: string;
   window_effect_opacity: number;
-  pane_background_opacity: number;
-  pane_background_blur: number;
   pane_corner_radius: number;
   /** `cell` | `row` — minimap rendering granularity. */
   minimap_granularity: string;
@@ -70,6 +59,10 @@ export type ParttyPrefs = {
   minimap_opacity: number;
   /** `block` | `underline` | `bar` — terminal cursor style. */
   terminal_cursor_style: string;
+  /** Minimum seconds a command must run before a completion toast is shown (default 5.0). */
+  process_notification_threshold: number;
+  /** How long the toast stays visible in ms (default 5000, min 1000, max 30000). */
+  process_notification_show_for: number;
 };
 
 type DetectedShell = { name: string; path: string };
@@ -129,25 +122,14 @@ export function createSettingsPanel(
     const clamp01 = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fb; };
     const clampR = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(32, n)) : fb; };
     const clampW = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(16, Math.min(200, n)) : fb; };
-    const clampB = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(40, n)) : fb; };
     const clampG = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(32, n)) : fb; };
     const terminal_pane_gap = clampG(g("terminal_pane_gap"), previous.terminal_pane_gap ?? 6);
     const terminal_sandbox_padding = clampG(g("terminal_sandbox_padding"), previous.terminal_sandbox_padding ?? 0);
-    const gl = (n: string) => g(n).split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
 
     return {
       shell: g("shell") || "pwsh", shed_on_hide: gc("shed_on_hide"), always_on_top: gc("always_on_top"),
       initial_cwd: cwd || null, webgl_shed_on_hide: gc("webgl_shed_on_hide"), discard_buffer_on_hide: gc("discard_buffer_on_hide"),
       scrollback_lines: Math.max(0, Math.min(50000, parseInt(g("scrollback_lines"), 10) || 0)),
-      command_history_enabled: gc("command_history_enabled"),
-      command_history_flush_interval_sec: Math.max(0, Math.min(86400, Number.parseFloat(g("command_history_flush_interval_sec")) || 0)),
-      command_history_flush_on_command_end: gc("command_history_flush_on_command_end"),
-      command_history_max_records_per_pane: Math.max(50, Math.min(50000, parseInt(g("command_history_max_records_per_pane"), 10) || 2000)),
-      command_history_capture_output: gc("command_history_capture_output"),
-      command_history_max_output_bytes: Math.max(4096, Math.min(10485760, parseInt(g("command_history_max_output_bytes"), 10) || 262144)),
-      command_history_flush_on_hide: gc("command_history_flush_on_hide"),
-      command_history_include_commands: gl("command_history_include_commands"),
-      command_history_exclude_commands: gl("command_history_exclude_commands"),
       snapshot_max_lines: Math.max(50, Math.min(50000, parseInt(g("snapshot_max_lines"), 10) || 2500)),
       preload_pty_on_startup: gc("preload_pty_on_startup"), preload_webgl_on_startup: gc("preload_webgl_on_startup"),
       defer_window_show_until_prepared: gc("defer_window_show_until_prepared"),
@@ -169,14 +151,22 @@ export function createSettingsPanel(
       terminal_no_round: gc("terminal_no_round"), terminal_no_pane_border: gc("terminal_no_pane_border"),
       terminal_no_focus_border: gc("terminal_no_focus_border"), split_layout_style, terminal_animation_speed,
       window_effect_mode, window_effect_opacity: clamp01(g("window_effect_opacity"), 0),
-      pane_background_opacity: clamp01(g("pane_background_opacity"), 1),
-      pane_background_blur: clampB(g("pane_background_blur"), 0),
       pane_corner_radius: clampR(g("pane_corner_radius"), 6),
       minimap_granularity: g("minimap_granularity") === "cell" ? "cell" : "row",
       minimap_width: clampW(g("minimap_width"), 48),
       minimap_auto_hide: gc("minimap_auto_hide"),
       minimap_opacity: clamp01(g("minimap_opacity"), 0.12),
       terminal_cursor_style: ((v: string) => v === "underline" || v === "bar" ? v : "block")(gs("terminal_cursor_style")),
+      process_notification_threshold: ((): number => {
+        const raw = g("process_notification_threshold");
+        const n = Number.parseFloat(raw);
+        return Number.isFinite(n) ? Math.max(0.1, n) : 5.0;
+      })(),
+      process_notification_show_for: ((): number => {
+        const raw = g("process_notification_show_for");
+        const n = Number.parseFloat(raw);
+        return Number.isFinite(n) ? Math.max(1000, Math.min(30000, n)) : 5000;
+      })(),
     };
   }
 
@@ -198,23 +188,6 @@ export function createSettingsPanel(
   }
 
   function applySettingsTree(): void {
-    // Command history tree
-    {
-      const parentEl = form?.querySelector('[name="command_history_enabled"]') as HTMLInputElement | null;
-      const enabled = parentEl?.checked ?? false;
-      const container = root.querySelector('[data-child-of="command_history_enabled"]');
-      const siblingRows = root.querySelectorAll('[data-child-of="command_history_enabled"]');
-      const section = root.querySelector('[data-parent-section="command_history_enabled"]');
-      if (enabled) {
-        container?.classList.remove("settings-tree-hidden");
-        siblingRows.forEach((r) => (r as HTMLElement).classList.remove("settings-tree-hidden"));
-        section?.classList.remove("settings-section--disabled");
-      } else {
-        container?.classList.add("settings-tree-hidden");
-        siblingRows.forEach((r) => (r as HTMLElement).classList.add("settings-tree-hidden"));
-        section?.classList.add("settings-section--disabled");
-      }
-    }
     // File search tree: dim git-aware when search is hidden
     {
       const parentEl = form?.querySelector('[name="file_tree_disable_search"]') as HTMLInputElement | null;
@@ -289,15 +262,9 @@ export function createSettingsPanel(
     setVal("font_ui", pr.font_ui ?? "");
     setVal("font_file_tree", pr.font_file_tree ?? "");
     setVal("scrollback_lines", String(p.scrollback_lines));
-    setVal("command_history_flush_interval_sec", String(pr.command_history_flush_interval_sec ?? 0));
-    setVal("command_history_max_records_per_pane", String(pr.command_history_max_records_per_pane ?? 2000));
-    setVal("command_history_max_output_bytes", String(pr.command_history_max_output_bytes ?? 262144));
-    { const el = form.querySelector('[name="command_history_include_commands"]') as HTMLTextAreaElement | null; if (el) el.value = (pr.command_history_include_commands ?? []).join("\n"); }
-    { const el = form.querySelector('[name="command_history_exclude_commands"]') as HTMLTextAreaElement | null; if (el) el.value = (pr.command_history_exclude_commands ?? ["nvim","vim","vi","nano","emacs","less","more","man","top","htop","btop","btm","opencode","lazygit","tig","fzf"]).join("\n"); }
     setVal("snapshot_max_lines", String(p.snapshot_max_lines));
     setVal("window_effect_opacity", String(pr.window_effect_opacity ?? 0));
-    setVal("pane_background_opacity", String(pr.pane_background_opacity ?? 1));
-    setVal("pane_background_blur", String(pr.pane_background_blur ?? 0));
+    setVal("window_effect_opacity", String(pr.window_effect_opacity ?? 0));
     setVal("pane_corner_radius", String(pr.pane_corner_radius ?? 6));
     setVal("terminal_pane_gap", String(pr.terminal_pane_gap ?? (pr.terminal_no_gap ? 0 : 6)));
     setVal("terminal_sandbox_padding", String(pr.terminal_sandbox_padding ?? 0));
@@ -311,12 +278,10 @@ export function createSettingsPanel(
     setChk("minimap_auto_hide", pr.minimap_auto_hide === true);
     setVal("minimap_opacity", String(pr.minimap_opacity ?? 0.12));
     setSel("terminal_cursor_style", ((v?: string) => v === "underline" || v === "bar" ? v : "block")(pr.terminal_cursor_style));
+    setVal("process_notification_threshold", String(pr.process_notification_threshold ?? 5.0));
+    setVal("process_notification_show_for", String(pr.process_notification_show_for ?? 5000));
     setSel("split_layout_style", ((v?: string) => { v = (v ?? "balanced").toLowerCase(); return v === "dwindle" || v === "master" ? v : "balanced"; })(pr.split_layout_style));
 
-    setChk("command_history_enabled", pr.command_history_enabled === true);
-    setChk("command_history_capture_output", pr.command_history_capture_output ?? true);
-    setChk("command_history_flush_on_command_end", pr.command_history_flush_on_command_end ?? true);
-    setChk("command_history_flush_on_hide", pr.command_history_flush_on_hide ?? true);
     setChk("shed_on_hide", p.shed_on_hide);
     setChk("always_on_top", p.always_on_top);
     setChk("webgl_shed_on_hide", p.webgl_shed_on_hide);
@@ -362,8 +327,6 @@ export function createSettingsPanel(
     if (listenersInstalled) return;
     listenersInstalled = true;
 
-    const parentEl = form?.querySelector('[name="command_history_enabled"]') as HTMLInputElement | null;
-    parentEl?.addEventListener("change", () => { applySettingsTree(); applySettingsSearch(); });
     const searchToggle = form?.querySelector('[name="file_tree_disable_search"]') as HTMLInputElement | null;
     searchToggle?.addEventListener("change", () => { applySettingsTree(); applySettingsSearch(); });
 
