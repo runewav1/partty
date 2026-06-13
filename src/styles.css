@@ -58,12 +58,6 @@
   --termie-app-bg-alpha: 1;
   --termie-pane-radius: 6px;
   
-  /* ===== Minimap Colors ===== */
-  --minimap-width: 48px;
-  --minimap-opacity: 0.12;
-  --minimap-thumb: color-mix(in srgb, var(--term-fg) 35%, transparent);
-  --minimap-search-highlight: rgba(255, 230, 72, 0.92);
-  
   /* ===== Git Status Colors ===== */
   --git-untracked: #a1a1aa;
   --git-modified: #f59e0b;
@@ -165,27 +159,12 @@ html[data-theme="system"] {
   --backdrop-darkest: color-mix(in srgb, var(--term-bg) 40%, rgba(0, 0, 0, 0.55));
   --input-bg: var(--term-bg);
   --input-border: color-mix(in srgb, var(--term-fg) 22%, transparent);
-  --minimap-thumb: color-mix(in srgb, var(--term-fg) 28%, transparent);
   --pane-divider: color-mix(in srgb, var(--term-fg) 22%, transparent);
   --pane-divider-hover: color-mix(in srgb, var(--term-fg) 38%, transparent);
 }
 
 html.file-tree-on {
   --file-tree-width: min(var(--file-tree-user-width, 260px), 72vw);
-}
-
-/* Minimap off: Alt+Shift+M — hide per-pane minimap rails */
-html.minimap-off {
-}
-
-/* Minimap off: Alt+Shift+M — hide per-pane minimap rails */
-html.minimap-off .pane-minimap {
-  display: none !important;
-}
-
-/* Per-pane minimap hidden (Alt+Shift+M) while global minimaps stay on */
-.pane-leaf--minimap-off .pane-minimap {
-  display: none !important;
 }
 
 html,
@@ -1718,9 +1697,8 @@ html.pane-dim-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--f
   opacity: 0.62;
 }
 
-html.pane-blur-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--focused) .pane-terminal-host,
-html.pane-blur-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--focused) .pane-minimap {
-  filter: blur(1.6px) saturate(0.92);
+html.pane-blur-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--focused) {
+  filter: blur(calc(var(--pane-blur-radius, 1.6) * 1px)) saturate(0.92);
 }
 
 /* Panel creation animation */
@@ -1788,9 +1766,12 @@ html.terminal-motion-off *::after {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  padding: 0;
+  padding: calc(var(--pane-padding, 0) * 1px);
   position: relative;
   background: var(--term-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .pane-corner-handle {
@@ -1890,7 +1871,7 @@ html.terminal-motion-off *::after {
   box-shadow: none !important;
 }
 
-/* Native scrollbar hidden; minimap + wheel handle scrolling */
+/* Native scrollbar hidden; wheel handle scrolling */
 .xterm-viewport {
   background-color: var(--term-bg) !important;
   scrollbar-width: none;
@@ -1902,23 +1883,18 @@ html.terminal-motion-off *::after {
   height: 0;
 }
 
-/* xterm 6.0 internal scrollbar — we use the minimap overlay instead */
 .pane-terminal-host .scrollbar.vertical,
 .pane-terminal-host .scrollbar.horizontal {
   display: none !important;
 }
 
 .pane-terminal-host .xterm-scrollable-element {
-  width: 100% !important;
 }
 
 .pane-terminal-host .xterm-viewport {
-  width: 100% !important;
 }
 
 .xterm {
-  height: 100% !important;
-  width: 100% !important;
   padding: 0;
   overflow: hidden;
 }
@@ -1935,46 +1911,11 @@ html.terminal-motion-off *::after {
 }
 
 .xterm-screen {
-  width: 100% !important;
   cursor: text;
 }
 
 .pane-terminal-host--ctrl-link-hover .xterm-screen {
   cursor: pointer;
-}
-
-.pane-minimap {
-  position: absolute;
-  right: 6px;
-  top: 6px;
-  bottom: 6px;
-  width: var(--minimap-width, 48px);
-  z-index: 10;
-  opacity: 1;
-  pointer-events: auto;
-  overflow: hidden;
-  border-radius: 4px;
-  background: transparent;
-}
-
-.pane-minimap::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: var(--term-bg);
-  opacity: var(--minimap-opacity, 0.12);
-  border-radius: inherit;
-}
-
-/* Auto-hide: minimap invisible until hovered over the strip */
-html.minimap-auto-hide .pane-minimap {
-  opacity: 0;
-  transition: opacity var(--motion-fast) var(--motion-ease-out);
-}
-
-html.minimap-auto-hide .pane-minimap:hover {
-  opacity: 1;
 }
 
 html.zen-mode .term-toolbar,
@@ -1988,25 +1929,6 @@ html.zen-mode #terminal-stage {
 
 html.zen-mode #main-workspace {
   padding: 0;
-}
-
-.pane-minimap:active {
-  cursor: grabbing;
-}
-
-.minimap-compact {
-  width: 100%;
-  height: 100%;
-}
-
-.minimap-compact--hidden {
-  display: none !important;
-}
-
-.pane-minimap-canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
 }
 
 /* Command palette (Ctrl+Shift+P) — dim/blur does not cover the file tree dock */

@@ -28,6 +28,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_pane_blur_radius() -> f64 {
+    1.6
+}
+
 fn default_confirm_delete_prompt() -> bool {
     true
 }
@@ -90,18 +94,6 @@ fn default_window_effect_opacity() -> f64 {
 
 fn default_pane_corner_radius() -> f64 {
     6.0
-}
-
-fn default_minimap_granularity() -> String {
-    "row".to_string()
-}
-
-fn default_minimap_width() -> f64 {
-    48.0
-}
-
-fn default_minimap_opacity() -> f64 {
-    0.12
 }
 
 fn default_cursor_style() -> String {
@@ -193,6 +185,9 @@ pub struct Prefs {
     /// Apply a subtle blur to unfocused panes while split.
     #[serde(default)]
     pub blur_unfocused_panes: bool,
+    /// Blur radius in px applied to unfocused split panes when blur is enabled.
+    #[serde(default = "default_pane_blur_radius")]
+    pub pane_blur_radius: f64,
     /// Apply a subtle dimming effect to unfocused panes while split.
     #[serde(default)]
     pub dim_unfocused_panes: bool,
@@ -247,6 +242,9 @@ pub struct Prefs {
     /// Padding around the pane sandbox in px.
     #[serde(default = "default_terminal_sandbox_padding")]
     pub terminal_sandbox_padding: f64,
+    /// Padding (px) between the xterm canvas and the pane leaf border.
+    #[serde(default)]
+    pub terminal_pane_padding: f64,
     /// Remove rounded pane/chrome corners for dense terminal layouts.
     #[serde(default)]
     pub terminal_no_round: bool,
@@ -271,18 +269,6 @@ pub struct Prefs {
     /// Pane corner radius in px when square panes are disabled.
     #[serde(default = "default_pane_corner_radius")]
     pub pane_corner_radius: f64,
-    /// `cell` | `row` — minimap rendering granularity. `cell` shows column-level text shapes; `row` uses averaged per-line color (faster).
-    #[serde(default = "default_minimap_granularity")]
-    pub minimap_granularity: String,
-    /// Minimap column width in px.
-    #[serde(default = "default_minimap_width")]
-    pub minimap_width: f64,
-    /// When true, the minimap is hidden until the cursor hovers over its strip.
-    #[serde(default)]
-    pub minimap_auto_hide: bool,
-    /// Background opacity of the minimap overlay (0 = fully transparent, 1 = opaque).
-    #[serde(default = "default_minimap_opacity")]
-    pub minimap_opacity: f64,
     /// `block` | `underline` | `bar` — terminal cursor style.
     #[serde(default = "default_cursor_style")]
     pub terminal_cursor_style: String,
@@ -370,6 +356,7 @@ impl Default for Prefs {
             destroy_webview_on_hide: true,
             focus_follows_cursor: false,
             blur_unfocused_panes: false,
+            pane_blur_radius: default_pane_blur_radius(),
             dim_unfocused_panes: false,
             auto_copy_selection: false,
             shed_workspace_exit: "keep".to_string(),
@@ -393,6 +380,7 @@ impl Default for Prefs {
             terminal_no_gap: false,
             terminal_pane_gap: default_terminal_pane_gap(),
             terminal_sandbox_padding: default_terminal_sandbox_padding(),
+            terminal_pane_padding: 0.0,
             terminal_no_round: false,
             terminal_no_pane_border: false,
             terminal_no_focus_border: false,
@@ -401,10 +389,6 @@ impl Default for Prefs {
             window_effect_mode: default_window_effect_mode(),
             window_effect_opacity: default_window_effect_opacity(),
             pane_corner_radius: default_pane_corner_radius(),
-            minimap_granularity: default_minimap_granularity(),
-            minimap_width: default_minimap_width(),
-            minimap_auto_hide: false,
-            minimap_opacity: default_minimap_opacity(),
             terminal_cursor_style: default_cursor_style(),
             terminal_cursor_blink: true,
             terminal_cursor_inactive_style: default_cursor_inactive_style(),

@@ -16,6 +16,8 @@ export type ParttyPrefs = {
   destroy_webview_on_hide: boolean;
   focus_follows_cursor: boolean;
   blur_unfocused_panes: boolean;
+  /** Blur radius in px for unfocused split panes (default 1.6). */
+  pane_blur_radius?: number;
   dim_unfocused_panes: boolean;
   auto_copy_selection: boolean;
   ui_theme: string;
@@ -40,6 +42,8 @@ export type ParttyPrefs = {
   terminal_no_gap: boolean;
   terminal_pane_gap: number;
   terminal_sandbox_padding: number;
+  /** Padding (px) between the xterm canvas and the pane leaf border. */
+  terminal_pane_padding?: number;
   terminal_no_round: boolean;
   terminal_no_pane_border: boolean;
   terminal_no_focus_border: boolean;
@@ -48,14 +52,6 @@ export type ParttyPrefs = {
   window_effect_mode: string;
   window_effect_opacity: number;
   pane_corner_radius: number;
-  /** `cell` | `row` — minimap rendering granularity. */
-  minimap_granularity: string;
-  /** Minimap column width in px. */
-  minimap_width: number;
-  /** When true, minimap is hidden until the cursor hovers over it. */
-  minimap_auto_hide: boolean;
-  /** Background opacity of the minimap overlay (0–1). */
-  minimap_opacity: number;
   /** `block` | `underline` | `bar` — terminal cursor style. */
   terminal_cursor_style: string;
   /** Whether the cursor blinks. */
@@ -150,12 +146,12 @@ export function createSettingsPanel(
     const window_effect_mode = gs("window_effect_mode").replace(/-/g, "_") === "transparent" ? "transparent" : "off";
     const clamp01 = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fb; };
     const clampR = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(32, n)) : fb; };
-    const clampW = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(16, Math.min(200, n)) : fb; };
     const clampG = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(32, n)) : fb; };
     const clampf = (raw: string, fb: number, min: number, max: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fb; };
     const clamp1p = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(1, Math.min(10, n)) : fb; };
     const terminal_pane_gap = clampG(g("terminal_pane_gap"), previous.terminal_pane_gap ?? 6);
     const terminal_sandbox_padding = clampG(g("terminal_sandbox_padding"), previous.terminal_sandbox_padding ?? 0);
+    const terminal_pane_padding = clampG(g("terminal_pane_padding"), previous.terminal_pane_padding ?? 0);
 
     return {
       shell: g("shell") || "pwsh", shed_on_hide: gc("shed_on_hide"), always_on_top: gc("always_on_top"),
@@ -165,7 +161,7 @@ export function createSettingsPanel(
       preload_pty_on_startup: gc("preload_pty_on_startup"), preload_webgl_on_startup: gc("preload_webgl_on_startup"),
       defer_window_show_until_prepared: gc("defer_window_show_until_prepared"),
       destroy_webview_on_hide: gc("destroy_webview_on_hide"), focus_follows_cursor: gc("focus_follows_cursor"),
-      blur_unfocused_panes: gc("blur_unfocused_panes"), dim_unfocused_panes: gc("dim_unfocused_panes"),
+      blur_unfocused_panes: gc("blur_unfocused_panes"), pane_blur_radius: clampf(g("pane_blur_radius"), 1.6, 0, 10), dim_unfocused_panes: gc("dim_unfocused_panes"),
       auto_copy_selection: gc("auto_copy_selection"), shed_workspace_exit,
       always_summon_maximized: gc("always_summon_maximized"), summon_spawn_at_cursor: gc("summon_spawn_at_cursor"),
       hidden_from_taskbar: gc("hidden_from_taskbar"),
@@ -178,15 +174,12 @@ export function createSettingsPanel(
       confirm_delete_prompt: gc("confirm_delete_prompt"), ui_disable_tooltips: gc("ui_disable_tooltips"),
       terminal_alt_click_moves_cursor: gc("terminal_alt_click_moves_cursor"), terminal_backspace_delete_selection: gc("terminal_backspace_delete_selection"),
       always_open_in_zen_mode: gc("always_open_in_zen_mode"),
-      terminal_no_gap: terminal_pane_gap <= 0, terminal_pane_gap, terminal_sandbox_padding,
+      terminal_no_gap: terminal_pane_gap <= 0, terminal_pane_gap, terminal_sandbox_padding, terminal_pane_padding,
       terminal_no_round: gc("terminal_no_round"), terminal_no_pane_border: gc("terminal_no_pane_border"),
       terminal_no_focus_border: gc("terminal_no_focus_border"), split_layout_style, terminal_animation_speed,
       window_effect_mode, window_effect_opacity: clamp01(g("window_effect_opacity"), 0),
       pane_corner_radius: clampR(g("pane_corner_radius"), 6),
-      minimap_granularity: g("minimap_granularity") === "cell" ? "cell" : "row",
-      minimap_width: clampW(g("minimap_width"), 48),
-      minimap_auto_hide: gc("minimap_auto_hide"),
-      minimap_opacity: clamp01(g("minimap_opacity"), 0.12),
+
       terminal_cursor_style: ((v: string) => v === "underline" || v === "bar" ? v : "block")(gs("terminal_cursor_style")),
       terminal_cursor_blink: gc("terminal_cursor_blink"),
       terminal_cursor_inactive_style: gs("terminal_cursor_inactive_style"),
@@ -313,15 +306,13 @@ export function createSettingsPanel(
     setVal("pane_corner_radius", String(pr.pane_corner_radius ?? 6));
     setVal("terminal_pane_gap", String(pr.terminal_pane_gap ?? (pr.terminal_no_gap ? 0 : 6)));
     setVal("terminal_sandbox_padding", String(pr.terminal_sandbox_padding ?? 0));
+    setVal("terminal_pane_padding", String(pr.terminal_pane_padding ?? 0));
 
     setSel("shed_workspace_exit", ((v?: string) => { v = (v ?? "keep").toLowerCase(); return v === "shed" ? "shed" : v === "ask" ? "ask" : "keep"; })(pr.shed_workspace_exit));
     setSel("terminal_animation_speed", ((v?: string) => { v = (v ?? "normal").toLowerCase(); return v === "off" || v === "fast" || v === "slow" ? v : "normal"; })(pr.terminal_animation_speed));
     setSel("window_effect_mode", (pr.window_effect_mode ?? "off").toLowerCase() === "transparent" ? "transparent" : "off");
     setSel("file_tree_side", pr.file_tree_side === "right" ? "right" : "left");
-    setSel("minimap_granularity", pr.minimap_granularity === "cell" ? "cell" : "row");
-    setVal("minimap_width", String(pr.minimap_width ?? 48));
-    setChk("minimap_auto_hide", pr.minimap_auto_hide === true);
-    setVal("minimap_opacity", String(pr.minimap_opacity ?? 0.12));
+
     setSel("terminal_cursor_style", ((v?: string) => v === "underline" || v === "bar" ? v : "block")(pr.terminal_cursor_style));
     setChk("terminal_cursor_blink", pr.terminal_cursor_blink ?? true);
     setSel("terminal_cursor_inactive_style", ((v?: string) => (v === "outline" || v === "block" || v === "bar" || v === "underline" || v === "none") ? v : "outline")(pr.terminal_cursor_inactive_style));
@@ -352,6 +343,7 @@ export function createSettingsPanel(
     setChk("destroy_webview_on_hide", p.destroy_webview_on_hide);
     setChk("focus_follows_cursor", p.focus_follows_cursor);
     setChk("blur_unfocused_panes", pr.blur_unfocused_panes ?? false);
+    setVal("pane_blur_radius", String(pr.pane_blur_radius ?? 1.6));
     setChk("dim_unfocused_panes", pr.dim_unfocused_panes ?? false);
     setChk("auto_copy_selection", pr.auto_copy_selection ?? false);
     setChk("always_summon_maximized", pr.always_summon_maximized ?? false);

@@ -105,15 +105,14 @@ import { parttyPerf } from "./perf";
 // Terminal color constants with fallbacks
 // CSS variables are read after DOM is ready in boot()
 const TERM_BG_FALLBACK = "#2e2e32";
-const TERM_FG_FALLBACK = "#d4d4d8";
+
 
 const RESIZE_DEBOUNCE_MS = 100;
 const PTY_OUTPUT_FLUSH_MS = 4;
 const PTY_OUTPUT_BACKGROUND_FLUSH_MS = 33;
 const PTY_OUTPUT_INTERACTIVE_CHARS = 2048;
 const PTY_OUTPUT_MAX_BATCH_CHARS = 128 * 1024;
-const MINIMAP_STORAGE_KEY = "partty.minimap.enabled";
-const MINIMAP_HIDDEN_PANES_KEY = "partty.minimap.hiddenPanes";
+
 const FILE_TREE_STORAGE_KEY = "partty.filetree.visible";
 const FILE_TREE_WIDTH_KEY = "partty.filetree.widthPx";
 const ZEN_MODE_STORAGE_KEY = "partty.zen.enabled";
@@ -125,8 +124,7 @@ const IDLE_WEBGL_MS = 400;
 type PersistedPayload = { prefs: Record<string, unknown> };
 
 const STORAGE_KEY_MIGRATIONS: [string, string][] = [
-  ["termie.minimap.enabled", MINIMAP_STORAGE_KEY],
-  ["termie.minimap.hiddenPanes", MINIMAP_HIDDEN_PANES_KEY],
+
   ["termie.filetree.visible", FILE_TREE_STORAGE_KEY],
   ["termie.filetree.widthPx", FILE_TREE_WIDTH_KEY],
   ["termie.zen.enabled", ZEN_MODE_STORAGE_KEY],
@@ -161,12 +159,6 @@ function migrateParttyLocalStorage(): void {
   } catch {
     /* localStorage may be unavailable; ignore migration. */
   }
-}
-
-function hexRgb(hex: string): [number, number, number] {
-  const h = hex.replace("#", "");
-  const n = parseInt(h, 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
 /** Fallback when fit has no dimensions yet (e.g. new pane before layout). */
@@ -238,39 +230,11 @@ function normalizeSplitLayoutStyle(raw: unknown): "balanced" | "dwindle" | "mast
   return raw === "dwindle" || raw === "master" ? raw : "balanced";
 }
 
-function loadMinimapHiddenPaneIds(): Set<string> {
-  try {
-    const raw = localStorage.getItem(MINIMAP_HIDDEN_PANES_KEY);
-    if (!raw) return new Set();
-    const a = JSON.parse(raw) as unknown;
-    if (!Array.isArray(a)) return new Set();
-    return new Set(a.filter((x): x is string => typeof x === "string"));
-  } catch {
-    return new Set();
-  }
-}
-
-function saveMinimapHiddenPaneIds(ids: Set<string>): void {
-  try {
-    localStorage.setItem(MINIMAP_HIDDEN_PANES_KEY, JSON.stringify([...ids]));
-  } catch {
-    /* ignore */
-  }
-}
-
 function isWorkspaceLayoutUsable(p: PersistedPaneLayout, tabId: string): boolean {
   const rid = workspaceRootPaneId(tabId);
   if (!isLayoutValidForRoot(p, rid)) return false;
   return findPaneLeaf(p.tree, p.focusedId) != null;
 }
-
-type MinimapHandle = {
-  dispose(): void;
-  attach(): void;
-  resizeToHost(): void;
-  setSearchHighlights(lines: Iterable<number> | null): void;
-  setGranularity(g: "cell" | "row"): void;
-};
 
 type PtyOutputEvent = { pane_id: string; data: string };
 type PtyExitEvent = { pane_id: string };
@@ -323,9 +287,9 @@ async function boot(): Promise<void> {
   applyTerminalDisplayPrefs(persisted.prefs as Partial<ParttyPrefs>);
   applyFileTreeSide(normalizeFileTreeSide((persisted.prefs as Partial<ParttyPrefs>).file_tree_side));
 
-  const minimapUserEnabled = localStorage.getItem(MINIMAP_STORAGE_KEY) !== "0";
-  document.documentElement.classList.toggle("minimap-off", !minimapUserEnabled);
   document.documentElement.classList.toggle("pane-blur-unfocused", Boolean((persisted.prefs as Partial<ParttyPrefs>).blur_unfocused_panes));
+  document.documentElement.style.setProperty("--pane-blur-radius", String((persisted.prefs as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6));
+  document.documentElement.style.setProperty("--pane-padding", String((persisted.prefs as Partial<ParttyPrefs>).terminal_pane_padding ?? 0));
   document.documentElement.classList.toggle("pane-dim-unfocused", Boolean((persisted.prefs as Partial<ParttyPrefs>).dim_unfocused_panes));
 
   const fileTreeUserEnabled = localStorage.getItem(FILE_TREE_STORAGE_KEY) === "1";
@@ -341,11 +305,6 @@ async function boot(): Promise<void> {
     const n = Math.max(160, Math.min(560, parseInt(ftW, 10) || 260));
     document.documentElement.style.setProperty("--file-tree-user-width", `${n}px`);
   }
-
-  const TERM_BG = getComputedStyle(document.documentElement).getPropertyValue("--term-bg").trim() || TERM_BG_FALLBACK;
-  const TERM_FG = getComputedStyle(document.documentElement).getPropertyValue("--term-fg").trim() || TERM_FG_FALLBACK;
-  const defaultFg = hexRgb(TERM_FG);
-  const defaultBg = hexRgb(TERM_BG);
 
   const releaseBootSurface = (): void => {
     document.documentElement.classList.remove("partty-booting");
@@ -434,18 +393,6 @@ async function boot(): Promise<void> {
   const confirmDeletePromptRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).confirm_delete_prompt ?? true,
   };
-  const minimapGranularityRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).minimap_granularity ?? "row",
-  };
-  const minimapWidthRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).minimap_width ?? 48,
-  };
-  const minimapAutoHideRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).minimap_auto_hide ?? false,
-  };
-  const minimapOpacityRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).minimap_opacity ?? 0.12,
-  };
   const cursorStyleRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_style as "block" | "underline" | "bar" | undefined ?? "block",
   };
@@ -458,6 +405,7 @@ async function boot(): Promise<void> {
 
   const activeProcesses = new Map<string, { command: string; startedAt: number; cwd: string }>();
   const processInputBuffers = new Map<string, string>();
+  const paneHostCleanups = new Map<string, Array<() => void>>();
   let windowsPtyInfo: { backend: "conpty" | "winpty"; buildNumber: number } | undefined;
 
   // Fetch Windows ConPTY info for xterm.js heuristics (scrollback, reflow).
@@ -466,10 +414,6 @@ async function boot(): Promise<void> {
       windowsPtyInfo = { backend: "conpty", buildNumber: info.build_number };
     }
   }).catch(() => {});
-
-  document.documentElement.classList.toggle("minimap-auto-hide", minimapAutoHideRef.v);
-  document.documentElement.style.setProperty("--minimap-width", `${minimapWidthRef.v}px`);
-  document.documentElement.style.setProperty("--minimap-opacity", String(minimapOpacityRef.v));
 
   const pendingPtyWriteByPane = new Map<string, string>();
   const pendingPtyOutputByPane = new Map<string, PendingPtyOutput>();
@@ -845,10 +789,13 @@ async function boot(): Promise<void> {
   }
 
   function cleanupPaneVisualState(paneId: string): void {
-    minimapHiddenPanes.delete(paneId);
-    saveMinimapHiddenPaneIds(minimapHiddenPanes);
+    // Clean up event listeners registered in onPaneCreated.
+    const cleanups = paneHostCleanups.get(paneId);
+    if (cleanups) {
+      for (const fn of cleanups) fn();
+      paneHostCleanups.delete(paneId);
+    }
     disposeWebglForPane(paneId);
-    disposeMinimapForPane(paneId);
     paneShellState.delete(paneId);
     paneCwdHints.delete(paneId);
     lastPtyDims.delete(paneId);
@@ -1368,17 +1315,6 @@ async function boot(): Promise<void> {
         return false;
       }
       if (
-        e.altKey &&
-        e.shiftKey &&
-        !e.ctrlKey &&
-        !e.metaKey &&
-        (e.key === "m" || e.key === "M")
-      ) {
-        e.preventDefault();
-        toggleMinimapForFocusedPane();
-        return false;
-      }
-      if (
         e.ctrlKey &&
         e.shiftKey &&
         !e.altKey &&
@@ -1396,41 +1332,11 @@ async function boot(): Promise<void> {
   const terminalContent = document.getElementById("terminal-content");
   const stage = document.getElementById("terminal-stage");
 
-  const paneMinimaps = new Map<string, MinimapHandle>();
-  let minimapOn = minimapUserEnabled;
-  let minimapHiddenPanes = loadMinimapHiddenPaneIds();
   let fileTreePanel: FileTreePanel | null = null;
   let fileTreeBackend: FileTreeBackend | null = null;
   let fileTreeCoordinator: FileTreeCoordinator | null = null;
   let fileTreeRefreshTimer = 0;
   let cwdSyncTimer = 0;
-
-  const minimapTheme: {
-    thumb: string;
-    defaultFg: [number, number, number];
-    defaultBg: [number, number, number];
-    searchHighlight: string;
-  } = {
-    thumb: getComputedStyle(document.documentElement).getPropertyValue("--minimap-thumb").trim() || "rgba(255,255,255,0.35)",
-    defaultFg,
-    defaultBg,
-    searchHighlight:
-      getComputedStyle(document.documentElement).getPropertyValue("--minimap-search-highlight").trim() ||
-      "rgba(255, 230, 90, 0.92)",
-  };
-
-  function syncMinimapThemeFromCss(): void {
-    const cs = getComputedStyle(document.documentElement);
-    minimapTheme.thumb = cs.getPropertyValue("--minimap-thumb").trim() || "rgba(255,255,255,0.35)";
-    const fg = cs.getPropertyValue("--term-fg").trim() || TERM_FG_FALLBACK;
-    const bg = cs.getPropertyValue("--term-bg").trim() || TERM_BG_FALLBACK;
-    const f = hexRgb(fg);
-    const b = hexRgb(bg);
-    minimapTheme.defaultFg = f;
-    minimapTheme.defaultBg = b;
-    minimapTheme.searchHighlight =
-      cs.getPropertyValue("--minimap-search-highlight").trim() || "rgba(255, 230, 90, 0.92)";
-  }
 
   function refreshAllTerminalThemes(): void {
     // Refresh all tabs so theme changes don't drift on inactive tabs
@@ -1454,83 +1360,6 @@ async function boot(): Promise<void> {
       pt.term.options.theme = { ...th, cursorAccent: th.background ?? TERM_BG_FALLBACK };
       pt.term.refresh(0, pt.term.rows - 1);
     }
-  }
-
-  function disposeMinimapForPane(paneId: string): void {
-    paneMinimaps.get(paneId)?.dispose();
-    paneMinimaps.delete(paneId);
-  }
-
-  function disposeAllMinimaps(): void {
-    for (const id of [...paneMinimaps.keys()]) disposeMinimapForPane(id);
-  }
-
-  async function ensureMinimapForPane(paneId: string): Promise<void> {
-    if (!minimapOn || minimapHiddenPanes.has(paneId)) return;
-    const pt = paneHost?.getPaneTerminal(paneId);
-    if (!pt) return;
-    const existing = paneMinimaps.get(paneId);
-    if (existing) {
-      existing.resizeToHost();
-      return;
-    }
-    const compact = pt.minimapAside.querySelector(".minimap-compact") as HTMLElement | null;
-    if (!compact) return;
-    const minimapMod = await import("./terminalMinimap");
-    const m = new minimapMod.TerminalMinimap(pt.term, compact, pt.minimapCanvas, {
-      granularity: minimapGranularityRef.v as "cell" | "row",
-      theme: minimapTheme,
-    });
-    m.attach();
-    paneMinimaps.set(paneId, m);
-  }
-
-  function resizeAllMinimaps(): void {
-    for (const m of paneMinimaps.values()) m.resizeToHost();
-  }
-
-  function setMinimapEnabled(on: boolean): void {
-    minimapOn = on;
-    localStorage.setItem(MINIMAP_STORAGE_KEY, on ? "1" : "0");
-    document.documentElement.classList.toggle("minimap-off", !on);
-    if (!on) {
-      disposeAllMinimaps();
-    } else {
-      paneHost?.forEachPane((id) => {
-        if (!minimapHiddenPanes.has(id)) void ensureMinimapForPane(id);
-      });
-    }
-    scheduleResizeImmediate();
-  }
-
-  function syncPaneMinimapClass(paneId: string): void {
-    const root = paneHost?.getHostRoot();
-    if (!root) return;
-    const leaf = root.querySelector(`.pane-leaf[data-pane-id="${CSS.escape(paneId)}"]`);
-    if (!leaf) return;
-    const hide = minimapOn && minimapHiddenPanes.has(paneId);
-    leaf.classList.toggle("pane-leaf--minimap-off", hide);
-  }
-
-  function syncAllPaneMinimapClasses(): void {
-    paneHost?.forEachPane((id) => syncPaneMinimapClass(id));
-  }
-
-  function toggleMinimapForFocusedPane(): void {
-    if (!minimapOn) return;
-    const id = paneHost?.getFocusedPaneId();
-    if (!id) return;
-    if (minimapHiddenPanes.has(id)) {
-      minimapHiddenPanes.delete(id);
-      saveMinimapHiddenPaneIds(minimapHiddenPanes);
-      void ensureMinimapForPane(id);
-    } else {
-      minimapHiddenPanes.add(id);
-      saveMinimapHiddenPaneIds(minimapHiddenPanes);
-      disposeMinimapForPane(id);
-    }
-    syncPaneMinimapClass(id);
-    scheduleResizeImmediate();
   }
 
   let debounceTimer = 0;
@@ -1564,7 +1393,6 @@ async function boot(): Promise<void> {
         })
         .catch((e) => console.warn("pty_resize", e));
     });
-    resizeAllMinimaps();
   }
 
   /** PTY + xterm stay aligned after pane/window refocus (TUIs need SIGWINCH-sized PTY + refresh). */
@@ -1775,8 +1603,6 @@ async function boot(): Promise<void> {
 
     await ensureWebglOnPane(paneId);
 
-    paneMinimaps.get(paneId)?.resizeToHost();
-
     bridgeScrollCleanup?.();
     bridgeScrollCleanup = null;
     const termEl = pt.term.element;
@@ -1963,23 +1789,35 @@ async function boot(): Promise<void> {
             scheduleCwdSync();
           }
         });
-        pt.host.addEventListener("click", (ev) => {
+        const onHostClick = (ev: MouseEvent) => {
           if (openLinkFromCtrlClick(pt.term, pt.host, ev)) return;
-        });
-        pt.host.addEventListener("wheel", (ev) => handlePaneZoomWheel(id, ev), { passive: false });
-        pt.host.addEventListener("mousemove", (ev) => {
+        };
+        const onHostWheel = (ev: WheelEvent) => handlePaneZoomWheel(id, ev);
+        const onHostMouseMove = (ev: MouseEvent) => {
           updateCtrlLinkHover(pt.term, pt.host, ev);
-        });
-        pt.host.addEventListener("mouseleave", () => {
+        };
+        const onHostMouseLeave = () => {
           pt.host.classList.remove("pane-terminal-host--ctrl-link-hover");
           pt.host.removeAttribute("title");
-        });
-        pt.term.onSelectionChange(() => {
+        };
+        pt.host.addEventListener("click", onHostClick);
+        pt.host.addEventListener("wheel", onHostWheel, { passive: false });
+        pt.host.addEventListener("mousemove", onHostMouseMove);
+        pt.host.addEventListener("mouseleave", onHostMouseLeave);
+        const onSelDispose = pt.term.onSelectionChange(() => {
           if (!autoCopySelectionRef.v || !pt.term.hasSelection()) return;
           copyToClipboard(pt.term.getSelection());
         });
+
+        // Register cleanup for pane teardown.
+        paneHostCleanups.set(id, [
+          () => pt.host.removeEventListener("click", onHostClick),
+          () => pt.host.removeEventListener("wheel", onHostWheel),
+          () => pt.host.removeEventListener("mousemove", onHostMouseMove),
+          () => pt.host.removeEventListener("mouseleave", onHostMouseLeave),
+          () => onSelDispose.dispose(),
+        ]);
         if (lp.preload_webgl_on_startup) void ensureWebglOnPane(id);
-        if (minimapOn && !minimapHiddenPanes.has(id)) void ensureMinimapForPane(id);
         const explicitCwd = pendingNewPaneCwd.v;
         pendingNewPaneCwd.v = null;
         const inheritedCwd = explicitCwd ?? paneCwdHints.get(id) ?? null;
@@ -2043,7 +1881,6 @@ async function boot(): Promise<void> {
   paneHost = tabPaneHosts.get(activeWorkspaceTabId)!;
   lastFocusedPaneId = paneHost.getFocusedPaneId();
   installPaneControlSurface();
-  syncAllPaneMinimapClasses();
 
   function persistCurrentWorkspaceTabLayout(): void {
     if (!paneHost) return;
@@ -2952,14 +2789,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     themeBuilder = createThemeBuilderModal(themeBuilderRoot as HTMLElement, (prefs) => {
       currentUiPrefs = prefs;
       applyUiTheme(prefs);
-      syncMinimapThemeFromCss();
-      disposeAllMinimaps();
       refreshAllTerminalThemes();
-      if (minimapOn) {
-        paneHost?.forEachPane((id) => {
-          void ensureMinimapForPane(id);
-        });
-      }
     });
   }
 
@@ -2978,14 +2808,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         }
         currentUiPrefs = prefs;
         applyUiTheme(prefs);
-        syncMinimapThemeFromCss();
-        disposeAllMinimaps();
         refreshAllTerminalThemes();
-        if (minimapOn) {
-          paneHost?.forEachPane((id) => {
-            void ensureMinimapForPane(id);
-          });
-        }
       },
       (request) => themeBuilder?.open(request),
     );
@@ -3269,7 +3092,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     pendingSnapshot = null;
     bridgeScrollCleanup?.();
     bridgeScrollCleanup = null;
-    disposeAllMinimaps();
     shedWebgl();
     const tabId = activeWorkspaceTabId;
     disposeTabPaneHost(tabId);
@@ -3283,7 +3105,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       shell.classList.toggle("term-tab-pane-shell--hidden", id !== tabId);
     }
     lastFocusedPaneId = rid;
-    syncAllPaneMinimapClasses();
     await remountAuxiliaryForFocus(paneHost.getFocusedPaneId());
     await ensurePtyForPane(rid);
     getFocusedTerm()?.writeln("\r\n\x1b[90m[new session]\x1b[0m\r\n");
@@ -3382,20 +3203,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         contrastRatioRef.v = (saved as Partial<ParttyPrefs>).terminal_minimum_contrast_ratio ?? 1;
         applyTerminalDisplayOptions();
         backspaceDeleteSelectionRef.v = saved.terminal_backspace_delete_selection ?? true;
-        if ((saved.minimap_granularity ?? "cell") !== minimapGranularityRef.v) {
-          minimapGranularityRef.v = saved.minimap_granularity ?? "row";
-          for (const m of paneMinimaps.values()) m.setGranularity(minimapGranularityRef.v as "cell" | "row");
-        }
-        if ((saved.minimap_width ?? 48) !== minimapWidthRef.v) {
-          minimapWidthRef.v = saved.minimap_width ?? 48;
-          document.documentElement.style.setProperty("--minimap-width", `${minimapWidthRef.v}px`);
-        }
-        minimapAutoHideRef.v = saved.minimap_auto_hide ?? false;
-        document.documentElement.classList.toggle("minimap-auto-hide", minimapAutoHideRef.v);
-        if ((saved.minimap_opacity ?? 0.12) !== minimapOpacityRef.v) {
-          minimapOpacityRef.v = saved.minimap_opacity ?? 0.12;
-          document.documentElement.style.setProperty("--minimap-opacity", String(minimapOpacityRef.v));
-        }
         if ((saved.terminal_cursor_style ?? "block") !== cursorStyleRef.v) {
           cursorStyleRef.v = (saved.terminal_cursor_style as "block" | "underline" | "bar") ?? "block";
           for (const host of tabPaneHosts.values()) {
@@ -3419,6 +3226,8 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         }
         applyTooltipPolicy(document);
         document.documentElement.classList.toggle("pane-blur-unfocused", saved.blur_unfocused_panes);
+        document.documentElement.style.setProperty("--pane-blur-radius", String((saved as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6));
+        document.documentElement.style.setProperty("--pane-padding", String((saved as Partial<ParttyPrefs>).terminal_pane_padding ?? 5));
         document.documentElement.classList.toggle("pane-dim-unfocused", saved.dim_unfocused_panes);
         if (saved.always_open_in_zen_mode) {
           setZenMode(true);
@@ -3428,14 +3237,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         if (uiPrefsChanged(prevUi, nextUi)) {
           currentUiPrefs = nextUi;
           applyUiTheme(nextUi);
-          syncMinimapThemeFromCss();
-          disposeAllMinimaps();
           refreshAllTerminalThemes();
-          if (minimapOn) {
-            paneHost?.forEachPane((id) => {
-              void ensureMinimapForPane(id);
-            });
-          }
         }
         const shellChanged = shellPrefKey(saved.shell) !== shellPrefKey(previous.shell);
         const cwdChanged = (saved.initial_cwd ?? "").trim() !== (previous.initial_cwd ?? "").trim();
@@ -3897,15 +3699,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         },
       },
       {
-        id: "minimap-global",
-        label: minimapOn ? "View: Hide all minimaps" : "View: Show all minimaps",
-        keywords: "minimap gutter global all panes",
-        hotkey: "",
-        run: () => {
-          setMinimapEnabled(!minimapOn);
-        },
-      },
-      {
         id: "toggle-file-tree",
         label: "Toggle files",
         keywords: "files explorer sidebar workspace ctrl shift e",
@@ -4334,7 +4127,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     await mountWebglForFocused();
     const ft = getFocusedTerm();
     if (ft) ft.refresh(0, ft.rows - 1);
-    resizeAllMinimaps();
     scheduleResizeImmediate();
     scheduleCwdSync();
     reflowAllPanes();
@@ -4446,11 +4238,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
 
   scheduleIdle(() => {
     void (async () => {
-      if (minimapOn) {
-        paneHost?.forEachPane((id) => {
-          void ensureMinimapForPane(id);
-        });
-      }
       const fts = document.getElementById("file-tree-scroll");
       if (fts && !fileTreePanel) {
         fileTreeCoordinator = new FileTreeCoordinator({
@@ -4512,11 +4299,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     fileTreePanel?.dispose();
     fileTreeCoordinator?.dispose();
     fileTreeBackend?.dispose();
-    disposeAllMinimaps();
-    shedWebgl();
-    for (const tid of [...tabPaneHosts.keys()]) {
-      disposeTabPaneHost(tid);
-    }
     paneHost = null;
     commandPalette?.dispose();
   });

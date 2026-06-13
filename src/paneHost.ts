@@ -21,8 +21,6 @@ export type PaneTerminal = {
   host: HTMLElement;
   /** Row wrapping the terminal host element. */
   row: HTMLElement;
-  minimapAside: HTMLElement;
-  minimapCanvas: HTMLCanvasElement;
 };
 
 export type FloatingPaneState = {
@@ -760,12 +758,11 @@ export class PaneHost {
     };
     this.root.addEventListener("pointermove", this.focusFollowPointer, true);
 
-    this.root.querySelectorAll<HTMLElement>(".pane-leaf").forEach((leaf) => {
-      leaf.addEventListener("pointerdown", () => {
-        const id = leaf.dataset.paneId;
-        if (!id) return;
-        this.setFocusedPaneId(id);
-      });
+    this.root.addEventListener("pointerdown", (e) => {
+      const leaf = (e.target as HTMLElement).closest(".pane-leaf") as HTMLElement | null;
+      if (!leaf || !this.root.contains(leaf)) return;
+      const id = leaf.dataset.paneId;
+      if (id) this.setFocusedPaneId(id);
     });
 
     this.root.querySelectorAll<HTMLElement>(".pane-gutter").forEach((gutter) => {
@@ -1154,16 +1151,6 @@ export class PaneHost {
         row.className = "pane-terminal-row";
         const host = document.createElement("div");
         host.className = "pane-terminal-host";
-        const minimapAside = document.createElement("aside");
-        minimapAside.className = "pane-minimap";
-        minimapAside.setAttribute("aria-hidden", "true");
-        const compact = document.createElement("div");
-        compact.className = "minimap-compact";
-        const canvas = document.createElement("canvas");
-        canvas.className = "pane-minimap-canvas";
-        canvas.setAttribute("aria-hidden", "true");
-        compact.appendChild(canvas);
-        minimapAside.appendChild(compact);
         row.appendChild(host);
         const createStarted = performance.now();
         const term = new Terminal({
@@ -1201,12 +1188,11 @@ export class PaneHost {
         term.open(host);
         parttyPerf.mark("pane.terminal.create");
         parttyPerf.time("pane.terminal.create.ms", performance.now() - createStarted);
-        pt = { term, fit, host, row, minimapAside, minimapCanvas: canvas };
+        pt = { term, fit, host, row };
         this.terminals.set(node.id, pt);
         this.opts.onPaneCreated(node.id, pt);
       }
       wrap.appendChild(pt.row);
-      wrap.appendChild(pt.minimapAside);
       if (this.justTiled.delete(node.id)) {
         wrap.classList.add("pane-leaf--floating-return");
         wrap.addEventListener("animationend", () => {
