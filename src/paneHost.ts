@@ -79,8 +79,6 @@ export type PaneHostOptions = {
   onPaneReorder?: () => void;
   /** Root leaf id (per workspace tab). Defaults to `"main"`. */
   rootPaneId?: string;
-  /** Windows ConPTY backend info for xterm.js heuristics. */
-  windowsPty?: { backend: "conpty" | "winpty"; buildNumber: number };
   /** Handler for OSC 8 semantic hyperlinks. */
   linkHandler?: {
     activate: (event: MouseEvent, uri: string) => void;
@@ -1177,10 +1175,6 @@ export class PaneHost {
           smoothScrollDuration: this.opts.smoothScrollDuration,
           theme: this.opts.getTheme(node.id),
           scrollback: this.opts.scrollbackLines,
-          windowsPty: this.opts.windowsPty ? {
-            backend: this.opts.windowsPty.backend,
-            buildNumber: this.opts.windowsPty.buildNumber,
-          } : undefined,
           linkHandler: this.opts.linkHandler ?? undefined,
         });
         const fit = new FitAddon();

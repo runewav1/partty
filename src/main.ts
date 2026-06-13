@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { FitAddon } from "@xterm/addon-fit";
+
 import type { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
@@ -73,6 +74,7 @@ import {
 } from "./paletteCommands";
 import { normalizeFsPathKey, stripOscCwd } from "./oscCwd";
 import { createSettingsPanel, type ParttyPrefs } from "./settingsPanel";
+import { createExtensionManager } from "./extensionManager";
 import { createThemeBuilderModal, type ThemeBuilderApi } from "./themeBuilderModal";
 import { createThemeModal, type ThemeModalApi } from "./themeModal";
 import { createPresetsModal, type PresetsModalApi } from "./presetsModal";
@@ -409,14 +411,11 @@ async function boot(): Promise<void> {
   const activeProcesses = new Map<string, { command: string; startedAt: number; cwd: string }>();
   const processInputBuffers = new Map<string, string>();
   const paneHostCleanups = new Map<string, Array<() => void>>();
-  let windowsPtyInfo: { backend: "conpty" | "winpty"; buildNumber: number } | undefined;
-
-  // Fetch Windows ConPTY info for xterm.js heuristics (scrollback, reflow).
-  invoke<{ backend: string; build_number: number } | null>("get_windows_pty_info").then((info) => {
-    if (info && info.backend === "conpty") {
-      windowsPtyInfo = { backend: "conpty", buildNumber: info.build_number };
-    }
-  }).catch(() => {});
+  /** Extension PTY input subscribers — zero-cost when empty. */
+  const extPtyInputSubs: Array<(paneId: string, data: string) => void> = [];
+  /** Extension process lifecyle subscribers — zero-cost when empty. */
+  const extProcStartSubs: Array<(proc: { paneId: string; command: string; cwd: string }) => void> = [];
+  const extProcEndSubs: Array<(proc: { paneId: string; command: string; durationMs: number }) => void> = [];
 
   const pendingPtyWriteByPane = new Map<string, string>();
   const pendingPtyOutputByPane = new Map<string, PendingPtyOutput>();
@@ -526,6 +525,7 @@ async function boot(): Promise<void> {
         const entry = activeProcesses.get(paneId);
         if (entry) {
           const durS = (Date.now() - entry.startedAt) / 1000;
+          const durMs = Date.now() - entry.startedAt;
           if (durS >= processNotificationThresholdRef.v) {
             const paneName = paneNames.get(paneId) || paneId.slice(0, 8);
             showProcessNotification(
@@ -535,6 +535,13 @@ async function boot(): Promise<void> {
               entry.startedAt,
               paneId,
             );
+          }
+          // Notify extension subscribers before deleting.
+          if (extProcEndSubs.length > 0) {
+            const proc = { paneId, command: entry.command, durationMs: durMs };
+            for (const fn of extProcEndSubs) {
+              try { fn(proc); } catch { /* ignore */ }
+            }
           }
           activeProcesses.delete(paneId);
         }
@@ -1670,8 +1677,9 @@ async function boot(): Promise<void> {
       smoothScrollDuration: smoothScrollRef.v,
       scrollSensitivity: scrollSensitivityRef.v,
       fastScrollSensitivity: fastScrollSensitivityRef.v,
-      minimumContrastRatio: contrastRatioRef.v,
-      windowsPty: windowsPtyInfo,
+            minimumContrastRatio: contrastRatioRef.v,
+
+
       linkHandler: {
         activate: (_event, uri) => {
           if (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("mailto:")) {
@@ -1753,7 +1761,14 @@ async function boot(): Promise<void> {
                   // This prevents Enter keystrokes inside a TUI (nvim, htop, etc.) from
                   // overwriting the command that originally started the process.
                   if (!activeProcesses.has(id)) {
-                    activeProcesses.set(id, { command: cmd, startedAt: Date.now(), cwd: paneCwdHints.get(id) || "" });
+                    const proc = { command: cmd, startedAt: Date.now(), cwd: paneCwdHints.get(id) || "" };
+                    activeProcesses.set(id, proc);
+                    // Notify extension subscribers.
+                    if (extProcStartSubs.length > 0) {
+                      for (const fn of extProcStartSubs) {
+                        try { fn({ paneId: id, command: cmd, cwd: proc.cwd }); } catch { /* ignore */ }
+                      }
+                    }
                   }
                 }
                 buf = "";
@@ -1793,6 +1808,12 @@ async function boot(): Promise<void> {
               i++;
             }
             processInputBuffers.set(id, buf);
+          }
+          // Notify extension PTY input subscribers (zero-cost when empty).
+          if (extPtyInputSubs.length > 0) {
+            for (const fn of extPtyInputSubs) {
+              try { fn(id, data); } catch { /* ignore */ }
+            }
           }
           if (data.includes("\r") || data.includes("\n")) {
             scheduleCwdSync();
@@ -3662,6 +3683,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         run: () => settingsApi?.open(),
       },
       {
+        id: "open-extensions",
+        label: "Extensions",
+        keywords: "plugins addons extensions manager",
+        run: () => extManagerApi?.open(),
+      },
+      {
         id: "open-themes",
         label: "Change app theme…",
         keywords: "theme appearance colors ui palette app global",
@@ -3968,6 +3995,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   zenModal?.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeZenRenameModal(false);
   });
+  const extManagerEl = document.getElementById("extension-manager") as HTMLElement | null;
+  const extManagerApi = extManagerEl ? createExtensionManager(extManagerEl) : null;
+  extManagerEl?.querySelector("[data-ext-close]")?.addEventListener("click", () => extManagerApi?.close());
   document.getElementById("settings-toggle")?.addEventListener("click", () => settingsApi?.open());
   const appWindow = getCurrentWindow();
   async function syncMaximizeButtonTitle(): Promise<void> {
@@ -4309,6 +4339,130 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       getFocusedTerm()?.focus();
     }
   });
+
+  // ── Extensions ──────────────────────────────────────────────
+  // Load extensions from %LOCALAPPDATA%/partty/extensions/<name>/index.js
+  // at runtime. Each extension is a self-contained folder with an index.js
+  // that exports an activate(api) function.
+  void (async () => {
+    try {
+      const allExts = await invoke<Array<{
+        id: string; name: string; version: string; description: string;
+        code: string; enabled: boolean;
+      }>>("list_extensions");
+      const exts = allExts.filter((e) => e.enabled);
+      if (exts.length === 0) return;
+
+      // Listener registries — zero overhead when no extensions subscribe.
+      const ptyOutputSubs = new Set<(paneId: string, data: string) => void>();
+      let ptyOutputUnlisten: (() => void) | null = null;
+
+      const extApi: Record<string, unknown> = {
+        onPtyOutput(fn: (paneId: string, data: string) => void) {
+          ptyOutputSubs.add(fn);
+          if (!ptyOutputUnlisten) {
+            const unlisten = listen<PtyOutputEvent>("pty-output", (ev) => {
+              for (const sub of ptyOutputSubs) {
+                try { sub(ev.payload.pane_id, ev.payload.data); } catch { /* ignore */ }
+              }
+            });
+            ptyOutputUnlisten = () => { unlisten.then((u) => u()); };
+          }
+          return () => {
+            ptyOutputSubs.delete(fn);
+            if (ptyOutputSubs.size === 0 && ptyOutputUnlisten) {
+              ptyOutputUnlisten();
+              ptyOutputUnlisten = null;
+            }
+          };
+        },
+        onPtyInput(fn: (paneId: string, data: string) => void) {
+          extPtyInputSubs.push(fn);
+          return () => {
+            const idx = extPtyInputSubs.indexOf(fn);
+            if (idx !== -1) extPtyInputSubs.splice(idx, 1);
+          };
+        },
+        onProcessStart(fn: (proc: { paneId: string; command: string; cwd: string }) => void) {
+          extProcStartSubs.push(fn);
+          return () => {
+            const idx = extProcStartSubs.indexOf(fn);
+            if (idx !== -1) extProcStartSubs.splice(idx, 1);
+          };
+        },
+        onProcessEnd(fn: (proc: { paneId: string; command: string; durationMs: number }) => void) {
+          extProcEndSubs.push(fn);
+          return () => {
+            const idx = extProcEndSubs.indexOf(fn);
+            if (idx !== -1) extProcEndSubs.splice(idx, 1);
+          };
+        },
+        getPaneActiveProcess(paneId: string) {
+          const entry = activeProcesses.get(paneId);
+          if (!entry) return null;
+          return { command: entry.command, cwd: entry.cwd, startedAt: entry.startedAt };
+        },
+        writeToPane(paneId: string, text: string) {
+          return ptyWrite(paneId, text);
+        },
+        showNotification(command: string, detail: string, paneId?: string) {
+          if (!processToast) return;
+          processToast.dataset.paneId = paneId ?? "";
+          const navArrow = paneId ? `<button class="proc-toast-nav" title="Go to pane">\u2192</button>` : "";
+          processToast.innerHTML = `<span class="proc-toast-cmd">${escapeHtml(command)}</span> ${escapeHtml(detail)}${navArrow}`;
+          processToast.classList.remove("proc-toast--hidden");
+          if (processToastTimer) clearTimeout(processToastTimer);
+          processToastTimer = window.setTimeout(() => {
+            processToast.classList.add("proc-toast--hidden");
+          }, processNotificationShowForRef.v);
+        },
+        getPref<T>(key: string, fallback: T): T {
+          try {
+            const raw = localStorage.getItem(`partty.ext.${key}`);
+            return raw ? JSON.parse(raw) : fallback;
+          } catch { return fallback; }
+        },
+        setPref<T>(key: string, value: T): void {
+          localStorage.setItem(`partty.ext.${key}`, JSON.stringify(value));
+        },
+        getAppTheme() {
+          return {
+            ui: currentUiPrefs,
+            terminal: buildXtermThemeFromPrefs(persisted.prefs as PaneThemePrefs),
+          };
+        },
+        getPaneTheme(paneId: string) {
+          const pt = getPaneTerminalById(paneId);
+          const theme = pt ? { ...pt.term.options.theme } : buildXtermThemeFromPrefs(persisted.prefs as PaneThemePrefs);
+          const override = paneThemes.get(paneId);
+          return { theme, override: override ?? null };
+        },
+        getFocusedPaneId: () => paneHost?.getFocusedPaneId() ?? null,
+        getPaneIds: () => {
+          const ids: string[] = [];
+          for (const host of tabPaneHosts.values()) ids.push(...host.getLeafIdsInOrder());
+          return ids;
+        },
+        getPaneCwd: (paneId: string) => paneCwdHints.get(paneId) ?? null,
+        getPaneName: (paneId: string) => paneNames.get(paneId) ?? null,
+      };
+
+      for (const ext of exts) {
+        try {
+          // Extension code is the body of a function receiving `api`.
+          // e.g.:  api.onPtyOutput((paneId, data) => { ... });
+          //         api.showNotification("Hello", "World");
+          const wrapped = `"use strict";\n${ext.code}\n//# sourceURL=extension:${ext.id}`;
+          const fn = new Function("api", wrapped);
+          fn(extApi);
+        } catch (e) {
+          console.error(`Extension "${ext.name}" activation failed`, e);
+        }
+      }
+    } catch {
+      // Extensions directory doesn't exist or is empty — nothing to load.
+    }
+  })();
 
   window.addEventListener("beforeunload", () => {
     bridgeScrollCleanup?.();

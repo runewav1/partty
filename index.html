@@ -190,8 +190,8 @@
                       <option value="outline">Outline</option><option value="block">Block</option><option value="bar">Bar</option><option value="underline">Underline</option><option value="none">None</option>
                     </select>
                   </div>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_cursor_blink" checked /><span>Blinking cursor</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_alt_click_moves_cursor" checked /><span>Alt+click cursor</span></label>
+                  <label class="settings-checkbox-label"><span>Blinking cursor</span><input class="settings-checkbox-input" type="checkbox" name="terminal_cursor_blink" checked /></label>
+                  <label class="settings-checkbox-label"><span>Alt+click cursor</span><input class="settings-checkbox-input" type="checkbox" name="terminal_alt_click_moves_cursor" checked /></label>
                   <div class="settings-row settings-row--compact">
                     <span class="settings-row-label">Font size</span>
                     <input name="terminal_font_size" type="number" min="8" max="48" step="1" class="settings-input settings-input--narrow" />
@@ -216,20 +216,20 @@
                     <span class="settings-row-label">Letter spacing</span>
                     <input name="terminal_letter_spacing" type="number" min="-2" max="10" step="0.5" class="settings-input settings-input--narrow" />
                   </div>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_draw_bold_bright" checked /><span>Bold = bright colors</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_custom_glyphs" checked /><span>Box‑drawing glyphs</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_no_round" /><span>Square panes</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_no_pane_border" /><span>Hide borders</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_no_focus_border" /><span>No focus accent</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="focus_follows_cursor" /><span>Pointer focus</span></label>
-                   <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="blur_unfocused_panes" /><span>Blur inactive</span></label>
+                  <label class="settings-checkbox-label"><span>Bold = bright colors</span><input class="settings-checkbox-input" type="checkbox" name="terminal_draw_bold_bright" checked /></label>
+                  <label class="settings-checkbox-label"><span>Box‑drawing glyphs</span><input class="settings-checkbox-input" type="checkbox" name="terminal_custom_glyphs" checked /></label>
+                  <label class="settings-checkbox-label"><span>Square panes</span><input class="settings-checkbox-input" type="checkbox" name="terminal_no_round" /></label>
+                  <label class="settings-checkbox-label"><span>Hide borders</span><input class="settings-checkbox-input" type="checkbox" name="terminal_no_pane_border" /></label>
+                  <label class="settings-checkbox-label"><span>No focus accent</span><input class="settings-checkbox-input" type="checkbox" name="terminal_no_focus_border" /></label>
+                  <label class="settings-checkbox-label"><span>Pointer focus</span><input class="settings-checkbox-input" type="checkbox" name="focus_follows_cursor" /></label>
+                   <label class="settings-checkbox-label"><span>Blur inactive</span><input class="settings-checkbox-input" type="checkbox" name="blur_unfocused_panes" /></label>
                   <div class="settings-row settings-row--compact">
                     <span class="settings-row-label">Blur radius</span>
                     <input name="pane_blur_radius" type="number" min="0" max="10" step="0.1" class="settings-input settings-input--narrow" />
                     <span class="settings-hint" style="margin-left:2px">px</span>
                   </div>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="dim_unfocused_panes" /><span>Dim inactive</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="terminal_backspace_delete_selection" checked /><span>Backspace selection</span></label>
+                  <label class="settings-checkbox-label"><span>Dim inactive</span><input class="settings-checkbox-input" type="checkbox" name="dim_unfocused_panes" /></label>
+                  <label class="settings-checkbox-label"><span>Backspace selection</span><input class="settings-checkbox-input" type="checkbox" name="terminal_backspace_delete_selection" checked /></label>
                 </div>
               </div>
             </div>
@@ -277,7 +277,7 @@
                   <input name="process_notification_show_for" class="settings-input settings-input--narrow" type="number" value="5000" min="1000" max="30000" step="500" style="width:4.8em" />
                    <span class="settings-hint" style="margin-left:2px">ms</span>
                 </div>
-                <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="process_notification_show_ms" /><span>Show milliseconds</span></label>
+                <label class="settings-checkbox-label"><span>Show milliseconds</span><input class="settings-checkbox-input" type="checkbox" name="process_notification_show_ms" /></label>
               </div>
             </div>
 
@@ -307,13 +307,13 @@
                   </select>
                 </div>
                 <div class="settings-toggles">
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="always_on_top" /><span>Always on top</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="always_summon_maximized" /><span>Summon max</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="summon_spawn_at_cursor" /><span>Summon cursor</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="hidden_from_taskbar" /><span>Hide taskbar</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="always_open_in_zen_mode" /><span>Zen on launch</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="ui_disable_tooltips" /><span>No tooltips</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="auto_copy_selection" /><span>Auto-copy</span></label>
+                  <label class="settings-checkbox-label"><span>Always on top</span><input class="settings-checkbox-input" type="checkbox" name="always_on_top" /></label>
+                  <label class="settings-checkbox-label"><span>Summon max</span><input class="settings-checkbox-input" type="checkbox" name="always_summon_maximized" /></label>
+                  <label class="settings-checkbox-label"><span>Summon cursor</span><input class="settings-checkbox-input" type="checkbox" name="summon_spawn_at_cursor" /></label>
+                  <label class="settings-checkbox-label"><span>Hide taskbar</span><input class="settings-checkbox-input" type="checkbox" name="hidden_from_taskbar" /></label>
+                  <label class="settings-checkbox-label"><span>Zen on launch</span><input class="settings-checkbox-input" type="checkbox" name="always_open_in_zen_mode" /></label>
+                  <label class="settings-checkbox-label"><span>No tooltips</span><input class="settings-checkbox-input" type="checkbox" name="ui_disable_tooltips" /></label>
+                  <label class="settings-checkbox-label"><span>Auto-copy</span><input class="settings-checkbox-input" type="checkbox" name="auto_copy_selection" /></label>
                 </div>
               </div>
             </div>
@@ -322,13 +322,13 @@
               <div class="settings-section-hd">Session</div>
               <div class="settings-section-bd">
                 <div class="settings-toggles">
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="preload_pty_on_startup" checked /><span>Preload PTY</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="preload_webgl_on_startup" checked /><span>Preload WebGL</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="defer_window_show_until_prepared" checked /><span>Defer show</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="destroy_webview_on_hide" checked /><span>Destroy on hide</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="shed_on_hide" /><span>Shed PTYs</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="webgl_shed_on_hide" checked /><span>Shed WebGL</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="discard_buffer_on_hide" /><span>Drop buffers</span></label>
+                  <label class="settings-checkbox-label"><span>Preload PTY</span><input class="settings-checkbox-input" type="checkbox" name="preload_pty_on_startup" checked /></label>
+                  <label class="settings-checkbox-label"><span>Preload WebGL</span><input class="settings-checkbox-input" type="checkbox" name="preload_webgl_on_startup" checked /></label>
+                  <label class="settings-checkbox-label"><span>Defer show</span><input class="settings-checkbox-input" type="checkbox" name="defer_window_show_until_prepared" checked /></label>
+                  <label class="settings-checkbox-label"><span>Destroy on hide</span><input class="settings-checkbox-input" type="checkbox" name="destroy_webview_on_hide" checked /></label>
+                  <label class="settings-checkbox-label"><span>Shed PTYs</span><input class="settings-checkbox-input" type="checkbox" name="shed_on_hide" /></label>
+                  <label class="settings-checkbox-label"><span>Shed WebGL</span><input class="settings-checkbox-input" type="checkbox" name="webgl_shed_on_hide" checked /></label>
+                  <label class="settings-checkbox-label"><span>Drop buffers</span><input class="settings-checkbox-input" type="checkbox" name="discard_buffer_on_hide" /></label>
                 </div>
               </div>
             </div>
@@ -343,11 +343,11 @@
                   </select>
                 </div>
                 <div class="settings-toggles">
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="file_tree_show_diff_counts" /><span>Diff counts</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="file_tree_show_git_info" /><span>Git panel</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="file_tree_disable_search" /><span>Hide search</span></label>
-                  <label class="settings-checkbox-label" data-child-of="file_tree_disable_search"><input class="settings-checkbox-input" type="checkbox" name="file_search_git_aware" /><span>Git-aware</span></label>
-                  <label class="settings-checkbox-label"><input class="settings-checkbox-input" type="checkbox" name="confirm_delete_prompt" /><span>Confirm delete</span></label>
+                  <label class="settings-checkbox-label"><span>Diff counts</span><input class="settings-checkbox-input" type="checkbox" name="file_tree_show_diff_counts" /></label>
+                  <label class="settings-checkbox-label"><span>Git panel</span><input class="settings-checkbox-input" type="checkbox" name="file_tree_show_git_info" /></label>
+                  <label class="settings-checkbox-label"><span>Hide search</span><input class="settings-checkbox-input" type="checkbox" name="file_tree_disable_search" /></label>
+                  <label class="settings-checkbox-label" data-child-of="file_tree_disable_search"><input class="settings-checkbox-input" type="checkbox" name="file_search_git_aware" /><span>Git-aware</span></label><span class="settings-toggle-desc">Respect .gitignore during file search</span>
+                  <label class="settings-checkbox-label"><span>Confirm delete</span><input class="settings-checkbox-input" type="checkbox" name="confirm_delete_prompt" /></label>
                 </div>
               </div>
             </div>
@@ -360,6 +360,20 @@
         <div id="file-tree-scroll" class="file-tree-scroll termie-scroll-fade"></div>
       </aside>
       <div id="file-tree-resize-handle" class="file-tree-resize-handle" aria-hidden="true" title="Resize"></div>
+
+      <!-- Extension Manager -->
+      <div id="extension-manager" class="extension-manager extension-manager--hidden" aria-hidden="true">
+        <div class="extension-manager-backdrop"></div>
+        <div class="extension-manager-card">
+          <div class="extension-manager-head">
+            <span class="extension-manager-title">Extensions</span>
+            <button id="ext-close" type="button" class="extension-manager-close" aria-label="Close"></button>
+          </div>
+          <div class="extension-manager-body termie-scroll-fade">
+            <div class="extension-manager-list"></div>
+          </div>
+        </div>
+      </div>
 
       <div id="tab-context-menu" class="tab-context-menu tab-context-menu--hidden" role="menu" aria-hidden="true"></div>
 
