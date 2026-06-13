@@ -49,3 +49,6 @@ windows-sys = { version = "0.61", features = [
     "Wdk_System_Threading",
 ] }
 winreg = "0.52"
+
+[patch.crates-io]
+portable-pty = { path = "patches/portable-pty" }

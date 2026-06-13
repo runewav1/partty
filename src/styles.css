@@ -1769,9 +1769,6 @@ html.terminal-motion-off *::after {
   padding: calc(var(--pane-padding, 0) * 1px);
   position: relative;
   background: var(--term-bg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .pane-corner-handle {

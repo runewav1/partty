@@ -1,4 +1,5 @@
 import { FitAddon } from "@xterm/addon-fit";
+import { ImageAddon } from "@xterm/addon-image";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { parttyPerf } from "./perf";
 
@@ -18,6 +19,7 @@ export type PaneNode = PaneLeaf | PaneSplit;
 export type PaneTerminal = {
   term: Terminal;
   fit: FitAddon;
+  image: ImageAddon;
   host: HTMLElement;
   /** Row wrapping the terminal host element. */
   row: HTMLElement;
@@ -1179,10 +1181,12 @@ export class PaneHost {
         });
         const fit = new FitAddon();
         term.loadAddon(fit);
+        const imageAddon = new ImageAddon();
+        term.loadAddon(imageAddon);
         term.open(host);
         parttyPerf.mark("pane.terminal.create");
         parttyPerf.time("pane.terminal.create.ms", performance.now() - createStarted);
-        pt = { term, fit, host, row };
+        pt = { term, fit, image: imageAddon, host, row };
         this.terminals.set(node.id, pt);
         this.opts.onPaneCreated(node.id, pt);
       }

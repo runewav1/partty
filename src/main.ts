@@ -3258,7 +3258,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         applyTooltipPolicy(document);
         document.documentElement.classList.toggle("pane-blur-unfocused", saved.blur_unfocused_panes);
         document.documentElement.style.setProperty("--pane-blur-radius", String((saved as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6));
-        document.documentElement.style.setProperty("--pane-padding", String((saved as Partial<ParttyPrefs>).terminal_pane_padding ?? 5));
+        document.documentElement.style.setProperty("--pane-padding", String((saved as Partial<ParttyPrefs>).terminal_pane_padding ?? 0));
         document.documentElement.classList.toggle("pane-dim-unfocused", saved.dim_unfocused_panes);
         if (saved.always_open_in_zen_mode) {
           setZenMode(true);
