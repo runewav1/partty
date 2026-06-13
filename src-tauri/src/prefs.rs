@@ -324,6 +324,9 @@ pub struct Prefs {
     /// How long the completion toast stays visible in milliseconds (1000–30000). Default 5000.
     #[serde(default = "default_process_notification_show_for")]
     pub process_notification_show_for: f64,
+    /// Show millisecond precision in process completion toasts.
+    #[serde(default)]
+    pub process_notification_show_ms: bool,
     /// App chrome + terminal palette id (see frontend `themePresets`).
     #[serde(default = "default_ui_theme")]
     pub ui_theme: String,
@@ -407,6 +410,7 @@ impl Default for Prefs {
             terminal_minimum_contrast_ratio: default_minimum_contrast_ratio(),
             process_notification_threshold: default_process_notification_threshold(),
             process_notification_show_for: default_process_notification_show_for(),
+            process_notification_show_ms: false,
         }
     }
 }

@@ -88,6 +88,8 @@ export type ParttyPrefs = {
   process_notification_threshold: number;
   /** How long the toast stays visible in ms (default 5000, min 1000, max 30000). */
   process_notification_show_for: number;
+  /** Show millisecond precision in completion toasts. */
+  process_notification_show_ms?: boolean;
 };
 
 type DetectedShell = { name: string; path: string };
@@ -205,6 +207,7 @@ export function createSettingsPanel(
         const n = Number.parseFloat(raw);
         return Number.isFinite(n) ? Math.max(1000, Math.min(30000, n)) : 5000;
       })(),
+      process_notification_show_ms: gc("process_notification_show_ms"),
     };
   }
 
@@ -242,7 +245,7 @@ export function createSettingsPanel(
     for (const section of sections) {
       const title = section.querySelector(".settings-section-hd")?.textContent?.toLowerCase() ?? "";
       const titleMatch = q.length > 0 && title.includes(q);
-      let anyVisible = q.length === 0 || titleMatch;
+      let anyVisible = q.length === 0;
       const rows = section.querySelectorAll<HTMLElement>(".settings-row, .settings-checkbox-label");
       for (const row of rows) {
         if (row.closest(".settings-tree-hidden")) {
@@ -258,6 +261,12 @@ export function createSettingsPanel(
         if (visible) anyVisible = true;
       }
       section.hidden = !anyVisible;
+      // Auto-expand sections that have matching content or title when searching
+      if (q.length > 0 && anyVisible) {
+        section.classList.add("settings-section--open");
+      } else if (q.length === 0) {
+        section.classList.remove("settings-section--open");
+      }
     }
   }
 
@@ -331,6 +340,7 @@ export function createSettingsPanel(
     setVal("terminal_minimum_contrast_ratio", String(pr.terminal_minimum_contrast_ratio ?? 1));
     setVal("process_notification_threshold", String(pr.process_notification_threshold ?? 5.0));
     setVal("process_notification_show_for", String(pr.process_notification_show_for ?? 5000));
+    setChk("process_notification_show_ms", pr.process_notification_show_ms ?? false);
     setSel("split_layout_style", ((v?: string) => { v = (v ?? "balanced").toLowerCase(); return v === "dwindle" || v === "master" ? v : "balanced"; })(pr.split_layout_style));
 
     setChk("shed_on_hide", p.shed_on_hide);
@@ -386,6 +396,12 @@ export function createSettingsPanel(
     });
     root.querySelector("#settings-close")?.addEventListener("click", () => close());
     root.querySelector("#settings-search")?.addEventListener("input", () => applySettingsSearch());
+    // Click section headers to toggle fold
+    form?.addEventListener("click", (e) => {
+      const hd = (e.target as HTMLElement).closest(".settings-section-hd");
+      if (!hd) return;
+      hd.closest(".settings-section")?.classList.toggle("settings-section--open");
+    });
     root.addEventListener("keydown", (e) => {
       if (e.key === "Escape") close();
     });

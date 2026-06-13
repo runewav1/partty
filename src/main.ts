@@ -402,6 +402,9 @@ async function boot(): Promise<void> {
   const processNotificationShowForRef = {
     v: ((p) => Number.isFinite(p) ? Math.max(1000, Math.min(30000, p)) : 5000)((persisted.prefs as Partial<ParttyPrefs>).process_notification_show_for ?? 5000),
   };
+  const processNotificationShowMsRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).process_notification_show_ms ?? false,
+  };
 
   const activeProcesses = new Map<string, { command: string; startedAt: number; cwd: string }>();
   const processInputBuffers = new Map<string, string>();
@@ -803,6 +806,7 @@ async function boot(): Promise<void> {
     pendingPtyOutputByPane.delete(paneId);
     activeProcesses.delete(paneId);
     processInputBuffers.delete(paneId);
+    backendReplayRestoredPanes.delete(paneId);
   }
 
   const paneWebglStates = new Map<string, PaneWebglState>();
@@ -1745,7 +1749,12 @@ async function boot(): Promise<void> {
               if (ch === "\r" || ch === "\n") {
                 const cmd = buf.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "").trim();
                 if (cmd) {
-                  activeProcesses.set(id, { command: cmd, startedAt: Date.now(), cwd: paneCwdHints.get(id) || "" });
+                  // Only start tracking if no process is already active for this pane.
+                  // This prevents Enter keystrokes inside a TUI (nvim, htop, etc.) from
+                  // overwriting the command that originally started the process.
+                  if (!activeProcesses.has(id)) {
+                    activeProcesses.set(id, { command: cmd, startedAt: Date.now(), cwd: paneCwdHints.get(id) || "" });
+                  }
                 }
                 buf = "";
                 i++;
@@ -3217,6 +3226,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         if (typeof showFor === "number" && Number.isFinite(showFor)) {
           processNotificationShowForRef.v = Math.max(1000, Math.min(30000, showFor));
         }
+        processNotificationShowMsRef.v = (saved as Partial<ParttyPrefs>).process_notification_show_ms ?? false;
         fileTreePanel?.setSearchEnabled(!(saved.file_tree_disable_search ?? false));
         applyTerminalDisplayPrefs(saved);
         if (saved.scrollback_lines !== previous.scrollback_lines) {
@@ -3472,11 +3482,17 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
 
   function showProcessNotification(command: string, paneName: string, cwd: string, startedAt: number, paneId: string): void {
     if (!processToast) return;
-    const shortCmd = command.length > 60 ? command.slice(0, 57) + "\u2026" : command;
+    const shortCmd = command.length > 50 ? command.slice(0, 47) + "\u2026" : command;
     const shortCwd = cwd.split(/[\\/]/).filter(Boolean).slice(-2).join("/") || cwd;
-    const dur = ((Date.now() - startedAt) / 1000).toFixed(1);
+    const ms = Date.now() - startedAt;
+    let durStr: string;
+    if (processNotificationShowMsRef.v) {
+      durStr = ms >= 1000 ? `${(ms / 1000).toFixed(3)}s` : `${ms}ms`;
+    } else {
+      durStr = ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+    }
     processToast.dataset.paneId = paneId;
-    processToast.innerHTML = `<span class="proc-toast-cmd">${escapeHtml(shortCmd)}</span> finished in <span class="proc-toast-pane">${escapeHtml(paneName)}</span> <span class="proc-toast-cwd">${escapeHtml(shortCwd)}</span> \u00b7 ${dur}s <button class="proc-toast-nav" title="Go to pane">\u2192</button>`;
+    processToast.innerHTML = `<span class="proc-toast-cmd">${escapeHtml(shortCmd)}</span> \u00b7 ${durStr} \u00b7 <span class="proc-toast-pane">${escapeHtml(paneName)}</span> <span class="proc-toast-cwd">${escapeHtml(shortCwd)}</span><button class="proc-toast-nav" title="Go to pane">\u2192</button>`;
     processToast.classList.remove("proc-toast--hidden");
     if (processToastTimer) clearTimeout(processToastTimer);
     processToastTimer = window.setTimeout(() => {

@@ -1991,6 +1991,11 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
+            if let RunEvent::Resumed = event {
+                let st = app.state::<AppState>();
+                let prefs = st.persisted.lock().prefs.clone();
+                apply_window_effects_to_all(app, &prefs);
+            }
             if let RunEvent::ExitRequested { api, .. } = event {
                 if app
                     .state::<AppState>()

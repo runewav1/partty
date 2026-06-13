@@ -273,6 +273,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
       root.removeEventListener("pointerdown", onRootPointerDown);
       list.removeEventListener("click", onListClick);
       if (filterRaf) cancelAnimationFrame(filterRaf);
+      if (refreshTimer) { window.clearInterval(refreshTimer); refreshTimer = 0; }
     },
   };
 }

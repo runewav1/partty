@@ -2804,7 +2804,7 @@ html.file-tree-right .command-palette {
 }
 .settings-section-hd {
   padding: 9px 14px 7px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -2816,12 +2816,32 @@ html.file-tree-right .command-palette {
   backdrop-filter: blur(16px) saturate(1.08);
   -webkit-backdrop-filter: blur(16px) saturate(1.08);
   z-index: 1;
+  cursor: pointer;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.settings-section-hd::after {
+  content: "\203A";
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  transition: transform var(--motion-fast) var(--motion-ease-out);
+  color: var(--ui-chrome-muted);
+}
+.settings-section--open .settings-section-hd::after {
+  transform: rotate(90deg);
 }
 .settings-section--disabled .settings-section-hd {
   color: var(--ui-chrome-fainter);
 }
 .settings-section-bd {
+  display: none;
   padding: 6px 14px 10px;
+}
+.settings-section--open .settings-section-bd {
+  display: block;
 }
 
 /* ── Rows (label left, control right) ── */
@@ -3795,17 +3815,17 @@ html.file-tree-right .command-palette {
 /* ── Process completion notification toast ── */
 .proc-toast {
   position: fixed;
-  bottom: 16px;
-  right: 16px;
+  bottom: 12px;
+  right: 12px;
   z-index: 2000;
-  max-width: 480px;
-  padding: 8px 14px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--term-bg) 94%, var(--ui-chrome-fg) 6%);
+  max-width: 400px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--term-bg) 92%, var(--ui-chrome-fg) 8%);
   border: 1px solid var(--panel-border);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
-  font-size: 12px;
-  line-height: 1.45;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+  font-size: 11px;
+  line-height: 1.35;
   color: var(--ui-chrome-fg);
   transition: opacity var(--motion-medium) var(--motion-ease-out);
   opacity: 1;
@@ -3836,10 +3856,10 @@ html.file-tree-right .command-palette {
   border-radius: 3px;
   color: var(--accent-primary);
   cursor: pointer;
-  font-size: inherit;
+  font-size: 10px;
   line-height: 1;
-  margin-left: 6px;
-  padding: 1px 6px;
+  margin-left: 4px;
+  padding: 1px 5px;
   transition: background 0.15s ease;
 }
 .proc-toast-nav:hover {
