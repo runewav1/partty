@@ -24,6 +24,13 @@ export type ActiveProcess = {
   startedAt: number;
 };
 
+export type ActiveProcessListEntry = {
+  paneId: string;
+  command: string;
+  cwd: string;
+  startedAt: number;
+};
+
 export type ExtensionApi = {
   // ── PTY observation (on-demand, zero overhead when unsubscribed) ──
   onPtyOutput(fn: (paneId: string, data: string) => void): () => void;
@@ -33,9 +40,25 @@ export type ExtensionApi = {
   onProcessStart(fn: (proc: ProcessInfo) => void): () => void;
   onProcessEnd(fn: (proc: ProcessEndInfo) => void): () => void;
   getPaneActiveProcess(paneId: string): ActiveProcess | null;
+  getActiveProcesses(): ActiveProcessListEntry[];
 
   // ── PTY control ──
   writeToPane(paneId: string, text: string): Promise<void>;
+
+  // ── Pane & tab control ──
+  focusPane(paneId: string): void;
+  closePane(paneId: string): void;
+  splitPane(paneId: string, dir: "h" | "v"): string | null;
+  getTabs(): { id: string; name: string; active: boolean }[];
+  switchTab(tabId: string): void;
+
+  // ── Events ──
+  onPaneCreated(fn: (paneId: string) => void): () => void;
+  onPaneClosed(fn: (paneId: string) => void): () => void;
+  onFocusChanged(fn: (paneId: string) => void): () => void;
+
+  // ── Command palette ──
+  registerCommand(id: string, label: string, run: () => void): () => void;
 
   // ── Notifications ──
   showNotification(command: string, detail: string, paneId?: string): void;

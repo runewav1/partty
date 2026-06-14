@@ -72,7 +72,7 @@ import {
   type SavedPaletteCommand,
   savedCommandMatchesContext,
 } from "./paletteCommands";
-import { normalizeFsPathKey, stripOscCwd } from "./oscCwd";
+import { normalizeFsPathKey } from "./oscCwd";
 import { createSettingsPanel, type ParttyPrefs } from "./settingsPanel";
 import { createExtensionManager } from "./extensionManager";
 import { createThemeBuilderModal, type ThemeBuilderApi } from "./themeBuilderModal";
@@ -416,6 +416,12 @@ async function boot(): Promise<void> {
   /** Extension process lifecyle subscribers — zero-cost when empty. */
   const extProcStartSubs: Array<(proc: { paneId: string; command: string; cwd: string }) => void> = [];
   const extProcEndSubs: Array<(proc: { paneId: string; command: string; durationMs: number }) => void> = [];
+  /** Extension pane lifecycle subscribers. */
+  const extPaneCreatedSubs: Array<(paneId: string) => void> = [];
+  const extPaneClosedSubs: Array<(paneId: string) => void> = [];
+  const extFocusSubs: Array<(paneId: string) => void> = [];
+  /** Extension palette commands. */
+  const extPaletteCommands: Array<{ id: string; label: string; run: () => void }> = [];
 
   const pendingPtyWriteByPane = new Map<string, string>();
   const pendingPtyOutputByPane = new Map<string, PendingPtyOutput>();
@@ -464,6 +470,18 @@ async function boot(): Promise<void> {
     pendingPtyWriteRaf = requestAnimationFrame(flushPendingPtyWrites);
   };
 
+  function createCwdHandler(paneId: string): (p: string) => void {
+    return (p: string): void => {
+      paneCwdHints.set(paneId, p);
+      lastLiveCwdSignalAt = Date.now();
+      fileTreeCoordinator?.seedPaneCwd(paneId, p);
+      if (paneId !== paneHost?.getFocusedPaneId()) return;
+      if (normalizeFsPathKey(p) === normalizeFsPathKey(liveCwd ?? "")) return;
+      liveCwd = p;
+      scheduleFileTreeRefresh();
+    };
+  }
+
   function processPtyOutputBatch(paneId: string, data: string, eventCount: number, queuedAt: number): void {
     const pt = getPaneTerminalById(paneId);
     if (!pt) return;
@@ -478,38 +496,21 @@ async function boot(): Promise<void> {
       return;
     }
 
-    // Fast path: no OSC escape in data → no parsing at all.
-    if (!data.includes("\x1b]")) {
+    // Fast path: no OSC escape in data + no pending partial OSC → skip parsing entirely.
+    if (!data.includes("\x1b]") && ensureShellState(paneId).parserRemainder.length === 0) {
       try { pt.term.write(data); } catch { /* ignore */ }
       return;
     }
 
     const siState = ensureShellState(paneId);
-
-    // Extended fast path: no pending parser state.
-    if (!data.includes("\x1b]") && siState.parserRemainder.length === 0) {
-      try { pt.term.write(data); } catch { /* ignore */ }
-      return;
-    }
-
-    const cwdHandler = (p: string): void => {
-      paneCwdHints.set(paneId, p);
-      lastLiveCwdSignalAt = Date.now();
-      fileTreeCoordinator?.seedPaneCwd(paneId, p);
-      if (paneId !== paneHost?.getFocusedPaneId()) return;
-      if (normalizeFsPathKey(p) === normalizeFsPathKey(liveCwd ?? "")) return;
-      liveCwd = p;
-      scheduleFileTreeRefresh();
-    };
-
-    const cleanedCwdInput = data.includes("\x1b]") ? stripOscCwd(data, cwdHandler) : data;
+    const cwdHandler = createCwdHandler(paneId);
     const parseStarted = performance.now();
     let si: ReturnType<typeof processShellIntegration>;
     try {
-      si = processShellIntegration(cleanedCwdInput, siState, cwdHandler, { commandEvents: true });
+      si = processShellIntegration(data, siState, cwdHandler, { commandEvents: true });
     } catch (err) {
       console.error("[proc] shell integration parse error", err);
-      try { pt.term.write(cleanedCwdInput); } catch { /* ignore */ }
+      try { pt.term.write(data); } catch { /* ignore */ }
       return;
     }
     parttyPerf.time("pty.output.cwd_parse.ms", performance.now() - parseStarted);
@@ -833,6 +834,13 @@ async function boot(): Promise<void> {
     for (const host of tabPaneHosts.values()) {
       const pt = host.getPaneTerminal(paneId);
       if (pt) return pt;
+    }
+    return null;
+  }
+
+  function getPaneHostByPaneId(paneId: string): PaneHost | null {
+    for (const host of tabPaneHosts.values()) {
+      if (host.getPaneTerminal(paneId)) return host;
     }
     return null;
   }
@@ -1710,6 +1718,12 @@ async function boot(): Promise<void> {
         }
         void syncCwdFromBackend();
         void remountAuxiliaryForFocus(id);
+        // Notify extension subscribers.
+        if (extFocusSubs.length > 0) {
+          for (const fn of extFocusSubs) {
+            try { fn(id); } catch { /* ignore */ }
+          }
+        }
       },
       onPaneCreated: (id, pt) => {
         attachTermKeyHandler(pt.term, id);
@@ -1855,6 +1869,12 @@ async function boot(): Promise<void> {
         queueMicrotask(() => {
           void ensurePtyForPane(id, pt, inheritedCwd);
         });
+        // Notify extension subscribers.
+        if (extPaneCreatedSubs.length > 0) {
+          for (const fn of extPaneCreatedSubs) {
+            try { fn(id); } catch { /* ignore */ }
+          }
+        }
       },
       onPaneDisposed: (pid) => {
         void ptyKillPane(pid).catch(() => {});
@@ -1863,6 +1883,12 @@ async function boot(): Promise<void> {
         cleanupPaneVisualState(pid);
         fileTreePanel?.clearPaneState(pid);
         fileTreeCoordinator?.handlePaneDispose(pid);
+        // Notify extension subscribers.
+        if (extPaneClosedSubs.length > 0) {
+          for (const fn of extPaneClosedSubs) {
+            try { fn(pid); } catch { /* ignore */ }
+          }
+        }
       },
       onPaneLayout: () => scheduleResizeImmediate(),
       onPaneLayoutDrag: (dragging) => setTerminalLayoutSuspended(dragging),
@@ -1999,6 +2025,12 @@ async function boot(): Promise<void> {
     scheduleResizeImmediate();
     scheduleCwdSync();
     getFocusedTerm()?.focus();
+    // Notify extension subscribers on tab switch (onPaneFocus only fires within a tab).
+    if (extFocusSubs.length > 0 && lastFocusedPaneId) {
+      for (const fn of extFocusSubs) {
+        try { fn(lastFocusedPaneId); } catch { /* ignore */ }
+      }
+    }
   }
 
   function visibleWorkspaceTabsInOrder(): TabRecord[] {
@@ -3885,7 +3917,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
           void closeAllChildPanes();
         },
       },
-      ...customRuns,
+      ...extPaletteCommands.map((c) => ({
+        id: `ext-${c.id}`,
+        label: c.label,
+        keywords: "extension",
+        run: c.run,
+      })),
     ];
     return commands;
   }
@@ -4402,6 +4439,13 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
           if (!entry) return null;
           return { command: entry.command, cwd: entry.cwd, startedAt: entry.startedAt };
         },
+        getActiveProcesses() {
+          const result: Array<{ paneId: string; command: string; cwd: string; startedAt: number }> = [];
+          for (const [paneId, entry] of activeProcesses) {
+            result.push({ paneId, command: entry.command, cwd: entry.cwd, startedAt: entry.startedAt });
+          }
+          return result;
+        },
         writeToPane(paneId: string, text: string) {
           return ptyWrite(paneId, text);
         },
@@ -4445,6 +4489,70 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         },
         getPaneCwd: (paneId: string) => paneCwdHints.get(paneId) ?? null,
         getPaneName: (paneId: string) => paneNames.get(paneId) ?? null,
+
+        // ── Pane & tab control ──
+        focusPane(paneId: string) {
+          if (typeof paneId !== "string" || !paneId) return;
+          navigateToPane(paneId);
+        },
+        closePane(paneId: string) {
+          if (typeof paneId !== "string" || !paneId) return;
+          const host = getPaneHostByPaneId(paneId);
+          if (!host || paneId === host.getRootPaneId()) return;
+          void ptyKillPane(paneId).catch(() => {});
+          host.removePane(paneId);
+        },
+        splitPane(paneId: string, dir: "h" | "v") {
+          if (typeof paneId !== "string" || !paneId) return null;
+          const host = getPaneHostByPaneId(paneId);
+          if (!host) return null;
+          pendingNewPaneCwd.v = paneCwdHints.get(paneId) ?? null;
+          return host.splitFocused(dir) ?? null;
+        },
+        getTabs() {
+          const tabs = visibleWorkspaceTabsInOrder();
+          return tabs.map((t) => ({
+            id: t.id,
+            name: t.name,
+            active: t.id === activeWorkspaceTabId,
+          }));
+        },
+        switchTab(tabId: string) {
+          if (typeof tabId !== "string" || !tabId) return;
+          if (tabPaneHosts.has(tabId)) switchWorkspaceTab(tabId);
+        },
+
+        // ── Events ──
+        onPaneCreated(fn: (paneId: string) => void) {
+          extPaneCreatedSubs.push(fn);
+          return () => {
+            const idx = extPaneCreatedSubs.indexOf(fn);
+            if (idx !== -1) extPaneCreatedSubs.splice(idx, 1);
+          };
+        },
+        onPaneClosed(fn: (paneId: string) => void) {
+          extPaneClosedSubs.push(fn);
+          return () => {
+            const idx = extPaneClosedSubs.indexOf(fn);
+            if (idx !== -1) extPaneClosedSubs.splice(idx, 1);
+          };
+        },
+        onFocusChanged(fn: (paneId: string) => void) {
+          extFocusSubs.push(fn);
+          return () => {
+            const idx = extFocusSubs.indexOf(fn);
+            if (idx !== -1) extFocusSubs.splice(idx, 1);
+          };
+        },
+
+        // ── Command palette ──
+        registerCommand(id: string, label: string, run: () => void) {
+          extPaletteCommands.push({ id, label, run });
+          return () => {
+            const idx = extPaletteCommands.findIndex((c) => c.id === id);
+            if (idx !== -1) extPaletteCommands.splice(idx, 1);
+          };
+        },
       };
 
       for (const ext of exts) {
