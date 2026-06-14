@@ -1388,9 +1388,17 @@ async fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
         .visible(false);
     let win = builder.build().map_err(|e| e.to_string())?;
 
+    // Always start un-maximized — show then maximize gives Windows
+    // a clean visible rect to compute the maximized bounds from.
+    if st.window.maximized || st.prefs.always_summon_maximized {
+        let _ = win.unmaximize();
+    }
+
     apply_window_effects(&win, &st.prefs);
-    let _ = win.set_position(tauri::PhysicalPosition::new(st.window.x, st.window.y));
-    let _ = win.set_size(tauri::PhysicalSize::new(st.window.width, st.window.height));
+    if !st.window.maximized {
+        let _ = win.set_position(tauri::PhysicalPosition::new(st.window.x, st.window.y));
+        let _ = win.set_size(tauri::PhysicalSize::new(st.window.width, st.window.height));
+    }
     // Maximize deferred to spawn_show_main_window — calling maximize()
     // before show() causes Windows to miscalculate the maximized client
     // rect, leaving a white bar at the bottom.
@@ -1470,6 +1478,12 @@ fn toggle_window(app: &AppHandle) {
             clear_pty_session(&state);
             let _ = win.emit("pty-session-shed", ());
         }
+        // When destroying the webview on hide, un-maximize before saving
+        // so the persisted dimensions reflect the normal rect. The window is
+        // recreated from these dimensions on next summon, then maximized after show.
+        if state.persisted.lock().prefs.destroy_webview_on_hide {
+            let _ = win.unmaximize();
+        }
         save_state(&state.persisted.lock());
         let _ = win.emit("partty-hide", ());
         let _ = win.hide();
@@ -1493,7 +1507,11 @@ fn toggle_window(app: &AppHandle) {
                 position_main_at_cursor_if_prefs(app);
             }
             let _ = win.show();
-            if summon {
+            // Show → unmaximize → maximize forces Windows to recalculate
+            // the client rect from scratch. maximize() on an already-maximized
+            // hidden window is a no-op — the OS won't recompute the bounds.
+            if summon || win.is_maximized().unwrap_or(false) {
+                let _ = win.unmaximize();
                 let _ = win.maximize();
             }
             let _ = win.set_focus();
