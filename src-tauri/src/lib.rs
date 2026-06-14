@@ -1391,11 +1391,9 @@ async fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
     apply_window_effects(&win, &st.prefs);
     let _ = win.set_position(tauri::PhysicalPosition::new(st.window.x, st.window.y));
     let _ = win.set_size(tauri::PhysicalSize::new(st.window.width, st.window.height));
-    if st.prefs.always_summon_maximized {
-        let _ = win.maximize();
-    } else if st.window.maximized {
-        let _ = win.maximize();
-    }
+    // Maximize deferred to spawn_show_main_window — calling maximize()
+    // before show() causes Windows to miscalculate the maximized client
+    // rect, leaving a white bar at the bottom.
     let _ = win.set_skip_taskbar(st.prefs.hidden_from_taskbar);
     if st.prefs.always_on_top {
         let _ = win.set_always_on_top(true);
@@ -1444,6 +1442,15 @@ fn spawn_show_main_window(app: AppHandle) {
         } else {
             position_main_at_cursor_if_prefs(&app);
             let _ = w.show();
+            // Maximize AFTER show — calling maximize() before the window
+            // is visible causes Windows to miscompute the maximized client rect.
+            let app_state = app.state::<AppState>();
+            let st = app_state.persisted.lock();
+            let should_max = st.prefs.always_summon_maximized || st.window.maximized;
+            drop(st);
+            if should_max {
+                let _ = w.maximize();
+            }
             let _ = w.set_focus();
             let _ = w.emit("partty-show", ());
         }
@@ -2055,11 +2062,7 @@ pub fn run() {
             {
                 eprintln!("set_size: {e}");
             }
-            if st.prefs.always_summon_maximized {
-                let _ = win.maximize();
-            } else if st.window.maximized {
-                let _ = win.maximize();
-            }
+            // Maximize is deferred to spawn_show_main_window (after show).
             let _ = win.set_skip_taskbar(st.prefs.hidden_from_taskbar);
             if st.prefs.always_on_top {
                 let _ = win.set_always_on_top(true);
