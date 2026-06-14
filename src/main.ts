@@ -496,8 +496,8 @@ async function boot(): Promise<void> {
       return;
     }
 
-    // Fast path: no OSC escape in data + no pending partial OSC → skip parsing entirely.
-    if (!data.includes("\x1b]") && ensureShellState(paneId).parserRemainder.length === 0) {
+    // Fast path: no OSC escape in data → no parsing at all.
+    if (!data.includes("\x1b]")) {
       try { pt.term.write(data); } catch { /* ignore */ }
       return;
     }

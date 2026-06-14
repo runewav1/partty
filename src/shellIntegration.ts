@@ -62,7 +62,8 @@ function normalizeCwdPath(value: string, properties: Map<string, string>): strin
 function uriToLocalPath(payload: string, properties: Map<string, string>): string | null {
   const raw = payload.trim();
   if (!raw) return null;
-  const isWindows = (properties.get("IsWindows") ?? "").toLowerCase() === "true";
+  const isWindows = (properties.get("IsWindows") ?? "").toLowerCase() === "true"
+    || /\bWindows\b/i.test(navigator.userAgent);
   try {
     const href = raw.includes("://") ? raw : `file:///${raw.replace(/^\/+/, "")}`;
     const u = new URL(href);
