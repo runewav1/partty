@@ -11,7 +11,7 @@ mod win_console;
 use parking_lot::Mutex;
 use prefs::{load_state, save_state, PersistedState};
 use pty::PtySession;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command as StdCommand;
@@ -22,21 +22,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
-const DETACHED_PANE_WINDOW_PREFIX: &str = "detached-pane-";
 
-#[derive(Debug, Clone)]
-struct DetachedPaneState {
-    pane_id: String,
-    title: String,
-    snapshot: Option<String>,
-}
 
-#[derive(Debug, Clone, serde::Serialize)]
-struct DetachedPaneBootstrap {
-    pane_id: String,
-    title: String,
-    snapshot: Option<String>,
-}
 
 pub struct AppState {
     pub pty_panes: Mutex<HashMap<String, Arc<PtySession>>>,
@@ -55,8 +42,6 @@ pub struct AppState {
     pub app_session_id: String,
     /// Filesystem watcher for file tree live-updating.
     pub fs_watcher: fs_watcher::WatcherHandle,
-    /// Detached pane windows keyed by window label.
-    detached_panes: Mutex<HashMap<String, DetachedPaneState>>,
 }
 
 fn make_app_session_id() -> String {
@@ -1089,19 +1074,7 @@ fn apply_window_effects_to_all(app: &AppHandle, prefs: &prefs::Prefs) {
     }
 }
 
-fn detached_window_label_for_pane(pane_id: &str) -> String {
-    let safe: String = pane_id
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    format!("{DETACHED_PANE_WINDOW_PREFIX}{safe}")
-}
+
 
 fn kill_pane_session(state: &AppState, pane_id: &str) {
     if let Some(s) = state.pty_panes.lock().remove(pane_id) {
@@ -1116,35 +1089,11 @@ fn kill_pane_session(state: &AppState, pane_id: &str) {
 }
 
 fn clear_pty_session(state: &AppState) {
-    let detached_ids: HashSet<String> = state
-        .detached_panes
-        .lock()
-        .values()
-        .map(|x| x.pane_id.clone())
-        .collect();
-    let mut panes = state.pty_panes.lock();
-    let mut keep: Vec<(String, Arc<PtySession>)> = Vec::new();
-    for pane_id in &detached_ids {
-        if let Some(s) = panes.remove(pane_id) {
-            keep.push((pane_id.clone(), s));
-        }
-    }
-    for (_, s) in panes.drain() {
+    for (_, s) in state.pty_panes.lock().drain() {
         s.kill();
     }
-    for (pane_id, session) in keep {
-        panes.insert(pane_id, session);
-    }
-    state
-        .pty_spawn_identity
-        .lock()
-        .retain(|k, _| detached_ids.contains(k));
-    let mut f = state.focused_pane_id.lock();
-    if f.as_ref().is_some_and(|x| detached_ids.contains(x)) {
-        // keep detached pane focus target
-    } else {
-        *f = None;
-    }
+    state.pty_spawn_identity.lock().clear();
+    *state.focused_pane_id.lock() = None;
 }
 
 #[cfg(windows)]
@@ -1189,115 +1138,7 @@ fn position_main_at_cursor_if_prefs(app: &AppHandle) {
     }
 }
 
-fn register_detached_pane_window_events(handle: &AppHandle, win: &tauri::WebviewWindow) {
-    let app = handle.clone();
-    let label = win.label().to_string();
-    win.on_window_event(move |e| {
-        if let WindowEvent::CloseRequested { .. } = e {
-            let state = app.state::<AppState>();
-            let _ = close_detached_pane_inner(&app, &state, &label, false);
-        }
-    });
-}
 
-fn close_detached_pane_inner(
-    app: &AppHandle,
-    state: &AppState,
-    window_label: &str,
-    destroy_window: bool,
-) -> Result<(), String> {
-    let pane = state.detached_panes.lock().remove(window_label);
-    let Some(detached) = pane else {
-        if destroy_window {
-            if let Some(win) = app.get_webview_window(window_label) {
-                let _ = win.destroy();
-            }
-        }
-        return Ok(());
-    };
-    kill_pane_session(state, &detached.pane_id);
-    if destroy_window {
-        if let Some(win) = app.get_webview_window(window_label) {
-            let _ = win.destroy();
-        }
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn pop_out_pane(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    pane_id: String,
-    title: String,
-    snapshot: Option<String>,
-) -> Result<String, String> {
-    let label = detached_window_label_for_pane(&pane_id);
-    {
-        let panes = state.detached_panes.lock();
-        if panes.contains_key(&label) {
-            if let Some(win) = app.get_webview_window(&label) {
-                let _ = win.show();
-                let _ = win.set_focus();
-            }
-            return Ok(label);
-        }
-    }
-    let prefs = state.persisted.lock().prefs.clone();
-    let builder = tauri::WebviewWindowBuilder::new(
-        &app,
-        label.as_str(),
-        tauri::WebviewUrl::App("detached-pane.html".into()),
-    )
-    .title(title.as_str())
-    .inner_size(760.0, 460.0)
-    .min_inner_size(380.0, 220.0)
-    .resizable(true)
-    .decorations(false)
-    .shadow(true)
-    .skip_taskbar(false)
-    .visible(true);
-    let win = builder.build().map_err(|e| e.to_string())?;
-    apply_window_effects(&win, &prefs);
-    if let Ok(sz) = win.outer_size() {
-        position_window_near_cursor(&win, sz.width, sz.height);
-    }
-    register_detached_pane_window_events(&app, &win);
-    state.detached_panes.lock().insert(
-        label.clone(),
-        DetachedPaneState {
-            pane_id,
-            title,
-            snapshot,
-        },
-    );
-    Ok(label)
-}
-
-#[tauri::command]
-fn get_detached_pane_bootstrap(
-    state: State<'_, AppState>,
-    window_label: String,
-) -> Result<DetachedPaneBootstrap, String> {
-    let panes = state.detached_panes.lock();
-    let Some(detached) = panes.get(&window_label) else {
-        return Err("detached pane window missing".into());
-    };
-    Ok(DetachedPaneBootstrap {
-        pane_id: detached.pane_id.clone(),
-        title: detached.title.clone(),
-        snapshot: detached.snapshot.clone(),
-    })
-}
-
-#[tauri::command]
-fn close_detached_pane(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    window_label: String,
-) -> Result<(), String> {
-    close_detached_pane_inner(&app, &state, &window_label, true)
-}
 
 /// Let the `partty-hide` handler finish WebGL/buffer work on the JS thread, then destroy the
 /// webview from Rust. Avoids `invoke(request_destroy_webview)` from JS, which can tear down the
@@ -2003,7 +1844,6 @@ pub fn run() {
             hide_destroy_generation: AtomicU64::new(0),
             app_session_id: make_app_session_id(),
             fs_watcher: fs_watcher::create_watcher_handle(),
-            detached_panes: Mutex::new(HashMap::new()),
         })
         .invoke_handler(tauri::generate_handler![
             pty_ensure,
@@ -2031,9 +1871,6 @@ pub fn run() {
             toggle_overlay,
             list_extensions,
             set_extension_enabled,
-            pop_out_pane,
-            get_detached_pane_bootstrap,
-            close_detached_pane,
             webview_boot_complete,
             commit_show_window,
             request_destroy_webview_for_hide,

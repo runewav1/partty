@@ -9,7 +9,6 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
 import {
-  capturePlainBuffer,
   createWebglAddon,
   mergeLifecyclePrefs,
   type ParttyLifecyclePrefs,
@@ -85,7 +84,6 @@ import { FileTreeCoordinator } from "./fileTreeCoordinator";
 import { FileTreeBackend } from "./fileTreeBackend";
 import {
   ptyAckExit,
-  popOutPane,
   ptyEnsure,
   ptyFocusPane,
   ptyKillPane,
@@ -924,37 +922,6 @@ async function boot(): Promise<void> {
       paneHost?.removePane(id);
     } catch (e) {
       console.warn("pty_kill_pane", e);
-    }
-  }
-
-  async function popOutFocusedPane(): Promise<void> {
-    const id = paneHost?.getFocusedPaneId();
-    const root = paneHost?.getRootPaneId();
-    if (!id || !root) return;
-    const pt = paneHost?.getPaneTerminal(id);
-    if (!pt) return;
-    if (id === root) {
-      pt.term.write("\r\n\x1b[90mPop out currently requires a child pane.\x1b[0m\r\n");
-      return;
-    }
-    const cwd = paneCwdHints.get(id) ?? liveCwd ?? "";
-    const title = cwd ? `Partty - ${cwd}` : "Partty - Detached Pane";
-    const snapshot = capturePlainBuffer(pt.term, lp.snapshot_max_lines) || null;
-    try {
-      await popOutPane(id, title, snapshot);
-      paneHost?.removePane(id, { notifyDisposed: false });
-      cleanupPaneVisualState(id);
-      persistCurrentWorkspaceTabLayout();
-      scheduleResizeImmediate();
-      scheduleCwdSync();
-      const focusedId = paneHost?.getFocusedPaneId();
-      if (focusedId) {
-        paneHost?.getPaneTerminal(focusedId)?.term.focus();
-        void ptyFocusPane(focusedId).catch(() => {});
-      }
-    } catch (e) {
-      console.warn("pop_out_pane", e);
-      pt.term.write("\r\n\x1b[31mFailed to pop out pane.\x1b[0m\r\n");
     }
   }
 
@@ -3899,14 +3866,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         label: "Pane: Rename focused…",
         keywords: "pane name title label friendly id",
         run: () => openFocusedPaneRename(),
-      },
-      {
-        id: "pane-pop-out",
-        label: "Pane: Pop out focused pane",
-        keywords: "detach separate window float eject external",
-        run: () => {
-          void popOutFocusedPane();
-        },
       },
       {
         id: "pane-close-children",

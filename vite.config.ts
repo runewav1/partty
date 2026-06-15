@@ -11,12 +11,6 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
 
   build: {
-    rollupOptions: {
-      input: {
-        main: path.resolve(__dirname, "index.html"),
-        detachedPane: path.resolve(__dirname, "detached-pane.html"),
-      },
-    },
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

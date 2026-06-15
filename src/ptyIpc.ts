@@ -39,24 +39,3 @@ export function ptyShellExeToken(paneId: string): Promise<string | null> {
   return invoke<string | null>("pty_shell_exe_token", { paneId });
 }
 
-export type DetachedPaneBootstrap = {
-  pane_id: string;
-  title: string;
-  snapshot: string | null;
-};
-
-export function popOutPane(
-  paneId: string,
-  title: string,
-  snapshot: string | null,
-): Promise<string> {
-  return invoke<string>("pop_out_pane", { paneId, title, snapshot });
-}
-
-export function getDetachedPaneBootstrap(windowLabel: string): Promise<DetachedPaneBootstrap> {
-  return invoke<DetachedPaneBootstrap>("get_detached_pane_bootstrap", { windowLabel });
-}
-
-export function closeDetachedPane(windowLabel: string): Promise<void> {
-  return invoke("close_detached_pane", { windowLabel });
-}

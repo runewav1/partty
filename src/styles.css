@@ -206,8 +206,7 @@ body {
 html.partty-booting,
 html.partty-booting body,
 html.partty-booting #app,
-html.partty-booting #terminal-wrap,
-html.partty-booting .detached-pane-shell {
+html.partty-booting #terminal-wrap {
   background: var(--term-bg, #2e2e32) !important;
 }
 
