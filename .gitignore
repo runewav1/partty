@@ -25,6 +25,9 @@ dist-ssr
 # Tauri
 src-tauri/target/
 
-# Tool artifacts
+# Personal development files
+TODO.md
+icon-names.txt
+
 src-tauri/icons/.lemon/
 .lime/
