@@ -28,6 +28,7 @@ export type ParttyPrefs = {
   shed_workspace_exit: string;
   always_summon_maximized: boolean;
   summon_spawn_at_cursor: boolean;
+  cursor_follow_window_move: boolean;
   hidden_from_taskbar: boolean;
   file_tree_show_diff_counts: boolean;
   file_tree_show_git_info: boolean;
@@ -167,6 +168,7 @@ export function createSettingsPanel(
       blur_unfocused_panes: gc("blur_unfocused_panes"), pane_blur_radius: clampf(g("pane_blur_radius"), 1.6, 0, 10), dim_unfocused_panes: gc("dim_unfocused_panes"),
       auto_copy_selection: gc("auto_copy_selection"), shed_workspace_exit,
       always_summon_maximized: gc("always_summon_maximized"), summon_spawn_at_cursor: gc("summon_spawn_at_cursor"),
+      cursor_follow_window_move: gc("cursor_follow_window_move"),
       hidden_from_taskbar: gc("hidden_from_taskbar"),
       ui_theme: previous.ui_theme, ui_theme_variant: previous.ui_theme_variant,
       font_terminal: g("font_terminal"), font_ui: g("font_ui"), font_file_tree: g("font_file_tree"),
@@ -366,6 +368,7 @@ export function createSettingsPanel(
     setChk("auto_copy_selection", pr.auto_copy_selection ?? false);
     setChk("always_summon_maximized", pr.always_summon_maximized ?? false);
     setChk("summon_spawn_at_cursor", pr.summon_spawn_at_cursor ?? false);
+    setChk("cursor_follow_window_move", pr.cursor_follow_window_move ?? false);
     setChk("hidden_from_taskbar", pr.hidden_from_taskbar ?? false);
     setChk("file_tree_show_diff_counts", pr.file_tree_show_diff_counts ?? false);
     setChk("file_tree_show_git_info", pr.file_tree_show_git_info ?? true);

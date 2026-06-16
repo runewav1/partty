@@ -561,79 +561,6 @@ html.term-search-open #main-workspace {
   transition: transform var(--motion-medium) var(--motion-ease-out);
 }
 
-/* Buttons stay at left edge; no centering */
-
-.term-toolbar-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--ui-chrome-muted);
-  cursor: pointer;
-  user-select: none;
-  font: inherit;
-  transition:
-    color var(--motion-fast) var(--motion-ease-out),
-    background var(--motion-fast) var(--motion-ease-out),
-    transform var(--motion-fast) var(--motion-ease-emphasized),
-    border-radius var(--motion-medium) var(--motion-ease-out);
-}
-
-.term-toolbar-btn:hover {
-  color: var(--ui-chrome-fg);
-  background: var(--hover-overlay-light);
-}
-
-.term-toolbar-btn:active {
-  transform: scale(0.96);
-}
-
-.term-toolbar-btn[aria-pressed="true"] {
-  color: var(--accent-primary-lightest);
-  background: rgba(129, 140, 248, 0.14);
-}
-
-.term-toolbar-btn--files {
-  border-radius: 5px;
-}
-
-.term-toolbar-btn--files:hover {
-  border-radius: 5px;
-  background: var(--hover-overlay-light);
-}
-
-.term-toolbar-files-svg {
-  color: var(--ui-chrome-muted);
-  transition: color var(--motion-fast) var(--motion-ease-out), transform var(--motion-medium) var(--motion-ease-out);
-}
-
-.term-toolbar-btn--files:hover .term-toolbar-files-svg {
-  color: var(--ui-chrome-fg);
-}
-
-html.file-tree-on .term-toolbar-files-svg--open {
-  color: var(--accent-primary-lightest);
-}
-
-.term-toolbar-btn-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-}
-
-.term-toolbar-svg {
-  width: 16px;
-  height: 16px;
-  display: block;
-}
-
 .term-toolbar-drag {
   flex: 1 1 auto;
   min-width: 96px;
@@ -857,66 +784,9 @@ html:not(.term-tabs-multiple) .term-tabs-strip {
   border-left: 3px solid var(--tab-color);
 }
 
-.term-tab-new {
-  flex-shrink: 0;
-  align-self: center;
-  margin-left: 4px;
-}
-
-.term-tab-new .term-tab-new-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
 html.term-tabs-multiple .term-toolbar {
   background: color-mix(in srgb, color-mix(in srgb, var(--term-bg) 78%, #000 22%) calc(var(--termie-app-bg-alpha) * 100%), transparent);
 }
-
-.term-toolbar-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 24px;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--ui-gray-300);
-  cursor: pointer;
-  user-select: none;
-  transition:
-    color var(--motion-fast) var(--motion-ease-out),
-    background var(--motion-fast) var(--motion-ease-out),
-    transform var(--motion-fast) var(--motion-ease-emphasized);
-}
-
-.term-toolbar-icon-btn:hover {
-  color: var(--ui-gray-100);
-  background: var(--hover-overlay-light);
-}
-
-.term-toolbar-icon-btn:active {
-  transform: scale(0.96);
-}
-
-.term-toolbar-icon-btn[aria-pressed="true"] {
-  color: var(--accent-primary-lightest);
-  background: rgba(129, 140, 248, 0.14);
-}
-
-html.file-tree-on .term-toolbar-icon-btn--sidebar .sidebar-bar--mid {
-  transform: translateX(3px);
-  width: 12px;
-}
-
-.term-toolbar-icon-btn--sidebar .sidebar-bar {
-  transition:
-    transform var(--motion-medium) var(--motion-ease-out),
-    width var(--motion-medium) var(--motion-ease-out);
-}
-
 
 .window-controls {
   display: flex;

@@ -203,6 +203,10 @@ pub struct Prefs {
     /// When true, summoning the main window (overlay toggle) places it at the OS cursor.
     #[serde(default)]
     pub summon_spawn_at_cursor: bool,
+    /// When true, moving the window to another monitor (Alt+Shift+Right) warps the OS
+    /// cursor along with it, onto the focused pane.
+    #[serde(default)]
+    pub cursor_follow_window_move: bool,
     /// Windows: hide window from taskbar (tool window style).
     #[serde(default)]
     pub hidden_from_taskbar: bool,
@@ -368,6 +372,7 @@ impl Default for Prefs {
             shed_workspace_exit: "keep".to_string(),
             always_summon_maximized: false,
             summon_spawn_at_cursor: false,
+            cursor_follow_window_move: false,
             hidden_from_taskbar: false,
             ui_theme: default_ui_theme(),
             ui_theme_variant: default_ui_theme_variant(),

@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { availableMonitors, currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
+import { availableMonitors, currentMonitor, getCurrentWindow, LogicalPosition, PhysicalPosition } from "@tauri-apps/api/window";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { FitAddon } from "@xterm/addon-fit";
 
@@ -95,10 +95,6 @@ import {
 } from "./ptyIpc";
 import {
   createTabCloseIcon,
-  mountFileTreeFolderIcons,
-  mountSettingsCogIcon,
-  mountTabNewPlusIcon,
-  syncFileTreeFolderIcon,
 } from "./toolbarIcons";
 import { parttyPerf } from "./perf";
 
@@ -276,7 +272,6 @@ function terminalFontStackFromDocument(): string {
 
 async function boot(): Promise<void> {
   migrateParttyLocalStorage();
-  mountSettingsCogIcon();
   const persisted = await invoke<PersistedPayload>("get_persisted_state");
   syncRuntimeShedFromPrefs(persisted.prefs as ParttyPrefs);
   await loadCustomThemesIntoCache();
@@ -297,9 +292,6 @@ async function boot(): Promise<void> {
   const prefAlwaysZen = Boolean((persisted.prefs as Partial<ParttyPrefs>).always_open_in_zen_mode);
   const zenModeEnabled = prefAlwaysZen || localStorage.getItem(ZEN_MODE_STORAGE_KEY) === "1";
   document.documentElement.classList.toggle("zen-mode", zenModeEnabled);
-  mountFileTreeFolderIcons();
-  mountTabNewPlusIcon();
-  syncFileTreeFolderIcon(fileTreeUserEnabled);
   const ftW = localStorage.getItem(FILE_TREE_WIDTH_KEY);
   if (ftW) {
     const n = Math.max(160, Math.min(560, parseInt(ftW, 10) || 260));
@@ -407,6 +399,9 @@ async function boot(): Promise<void> {
   };
   const processNotificationTransparentRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).process_notification_transparent ?? false,
+  };
+  const cursorFollowWindowMoveRef = {
+    v: Boolean((persisted.prefs as Partial<ParttyPrefs>).cursor_follow_window_move),
   };
 
   const activeProcesses = new Map<string, { command: string; startedAt: number; cwd: string }>();
@@ -1437,11 +1432,8 @@ async function boot(): Promise<void> {
     if (fileTreeDisabledRef.v) on = false;
     localStorage.setItem(FILE_TREE_STORAGE_KEY, on ? "1" : "0");
     document.documentElement.classList.toggle("file-tree-on", on);
-    const btn = document.getElementById("file-tree-toggle");
-    if (btn) btn.setAttribute("aria-pressed", on ? "true" : "false");
     const dock = document.getElementById("file-tree-dock");
     if (dock) dock.setAttribute("aria-hidden", on ? "false" : "true");
-    syncFileTreeFolderIcon(on);
     scheduleResizeImmediate();
     void fileTreePanel?.refresh();
   }
@@ -1466,18 +1458,11 @@ async function boot(): Promise<void> {
   }
 
   function syncFileTreeDisabledUi(disabled: boolean): void {
-    const btn = document.getElementById("file-tree-toggle") as HTMLButtonElement | null;
-    if (btn) {
-      btn.disabled = disabled;
-      btn.setAttribute("aria-disabled", disabled ? "true" : "false");
-      btn.title = disabled ? "File panel disabled in settings" : "Toggle files";
-    }
     if (disabled) {
       localStorage.setItem(FILE_TREE_STORAGE_KEY, "0");
       document.documentElement.classList.remove("file-tree-on");
       const dock = document.getElementById("file-tree-dock");
       if (dock) dock.setAttribute("aria-hidden", "true");
-      syncFileTreeFolderIcon(false);
       fileTreePanel?.setSearchEnabled(false);
       scheduleResizeImmediate();
     }
@@ -2429,7 +2414,25 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       if (e.shiftKey && e.key === "ArrowRight") {
         e.preventDefault();
         e.stopPropagation();
-        void moveWindowToNextMonitor();
+        void moveWindowToAdjacentMonitor(1);
+        return;
+      }
+      if (e.shiftKey && e.key === "ArrowLeft") {
+        e.preventDefault();
+        e.stopPropagation();
+        void moveWindowToAdjacentMonitor(-1);
+        return;
+      }
+      if (e.shiftKey && e.key === "ArrowUp") {
+        e.preventDefault();
+        e.stopPropagation();
+        void setWindowMaximized(true);
+        return;
+      }
+      if (e.shiftKey && e.key === "ArrowDown") {
+        e.preventDefault();
+        e.stopPropagation();
+        void setWindowMaximized(false);
         return;
       }
       if (e.shiftKey) return;
@@ -2700,10 +2703,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       strip.appendChild(btn);
     }
   }
-
-  document.getElementById("term-tab-new")?.addEventListener("click", () => {
-    openNewWorkspaceTab();
-  });
 
   let tabDragId: string | null = null;
   let groupDragId: string | null = null;
@@ -3079,7 +3078,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     true,
   );
 
-  document.getElementById("file-tree-toggle")?.addEventListener("click", () => toggleFileTree());
   const fileTreeDockEl = document.getElementById("file-tree-dock");
   const fileTreeResizeHandle = document.getElementById("file-tree-resize-handle");
   async function setFileTreeSide(side: "left" | "right"): Promise<void> {
@@ -3119,11 +3117,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp, { once: true });
   });
-  document.getElementById("file-tree-toggle")?.setAttribute(
-    "aria-pressed",
-    fileTreeUserEnabled ? "true" : "false",
-  );
-
   async function newTerminalSession(): Promise<void> {
     const killIds = paneHost?.getLeafIdsInOrder() ?? [];
     for (const pid of killIds) {
@@ -3262,6 +3255,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         }
         processNotificationShowMsRef.v = (saved as Partial<ParttyPrefs>).process_notification_show_ms ?? false;
         processNotificationTransparentRef.v = (saved as Partial<ParttyPrefs>).process_notification_transparent ?? false;
+        cursorFollowWindowMoveRef.v = Boolean((saved as Partial<ParttyPrefs>).cursor_follow_window_move);
         syncFileTreeDisabledUi(fileTreeDisabledRef.v);
         fileTreePanel?.setSearchEnabled(!(saved.file_tree_disable_search ?? false));
         applyTerminalDisplayPrefs(saved);
@@ -4012,7 +4006,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   const extManagerEl = document.getElementById("extension-manager") as HTMLElement | null;
   const extManagerApi = extManagerEl ? createExtensionManager(extManagerEl) : null;
   extManagerEl?.querySelector("[data-ext-close]")?.addEventListener("click", () => extManagerApi?.close());
-  document.getElementById("settings-toggle")?.addEventListener("click", () => settingsApi?.open());
   const appWindow = getCurrentWindow();
   async function syncMaximizeButtonTitle(): Promise<void> {
     const btn = document.getElementById("window-maximize");
@@ -4041,23 +4034,34 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   document.getElementById("window-minimize")?.addEventListener("click", () => {
     void appWindow.minimize().catch(() => {});
   });
+  async function toggleMaximizeRestore(): Promise<void> {
+    try {
+      const isMax = await appWindow.isMaximized();
+      if (isMax) await appWindow.unmaximize();
+      else await appWindow.maximize();
+      await syncMaximizeButtonTitle();
+    } catch {
+      /* ignore */
+    }
+  }
+  // Alt+Shift+Up maximizes, Alt+Shift+Down restores (see the Alt keydown handler).
+  async function setWindowMaximized(max: boolean): Promise<void> {
+    try {
+      if (max) await appWindow.maximize();
+      else await appWindow.unmaximize();
+      await syncMaximizeButtonTitle();
+    } catch {
+      /* ignore */
+    }
+  }
   document.getElementById("window-maximize")?.addEventListener("click", () => {
-    void (async () => {
-      try {
-        const isMax = await appWindow.isMaximized();
-        if (isMax) await appWindow.unmaximize();
-        else await appWindow.maximize();
-        await syncMaximizeButtonTitle();
-      } catch {
-        /* ignore */
-      }
-    })();
+    void toggleMaximizeRestore();
   });
 
-  // Move the window to the next available monitor (Alt+Shift+Right), cycling back
-  // to the first. Preserves the window's offset within the monitor, clamped to fit,
-  // and re-maximizes on the destination if it was maximized.
-  async function moveWindowToNextMonitor(): Promise<void> {
+  // Move the window to an adjacent monitor: +1 = next (Alt+Shift+Right), -1 = previous
+  // (Alt+Shift+Left), wrapping around the list. Preserves the window's offset within
+  // the monitor, clamped to fit, and re-maximizes on the destination if it was maximized.
+  async function moveWindowToAdjacentMonitor(direction: 1 | -1): Promise<void> {
     try {
       const monitors = await availableMonitors();
       if (monitors.length < 2) return;
@@ -4073,7 +4077,8 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         : 0;
       if (idx < 0) idx = 0;
       const from = cur ?? monitors[idx];
-      const to = monitors[(idx + 1) % monitors.length];
+      const n = monitors.length;
+      const to = monitors[((idx + direction) % n + n) % n];
       const wasMaximized = await appWindow.isMaximized();
       if (wasMaximized) await appWindow.unmaximize();
       const pos = await appWindow.outerPosition();
@@ -4087,9 +4092,39 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       await appWindow.setPosition(new PhysicalPosition(nextX, nextY));
       if (wasMaximized) await appWindow.maximize();
       await syncMaximizeButtonTitle();
+      if (cursorFollowWindowMoveRef.v) warpCursorToFocusedPane();
     } catch {
       /* ignore */
     }
+  }
+
+  // Opt-in (Cursor follows monitor): after the window moves, warp the OS cursor onto
+  // the focused pane and refocus it so the user keeps working without chasing the
+  // window. setCursorPosition takes coordinates relative to the window's content, so
+  // CSS/logical pixels from getBoundingClientRect map directly. Double rAF lets the
+  // post-move (and maximize) layout settle before measuring.
+  function warpCursorToFocusedPane(): void {
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        void (async () => {
+          try {
+            const id = paneHost?.getFocusedPaneId();
+            const el = id
+              ? (paneHost
+                  ?.getHostRoot()
+                  .querySelector(`.pane-leaf[data-pane-id="${CSS.escape(id)}"]`) as HTMLElement | null)
+              : null;
+            const rect = el?.getBoundingClientRect();
+            const cx = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
+            const cy = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
+            await appWindow.setCursorPosition(new LogicalPosition(Math.round(cx), Math.round(cy)));
+            getFocusedTerm()?.focus();
+          } catch {
+            /* ignore */
+          }
+        })();
+      }),
+    );
   }
 
   // Alt+Shift + primary-button drag moves the window from anywhere in the client
