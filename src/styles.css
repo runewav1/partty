@@ -3891,6 +3891,11 @@ html.file-tree-right .command-palette {
   opacity: 1;
 }
 
+.proc-toast--transparent {
+  background: color-mix(in srgb, var(--term-bg) 68%, transparent);
+  backdrop-filter: blur(6px) saturate(120%);
+}
+
 .proc-toast--hidden {
   opacity: 0;
   pointer-events: none;

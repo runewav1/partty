@@ -330,6 +330,9 @@ async function boot(): Promise<void> {
   const fileTreeSideRef = {
     v: normalizeFileTreeSide((persisted.prefs as Partial<ParttyPrefs>).file_tree_side),
   };
+  const fileTreeDisabledRef = {
+    v: Boolean((persisted.prefs as Partial<ParttyPrefs>).file_tree_disabled),
+  };
   const splitLayoutStyleRef = {
     v: normalizeSplitLayoutStyle((persisted.prefs as Partial<ParttyPrefs>).split_layout_style),
   };
@@ -401,6 +404,9 @@ async function boot(): Promise<void> {
   };
   const processNotificationShowMsRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).process_notification_show_ms ?? false,
+  };
+  const processNotificationTransparentRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).process_notification_transparent ?? false,
   };
 
   const activeProcesses = new Map<string, { command: string; startedAt: number; cwd: string }>();
@@ -864,50 +870,20 @@ async function boot(): Promise<void> {
     if (!host) return false;
     const currentId = host.getFocusedPaneId();
     if (!currentId) return false;
-
-    const root = host.getHostRoot();
-    const leaves = host
-      .getLeafIdsInOrder()
-      .map((id) => {
-        const el = root.querySelector(`.pane-leaf[data-pane-id="${CSS.escape(id)}"]`) as HTMLElement | null;
-        if (!el) return null;
-        const r = el.getBoundingClientRect();
-        return {
-          id,
-          cx: r.left + r.width / 2,
-          cy: r.top + r.height / 2,
-        };
-      })
-      .filter((x): x is { id: string; cx: number; cy: number } => x !== null);
-
-    const current = leaves.find((x) => x.id === currentId);
-    if (!current) return false;
-
-    let best: { id: string; score: number } | null = null;
-    for (const leaf of leaves) {
-      if (leaf.id === currentId) continue;
-      const dx = leaf.cx - current.cx;
-      const dy = leaf.cy - current.cy;
-
-      let directional = false;
-      if (key === "ArrowLeft") directional = dx < -8;
-      else if (key === "ArrowRight") directional = dx > 8;
-      else if (key === "ArrowUp") directional = dy < -8;
-      else directional = dy > 8;
-      if (!directional) continue;
-
-      const primary = key === "ArrowLeft" || key === "ArrowRight" ? Math.abs(dx) : Math.abs(dy);
-      const secondary = key === "ArrowLeft" || key === "ArrowRight" ? Math.abs(dy) : Math.abs(dx);
-      const score = primary + secondary * 0.35;
-
-      if (!best || score < best.score) {
-        best = { id: leaf.id, score };
-      }
-    }
-
-    if (!best) return false;
-    host.setFocusedPaneId(best.id);
+    const next = host.getDirectionalAdjacentLeafId(currentId, key);
+    if (!next) return false;
+    host.setFocusedPaneId(next);
     return true;
+  }
+
+  syncFileTreeDisabledUi(fileTreeDisabledRef.v);
+
+  function swapFocusedPaneWithAdjacent(key: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"): boolean {
+    const host = paneHost;
+    if (!host) return false;
+    const currentId = host.getFocusedPaneId();
+    if (!currentId) return false;
+    return host.swapPaneWithAdjacent(currentId, key);
   }
 
   async function closeFocusedPane(): Promise<void> {
@@ -1287,6 +1263,16 @@ async function boot(): Promise<void> {
         e.ctrlKey &&
         e.shiftKey &&
         !e.altKey &&
+        !e.metaKey &&
+        (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown")
+      ) {
+        e.preventDefault();
+        return swapFocusedPaneWithAdjacent(e.key);
+      }
+      if (
+        e.ctrlKey &&
+        e.shiftKey &&
+        !e.altKey &&
         (e.key === "w" || e.key === "W")
       ) {
         e.preventDefault();
@@ -1450,6 +1436,7 @@ async function boot(): Promise<void> {
   }
 
   function setFileTreeEnabled(on: boolean): void {
+    if (fileTreeDisabledRef.v) on = false;
     localStorage.setItem(FILE_TREE_STORAGE_KEY, on ? "1" : "0");
     document.documentElement.classList.toggle("file-tree-on", on);
     const btn = document.getElementById("file-tree-toggle");
@@ -1462,10 +1449,12 @@ async function boot(): Promise<void> {
   }
 
   function toggleFileTree(): void {
+    if (fileTreeDisabledRef.v) return;
     setFileTreeEnabled(!document.documentElement.classList.contains("file-tree-on"));
   }
 
   function focusFileTreeFilter(): boolean {
+    if (fileTreeDisabledRef.v) return false;
     if (!document.documentElement.classList.contains("file-tree-on")) {
       setFileTreeEnabled(true);
     }
@@ -1476,6 +1465,24 @@ async function boot(): Promise<void> {
     }
     fileTreePanel?.focusFilter();
     return true;
+  }
+
+  function syncFileTreeDisabledUi(disabled: boolean): void {
+    const btn = document.getElementById("file-tree-toggle") as HTMLButtonElement | null;
+    if (btn) {
+      btn.disabled = disabled;
+      btn.setAttribute("aria-disabled", disabled ? "true" : "false");
+      btn.title = disabled ? "File panel disabled in settings" : "Toggle files";
+    }
+    if (disabled) {
+      localStorage.setItem(FILE_TREE_STORAGE_KEY, "0");
+      document.documentElement.classList.remove("file-tree-on");
+      const dock = document.getElementById("file-tree-dock");
+      if (dock) dock.setAttribute("aria-hidden", "true");
+      syncFileTreeFolderIcon(false);
+      fileTreePanel?.setSearchEnabled(false);
+      scheduleResizeImmediate();
+    }
   }
 
   function requestLayoutPass(forceRefresh = false): void {
@@ -3207,6 +3214,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         showGitInfoRef.v = saved.file_tree_show_git_info;
         fileTreeSideRef.v = normalizeFileTreeSide(saved.file_tree_side);
         applyFileTreeSide(fileTreeSideRef.v);
+        fileTreeDisabledRef.v = saved.file_tree_disabled ?? false;
         splitLayoutStyleRef.v = normalizeSplitLayoutStyle(saved.split_layout_style);
         disableSearchRef.v = saved.file_tree_disable_search ?? false;
         confirmDeletePromptRef.v = saved.confirm_delete_prompt ?? true;
@@ -3236,13 +3244,15 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         }
         const threshold = (saved as Partial<ParttyPrefs>).process_notification_threshold;
         if (typeof threshold === "number" && Number.isFinite(threshold)) {
-          processNotificationThresholdRef.v = Math.max(0.1, threshold);
+        processNotificationThresholdRef.v = Math.max(0.1, threshold);
         }
         const showFor = (saved as Partial<ParttyPrefs>).process_notification_show_for;
         if (typeof showFor === "number" && Number.isFinite(showFor)) {
           processNotificationShowForRef.v = Math.max(1000, Math.min(30000, showFor));
         }
         processNotificationShowMsRef.v = (saved as Partial<ParttyPrefs>).process_notification_show_ms ?? false;
+        processNotificationTransparentRef.v = (saved as Partial<ParttyPrefs>).process_notification_transparent ?? false;
+        syncFileTreeDisabledUi(fileTreeDisabledRef.v);
         fileTreePanel?.setSearchEnabled(!(saved.file_tree_disable_search ?? false));
         applyTerminalDisplayPrefs(saved);
         if (saved.scrollback_lines !== previous.scrollback_lines) {
@@ -3498,6 +3508,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
 
   function showProcessNotification(command: string, paneName: string, cwd: string, startedAt: number, paneId: string): void {
     if (!processToast) return;
+    processToast.classList.toggle("proc-toast--transparent", processNotificationTransparentRef.v);
     const shortCmd = command.length > 50 ? command.slice(0, 47) + "\u2026" : command;
     const shortCwd = cwd.split(/[\\/]/).filter(Boolean).slice(-2).join("/") || cwd;
     const ms = Date.now() - startedAt;
@@ -3740,8 +3751,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         id: "toggle-file-tree",
         label: "Toggle files",
         keywords: "files explorer sidebar workspace ctrl shift e",
-        hotkey: "Ctrl+Shift+E",
+        hotkey: fileTreeDisabledRef.v ? undefined : "Ctrl+Shift+E",
         run: () => {
+          if (fileTreeDisabledRef.v) return;
           toggleFileTree();
         },
       },

@@ -71,6 +71,7 @@ export type PaneHostOptions = {
   getSplitLayoutStyle?: () => "balanced" | "dwindle" | "master";
   focusFollowsCursor: () => boolean;
   onPaneFocus: (paneId: string) => void;
+  onPaneSwapAdjacent?: (paneId: string, dir: "h" | "v") => boolean;
   onPaneCreated: (paneId: string, pt: PaneTerminal) => void;
   onPaneDisposed: (paneId: string) => void;
   /** Called after internal layout changes (split, gutter drag, mount) so PTY cols/rows stay in sync. */
@@ -102,6 +103,16 @@ type AncestorSplitInfo = {
   startRatio: number;
 };
 
+type LeafGeometry = {
+  id: string;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  cx: number;
+  cy: number;
+};
+
 export function findPaneLeaf(tree: PaneNode, id: string): PaneLeaf | null {
   if (tree.kind === "leaf") return tree.id === id ? tree : null;
   return findPaneLeaf(tree.a, id) ?? findPaneLeaf(tree.b, id);
@@ -129,6 +140,10 @@ function collectLeafIds(tree: PaneNode, out: string[]): void {
   }
   collectLeafIds(tree.a, out);
   collectLeafIds(tree.b, out);
+}
+
+function overlapLen(a0: number, a1: number, b0: number, b1: number): number {
+  return Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
 }
 
 /** DFS path as "a"/"b" string (e.g. `"aa"` → root.a.a). Empty string = root node. */
@@ -276,6 +291,67 @@ export class PaneHost {
 
   getFocusedPaneDescriptor(): PaneDescriptor | null {
     return this.getPaneDescriptor(this.focusedId);
+  }
+
+  private getLeafGeometries(): LeafGeometry[] {
+    const ids: string[] = [];
+    collectLeafIds(this.tree, ids);
+    const geometries: LeafGeometry[] = [];
+    for (const id of ids) {
+      const el = this.root.querySelector(`.pane-leaf[data-pane-id="${CSS.escape(id)}"]`) as HTMLElement | null;
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      geometries.push({
+        id,
+        left: r.left,
+        top: r.top,
+        right: r.right,
+        bottom: r.bottom,
+        cx: r.left + r.width / 2,
+        cy: r.top + r.height / 2,
+      });
+    }
+    return geometries;
+  }
+
+  getDirectionalAdjacentLeafId(fromId: string, dir: "h" | "v" | "left" | "right" | "up" | "down" | "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"): string | null {
+    if (!findPaneLeaf(this.tree, fromId)) return null;
+    const current = this.getLeafGeometries().find((leaf) => leaf.id === fromId);
+    if (!current) return null;
+    const normalized =
+      dir === "ArrowLeft" ? "left" :
+      dir === "ArrowRight" ? "right" :
+      dir === "ArrowUp" ? "up" :
+      dir === "ArrowDown" ? "down" :
+      dir;
+    const horizontal = normalized === "left" || normalized === "right";
+    const neg = normalized === "left" || normalized === "up";
+
+    let best: { id: string; score: number } | null = null;
+    for (const leaf of this.getLeafGeometries()) {
+      if (leaf.id === fromId) continue;
+      const dx = leaf.cx - current.cx;
+      const dy = leaf.cy - current.cy;
+      const directional = horizontal ? (neg ? dx < -6 : dx > 6) : (neg ? dy < -6 : dy > 6);
+      if (!directional) continue;
+
+      const overlap = horizontal
+        ? overlapLen(current.top, current.bottom, leaf.top, leaf.bottom)
+        : overlapLen(current.left, current.right, leaf.left, leaf.right);
+      const primary = horizontal ? Math.abs(dx) : Math.abs(dy);
+      const secondary = horizontal ? Math.abs(dy) : Math.abs(dx);
+      const score = primary + secondary * 0.75 - overlap * 0.2;
+
+      if (!best || score < best.score) best = { id: leaf.id, score };
+    }
+    return best?.id ?? null;
+  }
+
+  swapPaneWithAdjacent(paneId: string, dir: "h" | "v" | "left" | "right" | "up" | "down" | "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"): boolean {
+    if (this.floating.has(paneId)) return false;
+    const targetId = this.getDirectionalAdjacentLeafId(paneId, dir);
+    if (!targetId) return false;
+    return this.swapPanes(paneId, targetId);
   }
 
   getPaneDescriptor(paneId: string, includeMetrics = false): PaneDescriptor | null {

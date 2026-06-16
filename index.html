@@ -278,6 +278,7 @@
                    <span class="settings-hint" style="margin-left:2px">ms</span>
                 </div>
                 <label class="settings-checkbox-label"><span>Show milliseconds</span><input class="settings-checkbox-input" type="checkbox" name="process_notification_show_ms" /></label>
+                <label class="settings-checkbox-label"><span>Transparent toast</span><input class="settings-checkbox-input" type="checkbox" name="process_notification_transparent" /></label>
               </div>
             </div>
 
@@ -336,17 +337,18 @@
             <div class="settings-section">
               <div class="settings-section-hd">Files</div>
               <div class="settings-section-bd">
-                <div class="settings-row settings-row--compact">
+                <div class="settings-row settings-row--compact" data-child-of="file_tree_disabled">
                   <span class="settings-row-label">Side</span>
                   <select id="setting-file-tree-side" name="file_tree_side" class="settings-input settings-input--narrow">
                     <option value="left">Left</option><option value="right">Right</option>
                   </select>
                 </div>
                 <div class="settings-toggles">
-                  <label class="settings-checkbox-label"><span>Diff counts</span><input class="settings-checkbox-input" type="checkbox" name="file_tree_show_diff_counts" /></label>
-                  <label class="settings-checkbox-label"><span>Git panel</span><input class="settings-checkbox-input" type="checkbox" name="file_tree_show_git_info" /></label>
-                  <label class="settings-checkbox-label"><span>Hide search</span><input class="settings-checkbox-input" type="checkbox" name="file_tree_disable_search" /></label>
-                  <label class="settings-checkbox-label"><span>Confirm delete</span><input class="settings-checkbox-input" type="checkbox" name="confirm_delete_prompt" /></label>
+                  <label class="settings-checkbox-label"><span>Disable file panel</span><input class="settings-checkbox-input" type="checkbox" name="file_tree_disabled" /></label>
+                  <label class="settings-checkbox-label" data-child-of="file_tree_disabled"><span>Diff counts</span><input class="settings-checkbox-input" type="checkbox" name="file_tree_show_diff_counts" /></label>
+                  <label class="settings-checkbox-label" data-child-of="file_tree_disabled"><span>Git panel</span><input class="settings-checkbox-input" type="checkbox" name="file_tree_show_git_info" /></label>
+                  <label class="settings-checkbox-label" data-child-of="file_tree_disabled"><span>Hide search</span><input class="settings-checkbox-input" type="checkbox" name="file_tree_disable_search" /></label>
+                  <label class="settings-checkbox-label" data-child-of="file_tree_disabled"><span>Confirm delete</span><input class="settings-checkbox-input" type="checkbox" name="confirm_delete_prompt" /></label>
                 </div>
               </div>
             </div>

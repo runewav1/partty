@@ -31,6 +31,7 @@ export type ParttyPrefs = {
   hidden_from_taskbar: boolean;
   file_tree_show_diff_counts: boolean;
   file_tree_show_git_info: boolean;
+  file_tree_disabled: boolean;
   file_tree_disable_search: boolean;
   file_tree_side: string;
   confirm_delete_prompt: boolean;
@@ -88,6 +89,8 @@ export type ParttyPrefs = {
   process_notification_show_for: number;
   /** Show millisecond precision in completion toasts. */
   process_notification_show_ms?: boolean;
+  /** Use translucent process completion toasts. */
+  process_notification_transparent?: boolean;
 };
 
 type DetectedShell = { name: string; path: string };
@@ -168,6 +171,7 @@ export function createSettingsPanel(
       ui_theme: previous.ui_theme, ui_theme_variant: previous.ui_theme_variant,
       font_terminal: g("font_terminal"), font_ui: g("font_ui"), font_file_tree: g("font_file_tree"),
       file_tree_show_diff_counts: gc("file_tree_show_diff_counts"), file_tree_show_git_info: gc("file_tree_show_git_info"),
+      file_tree_disabled: gc("file_tree_disabled"),
       file_tree_disable_search: gc("file_tree_disable_search"),
       file_tree_side: gs("file_tree_side") === "right" ? "right" : "left",
       confirm_delete_prompt: gc("confirm_delete_prompt"), ui_disable_tooltips: gc("ui_disable_tooltips"),
@@ -205,6 +209,7 @@ export function createSettingsPanel(
         return Number.isFinite(n) ? Math.max(1000, Math.min(30000, n)) : 5000;
       })(),
       process_notification_show_ms: gc("process_notification_show_ms"),
+      process_notification_transparent: gc("process_notification_transparent"),
     };
   }
 
@@ -228,6 +233,11 @@ export function createSettingsPanel(
   function applySettingsTree(): void {
     // File search tree: dim git-aware when search is hidden
     {
+      const panelDisabledEl = form?.querySelector('[name="file_tree_disabled"]') as HTMLInputElement | null;
+      const panelDisabled = panelDisabledEl?.checked ?? false;
+      root.querySelectorAll('[data-child-of="file_tree_disabled"]').forEach((r) => {
+        (r as HTMLElement).classList.toggle("settings-tree-hidden", panelDisabled);
+      });
       const parentEl = form?.querySelector('[name="file_tree_disable_search"]') as HTMLInputElement | null;
       const hidden = parentEl?.checked ?? false;
       const children = root.querySelectorAll('[data-child-of="file_tree_disable_search"]');
@@ -338,6 +348,7 @@ export function createSettingsPanel(
     setVal("process_notification_threshold", String(pr.process_notification_threshold ?? 5.0));
     setVal("process_notification_show_for", String(pr.process_notification_show_for ?? 5000));
     setChk("process_notification_show_ms", pr.process_notification_show_ms ?? false);
+    setChk("process_notification_transparent", pr.process_notification_transparent ?? false);
     setSel("split_layout_style", ((v?: string) => { v = (v ?? "balanced").toLowerCase(); return v === "dwindle" || v === "master" ? v : "balanced"; })(pr.split_layout_style));
 
     setChk("shed_on_hide", p.shed_on_hide);
@@ -358,6 +369,7 @@ export function createSettingsPanel(
     setChk("hidden_from_taskbar", pr.hidden_from_taskbar ?? false);
     setChk("file_tree_show_diff_counts", pr.file_tree_show_diff_counts ?? false);
     setChk("file_tree_show_git_info", pr.file_tree_show_git_info ?? true);
+    setChk("file_tree_disabled", pr.file_tree_disabled ?? false);
     setChk("file_tree_disable_search", pr.file_tree_disable_search ?? false);
     setChk("confirm_delete_prompt", pr.confirm_delete_prompt ?? true);
     setChk("ui_disable_tooltips", pr.ui_disable_tooltips ?? false);
@@ -386,6 +398,8 @@ export function createSettingsPanel(
 
     const searchToggle = form?.querySelector('[name="file_tree_disable_search"]') as HTMLInputElement | null;
     searchToggle?.addEventListener("change", () => { applySettingsTree(); applySettingsSearch(); });
+    const filesToggle = form?.querySelector('[name="file_tree_disabled"]') as HTMLInputElement | null;
+    filesToggle?.addEventListener("change", () => { applySettingsTree(); applySettingsSearch(); });
 
     root.querySelector(".settings-panel-backdrop")?.addEventListener("click", (e) => {
       if (e.target === e.currentTarget) close();

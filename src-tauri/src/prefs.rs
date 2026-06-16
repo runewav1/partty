@@ -212,6 +212,9 @@ pub struct Prefs {
     /// Show git info panel at the bottom of the file tree.
     #[serde(default = "default_file_tree_show_git_info")]
     pub file_tree_show_git_info: bool,
+    /// Hide the file tree completely and disable its shortcuts/commands.
+    #[serde(default)]
+    pub file_tree_disabled: bool,
     /// Disable the file tree search/filter bar (reclaims vertical space).
     #[serde(default)]
     pub file_tree_disable_search: bool,
@@ -324,6 +327,9 @@ pub struct Prefs {
     /// Show millisecond precision in process completion toasts.
     #[serde(default)]
     pub process_notification_show_ms: bool,
+    /// Use a translucent process-completion toast background.
+    #[serde(default)]
+    pub process_notification_transparent: bool,
     /// App chrome + terminal palette id (see frontend `themePresets`).
     #[serde(default = "default_ui_theme")]
     pub ui_theme: String,
@@ -370,6 +376,7 @@ impl Default for Prefs {
             font_file_tree: String::new(),
             file_tree_show_diff_counts: false,
             file_tree_show_git_info: true,
+            file_tree_disabled: false,
             file_tree_disable_search: false,
             file_tree_side: default_file_tree_side(),
             confirm_delete_prompt: true,
@@ -407,6 +414,7 @@ impl Default for Prefs {
             process_notification_threshold: default_process_notification_threshold(),
             process_notification_show_for: default_process_notification_show_for(),
             process_notification_show_ms: false,
+            process_notification_transparent: false,
         }
     }
 }
