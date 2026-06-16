@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { availableMonitors, currentMonitor, getCurrentWindow, PhysicalPosition } from "@tauri-apps/api/window";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { FitAddon } from "@xterm/addon-fit";
 
@@ -2426,6 +2426,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         else switchOrCreateTabForHotkeyIndex(index);
         return;
       }
+      if (e.shiftKey && e.key === "ArrowRight") {
+        e.preventDefault();
+        e.stopPropagation();
+        void moveWindowToNextMonitor();
+        return;
+      }
       if (e.shiftKey) return;
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && e.key !== "ArrowUp" && e.key !== "ArrowDown") {
         return;
@@ -4047,6 +4053,58 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       }
     })();
   });
+
+  // Move the window to the next available monitor (Alt+Shift+Right), cycling back
+  // to the first. Preserves the window's offset within the monitor, clamped to fit,
+  // and re-maximizes on the destination if it was maximized.
+  async function moveWindowToNextMonitor(): Promise<void> {
+    try {
+      const monitors = await availableMonitors();
+      if (monitors.length < 2) return;
+      const cur = await currentMonitor();
+      let idx = cur
+        ? monitors.findIndex(
+            (m) =>
+              m.position.x === cur.position.x &&
+              m.position.y === cur.position.y &&
+              m.size.width === cur.size.width &&
+              m.size.height === cur.size.height,
+          )
+        : 0;
+      if (idx < 0) idx = 0;
+      const from = cur ?? monitors[idx];
+      const to = monitors[(idx + 1) % monitors.length];
+      const wasMaximized = await appWindow.isMaximized();
+      if (wasMaximized) await appWindow.unmaximize();
+      const pos = await appWindow.outerPosition();
+      const size = await appWindow.outerSize();
+      const relX = pos.x - from.position.x;
+      const relY = pos.y - from.position.y;
+      const maxX = to.position.x + Math.max(0, to.size.width - size.width);
+      const maxY = to.position.y + Math.max(0, to.size.height - size.height);
+      const nextX = Math.round(Math.min(Math.max(to.position.x + relX, to.position.x), maxX));
+      const nextY = Math.round(Math.min(Math.max(to.position.y + relY, to.position.y), maxY));
+      await appWindow.setPosition(new PhysicalPosition(nextX, nextY));
+      if (wasMaximized) await appWindow.maximize();
+      await syncMaximizeButtonTitle();
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Alt+Shift + primary-button drag moves the window from anywhere in the client
+  // area. Useful in zen mode, where the toolbar drag handle is hidden. Capture
+  // phase + stopPropagation so it wins over terminal/text selection handlers.
+  window.addEventListener(
+    "mousedown",
+    (e) => {
+      if (e.button !== 0 || !e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void appWindow.startDragging().catch(() => {});
+    },
+    true,
+  );
 
   window.addEventListener(
     "keydown",
