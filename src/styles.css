@@ -2405,6 +2405,53 @@ html.file-tree-right .command-palette {
   background: rgba(59, 130, 246, 0.16);
 }
 
+.file-tree-search-snippet-toggle {
+  color: var(--ui-chrome-muted);
+}
+
+.file-tree-search-snippet-item {
+  color: var(--ui-chrome-muted);
+}
+
+.file-tree-search-snippet-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  padding-left: calc(var(--ft-depth, 0) * 12px + 18px);
+  padding-right: 4px;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 10.5px;
+  overflow: hidden;
+}
+
+.file-tree-search-snippet-line {
+  flex: 0 0 32px;
+  color: var(--ui-chrome-fainter);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.file-tree-search-snippet-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-search-snippet-text mark {
+  border-radius: 2px;
+  padding: 0 1px;
+  color: #fef3c7;
+  background: rgba(245, 158, 11, 0.34);
+}
+
+.file-tree-search-snippet-row--loading .file-tree-search-snippet-text {
+  color: var(--ui-chrome-fainter);
+  font-style: italic;
+}
+
 .file-tree-row--selected {
   background: var(--active-overlay);
   border-radius: 4px;

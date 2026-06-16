@@ -6,7 +6,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isNativeAbsoluteFsPath, normalizeFsPathKey } from "./oscCwd";
 import { showAlert, showConfirm } from "./dialog";
-import { FileTreeBackend, type GitRepoInfo, type DetectedApp } from "./fileTreeBackend";
+import { FileTreeBackend, type GitRepoInfo, type DetectedApp, type MatchDetail } from "./fileTreeBackend";
 import { EXTENSION_TO_ICON, FILENAME_TO_ICON, FOLDER_NAME_TO_ICON } from "./iconMappings";
 import { createLucideIcon } from "./lucideIcons";
 
@@ -143,6 +143,7 @@ function createIconElement(iconName: string): HTMLElement {
 }
 
 type FlatEntry = { kind: "entry"; entry: FsEntry; depth: number };
+type FlatSnippet = { kind: "snippet"; path: string; depth: number; detail: MatchDetail | null; index: number };
 type FlatInline = {
   kind: "inline";
   depth: number;
@@ -150,7 +151,7 @@ type FlatInline = {
   parent: string;
   initial: string;
 };
-type FlatItem = FlatEntry | FlatInline;
+type FlatItem = FlatEntry | FlatSnippet | FlatInline;
 
 type SearchKind = "all" | "file" | "folder";
 
@@ -165,6 +166,12 @@ type SearchEntry = {
   entry: FsEntry;
   relPath: string;
   depth: number;
+};
+
+type ContentSearchMeta = {
+  matches: number;
+  label: string;
+  details: MatchDetail[] | null;
 };
 
 type PaneTreeState = {
@@ -215,7 +222,9 @@ export class FileTreePanel {
   private searchEnabled = true;
   private backendSearchToken = 0;
   private searchDebounceTimer = 0;
-  private readonly contentSearchMetaByPath = new Map<string, { matches: number; label: string }>();
+  private readonly contentSearchMetaByPath = new Map<string, ContentSearchMeta>();
+  private readonly expandedContentSnippetPaths = new Set<string>();
+  private readonly loadingContentSnippetPaths = new Set<string>();
 
   // Virtual scrolling state
   private flatItems: FlatItem[] = [];
@@ -310,6 +319,8 @@ export class FileTreePanel {
     this.lastSearchedRoot = "";
     this.lastSearchedQuery = "";
     this.contentSearchMetaByPath.clear();
+    this.expandedContentSnippetPaths.clear();
+    this.loadingContentSnippetPaths.clear();
     this.applyFilter("");
   }
 
@@ -453,6 +464,8 @@ export class FileTreePanel {
 
     // Empty query — clear search, show tree
     this.contentSearchMetaByPath.clear();
+    this.expandedContentSnippetPaths.clear();
+    this.loadingContentSnippetPaths.clear();
     this.renderedElements.forEach((el) => el.remove());
     this.renderedElements.clear();
     this.rebuildFilteredView(spec);
@@ -519,13 +532,15 @@ export class FileTreePanel {
         : await this.backend.searchFilesRoot(this.viewRoot, query);
       if (token !== this.backendSearchToken) return; // superseded
       this.contentSearchMetaByPath.clear();
+      this.expandedContentSnippetPaths.clear();
+      this.loadingContentSnippetPaths.clear();
       this.flatItems = [];
       this.filterMatchCount = 0;
       this.renderedElements.forEach((el) => el.remove());
       this.renderedElements.clear();
 
       for (const result of results) {
-        const absPath = result.path;
+        const absPath = this.absoluteSearchResultPath(result.path);
         // Filter by scope if specified — results must live under the scope path.
         if (scope) {
           const rel = this.viewRoot
@@ -543,9 +558,14 @@ export class FileTreePanel {
           : basename(absPath);
         const entry: FsEntry = { name: basename(absPath), path: absPath, isDir: false, gitStatus: null, iconKey: null };
         if (this.filterMode === "content") {
-          this.contentSearchMetaByPath.set(normalizeFsPathKey(absPath), { matches: result.matches, label: relDisplay });
+          this.contentSearchMetaByPath.set(normalizeFsPathKey(absPath), {
+            matches: result.matches,
+            label: relDisplay,
+            details: result.matchDetails ?? null,
+          });
         }
         this.flatItems.push({ kind: "entry", entry, depth: 0 });
+        this.appendExpandedContentSnippets(entry, 1);
         this.filterMatchCount++;
       }
       this.presentFlatItems();
@@ -555,6 +575,84 @@ export class FileTreePanel {
       this.filterMatchCount = 0;
       this.updateSearchCount();
     }
+  }
+
+  private absoluteSearchResultPath(path: string): string {
+    if (!this.viewRoot) return path;
+    if (/^[a-zA-Z]:[\\/]/.test(path) || /^\\\\[^\\]+\\[^\\]+/.test(path) || /^\/\/[^/]+\/[^/]+/.test(path)) {
+      return path;
+    }
+    return joinWin(this.viewRoot, path.replace(/^[\\/]+/, ""));
+  }
+
+  private appendExpandedContentSnippets(entry: FsEntry, depth: number): void {
+    if (this.filterMode !== "content" || entry.isDir) return;
+    const key = normalizeFsPathKey(entry.path);
+    if (!this.expandedContentSnippetPaths.has(key)) return;
+    const meta = this.contentSearchMetaByPath.get(key);
+    if (!meta) return;
+    if (this.loadingContentSnippetPaths.has(key)) {
+      this.flatItems.push({ kind: "snippet", path: entry.path, depth, detail: null, index: 0 });
+      return;
+    }
+    const details = meta.details ?? [];
+    for (let i = 0; i < details.length; i++) {
+      this.flatItems.push({ kind: "snippet", path: entry.path, depth, detail: details[i]!, index: i });
+    }
+  }
+
+  private async toggleContentSnippets(path: string): Promise<void> {
+    const key = normalizeFsPathKey(path);
+    if (this.expandedContentSnippetPaths.has(key)) {
+      this.expandedContentSnippetPaths.delete(key);
+      this.rebuildContentSearchFlatItems();
+      return;
+    }
+
+    this.expandedContentSnippetPaths.add(key);
+    const meta = this.contentSearchMetaByPath.get(key);
+    if (meta && meta.details === null && !this.loadingContentSnippetPaths.has(key)) {
+      void this.loadContentSnippets(path);
+    }
+    this.rebuildContentSearchFlatItems();
+  }
+
+  private async loadContentSnippets(path: string): Promise<void> {
+    const root = this.viewRoot;
+    const spec = this.parseSearchQuery(this.filterQuery);
+    if (!root || this.filterMode !== "content" || !spec.pattern) return;
+    const key = normalizeFsPathKey(path);
+    const token = this.backendSearchToken;
+    this.loadingContentSnippetPaths.add(key);
+    this.rebuildContentSearchFlatItems();
+    try {
+      const details = await this.backend.searchFileContentDetails(root, path, spec.pattern);
+      if (token !== this.backendSearchToken) return;
+      const meta = this.contentSearchMetaByPath.get(key);
+      if (meta) meta.details = details;
+    } catch (e) {
+      console.warn("Content snippet search failed:", e);
+      const meta = this.contentSearchMetaByPath.get(key);
+      if (meta) meta.details = [];
+    } finally {
+      this.loadingContentSnippetPaths.delete(key);
+      if (token === this.backendSearchToken) this.rebuildContentSearchFlatItems();
+    }
+  }
+
+  private rebuildContentSearchFlatItems(): void {
+    if (this.filterMode !== "content") return;
+    const entries = this.flatItems
+      .filter((item): item is FlatEntry => item.kind === "entry")
+      .map((item) => item.entry);
+    this.flatItems = [];
+    for (const entry of entries) {
+      this.flatItems.push({ kind: "entry", entry, depth: 0 });
+      this.appendExpandedContentSnippets(entry, 1);
+    }
+    this.renderedElements.forEach((el) => el.remove());
+    this.renderedElements.clear();
+    this.presentFlatItems();
   }
 
   private updateSearchCount(): void {
@@ -2072,6 +2170,14 @@ export class FileTreePanel {
         if (!li.parentElement && this.virtualContainer) {
           this.virtualContainer.appendChild(li);
         }
+      } else if (flatItem.kind === "snippet") {
+        key = `__snippet__${normalizeFsPathKey(flatItem.path)}:${flatItem.index}`;
+        currentKeys.add(key);
+        li = this.renderedElements.get(key) ?? this.renderContentSnippet(flatItem);
+        this.renderedElements.set(key, li);
+        if (!li.parentElement && this.virtualContainer) {
+          this.virtualContainer.appendChild(li);
+        }
       } else {
         const { entry, depth } = flatItem;
         key = entry.path;
@@ -2188,6 +2294,50 @@ export class FileTreePanel {
     });
 
     return li;
+  }
+
+  private renderContentSnippet(item: FlatSnippet): HTMLLIElement {
+    const li = document.createElement("li");
+    li.className = "file-tree-item file-tree-search-snippet-item";
+    const row = document.createElement("div");
+    row.className = "file-tree-search-snippet-row";
+    row.style.setProperty("--ft-depth", String(item.depth));
+
+    const line = document.createElement("span");
+    line.className = "file-tree-search-snippet-line";
+    const content = document.createElement("span");
+    content.className = "file-tree-search-snippet-text";
+
+    if (!item.detail) {
+      line.textContent = "";
+      content.textContent = "Loading snippets...";
+      row.classList.add("file-tree-search-snippet-row--loading");
+    } else {
+      line.textContent = String(item.detail.line);
+      this.appendHighlightedSnippet(content, item.detail);
+    }
+
+    row.append(line, content);
+    li.appendChild(row);
+    return li;
+  }
+
+  private appendHighlightedSnippet(target: HTMLElement, detail: MatchDetail): void {
+    const text = detail.lineContent;
+    const ranges = [...detail.matchRanges].sort((a, b) => a[0] - b[0]);
+    let offset = 0;
+    for (const [rawStart, rawEnd] of ranges) {
+      const start = Math.max(offset, Math.min(text.length, rawStart));
+      const end = Math.max(start, Math.min(text.length, rawEnd));
+      if (start > offset) target.appendChild(document.createTextNode(text.slice(offset, start)));
+      if (end > start) {
+        const mark = document.createElement("mark");
+        mark.textContent = text.slice(start, end);
+        target.appendChild(mark);
+      }
+      offset = end;
+    }
+    if (offset < text.length) target.appendChild(document.createTextNode(text.slice(offset)));
   }
 
   private gitClass(status: string | null | undefined): string {
@@ -2362,10 +2512,30 @@ export class FileTreePanel {
       }
       row.appendChild(nameWrap);
     } else {
-      const spacer = document.createElement("span");
-      spacer.className = "file-tree-chevron file-tree-chevron--spacer";
-      spacer.setAttribute("aria-hidden", "true");
-      row.appendChild(spacer);
+      const searchMeta = this.contentSearchMetaByPath.get(normalizeFsPathKey(ent.path));
+      if (searchMeta) {
+        const key = normalizeFsPathKey(ent.path);
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "file-tree-chevron file-tree-search-snippet-toggle";
+        toggle.setAttribute("aria-expanded", this.expandedContentSnippetPaths.has(key) ? "true" : "false");
+        toggle.title = "Show content matches";
+        toggle.textContent = this.expandedContentSnippetPaths.has(key) ? "▾" : "▸";
+        toggle.addEventListener("pointerdown", (e) => {
+          e.stopPropagation();
+        });
+        toggle.addEventListener("click", (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          void this.toggleContentSnippets(ent.path);
+        });
+        row.appendChild(toggle);
+      } else {
+        const spacer = document.createElement("span");
+        spacer.className = "file-tree-chevron file-tree-chevron--spacer";
+        spacer.setAttribute("aria-hidden", "true");
+        row.appendChild(spacer);
+      }
 
       const iconKey = getIconForEntry(ent);
       const iconSpan = createIconElement(iconKey);
@@ -2407,7 +2577,6 @@ export class FileTreePanel {
       } else {
         const label = document.createElement("span");
         label.className = "file-tree-label file-tree-label--file";
-        const searchMeta = this.contentSearchMetaByPath.get(normalizeFsPathKey(ent.path));
         label.textContent = searchMeta?.label ?? ent.name;
         label.title = ent.path;
         nameWrap.appendChild(label);

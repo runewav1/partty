@@ -54,6 +54,14 @@ export type FileTreeBackendOptions = {
 export type SearchResult = {
   path: string;
   matches: number;
+  matchDetails?: MatchDetail[];
+};
+
+export type MatchDetail = {
+  line: number;
+  col: number;
+  lineContent: string;
+  matchRanges: Array<[number, number]>;
 };
 
 /**
@@ -335,6 +343,10 @@ export class FileTreeBackend {
    */
   async searchFileContents(root: string, query: string): Promise<SearchResult[]> {
     return invoke<SearchResult[]>("search_file_contents", { root, query });
+  }
+
+  async searchFileContentDetails(root: string, path: string, query: string): Promise<MatchDetail[]> {
+    return invoke<MatchDetail[]>("search_file_content_details", { root, path, query });
   }
 
   async searchFilesRoot(root: string, query: string): Promise<SearchResult[]> {

@@ -52,5 +52,6 @@ commands.allow = [
   "run_file",
   "git_workdir_status",
   "search_file_contents",
+  "search_file_content_details",
   "search_files_root",
 ]

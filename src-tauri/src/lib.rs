@@ -138,6 +138,15 @@ fn search_file_contents(
 }
 
 #[tauri::command]
+fn search_file_content_details(
+    root: String,
+    path: String,
+    query: String,
+) -> Result<Vec<fff_search_integration::MatchDetail>, String> {
+    fff_search_integration::search_file_content_details(root, path, query)
+}
+
+#[tauri::command]
 fn search_files_root(
     root: String,
     query: String,
@@ -1888,6 +1897,7 @@ pub fn run() {
             fs_create_file,
             fs_create_dir,
             search_file_contents,
+            search_file_content_details,
             search_files_root,
             detect_shells,
             open_in_editor,
