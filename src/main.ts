@@ -876,8 +876,6 @@ async function boot(): Promise<void> {
     return true;
   }
 
-  syncFileTreeDisabledUi(fileTreeDisabledRef.v);
-
   function swapFocusedPaneWithAdjacent(key: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"): boolean {
     const host = paneHost;
     if (!host) return false;
@@ -1484,6 +1482,12 @@ async function boot(): Promise<void> {
       scheduleResizeImmediate();
     }
   }
+
+  // Apply the initial file-tree-disabled UI state. Must run after `fileTreePanel`
+  // (declared above with `let`) is initialized — calling `syncFileTreeDisabledUi`
+  // before that point throws a TDZ ReferenceError when the tree is disabled,
+  // which aborts boot() before the show pipeline is wired up.
+  syncFileTreeDisabledUi(fileTreeDisabledRef.v);
 
   function requestLayoutPass(forceRefresh = false): void {
     layoutForceRefresh ||= forceRefresh;
