@@ -158,6 +158,8 @@ type SearchSpec = {
   mode: string;
   kind: SearchKind;
   pattern: string;
+  /** Optional path scope (relative to workspace root) to constrain the search under. */
+  scope?: string;
 };
 type SearchEntry = {
   entry: FsEntry;
@@ -241,7 +243,6 @@ export class FileTreePanel {
     private readonly setConfirmDeletePrompt: (enabled: boolean) => void = () => {},
     private readonly getPanelSide: () => FileTreeSide = () => "left",
     private readonly setPanelSide: (side: FileTreeSide) => void = () => {},
-    private readonly getGitAwareSearch: () => boolean = () => true,
   ) {
     this.setupKeyboardNav();
     this.setupVirtualScroll();
@@ -309,7 +310,7 @@ export class FileTreePanel {
     this.lastSearchedRoot = "";
     this.lastSearchedQuery = "";
     this.contentSearchMetaByPath.clear();
-    this.applyFilter("", "name");
+    this.applyFilter("");
   }
 
   private setupSearchToolbar(): void {
@@ -348,16 +349,13 @@ export class FileTreePanel {
       wrap.style.display = "none";
     }
 
-  // Input handler — debounced: 200ms for name filter, 400ms for content search
+  // Input handler — 150ms debounce, cancel on new keystrokes.
   input.addEventListener("input", () => {
     if (this.searchDebounceTimer) window.clearTimeout(this.searchDebounceTimer);
-    const q = input.value.trim();
-    const lower = q.toLowerCase();
-    const delay = (lower.startsWith("content:") || lower.startsWith("c:")) ? 400 : 200;
     this.searchDebounceTimer = window.setTimeout(() => {
       this.searchDebounceTimer = 0;
-      this.applyFilter(q, "name");
-    }, delay);
+      this.applyFilter(input.value.trim());
+    }, 150);
   });
     input.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
@@ -381,30 +379,23 @@ export class FileTreePanel {
     });
   }
 
-  private parseSearchQuery(raw: string, forcedMode: string): SearchSpec {
-    let q = raw.trim();
-    let mode = forcedMode;
-    let kind: SearchKind = "all";
-    const lower = q.toLowerCase();
-    const prefixes: Array<[string, SearchKind | "content" | "name"]> = [
-      ["content:", "content"],
-      ["c:", "content"],
-      ["name:", "name"],
-      ["n:", "name"],
-      ["file:", "file"],
-      ["files:", "file"],
-      ["dir:", "folder"],
-      ["folder:", "folder"],
-      ["path:", "all"],
-    ];
-    for (const [prefix, parsed] of prefixes) {
-      if (!lower.startsWith(prefix)) continue;
-      q = q.slice(prefix.length).trim();
-      if (parsed === "content" || parsed === "name") mode = parsed;
-      else kind = parsed;
-      break;
+  private parseSearchQuery(raw: string): SearchSpec {
+    const q = raw.trim();
+    // "&" separates path scope from content query:
+    //   "src/ & fn main" → scope="src/", content grep "fn main"
+    //   "main.rs"         → name search only
+    //   "& fn main"       → content grep across all files (empty scope)
+    const ampIdx = q.indexOf("&");
+    if (ampIdx === -1) {
+      return { mode: "name", kind: "all", pattern: q };
     }
-    return { mode, kind, pattern: q };
+    const scope = q.slice(0, ampIdx).trim();
+    const contentQuery = q.slice(ampIdx + 1).trim();
+    if (!contentQuery) {
+      // "src/ &" with no query → name search under scope
+      return { mode: "name", kind: "all", pattern: scope };
+    }
+    return { mode: "content", kind: "all", pattern: contentQuery, scope: scope || undefined };
   }
 
   private relativePathFor(absPath: string): string {
@@ -444,11 +435,10 @@ export class FileTreePanel {
 
   /**
    * Apply a filter query to the file tree.
-   * @param query The filter text. Prefixes: `name:` / `n:` for file name search,
-   *              `content:` / `c:` for full-text search. Plain text defaults to content.
+   * Default: file/folder name fuzzy search. "%- " prefix: content grep.
    */
-  private applyFilter(query: string, mode: string): void {
-    const spec = this.parseSearchQuery(query, mode);
+  private applyFilter(query: string): void {
+    const spec = this.parseSearchQuery(query);
     this.filterQuery = query;
     this.filterMode = spec.mode;
 
@@ -456,13 +446,12 @@ export class FileTreePanel {
       this.searchClearEl.classList.toggle("file-tree-search-clear--visible", query.length > 0);
     }
 
-    // Only content: prefix triggers a full backend walk. Everything else
-    // is client-side filtering against the in-memory file tree cache.
-    if (spec.mode === "content" && spec.pattern) {
-      void this.runBackendSearch(spec.pattern, "content");
+    if (spec.pattern) {
+      void this.runBackendSearch(spec.pattern, spec.scope);
       return;
     }
 
+    // Empty query — clear search, show tree
     this.contentSearchMetaByPath.clear();
     this.renderedElements.forEach((el) => el.remove());
     this.renderedElements.clear();
@@ -472,7 +461,7 @@ export class FileTreePanel {
   /**
    * Rebuild the flat list using recursive cached entries + current filter.
    */
-  private rebuildFilteredView(spec = this.parseSearchQuery(this.filterQuery, "name")): void {
+  private rebuildFilteredView(spec = this.parseSearchQuery(this.filterQuery)): void {
     const cwd = this.viewRoot;
     if (!cwd || !this.ensureState(cwd).children) {
       if (this.virtualContainer) {
@@ -512,8 +501,8 @@ export class FileTreePanel {
     this.updateSearchCount();
   }
 
-  /** Run backend file search (name or content) via native Rust walker. */
-  private async runBackendSearch(query: string, mode: string): Promise<void> {
+  /** Run backend search via fff (git-aware, fuzzy, frecency-ranked). */
+  private async runBackendSearch(query: string, scope?: string): Promise<void> {
     if (!this.viewRoot || !query) return;
     this.backendSearchToken += 1;
     const token = this.backendSearchToken;
@@ -525,7 +514,9 @@ export class FileTreePanel {
     this.presentFlatItems();
 
     try {
-      const results = await this.backend.searchFilesRoot(this.viewRoot, query, mode, this.getGitAwareSearch());
+      const results = this.filterMode === "content"
+        ? await this.backend.searchFileContents(this.viewRoot, query)
+        : await this.backend.searchFilesRoot(this.viewRoot, query);
       if (token !== this.backendSearchToken) return; // superseded
       this.contentSearchMetaByPath.clear();
       this.flatItems = [];
@@ -535,13 +526,25 @@ export class FileTreePanel {
 
       for (const result of results) {
         const absPath = result.path;
+        // Filter by scope if specified — results must live under the scope path.
+        if (scope) {
+          const rel = this.viewRoot
+            ? absPath.startsWith(this.viewRoot)
+              ? absPath.slice(this.viewRoot.length).replace(/^[/\\]+/, "").replace(/\\/g, "/")
+              : absPath.replace(/\\/g, "/")
+            : absPath.replace(/\\/g, "/");
+          const scopeNorm = scope.replace(/\\/g, "/").replace(/\/+$/, "");
+          if (!rel.startsWith(scopeNorm + "/") && rel !== scopeNorm) continue;
+        }
         const relDisplay = this.viewRoot
           ? absPath.startsWith(this.viewRoot)
             ? absPath.slice(this.viewRoot.length).replace(/^[/\\]+/, "")
             : basename(absPath)
           : basename(absPath);
         const entry: FsEntry = { name: basename(absPath), path: absPath, isDir: false, gitStatus: null, iconKey: null };
-        this.contentSearchMetaByPath.set(normalizeFsPathKey(absPath), { matches: result.matches, label: relDisplay });
+        if (this.filterMode === "content") {
+          this.contentSearchMetaByPath.set(normalizeFsPathKey(absPath), { matches: result.matches, label: relDisplay });
+        }
         this.flatItems.push({ kind: "entry", entry, depth: 0 });
         this.filterMatchCount++;
       }
@@ -2011,7 +2014,7 @@ export class FileTreePanel {
       if (rootKey !== this.lastSearchedRoot || this.filterQuery !== this.lastSearchedQuery) {
         this.lastSearchedRoot = rootKey;
         this.lastSearchedQuery = this.filterQuery;
-        this.applyFilter(this.filterQuery, this.filterMode);
+        this.applyFilter(this.filterQuery);
         return;
       }
       this.presentFlatItems();

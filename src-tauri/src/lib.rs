@@ -1,3 +1,4 @@
+mod fff_search_integration;
 mod fs_watcher;
 mod fs_workspace;
 mod palette_commands;
@@ -132,18 +133,16 @@ fn fs_create_dir(path: String) -> Result<(), String> {
 fn search_file_contents(
     root: String,
     query: String,
-) -> Result<Vec<fs_workspace::SearchResult>, String> {
-    fs_workspace::search_file_contents(root, query)
+) -> Result<Vec<fff_search_integration::SearchResult>, String> {
+    fff_search_integration::search_file_contents(root, query)
 }
 
 #[tauri::command]
 fn search_files_root(
     root: String,
     query: String,
-    mode: String,
-    git_aware: bool,
-) -> Result<Vec<fs_workspace::SearchResult>, String> {
-    fs_workspace::search_files_root(root, query, mode, git_aware)
+) -> Result<Vec<fff_search_integration::SearchResult>, String> {
+    fff_search_integration::search_files_root(root, query)
 }
 
 #[tauri::command]

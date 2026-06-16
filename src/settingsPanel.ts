@@ -32,8 +32,6 @@ export type ParttyPrefs = {
   file_tree_show_diff_counts: boolean;
   file_tree_show_git_info: boolean;
   file_tree_disable_search: boolean;
-  /** Respect .gitignore during file panel search. */
-  file_search_git_aware: boolean;
   file_tree_side: string;
   confirm_delete_prompt: boolean;
   ui_disable_tooltips: boolean;
@@ -171,7 +169,6 @@ export function createSettingsPanel(
       font_terminal: g("font_terminal"), font_ui: g("font_ui"), font_file_tree: g("font_file_tree"),
       file_tree_show_diff_counts: gc("file_tree_show_diff_counts"), file_tree_show_git_info: gc("file_tree_show_git_info"),
       file_tree_disable_search: gc("file_tree_disable_search"),
-      file_search_git_aware: gc("file_search_git_aware"),
       file_tree_side: gs("file_tree_side") === "right" ? "right" : "left",
       confirm_delete_prompt: gc("confirm_delete_prompt"), ui_disable_tooltips: gc("ui_disable_tooltips"),
       terminal_alt_click_moves_cursor: gc("terminal_alt_click_moves_cursor"), terminal_backspace_delete_selection: gc("terminal_backspace_delete_selection"),
@@ -362,7 +359,6 @@ export function createSettingsPanel(
     setChk("file_tree_show_diff_counts", pr.file_tree_show_diff_counts ?? false);
     setChk("file_tree_show_git_info", pr.file_tree_show_git_info ?? true);
     setChk("file_tree_disable_search", pr.file_tree_disable_search ?? false);
-    setChk("file_search_git_aware", pr.file_search_git_aware ?? true);
     setChk("confirm_delete_prompt", pr.confirm_delete_prompt ?? true);
     setChk("ui_disable_tooltips", pr.ui_disable_tooltips ?? false);
     setChk("terminal_backspace_delete_selection", pr.terminal_backspace_delete_selection ?? true);

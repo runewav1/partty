@@ -337,10 +337,7 @@ export class FileTreeBackend {
     return invoke<SearchResult[]>("search_file_contents", { root, query });
   }
 
-  /**
-   * Unified file search (name + content) via native Rust walker.
-   */
-  async searchFilesRoot(root: string, query: string, mode: string, gitAware: boolean): Promise<SearchResult[]> {
-    return invoke<SearchResult[]>("search_files_root", { root, query, mode, gitAware });
+  async searchFilesRoot(root: string, query: string): Promise<SearchResult[]> {
+    return invoke<SearchResult[]>("search_files_root", { root, query });
   }
 }

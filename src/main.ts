@@ -336,9 +336,6 @@ async function boot(): Promise<void> {
   const disableSearchRef = {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).file_tree_disable_search),
   };
-  const gitAwareSearchRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).file_search_git_aware ?? true,
-  };
   const disableTooltipsRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).ui_disable_tooltips ?? false,
   };
@@ -3212,7 +3209,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         applyFileTreeSide(fileTreeSideRef.v);
         splitLayoutStyleRef.v = normalizeSplitLayoutStyle(saved.split_layout_style);
         disableSearchRef.v = saved.file_tree_disable_search ?? false;
-        gitAwareSearchRef.v = saved.file_search_git_aware ?? true;
         confirmDeletePromptRef.v = saved.confirm_delete_prompt ?? true;
         disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
         altClickCursorRef.v = saved.terminal_alt_click_moves_cursor ?? true;
@@ -4312,7 +4308,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
           (side) => {
             void setFileTreeSide(side);
           },
-          () => gitAwareSearchRef.v,
         );
         fileTreePanel.setSearchEnabled(!disableSearchRef.v);
         const focusedPaneId = paneHost?.getFocusedPaneId();

@@ -215,9 +215,6 @@ pub struct Prefs {
     /// Disable the file tree search/filter bar (reclaims vertical space).
     #[serde(default)]
     pub file_tree_disable_search: bool,
-    /// When true, file panel search respects .gitignore patterns. When false, searches everything.
-    #[serde(default = "default_true")]
-    pub file_search_git_aware: bool,
     /// `left` | `right` — dock side for the file tree.
     #[serde(default = "default_file_tree_side")]
     pub file_tree_side: String,
@@ -374,7 +371,6 @@ impl Default for Prefs {
             file_tree_show_diff_counts: false,
             file_tree_show_git_info: true,
             file_tree_disable_search: false,
-            file_search_git_aware: true,
             file_tree_side: default_file_tree_side(),
             confirm_delete_prompt: true,
             ui_disable_tooltips: false,

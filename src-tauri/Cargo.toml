@@ -32,6 +32,7 @@ miniz_oxide = "0.9"
 crc32fast = "1.5"
 walkdir = "2"
 regex = "1"
+fff-search = "0.9.5-nightly.ec57eb0"
 
 [target.'cfg(windows)'.dependencies]
 ntapi = { version = "0.4", features = ["user"] }
