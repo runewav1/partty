@@ -195,6 +195,12 @@ function animationScaleForPref(value: unknown): string {
   return "1";
 }
 
+function motionStyleForPref(value: unknown): string {
+  const raw = typeof value === "string" ? value.toLowerCase() : "smooth";
+  if (raw === "snappy" || raw === "gentle" || raw === "bouncy") return raw;
+  return "smooth";
+}
+
 function applyTerminalDisplayPrefs(raw: Partial<ParttyPrefs>): void {
   const root = document.documentElement;
   const paneGap = typeof raw.terminal_pane_gap === "number" ? raw.terminal_pane_gap : raw.terminal_no_gap ? 0 : 6;
@@ -205,6 +211,7 @@ function applyTerminalDisplayPrefs(raw: Partial<ParttyPrefs>): void {
   root.classList.toggle("terminal-no-focus-border", Boolean(raw.terminal_no_focus_border));
   root.classList.toggle("terminal-motion-off", animationScaleForPref(raw.terminal_animation_speed) === "0");
   root.style.setProperty("--termie-animation-scale", animationScaleForPref(raw.terminal_animation_speed));
+  root.dataset.motionStyle = motionStyleForPref(raw.terminal_animation_style);
   const backdropAlpha = typeof raw.window_effect_opacity === "number" ? raw.window_effect_opacity : 0;
   const appAlpha = raw.window_effect_mode === "transparent" ? backdropAlpha : 1;
   const paneRadius = typeof raw.pane_corner_radius === "number" ? raw.pane_corner_radius : 6;
@@ -401,6 +408,9 @@ async function boot(): Promise<void> {
   };
   const cursorFollowWindowMoveRef = {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).cursor_follow_window_move),
+  };
+  const windowMotionRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_window_motion ?? true,
   };
 
   const activeProcesses = new Map<string, { command: string; startedAt: number; cwd: string }>();
@@ -1265,14 +1275,11 @@ async function boot(): Promise<void> {
         e.ctrlKey &&
         e.shiftKey &&
         !e.altKey &&
+        !e.metaKey &&
         (e.key === "w" || e.key === "W")
       ) {
         e.preventDefault();
-        if (e.metaKey) {
-          void closeAllChildPanes();
-        } else {
-          void closeFocusedPane();
-        }
+        void closeFocusedPane();
         return false;
       }
       if (
@@ -1360,6 +1367,25 @@ async function boot(): Promise<void> {
   function reflowAllPanes(): void {
     lastPtyDims.clear();
     scheduleResizeImmediate(true);
+  }
+
+  // A freshly created pane's first fit can quantize against not-yet-settled
+  // metrics (the viewport's scrollbar width and final host layout resolve a frame
+  // or two after the terminal opens), so the grid mis-centers until a manual
+  // resize busts the cached dims. Replicate that resize: once the pane has
+  // settled, drop its cached dims and force a corrective re-fit. Staggered over a
+  // couple of frames + one post-animation tick so late-resolving metrics converge.
+  function scheduleCreationReflow(paneId: string): void {
+    const run = (): void => {
+      if (!paneHost?.getPaneTerminal(paneId)) return;
+      lastPtyDims.delete(paneId);
+      scheduleResizeImmediate(true);
+    };
+    requestAnimationFrame(() => requestAnimationFrame(run));
+    window.setTimeout(run, 150);
+    if (document.fonts && document.fonts.status === "loading") {
+      void document.fonts.ready.then(run);
+    }
   }
 
   function scheduleFileTreeRefresh(): void {
@@ -1828,6 +1854,7 @@ async function boot(): Promise<void> {
         queueMicrotask(() => {
           void ensurePtyForPane(id, pt, inheritedCwd);
         });
+        scheduleCreationReflow(id);
         // Notify extension subscribers.
         if (extPaneCreatedSubs.length > 0) {
           for (const fn of extPaneCreatedSubs) {
@@ -3255,6 +3282,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         processNotificationShowMsRef.v = (saved as Partial<ParttyPrefs>).process_notification_show_ms ?? false;
         processNotificationTransparentRef.v = (saved as Partial<ParttyPrefs>).process_notification_transparent ?? false;
         cursorFollowWindowMoveRef.v = Boolean((saved as Partial<ParttyPrefs>).cursor_follow_window_move);
+        windowMotionRef.v = (saved as Partial<ParttyPrefs>).terminal_window_motion ?? true;
         syncFileTreeDisabledUi(fileTreeDisabledRef.v);
         fileTreePanel?.setSearchEnabled(!(saved.file_tree_disable_search ?? false));
         applyTerminalDisplayPrefs(saved);
@@ -3679,13 +3707,226 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     }
 
     const commands: PaletteCommand[] = [
+      // --- Tabs ---
       {
-        id: "help-hotkeys",
-        label: "Help: Shortcuts",
-        keywords: "hotkeys bindings reference help",
-        hotkey: "Ctrl+Shift+/",
-        run: () => openHelpPanel(),
+        id: "tab-new",
+        label: "New tab",
+        keywords: "workspace create add",
+        run: () => openNewWorkspaceTab(),
       },
+      {
+        id: "tab-duplicate",
+        label: "Duplicate tab",
+        keywords: "workspace copy clone",
+        run: () => duplicateWorkspaceTab(activeWorkspaceTabId),
+      },
+      {
+        id: "tab-rename",
+        label: "Rename tab…",
+        keywords: "workspace title edit",
+        run: () => beginTabRename(activeWorkspaceTabId),
+      },
+      {
+        id: "tab-close",
+        label: "Close tab",
+        keywords: "workspace remove delete",
+        run: () => closeWorkspaceTab(activeWorkspaceTabId),
+      },
+      // --- Panes ---
+      {
+        id: "pane-split-v",
+        label: "Split pane right",
+        keywords: "split vertical columns side by side layout",
+        hotkey: "Alt+V",
+        run: () => {
+          splitFocusedWithCwd("h");
+        },
+      },
+      {
+        id: "pane-split-h",
+        label: "Split pane down",
+        keywords: "split horizontal rows stacked layout",
+        hotkey: "Alt+H",
+        run: () => {
+          splitFocusedWithCwd("v");
+        },
+      },
+      {
+        id: "pane-close",
+        label: "Close pane",
+        keywords: "remove split focused",
+        hotkey: "Ctrl+Shift+W",
+        run: () => {
+          void closeFocusedPane();
+        },
+      },
+      {
+        id: "pane-toggle-floating",
+        label: "Float / tile pane",
+        keywords: "float pop out pop in tile hyprland layout",
+        hotkey: "Ctrl+Shift+O",
+        run: () => {
+          toggleFocusedPaneFloating();
+        },
+      },
+      {
+        id: "pane-rename",
+        label: "Rename pane…",
+        keywords: "pane name title label friendly id",
+        run: () => openFocusedPaneRename(),
+      },
+      {
+        id: "pane-close-children",
+        label: "Reset pane layout",
+        keywords: "reset layout keep main root initial close children",
+        run: () => {
+          void closeAllChildPanes();
+        },
+      },
+      {
+        id: "open-pane-theme",
+        label: "Theme pane…",
+        keywords: "theme appearance colors focused pane local override",
+        run: () => openFocusedPaneTheme(),
+      },
+      // --- Files ---
+      {
+        id: "toggle-file-tree",
+        label: "Toggle file panel",
+        keywords: "files explorer sidebar workspace ctrl shift e",
+        hotkey: fileTreeDisabledRef.v ? undefined : "Ctrl+Shift+E",
+        run: () => {
+          if (fileTreeDisabledRef.v) return;
+          toggleFileTree();
+        },
+      },
+      {
+        id: "filter-file-tree",
+        label: "Search files",
+        keywords: "filter search grep rg find",
+        run: () => {
+          focusFileTreeFilter();
+        },
+      },
+      {
+        id: "reload-file-tree",
+        label: "Reload files",
+        keywords: "refresh explorer rescan restart watch cwd",
+        run: () => void reloadFileTree(),
+      },
+      // --- View / appearance ---
+      {
+        id: "toggle-zen-mode",
+        label: document.documentElement.classList.contains("zen-mode")
+          ? "Exit zen mode"
+          : "Enter zen mode",
+        keywords: "focus session hide toolbar chrome distraction free",
+        run: () => {
+          setZenMode(!document.documentElement.classList.contains("zen-mode"));
+        },
+      },
+      {
+        id: "open-themes",
+        label: "Change theme…",
+        keywords: "theme appearance colors ui palette app global",
+        run: () => themeModal?.open({ title: "App Theme" }),
+      },
+      {
+        id: "open-theme-builder",
+        label: "Theme builder…",
+        keywords: "theme custom colors editor create css variables",
+        run: () => {
+          themeModal?.close();
+          themeBuilder?.open();
+        },
+      },
+      // --- Terminal / session ---
+      {
+        id: "new-session",
+        label: "Restart terminal session",
+        keywords: "restart shell pty new terminal",
+        run: () => void newTerminalSession(),
+      },
+      {
+        id: "focus-terminal",
+        label: "Focus terminal",
+        keywords: "keyboard input",
+        run: () => {
+          getFocusedTerm()?.focus();
+        },
+      },
+      {
+        id: "paste",
+        label: "Paste",
+        keywords: "clipboard context edit",
+        run: () => void pasteFromClipboard(),
+      },
+      {
+        id: "toggle-background-work",
+        label: isBackgroundWorkMode()
+          ? "Shed PTYs when hidden"
+          : "Keep PTYs alive when hidden",
+        keywords: "background keep alive pty buffer webview shed hide memory agent logs tui session",
+        run: () => void setBackgroundWorkMode(!isBackgroundWorkMode()),
+      },
+      // --- Window ---
+      {
+        id: "window-maximize",
+        label: "Maximize window",
+        keywords: "window maximize fullscreen grow zoom",
+        hotkey: "Alt+Shift+Up",
+        run: () => void setWindowMaximized(true),
+      },
+      {
+        id: "window-restore",
+        label: "Restore window",
+        keywords: "window restore unmaximize shrink",
+        hotkey: "Alt+Shift+Down",
+        run: () => void setWindowMaximized(false),
+      },
+      {
+        id: "window-next-monitor",
+        label: "Move to next monitor",
+        keywords: "window monitor screen display move next",
+        hotkey: "Alt+Shift+Right",
+        run: () => void moveWindowToAdjacentMonitor(1),
+      },
+      {
+        id: "window-prev-monitor",
+        label: "Move to previous monitor",
+        keywords: "window monitor screen display move previous prev",
+        hotkey: "Alt+Shift+Left",
+        run: () => void moveWindowToAdjacentMonitor(-1),
+      },
+      {
+        id: "hide-overlay",
+        label: "Hide window",
+        keywords: "close overlay tray background hotkey dismiss",
+        hotkey: "Alt+Shift+T",
+        run: () => void invoke("toggle_overlay").catch(() => {}),
+      },
+      // --- Presets / saved commands ---
+      {
+        id: "presets-save",
+        label: "Save tab as preset…",
+        keywords: "presets workspace layout snapshot save template reuse",
+        run: () => presetsModal?.open(),
+      },
+      {
+        id: "presets-open",
+        label: "Open preset…",
+        keywords: "presets workspace layout restore load template",
+        run: () => presetsModal?.open(),
+      },
+      {
+        id: "new-custom",
+        label: "New saved command…",
+        keywords: "create builder save custom",
+        run: () => {
+          showBuilder();
+        },
+      },
+      // --- App ---
       {
         id: "open-settings",
         label: "Settings",
@@ -3700,194 +3941,17 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         run: () => extManagerApi?.open(),
       },
       {
-        id: "open-themes",
-        label: "Change app theme…",
-        keywords: "theme appearance colors ui palette app global",
-        run: () => themeModal?.open({ title: "App Theme" }),
-      },
-      {
-        id: "open-pane-theme",
-        label: "Pane: Change focused theme…",
-        keywords: "theme appearance colors focused pane local override",
-        run: () => openFocusedPaneTheme(),
-      },
-      {
-        id: "open-theme-builder",
-        label: "Theme builder…",
-        keywords: "theme custom colors editor create css variables",
-        run: () => {
-          themeModal?.close();
-          themeBuilder?.open();
-        },
-      },
-      {
-        id: "tab-new",
-        label: "New tab",
-        keywords: "workspace create add",
-        run: () => openNewWorkspaceTab(),
-      },
-      {
-        id: "tab-duplicate",
-        label: "Duplicate tab",
-        keywords: "workspace copy clone",
-        run: () => duplicateWorkspaceTab(activeWorkspaceTabId),
-      },
-      {
-        id: "tab-close",
-        label: "Close tab",
-        keywords: "workspace remove delete",
-        run: () => closeWorkspaceTab(activeWorkspaceTabId),
-      },
-      {
-        id: "tab-rename",
-        label: "Rename tab…",
-        keywords: "workspace title edit",
-        run: () => beginTabRename(activeWorkspaceTabId),
-      },
-      {
-        id: "new-custom",
-        label: "New command…",
-        keywords: "create builder save",
-        run: () => {
-          showBuilder();
-        },
-      },
-      {
-        id: "toggle-file-tree",
-        label: "Toggle files",
-        keywords: "files explorer sidebar workspace ctrl shift e",
-        hotkey: fileTreeDisabledRef.v ? undefined : "Ctrl+Shift+E",
-        run: () => {
-          if (fileTreeDisabledRef.v) return;
-          toggleFileTree();
-        },
-      },
-      {
-        id: "filter-file-tree",
-        label: "Find in files",
-        keywords: "filter search grep rg find",
-        run: () => {
-          focusFileTreeFilter();
-        },
-      },
-      {
-        id: "reload-file-tree",
-        label: "Reload files",
-        keywords: "refresh explorer rescan restart watch cwd",
-        run: () => void reloadFileTree(),
-      },
-      {
-        id: "presets-save",
-        label: "Presets: Save tab as preset\u2026",
-        keywords: "workspace layout snapshot save template reuse",
-        run: () => presetsModal?.open(),
-      },
-      {
-        id: "presets-open",
-        label: "Presets: Open preset\u2026",
-        keywords: "workspace layout restore load template",
-        run: () => presetsModal?.open(),
-      },
-      {
-        id: "toggle-zen-mode",
-        label: document.documentElement.classList.contains("zen-mode")
-          ? "Exit zen"
-          : "Enter zen",
-        keywords: "focus session hide toolbar chrome distraction free",
-        run: () => {
-          setZenMode(!document.documentElement.classList.contains("zen-mode"));
-        },
-      },
-      {
-        id: "paste",
-        label: "Edit: Paste from clipboard",
-        keywords: "clipboard context",
-        run: () => void pasteFromClipboard(),
-      },
-      {
-        id: "new-session",
-        label: "Terminal: New session",
-        keywords: "restart shell pty",
-        run: () => void newTerminalSession(),
-      },
-      {
-        id: "toggle-background-work",
-        label: isBackgroundWorkMode()
-          ? "Session: Shed PTYs on hide"
-          : "Session: Keep PTYs alive on hide",
-        keywords: "background keep alive pty buffer webview shed hide memory agent logs tui",
-        run: () => void setBackgroundWorkMode(!isBackgroundWorkMode()),
-      },
-      {
-        id: "hide-overlay",
-        label: "Window: Hide Partty",
-        keywords: "close overlay tray background hotkey",
-        hotkey: "Alt+Shift+T",
-        run: () => void invoke("toggle_overlay").catch(() => {}),
+        id: "help-hotkeys",
+        label: "Keyboard shortcuts",
+        keywords: "hotkeys bindings reference help",
+        hotkey: "Ctrl+Shift+/",
+        run: () => openHelpPanel(),
       },
       {
         id: "quit-app",
-        label: "App: Quit Partty",
+        label: "Quit Partty",
         keywords: "exit app quit close traffic light red",
         run: () => void appWindow.destroy().catch(() => {}),
-      },
-      {
-        id: "focus-terminal",
-        label: "Terminal: Focus",
-        keywords: "keyboard input",
-        run: () => {
-          getFocusedTerm()?.focus();
-        },
-      },
-      {
-        id: "pane-split-v",
-        label: "Pane: Split vertically (side by side)",
-        keywords: "split columns layout",
-        hotkey: "Alt+V",
-        run: () => {
-          splitFocusedWithCwd("h");
-        },
-      },
-      {
-        id: "pane-split-h",
-        label: "Pane: Split horizontally (stacked)",
-        keywords: "split rows layout",
-        hotkey: "Alt+H",
-        run: () => {
-          splitFocusedWithCwd("v");
-        },
-      },
-      {
-        id: "pane-close",
-        label: "Pane: Close focused",
-        keywords: "remove split",
-        run: () => {
-          void closeFocusedPane();
-        },
-      },
-      {
-        id: "pane-toggle-floating",
-        label: "Pane: Float or tile focused",
-        keywords: "float pop out pop in tile hyprland layout",
-        hotkey: "Ctrl+Shift+O",
-        run: () => {
-          toggleFocusedPaneFloating();
-        },
-      },
-      {
-        id: "pane-rename",
-        label: "Pane: Rename focused…",
-        keywords: "pane name title label friendly id",
-        run: () => openFocusedPaneRename(),
-      },
-      {
-        id: "pane-close-children",
-        label: "Pane: Close all child panes",
-        keywords: "reset layout keep main root initial close children",
-        hotkey: "Win+Shift+W",
-        run: () => {
-          void closeAllChildPanes();
-        },
       },
       ...extPaletteCommands.map((c) => ({
         id: `ext-${c.id}`,
@@ -3910,9 +3974,16 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       seen.add(hotkey);
       rows.push({ hotkey, label: cmd.label.replace(/…$/, "") });
     }
+    // Keyboard + mouse shortcuts that aren't palette commands.
     rows.push(
+      { hotkey: "Ctrl+Arrows", label: "Focus adjacent pane" },
+      { hotkey: "Ctrl+Shift+Arrows", label: "Swap pane with neighbor" },
+      { hotkey: "Alt+1–9", label: "Switch to tab" },
+      { hotkey: "Alt+Shift+1–9", label: "Move pane to tab" },
+      { hotkey: "Shift+Enter", label: "Insert newline" },
       { hotkey: "Ctrl+Wheel", label: "Zoom focused pane" },
       { hotkey: "Alt+Drag", label: "Move floating pane or swap tiled panes" },
+      { hotkey: "Alt+Shift+Drag", label: "Move window from anywhere" },
       { hotkey: "Right-click", label: "Paste from clipboard" },
     );
     list.replaceChildren(...rows.map(({ hotkey, label }) => {
@@ -4035,12 +4106,35 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   document.getElementById("window-minimize")?.addEventListener("click", () => {
     void appWindow.minimize().catch(() => {});
   });
+  // Subtle "settle" animation on the pane stack after the window itself is
+  // resized/restored/maximized or hops monitors. These operations intentionally
+  // restore→maximize the Tauri window (avoids a Windows render fault), which snaps
+  // the panes into their new size; the brief scale+fade makes that snap feel
+  // intentional and fluid instead of abrupt. Skipped when motion is off / pref
+  // disabled, and never hooked to continuous manual drag-resize.
+  let windowMotionTimer = 0;
+  function playWindowMotion(): void {
+    if (!windowMotionRef.v) return;
+    if (document.documentElement.classList.contains("terminal-motion-off")) return;
+    const el = document.getElementById("terminal-pane-root") ?? terminalContent;
+    if (!el) return;
+    el.classList.remove("window-motion-settle");
+    void el.offsetWidth; // force reflow so the animation restarts
+    el.classList.add("window-motion-settle");
+    if (windowMotionTimer) window.clearTimeout(windowMotionTimer);
+    windowMotionTimer = window.setTimeout(() => {
+      el.classList.remove("window-motion-settle");
+      windowMotionTimer = 0;
+    }, 700);
+  }
+
   async function toggleMaximizeRestore(): Promise<void> {
     try {
       const isMax = await appWindow.isMaximized();
       if (isMax) await appWindow.unmaximize();
       else await appWindow.maximize();
       await syncMaximizeButtonTitle();
+      playWindowMotion();
     } catch {
       /* ignore */
     }
@@ -4051,6 +4145,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       if (max) await appWindow.maximize();
       else await appWindow.unmaximize();
       await syncMaximizeButtonTitle();
+      playWindowMotion();
     } catch {
       /* ignore */
     }
@@ -4093,6 +4188,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       await appWindow.setPosition(new PhysicalPosition(nextX, nextY));
       if (wasMaximized) await appWindow.maximize();
       await syncMaximizeButtonTitle();
+      playWindowMotion();
       if (cursorFollowWindowMoveRef.v) warpCursorToFocusedPane();
     } catch {
       /* ignore */
@@ -4353,6 +4449,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       const ft = getFocusedTerm();
       if (ft) ft.refresh(0, ft.rows - 1);
       getFocusedTerm()?.focus();
+      playWindowMotion();
     }),
   ]);
 

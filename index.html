@@ -152,6 +152,12 @@
                   </select>
                 </div>
                 <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">Feel</span>
+                  <select id="setting-animation-style" name="terminal_animation_style" class="settings-input settings-input--narrow">
+                    <option value="smooth">Smooth</option><option value="snappy">Snappy</option><option value="gentle">Gentle</option><option value="bouncy">Bouncy</option>
+                  </select>
+                </div>
+                <div class="settings-row settings-row--compact">
                   <span class="settings-row-label">Pane gap</span>
                   <input id="setting-terminal-pane-gap" name="terminal_pane_gap" type="number" min="0" max="32" step="1" class="settings-input settings-input--narrow" />
                 </div>
@@ -308,6 +314,7 @@
                   <label class="settings-checkbox-label"><span>Summon max</span><input class="settings-checkbox-input" type="checkbox" name="always_summon_maximized" /></label>
                   <label class="settings-checkbox-label"><span>Summon cursor</span><input class="settings-checkbox-input" type="checkbox" name="summon_spawn_at_cursor" /></label>
                   <label class="settings-checkbox-label"><span>Cursor follows monitor</span><input class="settings-checkbox-input" type="checkbox" name="cursor_follow_window_move" /></label>
+                  <label class="settings-checkbox-label"><span>Window motion</span><input class="settings-checkbox-input" type="checkbox" name="terminal_window_motion" checked /></label>
                   <label class="settings-checkbox-label"><span>Hide taskbar</span><input class="settings-checkbox-input" type="checkbox" name="hidden_from_taskbar" /></label>
                   <label class="settings-checkbox-label"><span>Zen on launch</span><input class="settings-checkbox-input" type="checkbox" name="always_open_in_zen_mode" /></label>
                   <label class="settings-checkbox-label"><span>No tooltips</span><input class="settings-checkbox-input" type="checkbox" name="ui_disable_tooltips" /></label>

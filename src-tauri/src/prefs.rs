@@ -72,6 +72,10 @@ fn default_terminal_animation_speed() -> String {
     "normal".to_string()
 }
 
+fn default_terminal_animation_style() -> String {
+    "smooth".to_string()
+}
+
 fn default_split_layout_style() -> String {
     "balanced".to_string()
 }
@@ -258,6 +262,13 @@ pub struct Prefs {
     /// `off` | `fast` | `normal` | `slow` — scales terminal UI animations.
     #[serde(default = "default_terminal_animation_speed")]
     pub terminal_animation_speed: String,
+    /// `smooth` | `snappy` | `gentle` | `bouncy` — easing character of UI animations.
+    #[serde(default = "default_terminal_animation_style")]
+    pub terminal_animation_style: String,
+    /// Play a subtle settle animation on the panes when the window is
+    /// resized/restored/maximized or moved between monitors.
+    #[serde(default = "default_true")]
+    pub terminal_window_motion: bool,
     /// `balanced` | `dwindle` | `master` — pane split insertion math.
     #[serde(default = "default_split_layout_style")]
     pub split_layout_style: String,
@@ -392,6 +403,8 @@ impl Default for Prefs {
             terminal_no_pane_border: false,
             terminal_no_focus_border: false,
             terminal_animation_speed: default_terminal_animation_speed(),
+            terminal_animation_style: default_terminal_animation_style(),
+            terminal_window_motion: true,
             split_layout_style: default_split_layout_style(),
             window_effect_mode: default_window_effect_mode(),
             window_effect_opacity: default_window_effect_opacity(),

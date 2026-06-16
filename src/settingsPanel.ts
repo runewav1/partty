@@ -47,6 +47,8 @@ export type ParttyPrefs = {
   terminal_no_focus_border: boolean;
   split_layout_style: string;
   terminal_animation_speed: string;
+  terminal_animation_style: string;
+  terminal_window_motion: boolean;
   window_effect_mode: string;
   window_effect_opacity: number;
   pane_corner_radius: number;
@@ -144,6 +146,7 @@ export function createSettingsPanel(
     const cwd = g("initial_cwd");
     const shed_workspace_exit = ((v: string) => v === "shed" || v === "ask" ? v : "keep")(gs("shed_workspace_exit"));
     const terminal_animation_speed = ((v: string) => v === "off" || v === "fast" || v === "slow" ? v : "normal")(gs("terminal_animation_speed"));
+    const terminal_animation_style = ((v: string) => v === "snappy" || v === "gentle" || v === "bouncy" ? v : "smooth")(gs("terminal_animation_style"));
     const split_layout_style = ((v: string) => v === "dwindle" || v === "master" ? v : "balanced")(gs("split_layout_style"));
     const window_effect_mode = gs("window_effect_mode").replace(/-/g, "_") === "transparent" ? "transparent" : "off";
     const clamp01 = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fb; };
@@ -179,6 +182,7 @@ export function createSettingsPanel(
       terminal_no_gap: terminal_pane_gap <= 0, terminal_pane_gap, terminal_sandbox_padding,
       terminal_no_round: gc("terminal_no_round"), terminal_no_pane_border: gc("terminal_no_pane_border"),
       terminal_no_focus_border: gc("terminal_no_focus_border"), split_layout_style, terminal_animation_speed,
+      terminal_animation_style, terminal_window_motion: gc("terminal_window_motion"),
       window_effect_mode, window_effect_opacity: clamp01(g("window_effect_opacity"), 0),
       pane_corner_radius: clampR(g("pane_corner_radius"), 6),
 
@@ -324,6 +328,8 @@ export function createSettingsPanel(
 
     setSel("shed_workspace_exit", ((v?: string) => { v = (v ?? "keep").toLowerCase(); return v === "shed" ? "shed" : v === "ask" ? "ask" : "keep"; })(pr.shed_workspace_exit));
     setSel("terminal_animation_speed", ((v?: string) => { v = (v ?? "normal").toLowerCase(); return v === "off" || v === "fast" || v === "slow" ? v : "normal"; })(pr.terminal_animation_speed));
+    setSel("terminal_animation_style", ((v?: string) => { v = (v ?? "smooth").toLowerCase(); return v === "snappy" || v === "gentle" || v === "bouncy" ? v : "smooth"; })(pr.terminal_animation_style));
+    setChk("terminal_window_motion", pr.terminal_window_motion ?? true);
     setSel("window_effect_mode", (pr.window_effect_mode ?? "off").toLowerCase() === "transparent" ? "transparent" : "off");
     setSel("file_tree_side", pr.file_tree_side === "right" ? "right" : "left");
 

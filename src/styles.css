@@ -50,9 +50,11 @@
   --motion-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --motion-ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
   --motion-ease-standard: cubic-bezier(0.25, 1, 0.5, 1);
-  --motion-fast: calc(0.13s * var(--termie-animation-scale));
-  --motion-medium: calc(0.2s * var(--termie-animation-scale));
-  --motion-slow: calc(0.28s * var(--termie-animation-scale));
+  /* Per-"Feel" duration multiplier (see html[data-motion-style]); 1 = Smooth. */
+  --motion-feel: 1;
+  --motion-fast: calc(0.13s * var(--termie-animation-scale) * var(--motion-feel));
+  --motion-medium: calc(0.2s * var(--termie-animation-scale) * var(--motion-feel));
+  --motion-slow: calc(0.28s * var(--termie-animation-scale) * var(--motion-feel));
   --termie-app-bg-alpha: 1;
   --termie-pane-radius: 6px;
   
@@ -145,6 +147,28 @@
   --ui-chrome-fg: #f4f4f5;
   --ui-chrome-muted: #a1a1aa;
   --ui-chrome-fainter: #71717a;
+}
+
+/* ===== Motion "Feel" presets (Settings → Terminal → Feel) ===== */
+/* Smooth is the default token set above. Each preset retunes the shared easing
+   curves + duration multiplier so every animation surface inherits the feel. */
+html[data-motion-style="snappy"] {
+  --motion-feel: 0.72;
+  --motion-ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-emphasized: cubic-bezier(0.3, 0, 0, 1);
+  --motion-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+}
+html[data-motion-style="gentle"] {
+  --motion-feel: 1.28;
+  --motion-ease-out: cubic-bezier(0.33, 1, 0.68, 1);
+  --motion-ease-emphasized: cubic-bezier(0.25, 1, 0.5, 1);
+  --motion-ease-standard: cubic-bezier(0.45, 0, 0.55, 1);
+}
+html[data-motion-style="bouncy"] {
+  --motion-feel: 1.08;
+  --motion-ease-out: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --motion-ease-emphasized: cubic-bezier(0.22, 1.61, 0.36, 1);
+  --motion-ease-standard: cubic-bezier(0.34, 1.4, 0.64, 1);
 }
 
 /* System theme: chrome derives from terminal surface */
@@ -1593,6 +1617,20 @@ html.pane-blur-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--
 .pane-leaf--leaving {
   animation: pane-leave var(--motion-fast) cubic-bezier(0.55, 0, 1, 0.45) forwards;
   pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* Window-level "settle": the pane stack eases into its new size after the window
+   is resized/restored/maximized or hops monitors (driven from playWindowMotion).
+   Subtle scale + fade so the snap reads as intentional. Inherits the active Feel. */
+@keyframes window-motion-settle {
+  0%   { transform: scale(0.992); opacity: 0.86; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.window-motion-settle {
+  animation: window-motion-settle var(--motion-slow) var(--motion-ease-emphasized) both;
+  transform-origin: center center;
   will-change: transform, opacity;
 }
 
