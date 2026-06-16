@@ -284,7 +284,6 @@ async function boot(): Promise<void> {
 
   document.documentElement.classList.toggle("pane-blur-unfocused", Boolean((persisted.prefs as Partial<ParttyPrefs>).blur_unfocused_panes));
   document.documentElement.style.setProperty("--pane-blur-radius", String((persisted.prefs as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6));
-  document.documentElement.style.setProperty("--pane-padding", String((persisted.prefs as Partial<ParttyPrefs>).terminal_pane_padding ?? 0));
   document.documentElement.classList.toggle("pane-dim-unfocused", Boolean((persisted.prefs as Partial<ParttyPrefs>).dim_unfocused_panes));
 
   const fileTreeUserEnabled = localStorage.getItem(FILE_TREE_STORAGE_KEY) === "1";
@@ -3267,8 +3266,10 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         applyTooltipPolicy(document);
         document.documentElement.classList.toggle("pane-blur-unfocused", saved.blur_unfocused_panes);
         document.documentElement.style.setProperty("--pane-blur-radius", String((saved as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6));
-        document.documentElement.style.setProperty("--pane-padding", String((saved as Partial<ParttyPrefs>).terminal_pane_padding ?? 0));
         document.documentElement.classList.toggle("pane-dim-unfocused", saved.dim_unfocused_panes);
+        // Gap / sandbox padding changes resize each pane's content box but not the
+        // observed container, so re-fit explicitly to apply them live.
+        scheduleResizeImmediate(true);
         if (saved.always_open_in_zen_mode) {
           setZenMode(true);
         }
@@ -4366,6 +4367,13 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   if (terminalContent && typeof ResizeObserver !== "undefined") {
     const ro = new ResizeObserver(() => scheduleResizeDebounced());
     ro.observe(terminalContent);
+  }
+  // The first fit() can run before the terminal's custom font finishes loading, so
+  // xterm measures cell width with a fallback font and computes the wrong cols/rows
+  // (mis-sized canvas). Re-fit once fonts are ready, and again on any late font load.
+  if (document.fonts) {
+    void document.fonts.ready.then(() => reflowAllPanes());
+    document.fonts.addEventListener("loadingdone", () => reflowAllPanes());
   }
 
   stage?.addEventListener("mousedown", () => {

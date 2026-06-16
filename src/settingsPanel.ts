@@ -42,8 +42,6 @@ export type ParttyPrefs = {
   terminal_no_gap: boolean;
   terminal_pane_gap: number;
   terminal_sandbox_padding: number;
-  /** Padding (px) between the xterm canvas and the pane leaf border. */
-  terminal_pane_padding?: number;
   terminal_no_round: boolean;
   terminal_no_pane_border: boolean;
   terminal_no_focus_border: boolean;
@@ -155,7 +153,6 @@ export function createSettingsPanel(
     const clamp1p = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(1, Math.min(10, n)) : fb; };
     const terminal_pane_gap = clampG(g("terminal_pane_gap"), previous.terminal_pane_gap ?? 6);
     const terminal_sandbox_padding = clampG(g("terminal_sandbox_padding"), previous.terminal_sandbox_padding ?? 0);
-    const terminal_pane_padding = clampG(g("terminal_pane_padding"), previous.terminal_pane_padding ?? 0);
 
     return {
       shell: g("shell") || "pwsh", shed_on_hide: gc("shed_on_hide"), always_on_top: gc("always_on_top"),
@@ -179,7 +176,7 @@ export function createSettingsPanel(
       confirm_delete_prompt: gc("confirm_delete_prompt"), ui_disable_tooltips: gc("ui_disable_tooltips"),
       terminal_alt_click_moves_cursor: gc("terminal_alt_click_moves_cursor"), terminal_backspace_delete_selection: gc("terminal_backspace_delete_selection"),
       always_open_in_zen_mode: gc("always_open_in_zen_mode"),
-      terminal_no_gap: terminal_pane_gap <= 0, terminal_pane_gap, terminal_sandbox_padding, terminal_pane_padding,
+      terminal_no_gap: terminal_pane_gap <= 0, terminal_pane_gap, terminal_sandbox_padding,
       terminal_no_round: gc("terminal_no_round"), terminal_no_pane_border: gc("terminal_no_pane_border"),
       terminal_no_focus_border: gc("terminal_no_focus_border"), split_layout_style, terminal_animation_speed,
       window_effect_mode, window_effect_opacity: clamp01(g("window_effect_opacity"), 0),
@@ -324,7 +321,6 @@ export function createSettingsPanel(
     setVal("pane_corner_radius", String(pr.pane_corner_radius ?? 6));
     setVal("terminal_pane_gap", String(pr.terminal_pane_gap ?? (pr.terminal_no_gap ? 0 : 6)));
     setVal("terminal_sandbox_padding", String(pr.terminal_sandbox_padding ?? 0));
-    setVal("terminal_pane_padding", String(pr.terminal_pane_padding ?? 0));
 
     setSel("shed_workspace_exit", ((v?: string) => { v = (v ?? "keep").toLowerCase(); return v === "shed" ? "shed" : v === "ask" ? "ask" : "keep"; })(pr.shed_workspace_exit));
     setSel("terminal_animation_speed", ((v?: string) => { v = (v ?? "normal").toLowerCase(); return v === "off" || v === "fast" || v === "slow" ? v : "normal"; })(pr.terminal_animation_speed));

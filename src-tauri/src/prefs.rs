@@ -246,9 +246,6 @@ pub struct Prefs {
     /// Padding around the pane sandbox in px.
     #[serde(default = "default_terminal_sandbox_padding")]
     pub terminal_sandbox_padding: f64,
-    /// Padding (px) between the xterm canvas and the pane leaf border.
-    #[serde(default)]
-    pub terminal_pane_padding: f64,
     /// Remove rounded pane/chrome corners for dense terminal layouts.
     #[serde(default)]
     pub terminal_no_round: bool,
@@ -391,7 +388,6 @@ impl Default for Prefs {
             terminal_no_gap: false,
             terminal_pane_gap: default_terminal_pane_gap(),
             terminal_sandbox_padding: default_terminal_sandbox_padding(),
-            terminal_pane_padding: 0.0,
             terminal_no_round: false,
             terminal_no_pane_border: false,
             terminal_no_focus_border: false,

@@ -44,8 +44,6 @@
   --term-pad-y: 14px;
   --pane-outer-gap: 6px;
   --pane-sandbox-padding: 0px;
-  --pane-inner-pad-x: 10px;
-  --pane-inner-pad-y: 8px;
   --file-tree-user-width: 260px;
   --file-tree-width: 0px;
   --termie-animation-scale: 1;
@@ -1626,16 +1624,24 @@ html.terminal-motion-off *::after {
   width: 100%;
   height: 100%;
   gap: 0;
-  padding: var(--pane-inner-pad-y) var(--pane-inner-pad-x);
+  padding: 0;
   background: var(--term-bg);
 }
 
+/* The xterm grid is cell-quantized, so it can never exactly fill a free-form pane.
+   We bake a fixed inner inset and flex-center the grid-sized `.xterm`, which splits
+   the sub-cell remainder evenly across all four edges for consistent, native-looking
+   margins. FitAddon measures this host's content box (excludes the padding), so the
+   centering offset does not feed back into the computed cols/rows (no oscillation). */
 .pane-terminal-host {
   flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  padding: calc(var(--pane-padding, 0) * 1px);
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   position: relative;
   background: var(--term-bg);
 }
@@ -1679,6 +1685,13 @@ html.terminal-motion-off *::after {
 
 .terminal-pane-root .xterm {
   font-family: var(--font-terminal) !important;
+}
+
+/* Keep the grid-sized .xterm at its natural size inside the flex-centered host;
+   a sub-pixel overflow is clipped (host overflow:hidden) rather than squished,
+   which would distort every cell. */
+.pane-terminal-host > .xterm {
+  flex: 0 0 auto;
 }
 
 /* Invisible resize gutters between panes. */
