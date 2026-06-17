@@ -210,6 +210,7 @@ export class PaneHost {
   private paneMoveRollback: {
     tree: PaneNode;
     focusedId: string;
+    rootPaneId: string;
     floating: Map<string, FloatingPaneState>;
   } | null = null;
   private floatingZ = 50;
@@ -423,7 +424,7 @@ export class PaneHost {
     return this.focusedId;
   }
 
-  /** Root leaf id (cannot be removed; one per workspace tab). */
+  /** Root leaf id for this tab; advances to the next tree-order leaf when the current root is removed. */
   getRootPaneId(): string {
     return this.rootPaneId;
   }
@@ -450,17 +451,17 @@ export class PaneHost {
   }
 
   takePane(paneId: string, opts?: { saveRollback?: boolean }): PaneTerminal | null {
-    if (paneId === this.rootPaneId) return null;
     const pt = this.terminals.get(paneId);
     if (!pt) return null;
     if (opts?.saveRollback) {
       this.paneMoveRollback = {
         tree: structuredClone(this.tree),
         focusedId: this.focusedId,
+        rootPaneId: this.rootPaneId,
         floating: new Map([...this.floating.entries()].map(([id, state]) => [id, { ...state }])),
       };
     }
-    if (!this.removePaneFromTree(paneId)) {
+    if (!this.detachLeafFromTree(paneId)) {
       if (opts?.saveRollback) this.paneMoveRollback = null;
       return null;
     }
@@ -478,6 +479,32 @@ export class PaneHost {
     return pt;
   }
 
+  /**
+   * Detach the only leaf in this tab (PTY preserved). The tab shell is closed by the caller.
+   */
+  takeSolePane(paneId: string, opts?: { saveRollback?: boolean }): PaneTerminal | null {
+    if (!this.isPristineRootTab()) return null;
+    if (!findPaneLeaf(this.tree, paneId)) return null;
+    const pt = this.terminals.get(paneId);
+    if (!pt) return null;
+    if (opts?.saveRollback) {
+      this.paneMoveRollback = {
+        tree: structuredClone(this.tree),
+        focusedId: this.focusedId,
+        rootPaneId: this.rootPaneId,
+        floating: new Map([...this.floating.entries()].map(([id, state]) => [id, { ...state }])),
+      };
+    }
+    try {
+      pt.row.remove();
+    } catch {
+      /* ignore */
+    }
+    this.terminals.delete(paneId);
+    this.floating.delete(paneId);
+    return pt;
+  }
+
   clearPaneMoveRollback(): void {
     this.paneMoveRollback = null;
   }
@@ -485,8 +512,22 @@ export class PaneHost {
   restoreTakenPane(paneId: string, pt: PaneTerminal): boolean {
     const snap = this.paneMoveRollback;
     if (!snap) return false;
+    if (this.rootPaneId !== snap.rootPaneId) {
+      const placeholderPt = this.terminals.get(this.rootPaneId);
+      if (placeholderPt && placeholderPt !== pt) {
+        try {
+          placeholderPt.fit.dispose();
+          placeholderPt.term.dispose();
+        } catch {
+          /* ignore */
+        }
+        this.terminals.delete(this.rootPaneId);
+        this.opts.onPaneDisposed(this.rootPaneId);
+      }
+    }
     this.tree = snap.tree;
     this.focusedId = snap.focusedId;
+    this.rootPaneId = snap.rootPaneId;
     this.floating.clear();
     for (const [id, state] of snap.floating) this.floating.set(id, state);
     this.terminals.set(paneId, pt);
@@ -613,11 +654,28 @@ export class PaneHost {
     return createTerminal || this.terminals.has(paneId) ? paneId : null;
   }
 
-  private removePaneFromTree(paneId: string): boolean {
-    if (paneId === this.rootPaneId) return false;
+  private successorRootId(removingId: string): string | null {
+    const ids: string[] = [];
+    collectLeafIds(this.tree, ids);
+    for (const id of ids) {
+      if (id !== removingId) return id;
+    }
+    return null;
+  }
+
+  /** Remove a leaf from the tree; promote the next tree-order leaf when the root is removed. */
+  private detachLeafFromTree(paneId: string): boolean {
     const ids: string[] = [];
     collectLeafIds(this.tree, ids);
     if (ids.length <= 1) return false;
+    if (!findPaneLeaf(this.tree, paneId)) return false;
+
+    let promotedRoot: string | null = null;
+    if (paneId === this.rootPaneId) {
+      promotedRoot = this.successorRootId(paneId);
+      if (!promotedRoot) return false;
+    }
+
     const disposeBranch = (node: PaneNode): PaneNode | null => {
       if (node.kind === "leaf") return node.id === paneId ? null : node;
       const a = disposeBranch(node.a);
@@ -629,28 +687,15 @@ export class PaneHost {
     const next = disposeBranch(this.tree);
     if (!next) return false;
     this.tree = next;
+    if (promotedRoot) this.rootPaneId = promotedRoot;
     return true;
   }
 
   removePane(paneId: string, opts?: { notifyDisposed?: boolean }): boolean {
-    if (paneId === this.rootPaneId) return false;
     const ids: string[] = [];
     collectLeafIds(this.tree, ids);
     if (ids.length <= 1) return false;
-
-    const disposeBranch = (node: PaneNode): PaneNode | null => {
-      if (node.kind === "leaf") {
-        return node.id === paneId ? null : node;
-      }
-      const a = disposeBranch(node.a);
-      const b = disposeBranch(node.b);
-      if (a == null) return b;
-      if (b == null) return a;
-      return { ...node, a, b };
-    };
-
-    const next = disposeBranch(this.tree);
-    if (!next) return false;
+    if (!findPaneLeaf(this.tree, paneId)) return false;
 
     const leafEl = this.root.querySelector(
       `.pane-leaf[data-pane-id="${CSS.escape(paneId)}"]`,
@@ -658,7 +703,7 @@ export class PaneHost {
 
     const notifyDisposed = opts?.notifyDisposed !== false;
     const run = (): void => {
-      this.tree = next;
+      if (!this.detachLeafFromTree(paneId)) return;
       this.floating.delete(paneId);
       const pt = this.terminals.get(paneId);
       if (pt) {

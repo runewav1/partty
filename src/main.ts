@@ -925,12 +925,16 @@ async function boot(): Promise<void> {
   }
 
   async function closeFocusedPane(): Promise<void> {
-    const id = paneHost?.getFocusedPaneId();
-    const root = paneHost?.getRootPaneId();
-    if (!id || !root || id === root) return;
+    const host = paneHost;
+    const id = host?.getFocusedPaneId();
+    if (!host || !id) return;
+    if (host.isPristineRootTab()) {
+      closeWorkspaceTab(activeWorkspaceTabId);
+      return;
+    }
     try {
       await ptyKillPane(id);
-      paneHost?.removePane(id);
+      host.removePane(id);
     } catch (e) {
       console.warn("pty_kill_pane", e);
     }
@@ -2195,13 +2199,21 @@ async function boot(): Promise<void> {
     return targetHost.receivePaneAtRoot(paneId, pt, PANE_TRANSFER_SPLIT_DIR);
   }
 
+  function takePaneForTransfer(host: PaneHost, paneId: string): PaneTerminal | null {
+    if (host.isPristineRootTab()) {
+      return host.takeSolePane(paneId, { saveRollback: true });
+    }
+    return host.takePane(paneId, { saveRollback: true });
+  }
+
   function moveFocusedPaneToTabHotkeyIndex(index: number): void {
     const sourceTabId = activeWorkspaceTabId;
     const sourceHost = paneHost;
     const paneId = sourceHost?.getFocusedPaneId();
-    if (!sourceHost || !paneId || paneId === sourceHost.getRootPaneId()) return;
+    if (!sourceHost || !paneId) return;
 
-    const pt = sourceHost.takePane(paneId, { saveRollback: true });
+    const closingSourceTab = sourceHost.isPristineRootTab();
+    const pt = takePaneForTransfer(sourceHost, paneId);
     if (!pt) return;
 
     const existing = tabForHotkeyIndex(index);
@@ -2231,12 +2243,19 @@ async function boot(): Promise<void> {
     }
 
     sourceHost.clearPaneMoveRollback();
-    const sourceLayout = layoutForPaneHost(sourceHost);
-    if (sourceLayout) persistLayoutForTab(sourceTabId, sourceLayout);
+    if (!closingSourceTab) {
+      const sourceLayout = layoutForPaneHost(sourceHost);
+      if (sourceLayout) persistLayoutForTab(sourceTabId, sourceLayout);
+    }
     const targetLayout = layoutForPaneHost(targetHost);
     if (targetLayout) persistLayoutForTab(targetTabId, targetLayout);
     targetHost.setFocusedPaneId(paneId);
-    if (quietPaneDeferralRef.v) {
+    if (closingSourceTab) {
+      closeWorkspaceTab(sourceTabId);
+      if (!quietPaneDeferralRef.v) {
+        switchWorkspaceTab(targetTabId);
+      }
+    } else if (quietPaneDeferralRef.v) {
       renderWorkspaceTabsBar();
       sourceHost.getPaneTerminal(sourceHost.getFocusedPaneId())?.term.focus();
     } else {
@@ -2276,6 +2295,13 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     saveTabsState(tabsState);
     createTabPaneShellAndHost(newId, { initialTree: dup.tree, initialFocusedId: dup.focusedId });
     switchWorkspaceTab(newId);
+  }
+
+  function tabIdForPaneHost(host: PaneHost): string | null {
+    for (const [tabId, h] of tabPaneHosts) {
+      if (h === host) return tabId;
+    }
+    return null;
   }
 
   function disposeTabPaneHost(tabId: string): void {
@@ -4850,7 +4876,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         closePane(paneId: string) {
           if (typeof paneId !== "string" || !paneId) return;
           const host = getPaneHostByPaneId(paneId);
-          if (!host || paneId === host.getRootPaneId()) return;
+          if (!host) return;
+          if (host.isPristineRootTab()) {
+            const tabId = tabIdForPaneHost(host);
+            if (tabId) closeWorkspaceTab(tabId);
+            return;
+          }
           void ptyKillPane(paneId).catch(() => {});
           host.removePane(paneId);
         },
