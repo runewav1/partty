@@ -13,7 +13,7 @@ import {
   mergeLifecyclePrefs,
   type ParttyLifecyclePrefs,
 } from "./termLifecycle";
-import { findPaneLeaf, type PaneHostInit, type PaneTerminal, PaneHost } from "./paneHost";
+import { findPaneLeaf, collectLeafIds, type PaneHostInit, type PaneTerminal, PaneHost } from "./paneHost";
 import {
   clearPaneLayout,
   isLayoutValidForRoot,
@@ -233,8 +233,16 @@ function normalizeSplitLayoutStyle(raw: unknown): "balanced" | "dwindle" | "mast
   return raw === "dwindle" || raw === "master" ? raw : "balanced";
 }
 
+function resolveTabRootPaneId(layout: PersistedPaneLayout, tabId: string): string {
+  const wsroot = workspaceRootPaneId(tabId);
+  if (findPaneLeaf(layout.tree, wsroot)) return wsroot;
+  const ids: string[] = [];
+  collectLeafIds(layout.tree, ids);
+  return ids[0] ?? wsroot;
+}
+
 function isWorkspaceLayoutUsable(p: PersistedPaneLayout, tabId: string): boolean {
-  const rid = workspaceRootPaneId(tabId);
+  const rid = resolveTabRootPaneId(p, tabId);
   if (!isLayoutValidForRoot(p, rid)) return false;
   return findPaneLeaf(p.tree, p.focusedId) != null;
 }
@@ -261,6 +269,16 @@ function isTargetInsideXterm(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   return Boolean(el?.closest?.(".xterm"));
 }
+
+/** Tab index 0–9 from `Digit0`–`Digit9` (Ctrl+Shift+digit yields symbols in `e.key`, not digits). */
+function tabHotkeyIndexFromEvent(e: KeyboardEvent): number | null {
+  const match = e.code.match(/^Digit([0-9])$/);
+  if (!match) return null;
+  return match[1] === "0" ? 9 : Number.parseInt(match[1]!, 10) - 1;
+}
+
+/** Split axis when grafting a transferred pane onto an occupied tab (not pristine / new). */
+const PANE_TRANSFER_SPLIT_DIR: "h" | "v" = "v";
 
 /** Block browser print dialog (Ctrl+P) when focus is not in a terminal so TUIs receive Ctrl+P. */
 function maybeBlockBrowserPrintShortcut(e: KeyboardEvent): void {
@@ -315,6 +333,7 @@ async function boot(): Promise<void> {
   const paneThemes = new Map<string, PaneThemePrefs>();
   const lastPtyDims = new Map<string, { cols: number; rows: number }>();
   const pendingNewPaneCwd = { v: null as string | null };
+  const pendingPaneSpawnCwd = new Map<string, string>();
   const focusFollowsRef = { v: lp.focus_follows_cursor };
   const autoCopySelectionRef = {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).auto_copy_selection),
@@ -411,6 +430,9 @@ async function boot(): Promise<void> {
   };
   const windowMotionRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).terminal_window_motion ?? true,
+  };
+  const quietPaneDeferralRef = {
+    v: Boolean((persisted.prefs as Partial<ParttyPrefs>).quiet_pane_deferral),
   };
 
   const activeProcesses = new Map<string, { command: string; startedAt: number; cwd: string }>();
@@ -846,8 +868,22 @@ async function boot(): Promise<void> {
   function getPaneHostByPaneId(paneId: string): PaneHost | null {
     for (const host of tabPaneHosts.values()) {
       if (host.getPaneTerminal(paneId)) return host;
+      if (findPaneLeaf(host.getTree(), paneId)) return host;
     }
     return null;
+  }
+
+  function reflowPane(paneId: string, force = true): void {
+    const host = getPaneHostByPaneId(paneId);
+    const pt = host?.getPaneTerminal(paneId);
+    if (!pt) return;
+    lastPtyDims.delete(paneId);
+    pt.fit.fit();
+    if (host === paneHost) {
+      scheduleResizeImmediate(force);
+    } else {
+      runLayoutPassForHost(host!, force);
+    }
   }
 
   function focusActiveTerminal(): void {
@@ -1250,6 +1286,14 @@ async function boot(): Promise<void> {
         splitFocusedWithCwd("v");
         return false;
       }
+      if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey) {
+        const index = tabHotkeyIndexFromEvent(e);
+        if (index != null) {
+          e.preventDefault();
+          moveFocusedPaneToTabHotkeyIndex(index);
+          return false;
+        }
+      }
       if (
         e.ctrlKey &&
         e.shiftKey &&
@@ -1336,11 +1380,8 @@ async function boot(): Promise<void> {
   let terminalLayoutSuspended = false;
   let pendingSuspendedLayout = false;
 
-  function runLayoutPass(forceRefresh = false): void {
-    layoutRaf = 0;
-    const shouldForceRefresh = forceRefresh || layoutForceRefresh;
-    layoutForceRefresh = false;
-    paneHost?.forEachPane((paneId, pt) => {
+  function runLayoutPassForHost(host: PaneHost, forceRefresh = false): void {
+    host.forEachPane((paneId, pt) => {
       const fitStarted = performance.now();
       pt.fit.fit();
       parttyPerf.time("layout.fit.ms", performance.now() - fitStarted);
@@ -1350,7 +1391,7 @@ async function boot(): Promise<void> {
       const prev = lastPtyDims.get(paneId);
       const unchanged = prev?.cols === safe.cols && prev?.rows === safe.rows;
       if (unchanged) {
-        if (shouldForceRefresh) pt.term.refresh(0, pt.term.rows - 1);
+        if (forceRefresh) pt.term.refresh(0, pt.term.rows - 1);
         return;
       }
       lastPtyDims.set(paneId, safe);
@@ -1361,6 +1402,14 @@ async function boot(): Promise<void> {
         })
         .catch((e) => console.warn("pty_resize", e));
     });
+  }
+
+  function runLayoutPass(forceRefresh = false): void {
+    layoutRaf = 0;
+    const shouldForceRefresh = forceRefresh || layoutForceRefresh;
+    layoutForceRefresh = false;
+    if (!paneHost) return;
+    runLayoutPassForHost(paneHost, shouldForceRefresh);
   }
 
   /** PTY + xterm stay aligned after pane/window refocus (TUIs need SIGWINCH-sized PTY + refresh). */
@@ -1377,15 +1426,21 @@ async function boot(): Promise<void> {
   // couple of frames + one post-animation tick so late-resolving metrics converge.
   function scheduleCreationReflow(paneId: string): void {
     const run = (): void => {
-      if (!paneHost?.getPaneTerminal(paneId)) return;
-      lastPtyDims.delete(paneId);
-      scheduleResizeImmediate(true);
+      reflowPane(paneId, true);
     };
     requestAnimationFrame(() => requestAnimationFrame(run));
+    window.setTimeout(run, 50);
     window.setTimeout(run, 150);
+    window.setTimeout(run, 320);
     if (document.fonts && document.fonts.status === "loading") {
       void document.fonts.ready.then(run);
     }
+  }
+
+  function scheduleCreationReflowForHost(host: PaneHost): void {
+    const ids: string[] = [];
+    collectLeafIds(host.getTree(), ids);
+    for (const id of ids) scheduleCreationReflow(id);
   }
 
   function scheduleFileTreeRefresh(): void {
@@ -1688,7 +1743,15 @@ async function boot(): Promise<void> {
       onPaneFocus: (id) => {
         lastFocusedPaneId = id;
         if (paneRenamePanel?.isOpen()) paneRenamePanel.setPane(id, paneNames.get(id) ?? "");
-        paneHost?.getPaneTerminal(id)?.term.focus();
+        const pt = paneHost?.getPaneTerminal(id);
+        if (pt) {
+          lastPtyDims.delete(id);
+          requestAnimationFrame(() => {
+            pt.fit.fit();
+            scheduleResizeImmediate(true);
+          });
+          pt.term.focus();
+        }
         void ptyFocusPane(id).catch(() => {});
         fileTreePanel?.setActivePane(id);
         if (fileTreeCoordinator) {
@@ -1847,7 +1910,8 @@ async function boot(): Promise<void> {
           () => onSelDispose.dispose(),
         ]);
         if (lp.preload_webgl_on_startup) void ensureWebglOnPane(id);
-        const explicitCwd = pendingNewPaneCwd.v;
+        const explicitCwd = pendingPaneSpawnCwd.get(id) ?? pendingNewPaneCwd.v;
+        pendingPaneSpawnCwd.delete(id);
         pendingNewPaneCwd.v = null;
         const inheritedCwd = explicitCwd ?? paneCwdHints.get(id) ?? null;
         if (inheritedCwd) paneCwdHints.set(id, inheritedCwd);
@@ -1855,6 +1919,16 @@ async function boot(): Promise<void> {
           void ensurePtyForPane(id, pt, inheritedCwd);
         });
         scheduleCreationReflow(id);
+        const paneResizeObs = new ResizeObserver(() => {
+          if (terminalLayoutSuspended) return;
+          if (pt.host.clientWidth < 2 || pt.host.clientHeight < 2) return;
+          lastPtyDims.delete(id);
+          pt.fit.fit();
+          if (getPaneHostByPaneId(id) === paneHost) scheduleResizeImmediate();
+        });
+        paneResizeObs.observe(pt.host);
+        const priorCleanups = paneHostCleanups.get(id) ?? [];
+        paneHostCleanups.set(id, [...priorCleanups, () => paneResizeObs.disconnect()]);
         // Notify extension subscribers.
         if (extPaneCreatedSubs.length > 0) {
           for (const fn of extPaneCreatedSubs) {
@@ -1884,17 +1958,20 @@ async function boot(): Promise<void> {
     );
   }
 
-  function createTabPaneShellAndHost(tabId: string, init: PaneHostInit): PaneHost {
+  function createTabPaneShellAndHost(tabId: string, init: PaneHostInit, rootPaneId?: string): PaneHost {
     const paneRoot = document.getElementById("terminal-pane-root");
     if (!paneRoot) throw new Error("#terminal-pane-root missing");
     const shell = document.createElement("div");
     shell.className = "term-tab-pane-shell";
     shell.dataset.tabId = tabId;
     paneRoot.appendChild(shell);
-    const rid = workspaceRootPaneId(tabId);
+    const rid = rootPaneId ?? workspaceRootPaneId(tabId);
     const host = createPaneHost(shell, init, rid);
     tabPaneHosts.set(tabId, host);
     tabPaneShells.set(tabId, shell);
+    if (tabId !== activeWorkspaceTabId) {
+      shell.classList.add("term-tab-pane-shell--hidden");
+    }
     return host;
   }
 
@@ -1915,7 +1992,7 @@ async function boot(): Promise<void> {
       initialTree: layout.tree,
       initialFocusedId: layout.focusedId,
       initialFloating: layout.floating,
-    });
+    }, resolveTabRootPaneId(layout, tab.id));
     if (tab.id !== activeWorkspaceTabId) {
       tabPaneShells.get(tab.id)?.classList.add("term-tab-pane-shell--hidden");
     }
@@ -1960,41 +2037,68 @@ async function boot(): Promise<void> {
     if (!nextHost) return;
     persistCurrentWorkspaceTabLayout();
 
+    const prevTabId = activeWorkspaceTabId;
+    const prevShell = tabPaneShells.get(prevTabId);
     const nextShell = tabPaneShells.get(tabId);
+    const motionOn = !document.documentElement.classList.contains("terminal-motion-off")
+      && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     activeWorkspaceTabId = tabId;
     tabsState = { ...tabsState, activeTabId: tabId };
     saveTabsState(tabsState);
 
-    // Clean up stale animation classes from any previous rapid switches,
-    // then hide all shells except the target. We'll animate just the target entering.
     for (const shell of tabPaneShells.values()) {
       shell.classList.remove("term-tab-pane-shell--entering", "term-tab-pane-shell--leaving");
-    }
-    for (const [id, shell] of tabPaneShells) {
-      shell.classList.toggle("term-tab-pane-shell--hidden", id !== tabId);
-    }
-
-    if (nextShell) {
-      nextShell.classList.remove("term-tab-pane-shell--hidden");
-      nextShell.classList.add("term-tab-pane-shell--entering");
-      const capturedTabId = tabId;
-      const onDone = () => {
-        nextShell.removeEventListener("animationend", onDone);
-        if (activeWorkspaceTabId !== capturedTabId) {
-          nextShell.classList.remove("term-tab-pane-shell--entering");
-          if (!tabPaneShells.get(capturedTabId)?.classList.contains("term-tab-pane-shell--entering")) {
-            tabPaneShells.get(capturedTabId)?.classList.add("term-tab-pane-shell--hidden");
-          }
-          return;
-        }
-        nextShell.classList.remove("term-tab-pane-shell--entering");
-      };
-      nextShell.addEventListener("animationend", onDone);
     }
 
     paneHost = nextHost;
     lastFocusedPaneId = paneHost.getFocusedPaneId();
+
+    if (nextShell) {
+      nextShell.classList.remove("term-tab-pane-shell--hidden");
+      if (motionOn) nextShell.classList.add("term-tab-pane-shell--entering");
+    }
+
+    if (prevShell && prevShell !== nextShell && motionOn) {
+      prevShell.classList.remove("term-tab-pane-shell--hidden");
+      prevShell.classList.add("term-tab-pane-shell--leaving");
+      const capturedPrev = prevTabId;
+      const onLeave = (): void => {
+        prevShell.removeEventListener("animationend", onLeave);
+        if (activeWorkspaceTabId === capturedPrev) return;
+        prevShell.classList.remove("term-tab-pane-shell--leaving");
+        prevShell.classList.add("term-tab-pane-shell--hidden");
+      };
+      prevShell.addEventListener("animationend", onLeave);
+      window.setTimeout(onLeave, 420);
+    } else {
+      for (const [id, shell] of tabPaneShells) {
+        shell.classList.toggle("term-tab-pane-shell--hidden", id !== tabId);
+      }
+    }
+
+    if (nextShell && motionOn) {
+      const capturedTabId = tabId;
+      const onEnter = (): void => {
+        nextShell.removeEventListener("animationend", onEnter);
+        if (activeWorkspaceTabId !== capturedTabId) return;
+        nextShell.classList.remove("term-tab-pane-shell--entering");
+        for (const [id, shell] of tabPaneShells) {
+          if (id !== capturedTabId) shell.classList.add("term-tab-pane-shell--hidden");
+        }
+        scheduleCreationReflowForHost(nextHost);
+        scheduleResizeImmediate(true);
+      };
+      nextShell.addEventListener("animationend", onEnter);
+      window.setTimeout(onEnter, 420);
+    } else {
+      for (const [id, shell] of tabPaneShells) {
+        shell.classList.toggle("term-tab-pane-shell--hidden", id !== tabId);
+      }
+      scheduleCreationReflowForHost(nextHost);
+      scheduleResizeImmediate(true);
+    }
+
     fileTreePanel?.setActivePane(lastFocusedPaneId);
     if (fileTreeCoordinator) {
       fileTreeCoordinator.seedPaneCwd(lastFocusedPaneId, paneCwdHints.get(lastFocusedPaneId));
@@ -2008,7 +2112,6 @@ async function boot(): Promise<void> {
     }
     document.documentElement.classList.toggle("term-tabs-multiple", tabsState.tabs.length > 1);
     renderWorkspaceTabsBar();
-    scheduleResizeImmediate();
     scheduleCwdSync();
     getFocusedTerm()?.focus();
     // Notify extension subscribers on tab switch (onPaneFocus only fires within a tab).
@@ -2056,25 +2159,90 @@ async function boot(): Promise<void> {
     else openNewWorkspaceTab();
   }
 
+  function openTabWithTransferredPane(paneId: string, pt: PaneTerminal, switchTo: boolean): string {
+    const tabId = crypto.randomUUID();
+    const name = nextTabName(tabsState.tabs);
+    const layout: PersistedPaneLayout = {
+      v: 1,
+      tree: { kind: "leaf", id: paneId },
+      focusedId: paneId,
+    };
+    const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
+    tabsState = {
+      ...tabsState,
+      tabs: [...tabsState.tabs, { id: tabId, name, groupId: null, color: null, order: maxOrder + 1 }],
+    };
+    saveTabsState(tabsState);
+    persistLayoutForTab(tabId, layout);
+    createTabPaneShellAndHost(
+      tabId,
+      {
+        initialTree: layout.tree,
+        initialFocusedId: paneId,
+        preloadedPanes: { [paneId]: pt },
+      },
+      paneId,
+    );
+    if (switchTo) switchWorkspaceTab(tabId);
+    else renderWorkspaceTabsBar();
+    return tabId;
+  }
+
+  function receiveTransferredPane(targetHost: PaneHost, paneId: string, pt: PaneTerminal): boolean {
+    if (targetHost.isPristineRootTab()) {
+      return targetHost.rebindAsTransferredRoot(paneId, pt);
+    }
+    return targetHost.receivePaneAtRoot(paneId, pt, PANE_TRANSFER_SPLIT_DIR);
+  }
+
   function moveFocusedPaneToTabHotkeyIndex(index: number): void {
     const sourceTabId = activeWorkspaceTabId;
     const sourceHost = paneHost;
     const paneId = sourceHost?.getFocusedPaneId();
     if (!sourceHost || !paneId || paneId === sourceHost.getRootPaneId()) return;
-    const existing = tabForHotkeyIndex(index);
-    const targetTabId = existing?.id ?? openNewWorkspaceTab(false);
-    if (targetTabId === sourceTabId) return;
-    const targetHost = tabPaneHosts.get(targetTabId);
-    if (!targetHost) return;
-    const pt = sourceHost.takePane(paneId);
+
+    const pt = sourceHost.takePane(paneId, { saveRollback: true });
     if (!pt) return;
-    if (!targetHost.receivePane(paneId, pt, "h")) return;
+
+    const existing = tabForHotkeyIndex(index);
+    if (existing?.id === sourceTabId) {
+      sourceHost.restoreTakenPane(paneId, pt);
+      return;
+    }
+
+    let targetTabId: string;
+    let targetHost: PaneHost;
+
+    if (existing) {
+      targetTabId = existing.id;
+      const host = tabPaneHosts.get(targetTabId);
+      if (!host || !receiveTransferredPane(host, paneId, pt)) {
+        sourceHost.restoreTakenPane(paneId, pt);
+        return;
+      }
+      targetHost = host;
+    } else {
+      targetTabId = openTabWithTransferredPane(paneId, pt, false);
+      targetHost = tabPaneHosts.get(targetTabId)!;
+      if (!targetHost) {
+        sourceHost.restoreTakenPane(paneId, pt);
+        return;
+      }
+    }
+
+    sourceHost.clearPaneMoveRollback();
     const sourceLayout = layoutForPaneHost(sourceHost);
     if (sourceLayout) persistLayoutForTab(sourceTabId, sourceLayout);
     const targetLayout = layoutForPaneHost(targetHost);
     if (targetLayout) persistLayoutForTab(targetTabId, targetLayout);
-    switchWorkspaceTab(targetTabId);
-    scheduleResizeImmediate(true);
+    targetHost.setFocusedPaneId(paneId);
+    if (quietPaneDeferralRef.v) {
+      renderWorkspaceTabsBar();
+      sourceHost.getPaneTerminal(sourceHost.getFocusedPaneId())?.term.focus();
+    } else {
+      switchWorkspaceTab(targetTabId);
+    }
+    scheduleCreationReflow(paneId);
   }
 
   const tabMenuEl = document.getElementById("tab-context-menu");
@@ -2428,13 +2596,24 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   window.addEventListener(
     "keydown",
     (e) => {
+      if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey) {
+        const index = tabHotkeyIndexFromEvent(e);
+        if (index != null) {
+          const t = e.target as HTMLElement | null;
+          if (t?.closest("#command-palette") || t?.closest("#settings-panel") || t?.closest(".term-search")) return;
+          e.preventDefault();
+          e.stopPropagation();
+          moveFocusedPaneToTabHotkeyIndex(index);
+          return;
+        }
+      }
       if (!e.altKey || e.ctrlKey || e.metaKey) return;
       if (/^[0-9]$/.test(e.key)) {
         const index = e.key === "0" ? 9 : Number.parseInt(e.key, 10) - 1;
         e.preventDefault();
         e.stopPropagation();
-        if (e.shiftKey) moveFocusedPaneToTabHotkeyIndex(index);
-        else switchOrCreateTabForHotkeyIndex(index);
+        if (e.shiftKey) return;
+        switchOrCreateTabForHotkeyIndex(index);
         return;
       }
       if (e.shiftKey && e.key === "ArrowRight") {
@@ -2864,14 +3043,21 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   const themeModalRoot = document.getElementById("theme-modal-root");
   let themeModal: ThemeModalApi | null = null;
   let openFocusedPaneTheme = (): void => {};
+  let themeTargetPaneId: string | null = null;
+  let paneThemeRestore: { id: string; theme: PaneThemePrefs | null } | null = null;
   if (themeModalRoot) {
-    let themePreviewPaneId: string | null = null;
-    let paneThemeRestore: { id: string; theme: PaneThemePrefs | null } | null = null;
+    const resetThemeModalTarget = (): void => {
+      if (paneThemeRestore) {
+        applyPaneTheme(paneThemeRestore.id, paneThemeRestore.theme);
+        paneThemeRestore = null;
+      }
+      themeTargetPaneId = null;
+    };
     themeModal = createThemeModal(
       themeModalRoot as HTMLElement,
       (prefs) => {
-        if (themePreviewPaneId) {
-          applyPaneTheme(themePreviewPaneId, prefs);
+        if (themeTargetPaneId) {
+          applyPaneTheme(themeTargetPaneId, prefs);
           return;
         }
         currentUiPrefs = prefs;
@@ -2879,20 +3065,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         refreshAllTerminalThemes();
       },
       (request) => themeBuilder?.open(request),
+      resetThemeModalTarget,
     );
-    const originalClose = themeModal.close;
-    themeModal.close = () => {
-      originalClose();
-      if (paneThemeRestore) {
-        applyPaneTheme(paneThemeRestore.id, paneThemeRestore.theme);
-        paneThemeRestore = null;
-      }
-      themePreviewPaneId = null;
-    };
     openFocusedPaneTheme = () => {
       const paneId = paneHost?.getFocusedPaneId();
       if (!paneId) return;
-      themePreviewPaneId = paneId;
+      themeTargetPaneId = paneId;
       const existing = paneThemes.get(paneId);
       paneThemeRestore = { id: paneId, theme: existing ? { ...existing } : null };
       const appPrefs = currentUiPrefs;
@@ -3022,23 +3200,24 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         }
         for (const [oid, cwd] of Object.entries(preset.paneCwds)) {
           const nid = idMap.get(oid);
-          if (nid && cwd) paneCwdHints.set(nid, cwd);
+          if (nid && cwd) {
+            paneCwdHints.set(nid, cwd);
+            pendingPaneSpawnCwd.set(nid, cwd);
+          }
         }
-        createTabPaneShellAndHost(newTabId, { initialTree: tree, initialFocusedId: focusedId, initialFloating: floating });
+        createTabPaneShellAndHost(
+          newTabId,
+          { initialTree: tree, initialFocusedId: focusedId, initialFloating: floating },
+          resolveTabRootPaneId({ v: 1, tree, focusedId, floating }, newTabId),
+        );
         switchWorkspaceTab(newTabId);
-        // Send startup commands after PTYs are spawned.
-        // Root pane: inject cd to its cwd first, then the startup command.
-        const rootOldId = ids[0];
-        const rootNewId = idMap.get(rootOldId ?? "");
+        const presetHost = tabPaneHosts.get(newTabId);
+        if (presetHost) scheduleCreationReflowForHost(presetHost);
         if (preset.startupCommands && Object.keys(preset.startupCommands).length > 0) {
           setTimeout(() => {
             for (const [oid, cmd] of Object.entries(preset.startupCommands)) {
               const nid = idMap.get(oid);
               if (!nid || !cmd) continue;
-              if (nid === rootNewId) {
-                const cwd = preset.paneCwds?.[oid];
-                if (cwd) void ptyWrite(nid, `cd "${cwd}"\r`).catch(() => {});
-              }
               void ptyWrite(nid, cmd + "\r").catch(() => {});
             }
           }, 1500);
@@ -3283,6 +3462,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         processNotificationTransparentRef.v = (saved as Partial<ParttyPrefs>).process_notification_transparent ?? false;
         cursorFollowWindowMoveRef.v = Boolean((saved as Partial<ParttyPrefs>).cursor_follow_window_move);
         windowMotionRef.v = (saved as Partial<ParttyPrefs>).terminal_window_motion ?? true;
+        quietPaneDeferralRef.v = Boolean((saved as Partial<ParttyPrefs>).quiet_pane_deferral);
         syncFileTreeDisabledUi(fileTreeDisabledRef.v);
         fileTreePanel?.setSearchEnabled(!(saved.file_tree_disable_search ?? false));
         applyTerminalDisplayPrefs(saved);
@@ -3829,7 +4009,11 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         id: "open-themes",
         label: "Change theme…",
         keywords: "theme appearance colors ui palette app global",
-        run: () => themeModal?.open({ title: "App Theme" }),
+        run: () => {
+          themeTargetPaneId = null;
+          paneThemeRestore = null;
+          themeModal?.open({ title: "App Theme", initialPrefs: currentUiPrefs });
+        },
       },
       {
         id: "open-theme-builder",
@@ -3979,7 +4163,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       { hotkey: "Ctrl+Arrows", label: "Focus adjacent pane" },
       { hotkey: "Ctrl+Shift+Arrows", label: "Swap pane with neighbor" },
       { hotkey: "Alt+1–9", label: "Switch to tab" },
-      { hotkey: "Alt+Shift+1–9", label: "Move pane to tab" },
+      { hotkey: "Ctrl+Shift+1–9, 0", label: "Move pane to tab" },
       { hotkey: "Shift+Enter", label: "Insert newline" },
       { hotkey: "Ctrl+Wheel", label: "Zoom focused pane" },
       { hotkey: "Alt+Drag", label: "Move floating pane or swap tiled panes" },

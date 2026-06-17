@@ -133,7 +133,7 @@ function replaceLeaf(
   return null;
 }
 
-function collectLeafIds(tree: PaneNode, out: string[]): void {
+export function collectLeafIds(tree: PaneNode, out: string[]): void {
   if (tree.kind === "leaf") {
     out.push(tree.id);
     return;
@@ -194,6 +194,8 @@ export type PaneHostInit = {
   initialTree?: PaneNode;
   initialFocusedId?: string;
   initialFloating?: Record<string, FloatingPaneState>;
+  /** Terminals moved from another tab/host — mounted without calling `onPaneCreated`. */
+  preloadedPanes?: Record<string, PaneTerminal>;
 };
 
 export class PaneHost {
@@ -205,6 +207,11 @@ export class PaneHost {
   private readonly floating = new Map<string, FloatingPaneState>();
   private readonly justFloated = new Set<string>();
   private readonly justTiled = new Set<string>();
+  private paneMoveRollback: {
+    tree: PaneNode;
+    focusedId: string;
+    floating: Map<string, FloatingPaneState>;
+  } | null = null;
   private floatingZ = 50;
   private resizeObs: ResizeObserver | null = null;
   private layoutDragDepth = 0;
@@ -248,6 +255,10 @@ export class PaneHost {
       if (!findPaneLeaf(this.tree, id)) continue;
       this.floating.set(id, { ...state });
       this.floatingZ = Math.max(this.floatingZ, state.z + 1);
+    }
+    for (const [id, pt] of Object.entries(init?.preloadedPanes ?? {})) {
+      if (!findPaneLeaf(this.tree, id)) continue;
+      this.terminals.set(id, pt);
     }
     this.root = document.createElement("div");
     this.root.className = "pane-host";
@@ -438,11 +449,21 @@ export class PaneHost {
     return this.insertPaneNearFocused(newId, dir, true);
   }
 
-  takePane(paneId: string): PaneTerminal | null {
+  takePane(paneId: string, opts?: { saveRollback?: boolean }): PaneTerminal | null {
     if (paneId === this.rootPaneId) return null;
     const pt = this.terminals.get(paneId);
     if (!pt) return null;
-    if (!this.removePaneFromTree(paneId)) return null;
+    if (opts?.saveRollback) {
+      this.paneMoveRollback = {
+        tree: structuredClone(this.tree),
+        focusedId: this.focusedId,
+        floating: new Map([...this.floating.entries()].map(([id, state]) => [id, { ...state }])),
+      };
+    }
+    if (!this.removePaneFromTree(paneId)) {
+      if (opts?.saveRollback) this.paneMoveRollback = null;
+      return null;
+    }
     this.terminals.delete(paneId);
     this.floating.delete(paneId);
     this.mountTree();
@@ -457,10 +478,83 @@ export class PaneHost {
     return pt;
   }
 
+  clearPaneMoveRollback(): void {
+    this.paneMoveRollback = null;
+  }
+
+  restoreTakenPane(paneId: string, pt: PaneTerminal): boolean {
+    const snap = this.paneMoveRollback;
+    if (!snap) return false;
+    this.tree = snap.tree;
+    this.focusedId = snap.focusedId;
+    this.floating.clear();
+    for (const [id, state] of snap.floating) this.floating.set(id, state);
+    this.terminals.set(paneId, pt);
+    this.paneMoveRollback = null;
+    this.mountTree();
+    this.opts.onPaneLayout?.();
+    if (this.focusedId === paneId) {
+      this.setFocusedPaneId(paneId);
+    } else {
+      this.updateFocusClass();
+    }
+    return true;
+  }
+
   receivePane(paneId: string, pt: PaneTerminal, dir: "h" | "v" = "h"): boolean {
     if (findPaneLeaf(this.tree, paneId)) return false;
     this.terminals.set(paneId, pt);
     const inserted = this.insertPaneNearFocused(paneId, dir, false);
+    if (!inserted) {
+      this.terminals.delete(paneId);
+      return false;
+    }
+    this.setFocusedPaneId(paneId);
+    return true;
+  }
+
+  /** True when this tab is a lone root leaf (placeholder or transferred). */
+  isPristineRootTab(): boolean {
+    const ids: string[] = [];
+    collectLeafIds(this.tree, ids);
+    return ids.length === 1 && ids[0] === this.rootPaneId;
+  }
+
+  /**
+   * Replace a placeholder root tab with a transferred pane (PTY id unchanged).
+   * Disposes the empty root terminal if one was created on tab open.
+   */
+  rebindAsTransferredRoot(paneId: string, pt: PaneTerminal): boolean {
+    if (!this.isPristineRootTab()) return false;
+    const placeholderId = this.rootPaneId;
+    const placeholderPt = this.terminals.get(placeholderId);
+    if (placeholderPt && placeholderPt !== pt) {
+      try {
+        placeholderPt.fit.dispose();
+        placeholderPt.term.dispose();
+      } catch {
+        /* ignore */
+      }
+      this.terminals.delete(placeholderId);
+      this.opts.onPaneDisposed(placeholderId);
+    }
+    this.rootPaneId = paneId;
+    this.tree = { kind: "leaf", id: paneId };
+    this.terminals.set(paneId, pt);
+    this.focusedId = paneId;
+    this.floating.delete(paneId);
+    this.mountTree();
+    this.opts.onPaneLayout?.();
+    this.setFocusedPaneId(paneId);
+    return true;
+  }
+
+  /** Insert a transferred pane by splitting the tab root leaf (preserves target tab structure). */
+  receivePaneAtRoot(paneId: string, pt: PaneTerminal, dir: "h" | "v" = "h"): boolean {
+    if (findPaneLeaf(this.tree, paneId)) return false;
+    if (this.floating.has(this.rootPaneId)) return false;
+    this.terminals.set(paneId, pt);
+    const inserted = this.insertPaneAtRoot(paneId, dir);
     if (!inserted) {
       this.terminals.delete(paneId);
       return false;
@@ -474,6 +568,30 @@ export class PaneHost {
     if (style === "dwindle") return 0.62;
     if (style === "master" && this.focusedId === this.rootPaneId) return 0.68;
     return 0.5;
+  }
+
+  private splitRatioForRoot(): number {
+    const style = this.opts.getSplitLayoutStyle?.() ?? "balanced";
+    if (style === "dwindle") return 0.62;
+    if (style === "master") return 0.68;
+    return 0.5;
+  }
+
+  private insertPaneAtRoot(paneId: string, dir: "h" | "v"): boolean {
+    const from = this.rootPaneId;
+    const rep: PaneSplit = {
+      kind: "split",
+      dir,
+      ratio: this.splitRatioForRoot(),
+      a: { kind: "leaf", id: from },
+      b: { kind: "leaf", id: paneId },
+    };
+    const next = replaceLeaf(this.tree, from, rep);
+    if (!next) return false;
+    this.tree = next;
+    this.mountTree();
+    this.opts.onPaneLayout?.();
+    return true;
   }
 
   private insertPaneNearFocused(paneId: string, dir: "h" | "v", createTerminal: boolean): string | null {
@@ -665,14 +783,68 @@ export class PaneHost {
     const ids: string[] = [];
     collectLeafIds(this.tree, ids);
     if (ids.length < 2) return false;
+    const before = this.captureLeafRects([idA, idB]);
     const next = swapLeafNodesInTree(this.tree, idA, idB);
     if (!next) return false;
     this.tree = next;
     this.mountTree();
+    this.playPaneSwapFlip(before);
     this.opts.onPaneLayout?.();
     this.opts.onPaneReorder?.();
     this.setFocusedPaneId(idA);
     return true;
+  }
+
+  private captureLeafRects(ids: string[]): Map<string, DOMRect> {
+    const out = new Map<string, DOMRect>();
+    for (const id of ids) {
+      const leaf = this.root.querySelector(
+        `.pane-leaf[data-pane-id="${CSS.escape(id)}"]`,
+      ) as HTMLElement | null;
+      if (leaf) out.set(id, leaf.getBoundingClientRect());
+    }
+    return out;
+  }
+
+  private shouldAnimatePaneMotion(): boolean {
+    if (document.documentElement.classList.contains("terminal-motion-off")) return false;
+    return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  private playPaneSwapFlip(before: Map<string, DOMRect>): void {
+    if (!this.shouldAnimatePaneMotion() || before.size === 0) return;
+    for (const [id, rect] of before) {
+      const leaf = this.root.querySelector(
+        `.pane-leaf[data-pane-id="${CSS.escape(id)}"]`,
+      ) as HTMLElement | null;
+      if (!leaf) continue;
+      const after = leaf.getBoundingClientRect();
+      const dx = rect.left - after.left;
+      const dy = rect.top - after.top;
+      const sx = rect.width / Math.max(1, after.width);
+      const sy = rect.height / Math.max(1, after.height);
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(sx - 1) < 0.01 && Math.abs(sy - 1) < 0.01) {
+        continue;
+      }
+      leaf.classList.add("pane-leaf--swapping");
+      leaf.style.transformOrigin = "0 0";
+      leaf.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const cleanup = (): void => {
+            leaf.style.transition = "";
+            leaf.style.transform = "";
+            leaf.style.transformOrigin = "";
+            leaf.classList.remove("pane-leaf--swapping");
+            leaf.removeEventListener("transitionend", cleanup);
+          };
+          leaf.style.transition = "transform var(--motion-medium) var(--motion-ease-emphasized)";
+          leaf.style.transform = "";
+          leaf.addEventListener("transitionend", cleanup);
+          window.setTimeout(cleanup, 480);
+        });
+      });
+    }
   }
 
   toggleFocusedFloating(): boolean {

@@ -30,6 +30,7 @@ export function createThemeModal(
   root: HTMLElement,
   onPreview: (prefs: UiThemePrefs) => void,
   onCloneTheme?: (request: ThemeModalCloneRequest) => void,
+  onClosed?: () => void,
 ): ThemeModalApi {
   let open = false;
   let initial: UiThemePrefs | null = null;
@@ -347,6 +348,7 @@ export function createThemeModal(
     commitOverride = null;
     title.textContent = "Themes";
     searchInput.value = "";
+    onClosed?.();
   }
 
   return {

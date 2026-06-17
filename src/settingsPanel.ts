@@ -46,6 +46,7 @@ export type ParttyPrefs = {
   terminal_no_pane_border: boolean;
   terminal_no_focus_border: boolean;
   split_layout_style: string;
+  quiet_pane_deferral: boolean;
   terminal_animation_speed: string;
   terminal_animation_style: string;
   terminal_window_motion: boolean;
@@ -181,7 +182,8 @@ export function createSettingsPanel(
       always_open_in_zen_mode: gc("always_open_in_zen_mode"),
       terminal_no_gap: terminal_pane_gap <= 0, terminal_pane_gap, terminal_sandbox_padding,
       terminal_no_round: gc("terminal_no_round"), terminal_no_pane_border: gc("terminal_no_pane_border"),
-      terminal_no_focus_border: gc("terminal_no_focus_border"), split_layout_style, terminal_animation_speed,
+      terminal_no_focus_border: gc("terminal_no_focus_border"), split_layout_style,
+      quiet_pane_deferral: gc("quiet_pane_deferral"), terminal_animation_speed,
       terminal_animation_style, terminal_window_motion: gc("terminal_window_motion"),
       window_effect_mode, window_effect_opacity: clamp01(g("window_effect_opacity"), 0),
       pane_corner_radius: clampR(g("pane_corner_radius"), 6),
@@ -354,6 +356,7 @@ export function createSettingsPanel(
     setChk("process_notification_show_ms", pr.process_notification_show_ms ?? false);
     setChk("process_notification_transparent", pr.process_notification_transparent ?? false);
     setSel("split_layout_style", ((v?: string) => { v = (v ?? "balanced").toLowerCase(); return v === "dwindle" || v === "master" ? v : "balanced"; })(pr.split_layout_style));
+    setChk("quiet_pane_deferral", pr.quiet_pane_deferral ?? false);
 
     setChk("shed_on_hide", p.shed_on_hide);
     setChk("always_on_top", p.always_on_top);

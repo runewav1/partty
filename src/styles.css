@@ -1368,41 +1368,48 @@ button.file-tree-label:hover {
   flex-direction: column;
   min-height: 0;
   min-width: 0;
+  opacity: 1;
+  will-change: opacity, transform;
 }
 
 .term-tab-pane-shell--hidden {
   display: none !important;
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* ── Tab switch animations ── */
 @keyframes tab-pane-enter {
   0% {
     opacity: 0;
-    transform: translateX(6px);
+    transform: translateX(10px) scale(0.992);
   }
   100% {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateX(0) scale(1);
   }
 }
 
 @keyframes tab-pane-leave {
   0% {
     opacity: 1;
-    transform: translateX(0);
+    transform: translateX(0) scale(1);
   }
   100% {
     opacity: 0;
-    transform: translateX(-6px);
+    transform: translateX(-10px) scale(0.992);
   }
 }
 
 .term-tab-pane-shell--entering {
+  z-index: 2;
   animation: tab-pane-enter var(--motion-medium) var(--motion-ease-emphasized) both;
 }
 
 .term-tab-pane-shell--leaving {
-  animation: tab-pane-leave var(--motion-fast) var(--motion-ease-out) both;
+  z-index: 1;
+  pointer-events: none;
+  animation: tab-pane-leave var(--motion-medium) var(--motion-ease-out) both;
 }
 
 .pane-host {
@@ -1475,6 +1482,12 @@ html.terminal-no-round .term-tab-group {
 .pane-leaf--drop-target {
   outline: 2px solid color-mix(in srgb, var(--accent-primary) 72%, transparent);
   outline-offset: -2px;
+}
+
+.pane-leaf--swapping {
+  z-index: 3;
+  will-change: transform;
+  pointer-events: none;
 }
 
 .pane-leaf--floating {
@@ -1662,21 +1675,21 @@ html.terminal-motion-off *::after {
   width: 100%;
   height: 100%;
   gap: 0;
-  padding: 0;
+  padding: 6px 0;
   background: var(--term-bg);
 }
 
 /* The xterm grid is cell-quantized, so it can never exactly fill a free-form pane.
    We bake a fixed inner inset and flex-center the grid-sized `.xterm`, which splits
-   the sub-cell remainder evenly across all four edges for consistent, native-looking
-   margins. FitAddon measures this host's content box (excludes the padding), so the
-   centering offset does not feed back into the computed cols/rows (no oscillation). */
+   the sub-cell remainder evenly across left/right while the row enforces top/bottom
+   breathing room. FitAddon measures this host's content box (excludes the padding), so
+   the centering offset does not feed back into the computed cols/rows (no oscillation). */
 .pane-terminal-host {
   flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  padding: 6px;
+  padding: 0 6px;
   display: flex;
   align-items: center;
   justify-content: center;

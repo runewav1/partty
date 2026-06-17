@@ -272,6 +272,9 @@ pub struct Prefs {
     /// `balanced` | `dwindle` | `master` — pane split insertion math.
     #[serde(default = "default_split_layout_style")]
     pub split_layout_style: String,
+    /// When true, Ctrl+Shift+number moves a pane to another tab without switching to it.
+    #[serde(default)]
+    pub quiet_pane_deferral: bool,
     /// `off` | `transparent` — Tauri window backdrop mode.
     #[serde(default = "default_window_effect_mode")]
     pub window_effect_mode: String,
@@ -406,6 +409,7 @@ impl Default for Prefs {
             terminal_animation_style: default_terminal_animation_style(),
             terminal_window_motion: true,
             split_layout_style: default_split_layout_style(),
+            quiet_pane_deferral: false,
             window_effect_mode: default_window_effect_mode(),
             window_effect_opacity: default_window_effect_opacity(),
             pane_corner_radius: default_pane_corner_radius(),
