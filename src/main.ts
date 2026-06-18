@@ -221,6 +221,16 @@ function applyTerminalDisplayPrefs(raw: Partial<ParttyPrefs>): void {
   root.style.setProperty("--termie-pane-radius", `${Math.max(0, Math.min(32, paneRadius))}px`);
 }
 
+function applyPaneFocusScalePrefs(raw: Partial<ParttyPrefs>): void {
+  const enabled = raw.focus_pane_scale ?? true;
+  const intensity = Math.max(
+    0,
+    Math.min(1, typeof raw.pane_focus_scale_intensity === "number" ? raw.pane_focus_scale_intensity : 0.45),
+  );
+  document.documentElement.classList.toggle("pane-focus-scale", enabled && intensity > 0);
+  document.documentElement.style.setProperty("--pane-focus-scale-delta", String(intensity * 0.014));
+}
+
 function normalizeFileTreeSide(raw: unknown): "left" | "right" {
   return raw === "right" ? "right" : "left";
 }
@@ -310,6 +320,7 @@ async function boot(): Promise<void> {
   document.documentElement.classList.toggle("pane-blur-unfocused", Boolean((persisted.prefs as Partial<ParttyPrefs>).blur_unfocused_panes));
   document.documentElement.style.setProperty("--pane-blur-radius", String((persisted.prefs as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6));
   document.documentElement.classList.toggle("pane-dim-unfocused", Boolean((persisted.prefs as Partial<ParttyPrefs>).dim_unfocused_panes));
+  applyPaneFocusScalePrefs(persisted.prefs as Partial<ParttyPrefs>);
 
   const fileTreeUserEnabled = localStorage.getItem(FILE_TREE_STORAGE_KEY) === "1";
   document.documentElement.classList.toggle("file-tree-on", fileTreeUserEnabled);
@@ -427,6 +438,9 @@ async function boot(): Promise<void> {
   };
   const cursorFollowWindowMoveRef = {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).cursor_follow_window_move),
+  };
+  const cursorFollowPaneFocusRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).cursor_follow_pane_focus ?? true,
   };
   const windowMotionRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).terminal_window_motion ?? true,
@@ -913,6 +927,7 @@ async function boot(): Promise<void> {
     const next = host.getDirectionalAdjacentLeafId(currentId, key);
     if (!next) return false;
     host.setFocusedPaneId(next);
+    scheduleCursorWarpToPane(next, { force: true });
     return true;
   }
 
@@ -921,7 +936,13 @@ async function boot(): Promise<void> {
     if (!host) return false;
     const currentId = host.getFocusedPaneId();
     if (!currentId) return false;
-    return host.swapPaneWithAdjacent(currentId, key);
+    const swapped = host.swapPaneWithAdjacent(currentId, key);
+    if (swapped) {
+      const motionOn = !document.documentElement.classList.contains("terminal-motion-off")
+        && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      scheduleCursorWarpToPane(currentId, { force: true, delayMs: motionOn ? 480 : 0 });
+    }
+    return swapped;
   }
 
   async function closeFocusedPane(): Promise<void> {
@@ -1697,6 +1718,58 @@ async function boot(): Promise<void> {
   const tabPaneHosts = new Map<string, PaneHost>();
   const tabPaneShells = new Map<string, HTMLElement>();
 
+  type CursorWarpOptions = {
+    /** Warp even when pointer-follow-focus is enabled. */
+    force?: boolean;
+    /** Wait for layout/animation before measuring pane bounds. */
+    delayMs?: number;
+    /** Skip the cursor-follow-pane pref check (monitor moves). */
+    bypassPanePref?: boolean;
+  };
+
+  let cursorWarpReady = false;
+
+  function scheduleCursorWarpToPane(paneId?: string, opts: CursorWarpOptions = {}): void {
+    if (!cursorWarpReady) return;
+    if (!opts.bypassPanePref && !cursorFollowPaneFocusRef.v) return;
+    if (!opts.force && focusFollowsRef.v) return;
+
+    const run = (): void => {
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          void warpCursorToPane(paneId);
+        }),
+      );
+    };
+
+    const delay = opts.delayMs ?? 0;
+    if (delay > 0) window.setTimeout(run, delay);
+    else run();
+  }
+
+  async function warpCursorToPane(paneId?: string): Promise<void> {
+    try {
+      const id = paneId ?? paneHost?.getFocusedPaneId();
+      if (!id) return;
+      const host = getPaneHostByPaneId(id) ?? paneHost;
+      if (!host) return;
+      const el = host
+        .getHostRoot()
+        .querySelector(`.pane-leaf[data-pane-id="${CSS.escape(id)}"]`) as HTMLElement | null;
+      const rect = el?.getBoundingClientRect();
+      const cx = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
+      const cy = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
+      await appWindow.setCursorPosition(new LogicalPosition(Math.round(cx), Math.round(cy)));
+      if (host === paneHost) {
+        getFocusedTerm()?.focus();
+      } else {
+        host.getPaneTerminal(id)?.term.focus();
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   function xtermThemeForPane(paneId: string) {
     const paneTheme = paneThemes.get(paneId);
     return paneTheme ? buildXtermThemeFromPrefs(paneTheme) : buildXtermThemeFromDocument();
@@ -1770,6 +1843,11 @@ async function boot(): Promise<void> {
         }
         void syncCwdFromBackend();
         void remountAuxiliaryForFocus(id);
+        try {
+          scheduleCursorWarpToPane(id);
+        } catch {
+          /* ignore */
+        }
         // Notify extension subscribers.
         if (extFocusSubs.length > 0) {
           for (const fn of extFocusSubs) {
@@ -2004,6 +2082,7 @@ async function boot(): Promise<void> {
   paneHost = tabPaneHosts.get(activeWorkspaceTabId)!;
   lastFocusedPaneId = paneHost.getFocusedPaneId();
   installPaneControlSurface();
+  cursorWarpReady = true;
 
   function persistCurrentWorkspaceTabLayout(): void {
     if (!paneHost) return;
@@ -2118,6 +2197,9 @@ async function boot(): Promise<void> {
     renderWorkspaceTabsBar();
     scheduleCwdSync();
     getFocusedTerm()?.focus();
+    const tabMotionOn = !document.documentElement.classList.contains("terminal-motion-off")
+      && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    scheduleCursorWarpToPane(lastFocusedPaneId, { force: true, delayMs: tabMotionOn ? 420 : 0 });
     // Notify extension subscribers on tab switch (onPaneFocus only fires within a tab).
     if (extFocusSubs.length > 0 && lastFocusedPaneId) {
       for (const fn of extFocusSubs) {
@@ -3041,7 +3123,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     });
   }
 
-  void remountAuxiliaryForFocus(paneHost?.getFocusedPaneId() ?? paneHost.getRootPaneId());
+  if (paneHost) {
+    void remountAuxiliaryForFocus(paneHost.getFocusedPaneId() ?? paneHost.getRootPaneId());
+  }
 
   const paneRenameRoot = document.getElementById("pane-rename-root") as HTMLElement | null;
   const paneRenamePanel: PaneRenamePanelApi | null = paneRenameRoot
@@ -3487,6 +3571,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         processNotificationShowMsRef.v = (saved as Partial<ParttyPrefs>).process_notification_show_ms ?? false;
         processNotificationTransparentRef.v = (saved as Partial<ParttyPrefs>).process_notification_transparent ?? false;
         cursorFollowWindowMoveRef.v = Boolean((saved as Partial<ParttyPrefs>).cursor_follow_window_move);
+        cursorFollowPaneFocusRef.v = (saved as Partial<ParttyPrefs>).cursor_follow_pane_focus ?? true;
         windowMotionRef.v = (saved as Partial<ParttyPrefs>).terminal_window_motion ?? true;
         quietPaneDeferralRef.v = Boolean((saved as Partial<ParttyPrefs>).quiet_pane_deferral);
         syncFileTreeDisabledUi(fileTreeDisabledRef.v);
@@ -3501,6 +3586,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         document.documentElement.classList.toggle("pane-blur-unfocused", saved.blur_unfocused_panes);
         document.documentElement.style.setProperty("--pane-blur-radius", String((saved as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6));
         document.documentElement.classList.toggle("pane-dim-unfocused", saved.dim_unfocused_panes);
+        applyPaneFocusScalePrefs(saved);
         // Gap / sandbox padding changes resize each pane's content box but not the
         // observed container, so re-fit explicitly to apply them live.
         scheduleResizeImmediate(true);
@@ -4399,39 +4485,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       if (wasMaximized) await appWindow.maximize();
       await syncMaximizeButtonTitle();
       playWindowMotion();
-      if (cursorFollowWindowMoveRef.v) warpCursorToFocusedPane();
+      if (cursorFollowWindowMoveRef.v) {
+        scheduleCursorWarpToPane(undefined, { force: true, bypassPanePref: true });
+      }
     } catch {
       /* ignore */
     }
-  }
-
-  // Opt-in (Cursor follows monitor): after the window moves, warp the OS cursor onto
-  // the focused pane and refocus it so the user keeps working without chasing the
-  // window. setCursorPosition takes coordinates relative to the window's content, so
-  // CSS/logical pixels from getBoundingClientRect map directly. Double rAF lets the
-  // post-move (and maximize) layout settle before measuring.
-  function warpCursorToFocusedPane(): void {
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        void (async () => {
-          try {
-            const id = paneHost?.getFocusedPaneId();
-            const el = id
-              ? (paneHost
-                  ?.getHostRoot()
-                  .querySelector(`.pane-leaf[data-pane-id="${CSS.escape(id)}"]`) as HTMLElement | null)
-              : null;
-            const rect = el?.getBoundingClientRect();
-            const cx = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
-            const cy = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
-            await appWindow.setCursorPosition(new LogicalPosition(Math.round(cx), Math.round(cy)));
-            getFocusedTerm()?.focus();
-          } catch {
-            /* ignore */
-          }
-        })();
-      }),
-    );
   }
 
   // Alt+Shift + primary-button drag moves the window from anywhere in the client
@@ -4965,4 +5024,6 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   });
 }
 
-void boot();
+void boot().catch((e) => {
+  console.error("boot failed", e);
+});

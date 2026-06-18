@@ -8,9 +8,10 @@ mod prefs;
 mod pty;
 mod subprocess;
 mod win_console;
+mod window_state;
 
 use parking_lot::Mutex;
-use prefs::{load_state, save_state, PersistedState};
+use prefs::{load_state, PersistedState};
 use pty::PtySession;
 use std::collections::HashMap;
 use std::fs;
@@ -29,7 +30,8 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 pub struct AppState {
     pub pty_panes: Mutex<HashMap<String, Arc<PtySession>>>,
     pub persisted: Mutex<PersistedState>,
-    last_window_save: Mutex<Option<Instant>>,
+    /// Debounce in-memory window geometry snapshots during move/resize.
+    last_window_snapshot: Mutex<Option<Instant>>,
     /// Per-pane shell + cwd identity (for pref changes / respawn).
     pub pty_spawn_identity: Mutex<HashMap<String, String>>,
     /// Focus target for palette cwd + keyboard routing from frontend.
@@ -56,23 +58,6 @@ fn make_app_session_id() -> String {
 #[tauri::command]
 fn get_app_session_id(state: State<'_, AppState>) -> String {
     state.app_session_id.clone()
-}
-
-impl AppState {
-    fn snapshot_window(&self, window: &tauri::WebviewWindow) {
-        let Ok(pos) = window.outer_position() else {
-            return;
-        };
-        let Ok(sz) = window.outer_size() else {
-            return;
-        };
-        let mut p = self.persisted.lock();
-        p.window.x = pos.x;
-        p.window.y = pos.y;
-        p.window.width = sz.width;
-        p.window.height = sz.height;
-        p.window.maximized = window.is_maximized().unwrap_or(false);
-    }
 }
 
 #[tauri::command]
@@ -1129,6 +1114,7 @@ fn position_window_near_cursor(win: &tauri::WebviewWindow, width: u32, height: u
     let x = cx.saturating_sub(w / 2);
     let y = cy.saturating_sub(h / 2);
     let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    window_state::suppress_snapshot_for(500);
 }
 
 fn position_main_at_cursor_if_prefs(app: &AppHandle) {
@@ -1195,26 +1181,16 @@ fn schedule_destroy_webview_after_hide(app: &AppHandle) {
 fn register_main_window_events(handle: &AppHandle, win: &tauri::WebviewWindow) {
     let save_handle = handle.clone();
     win.on_window_event(move |ev| {
-        let Some(w) = save_handle.get_webview_window("main") else {
-            return;
-        };
         let state = save_handle.state::<AppState>();
         match ev {
             WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
-                let mut last = state.last_window_save.lock();
-                let now = Instant::now();
-                let do_save = match *last {
-                    None => true,
-                    Some(t) => now.duration_since(t).as_millis() > 250,
-                };
-                if do_save {
-                    state.snapshot_window(&w);
-                    *last = Some(now);
-                }
+                window_state::debounced_snapshot_to_memory(
+                    &save_handle,
+                    &state.last_window_snapshot,
+                );
             }
             WindowEvent::CloseRequested { .. } => {
-                state.snapshot_window(&w);
-                save_state(&state.persisted.lock());
+                window_state::snapshot_and_save(&save_handle);
             }
             _ => {}
         }
@@ -1239,14 +1215,13 @@ async fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
 
     // Always start un-maximized — show then maximize gives Windows
     // a clean visible rect to compute the maximized bounds from.
-    if st.window.maximized || st.prefs.always_summon_maximized {
+    if window_state::should_maximize_on_show(st.prefs.always_summon_maximized, &st.window) {
         let _ = win.unmaximize();
     }
 
     apply_window_effects(&win, &st.prefs);
-    if !st.window.maximized {
-        let _ = win.set_position(tauri::PhysicalPosition::new(st.window.x, st.window.y));
-        let _ = win.set_size(tauri::PhysicalSize::new(st.window.width, st.window.height));
+    if !st.window.maximized && !st.prefs.always_summon_maximized {
+        window_state::apply_saved_window_bounds(&win, &st.window);
     }
     // Maximize deferred to spawn_show_main_window — calling maximize()
     // before show() causes Windows to miscalculate the maximized client
@@ -1303,7 +1278,8 @@ fn spawn_show_main_window(app: AppHandle) {
             // is visible causes Windows to miscompute the maximized client rect.
             let app_state = app.state::<AppState>();
             let st = app_state.persisted.lock();
-            let should_max = st.prefs.always_summon_maximized || st.window.maximized;
+            let should_max =
+                window_state::should_maximize_on_show(st.prefs.always_summon_maximized, &st.window);
             drop(st);
             if should_max {
                 let _ = w.maximize();
@@ -1333,7 +1309,7 @@ fn toggle_window(app: &AppHandle) {
         if state.persisted.lock().prefs.destroy_webview_on_hide {
             let _ = win.unmaximize();
         }
-        save_state(&state.persisted.lock());
+        window_state::snapshot_and_save(app);
         let _ = win.emit("partty-hide", ());
         let _ = win.hide();
         schedule_destroy_webview_after_hide(app);
@@ -1360,8 +1336,16 @@ fn toggle_window(app: &AppHandle) {
             // the client rect from scratch. maximize() on an already-maximized
             // hidden window is a no-op — the OS won't recompute the bounds.
             if summon || win.is_maximized().unwrap_or(false) {
-                let _ = win.unmaximize();
-                let _ = win.maximize();
+                let st = state.persisted.lock();
+                let restore_max = window_state::should_maximize_on_show(
+                    st.prefs.always_summon_maximized,
+                    &st.window,
+                );
+                drop(st);
+                if restore_max {
+                    let _ = win.unmaximize();
+                    let _ = win.maximize();
+                }
             }
             let _ = win.set_focus();
             let _ = win.emit("partty-show", ());
@@ -1398,6 +1382,12 @@ fn commit_show_window(app: AppHandle) -> Result<(), String> {
         .lock()
         .prefs
         .always_summon_maximized;
+    let saved_maximized = app
+        .state::<AppState>()
+        .persisted
+        .lock()
+        .window
+        .maximized;
     app.state::<AppState>()
         .hide_destroy_generation
         .fetch_add(1, Ordering::SeqCst);
@@ -1408,7 +1398,8 @@ fn commit_show_window(app: AppHandle) -> Result<(), String> {
         position_main_at_cursor_if_prefs(&app);
     }
     let _ = win.show();
-    if summon {
+    if summon || saved_maximized {
+        let _ = win.unmaximize();
         let _ = win.maximize();
     }
     let _ = win.set_focus();
@@ -1802,7 +1793,8 @@ fn set_extension_enabled(id: String, enabled: bool) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let loaded = load_state();
+    let mut loaded = load_state();
+    window_state::sanitize_window_state(&mut loaded.window);
 
     tauri::Builder::default()
         // Single-instance must run before global shortcuts: otherwise a second process tries to
@@ -1844,7 +1836,7 @@ pub fn run() {
         .manage(AppState {
             pty_panes: Mutex::new(HashMap::new()),
             persisted: Mutex::new(loaded.clone()),
-            last_window_save: Mutex::new(None),
+            last_window_snapshot: Mutex::new(None),
             pty_spawn_identity: Mutex::new(HashMap::new()),
             focused_pane_id: Mutex::new(Some("main".into())),
             webview_destroyed_for_hide: AtomicBool::new(false),
@@ -1916,15 +1908,10 @@ pub fn run() {
                 .get_webview_window("main")
                 .expect("main window must exist");
 
-            let st = loaded.clone();
-            if let Err(e) = win.set_position(tauri::PhysicalPosition::new(st.window.x, st.window.y))
-            {
-                eprintln!("set_position: {e}");
-            }
-            if let Err(e) =
-                win.set_size(tauri::PhysicalSize::new(st.window.width, st.window.height))
-            {
-                eprintln!("set_size: {e}");
+            let mut st = loaded.clone();
+            window_state::sanitize_window_state(&mut st.window);
+            if !st.window.maximized && !st.prefs.always_summon_maximized {
+                window_state::apply_saved_window_bounds(&win, &st.window);
             }
             // Maximize is deferred to spawn_show_main_window (after show).
             let _ = win.set_skip_taskbar(st.prefs.hidden_from_taskbar);
@@ -1958,7 +1945,7 @@ pub fn run() {
                 {
                     api.prevent_exit();
                 } else {
-                    save_state(&app.state::<AppState>().persisted.lock());
+                    window_state::snapshot_and_save(app);
                 }
             }
         });

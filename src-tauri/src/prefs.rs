@@ -32,6 +32,10 @@ fn default_pane_blur_radius() -> f64 {
     1.6
 }
 
+fn default_pane_focus_scale_intensity() -> f64 {
+    0.45
+}
+
 fn default_confirm_delete_prompt() -> bool {
     true
 }
@@ -89,7 +93,7 @@ fn default_terminal_sandbox_padding() -> f64 {
 }
 
 fn default_window_effect_mode() -> String {
-    "off".to_string()
+    "transparent".to_string()
 }
 
 fn default_window_effect_opacity() -> f64 {
@@ -195,6 +199,12 @@ pub struct Prefs {
     /// Apply a subtle dimming effect to unfocused panes while split.
     #[serde(default)]
     pub dim_unfocused_panes: bool,
+    /// Slight scale-up on the focused split pane (and scale-down on inactive panes).
+    #[serde(default = "default_true")]
+    pub focus_pane_scale: bool,
+    /// Focus scale intensity from 0 (off) to 1 (strong).
+    #[serde(default = "default_pane_focus_scale_intensity")]
+    pub pane_focus_scale_intensity: f64,
     /// Automatically copy terminal text whenever the selection changes.
     #[serde(default)]
     pub auto_copy_selection: bool,
@@ -211,6 +221,9 @@ pub struct Prefs {
     /// cursor along with it, onto the focused pane.
     #[serde(default)]
     pub cursor_follow_window_move: bool,
+    /// When true, warp the OS cursor to the focused pane on focus/tab/swap changes.
+    #[serde(default = "default_true")]
+    pub cursor_follow_pane_focus: bool,
     /// Windows: hide window from taskbar (tool window style).
     #[serde(default)]
     pub hidden_from_taskbar: bool,
@@ -379,11 +392,14 @@ impl Default for Prefs {
             blur_unfocused_panes: false,
             pane_blur_radius: default_pane_blur_radius(),
             dim_unfocused_panes: false,
+            focus_pane_scale: true,
+            pane_focus_scale_intensity: default_pane_focus_scale_intensity(),
             auto_copy_selection: false,
             shed_workspace_exit: "keep".to_string(),
             always_summon_maximized: false,
             summon_spawn_at_cursor: false,
             cursor_follow_window_move: false,
+            cursor_follow_pane_focus: true,
             hidden_from_taskbar: false,
             ui_theme: default_ui_theme(),
             ui_theme_variant: default_ui_theme_variant(),

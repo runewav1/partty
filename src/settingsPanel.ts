@@ -19,6 +19,10 @@ export type ParttyPrefs = {
   /** Blur radius in px for unfocused split panes (default 1.6). */
   pane_blur_radius?: number;
   dim_unfocused_panes: boolean;
+  /** Slight scale emphasis on the focused split pane. */
+  focus_pane_scale?: boolean;
+  /** Focus scale intensity 0–1 (default 0.45). */
+  pane_focus_scale_intensity?: number;
   auto_copy_selection: boolean;
   ui_theme: string;
   ui_theme_variant: string;
@@ -29,6 +33,8 @@ export type ParttyPrefs = {
   always_summon_maximized: boolean;
   summon_spawn_at_cursor: boolean;
   cursor_follow_window_move: boolean;
+  /** Warp OS cursor onto the focused pane when focus context changes. */
+  cursor_follow_pane_focus?: boolean;
   hidden_from_taskbar: boolean;
   file_tree_show_diff_counts: boolean;
   file_tree_show_git_info: boolean;
@@ -167,9 +173,11 @@ export function createSettingsPanel(
       defer_window_show_until_prepared: gc("defer_window_show_until_prepared"),
       destroy_webview_on_hide: gc("destroy_webview_on_hide"), focus_follows_cursor: gc("focus_follows_cursor"),
       blur_unfocused_panes: gc("blur_unfocused_panes"), pane_blur_radius: clampf(g("pane_blur_radius"), 1.6, 0, 10), dim_unfocused_panes: gc("dim_unfocused_panes"),
+      focus_pane_scale: gc("focus_pane_scale"), pane_focus_scale_intensity: clampf(g("pane_focus_scale_intensity"), 0.45, 0, 1),
       auto_copy_selection: gc("auto_copy_selection"), shed_workspace_exit,
       always_summon_maximized: gc("always_summon_maximized"), summon_spawn_at_cursor: gc("summon_spawn_at_cursor"),
       cursor_follow_window_move: gc("cursor_follow_window_move"),
+      cursor_follow_pane_focus: gc("cursor_follow_pane_focus"),
       hidden_from_taskbar: gc("hidden_from_taskbar"),
       ui_theme: previous.ui_theme, ui_theme_variant: previous.ui_theme_variant,
       font_terminal: g("font_terminal"), font_ui: g("font_ui"), font_file_tree: g("font_file_tree"),
@@ -370,10 +378,13 @@ export function createSettingsPanel(
     setChk("blur_unfocused_panes", pr.blur_unfocused_panes ?? false);
     setVal("pane_blur_radius", String(pr.pane_blur_radius ?? 1.6));
     setChk("dim_unfocused_panes", pr.dim_unfocused_panes ?? false);
+    setChk("focus_pane_scale", pr.focus_pane_scale ?? true);
+    setVal("pane_focus_scale_intensity", String(pr.pane_focus_scale_intensity ?? 0.45));
     setChk("auto_copy_selection", pr.auto_copy_selection ?? false);
     setChk("always_summon_maximized", pr.always_summon_maximized ?? false);
     setChk("summon_spawn_at_cursor", pr.summon_spawn_at_cursor ?? false);
     setChk("cursor_follow_window_move", pr.cursor_follow_window_move ?? false);
+    setChk("cursor_follow_pane_focus", pr.cursor_follow_pane_focus ?? true);
     setChk("hidden_from_taskbar", pr.hidden_from_taskbar ?? false);
     setChk("file_tree_show_diff_counts", pr.file_tree_show_diff_counts ?? false);
     setChk("file_tree_show_git_info", pr.file_tree_show_git_info ?? true);

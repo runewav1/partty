@@ -234,6 +234,11 @@
                     <span class="settings-hint" style="margin-left:2px">px</span>
                   </div>
                   <label class="settings-checkbox-label"><span>Dim inactive</span><input class="settings-checkbox-input" type="checkbox" name="dim_unfocused_panes" /></label>
+                  <label class="settings-checkbox-label"><span>Focus scale</span><input class="settings-checkbox-input" type="checkbox" name="focus_pane_scale" checked /></label>
+                  <div class="settings-row settings-row--compact">
+                    <span class="settings-row-label">Scale intensity</span>
+                    <input name="pane_focus_scale_intensity" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
+                  </div>
                   <label class="settings-checkbox-label"><span>Backspace selection</span><input class="settings-checkbox-input" type="checkbox" name="terminal_backspace_delete_selection" checked /></label>
                 </div>
               </div>
@@ -315,8 +320,14 @@
                 <div class="settings-toggles">
                   <label class="settings-checkbox-label"><span>Always on top</span><input class="settings-checkbox-input" type="checkbox" name="always_on_top" /></label>
                   <label class="settings-checkbox-label"><span>Summon max</span><input class="settings-checkbox-input" type="checkbox" name="always_summon_maximized" /></label>
-                  <label class="settings-checkbox-label"><span>Summon cursor</span><input class="settings-checkbox-input" type="checkbox" name="summon_spawn_at_cursor" /></label>
-                  <label class="settings-checkbox-label"><span>Cursor follows monitor</span><input class="settings-checkbox-input" type="checkbox" name="cursor_follow_window_move" /></label>
+                </div>
+                <div class="settings-subsection-hd">Cursor</div>
+                <div class="settings-toggles">
+                  <label class="settings-checkbox-label" title="Move the OS cursor to the focused pane when you change panes, tabs, or swap layout"><span>Follow focused pane</span><input class="settings-checkbox-input" type="checkbox" name="cursor_follow_pane_focus" checked /></label>
+                  <label class="settings-checkbox-label" title="When moving the window to another monitor, warp the cursor onto the focused pane"><span>Follow monitor move</span><input class="settings-checkbox-input" type="checkbox" name="cursor_follow_window_move" /></label>
+                  <label class="settings-checkbox-label" title="Place the window at the OS cursor when summoning"><span>Summon at cursor</span><input class="settings-checkbox-input" type="checkbox" name="summon_spawn_at_cursor" /></label>
+                </div>
+                <div class="settings-toggles">
                   <label class="settings-checkbox-label"><span>Window motion</span><input class="settings-checkbox-input" type="checkbox" name="terminal_window_motion" checked /></label>
                   <label class="settings-checkbox-label"><span>Hide taskbar</span><input class="settings-checkbox-input" type="checkbox" name="hidden_from_taskbar" /></label>
                   <label class="settings-checkbox-label"><span>Zen on launch</span><input class="settings-checkbox-input" type="checkbox" name="always_open_in_zen_mode" /></label>

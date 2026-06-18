@@ -1605,6 +1605,33 @@ html.pane-blur-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--
   filter: blur(calc(var(--pane-blur-radius, 1.6) * 1px)) saturate(0.92);
 }
 
+/* Focused split pane scales up slightly; inactive panes scale down (intensity via --pane-focus-scale-delta). */
+html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--focused):not(.pane-leaf--floating):not(.pane-leaf--swapping):not(.pane-leaf--entering):not(.pane-leaf--leaving) {
+  transform: scale(calc(1 - var(--pane-focus-scale-delta, 0.006)));
+  transform-origin: center center;
+  transition:
+    transform var(--motion-medium) var(--motion-ease-out),
+    border-color var(--motion-medium) var(--motion-ease-out),
+    opacity var(--motion-medium) var(--motion-ease-out),
+    filter var(--motion-slow) var(--motion-ease-out),
+    background var(--motion-medium) var(--motion-ease-out),
+    outline var(--motion-fast) var(--motion-ease-out);
+  z-index: 0;
+}
+
+html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf.pane-leaf--focused:not(.pane-leaf--floating):not(.pane-leaf--swapping) {
+  transform: scale(calc(1 + var(--pane-focus-scale-delta, 0.006)));
+  transform-origin: center center;
+  transition:
+    transform var(--motion-medium) var(--motion-ease-out),
+    border-color var(--motion-medium) var(--motion-ease-out),
+    opacity var(--motion-medium) var(--motion-ease-out),
+    filter var(--motion-slow) var(--motion-ease-out),
+    background var(--motion-medium) var(--motion-ease-out),
+    outline var(--motion-fast) var(--motion-ease-out);
+  z-index: 2;
+}
+
 /* Panel creation animation */
 @keyframes pane-enter {
   0%   { transform: scale(0.982) translateY(4px); opacity: 0; }
@@ -2819,6 +2846,15 @@ html.file-tree-right .command-palette {
 }
 .settings-section--open .settings-section-bd {
   display: block;
+}
+
+.settings-subsection-hd {
+  margin: 8px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--ui-chrome-fg) 58%, transparent);
 }
 
 /* ── Rows (label left, control right) ── */

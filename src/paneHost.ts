@@ -1403,6 +1403,9 @@ export class PaneHost {
       const wrap = document.createElement("div");
       wrap.className = "pane-leaf";
       wrap.dataset.paneId = node.id;
+      if (node.id === this.focusedId) {
+        wrap.classList.add("pane-leaf--focused");
+      }
       const cssVars = this.opts.getPaneCssVars?.(node.id);
       if (cssVars) {
         for (const [key, value] of Object.entries(cssVars)) {
