@@ -97,6 +97,17 @@ import {
   createTabCloseIcon,
 } from "./toolbarIcons";
 import { parttyPerf } from "./perf";
+import {
+  applyShellCommandLine,
+  createActiveProcessEntry,
+  displayProcessCommand,
+  markProcessExecStart,
+  mergeProcessCommand,
+  normalizeCommandLine,
+  processDurationMs,
+  shouldEndOnPromptStart,
+  type ActiveProcessEntry,
+} from "./processTracking";
 
 // Terminal color constants with fallbacks
 // CSS variables are read after DOM is ready in boot()
@@ -449,7 +460,9 @@ async function boot(): Promise<void> {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).quiet_pane_deferral),
   };
 
-  const activeProcesses = new Map<string, { command: string; startedAt: number; cwd: string }>();
+  const activeProcesses = new Map<string, ActiveProcessEntry>();
+  /** Latest OSC 633;E line per pane, merged until pre-exec or finish. */
+  const pendingShellCommandLine = new Map<string, string>();
   const processInputBuffers = new Map<string, string>();
   const paneHostCleanups = new Map<string, Array<() => void>>();
   /** Extension PTY input subscribers — zero-cost when empty. */
@@ -523,6 +536,25 @@ async function boot(): Promise<void> {
     };
   }
 
+  function finishActiveProcess(paneId: string, endedAt: number): void {
+    const entry = activeProcesses.get(paneId);
+    if (!entry) return;
+    const command = displayProcessCommand(entry.command);
+    const durMs = processDurationMs(entry, endedAt);
+    if (durMs / 1000 >= processNotificationThresholdRef.v) {
+      const paneName = paneNames.get(paneId) || paneId.slice(0, 8);
+      showProcessNotification(command, paneName, entry.cwd, entry.startedAt, paneId, endedAt);
+    }
+    if (extProcEndSubs.length > 0) {
+      const proc = { paneId, command, durationMs: durMs };
+      for (const fn of extProcEndSubs) {
+        try { fn(proc); } catch { /* ignore */ }
+      }
+    }
+    activeProcesses.delete(paneId);
+    pendingShellCommandLine.delete(paneId);
+  }
+
   function processPtyOutputBatch(paneId: string, data: string, eventCount: number, queuedAt: number): void {
     const pt = getPaneTerminalById(paneId);
     if (!pt) return;
@@ -559,33 +591,34 @@ async function boot(): Promise<void> {
     // Process shell integration events for CWD + command tracking
     for (const evt of si.events) {
       if (evt.kind === "command-line") {
-        // Push update: if the shell integration hook emits a better command name,
-        // update the entry that was already created by input observation.
-        const entry = activeProcesses.get(paneId);
-        if (entry && evt.text) entry.command = evt.text;
-      } else if (evt.kind === "command-done" || evt.kind === "prompt-start") {
+        const merged = mergeProcessCommand(pendingShellCommandLine.get(paneId) ?? "", evt.text);
+        if (merged) pendingShellCommandLine.set(paneId, merged);
         const entry = activeProcesses.get(paneId);
         if (entry) {
-          const durS = (Date.now() - entry.startedAt) / 1000;
-          const durMs = Date.now() - entry.startedAt;
-          if (durS >= processNotificationThresholdRef.v) {
-            const paneName = paneNames.get(paneId) || paneId.slice(0, 8);
-            showProcessNotification(
-              entry.command,
-              paneName,
-              entry.cwd,
-              entry.startedAt,
-              paneId,
-            );
-          }
-          // Notify extension subscribers before deleting.
-          if (extProcEndSubs.length > 0) {
-            const proc = { paneId, command: entry.command, durationMs: durMs };
-            for (const fn of extProcEndSubs) {
-              try { fn(proc); } catch { /* ignore */ }
+          applyShellCommandLine(entry, evt.text);
+        }
+      } else if (evt.kind === "pre-exec") {
+        let entry = activeProcesses.get(paneId);
+        if (!entry) {
+          const cmd = pendingShellCommandLine.get(paneId);
+          if (!cmd) continue;
+          entry = createActiveProcessEntry(cmd, paneCwdHints.get(paneId) || "");
+          activeProcesses.set(paneId, entry);
+          if (extProcStartSubs.length > 0) {
+            const start = { paneId, command: displayProcessCommand(entry.command), cwd: entry.cwd };
+            for (const fn of extProcStartSubs) {
+              try { fn(start); } catch { /* ignore */ }
             }
           }
-          activeProcesses.delete(paneId);
+        }
+        markProcessExecStart(entry);
+        pendingShellCommandLine.delete(paneId);
+      } else if (evt.kind === "command-done") {
+        finishActiveProcess(paneId, Date.now());
+      } else if (evt.kind === "prompt-start") {
+        const entry = activeProcesses.get(paneId);
+        if (entry && shouldEndOnPromptStart(entry)) {
+          finishActiveProcess(paneId, Date.now());
         }
       }
     }
@@ -854,6 +887,7 @@ async function boot(): Promise<void> {
     pendingPtyWriteByPane.delete(paneId);
     pendingPtyOutputByPane.delete(paneId);
     activeProcesses.delete(paneId);
+    pendingShellCommandLine.delete(paneId);
     processInputBuffers.delete(paneId);
     backendReplayRestoredPanes.delete(paneId);
   }
@@ -1899,18 +1933,19 @@ async function boot(): Promise<void> {
 
               // Enter — finalize the command.
               if (ch === "\r" || ch === "\n") {
-                const cmd = buf.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "").trim();
+                const cmd = normalizeCommandLine(buf);
                 if (cmd) {
                   // Only start tracking if no process is already active for this pane.
                   // This prevents Enter keystrokes inside a TUI (nvim, htop, etc.) from
                   // overwriting the command that originally started the process.
                   if (!activeProcesses.has(id)) {
-                    const proc = { command: cmd, startedAt: Date.now(), cwd: paneCwdHints.get(id) || "" };
+                    const proc = createActiveProcessEntry(cmd, paneCwdHints.get(id) || "");
                     activeProcesses.set(id, proc);
                     // Notify extension subscribers.
                     if (extProcStartSubs.length > 0) {
+                      const start = { paneId: id, command: displayProcessCommand(cmd), cwd: proc.cwd };
                       for (const fn of extProcStartSubs) {
-                        try { fn({ paneId: id, command: cmd, cwd: proc.cwd }); } catch { /* ignore */ }
+                        try { fn(start); } catch { /* ignore */ }
                       }
                     }
                   }
@@ -3831,12 +3866,19 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     }
   }
 
-  function showProcessNotification(command: string, paneName: string, cwd: string, startedAt: number, paneId: string): void {
+  function showProcessNotification(
+    command: string,
+    paneName: string,
+    cwd: string,
+    startedAt: number,
+    paneId: string,
+    endedAt = Date.now(),
+  ): void {
     if (!processToast) return;
     processToast.classList.toggle("proc-toast--transparent", processNotificationTransparentRef.v);
     const shortCmd = command.length > 50 ? command.slice(0, 47) + "\u2026" : command;
     const shortCwd = cwd.split(/[\\/]/).filter(Boolean).slice(-2).join("/") || cwd;
-    const ms = Date.now() - startedAt;
+    const ms = Math.max(0, endedAt - startedAt);
     let durStr: string;
     if (processNotificationShowMsRef.v) {
       durStr = ms >= 1000 ? `${(ms / 1000).toFixed(3)}s` : `${ms}ms`;
@@ -3875,11 +3917,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
 
     const items: PaletteCommand[] = [];
     for (const [leafId, proc] of activeProcesses) {
-      if (prefix && !proc.command.toLowerCase().startsWith(prefix) && !proc.command.toLowerCase().includes(prefix)) continue;
+      const displayCmd = displayProcessCommand(proc.command);
+      if (prefix && !displayCmd.toLowerCase().startsWith(prefix) && !displayCmd.toLowerCase().includes(prefix)) continue;
       const name = paneNames.get(leafId) || leafId.slice(0, 8);
       const shortCwd = proc.cwd.split(/[\\/]/).filter(Boolean).slice(-2).join("/") || proc.cwd;
       const dur = ((Date.now() - proc.startedAt) / 1000).toFixed(0);
-      const displayCmd = proc.command.length > 50 ? proc.command.slice(0, 47) + "\u2026" : proc.command;
+      const shortDisplayCmd = displayCmd.length > 50 ? displayCmd.slice(0, 47) + "\u2026" : displayCmd;
       let tabLabel = "";
       for (const [tid, host] of tabPaneHosts) {
         if (host.getPaneTerminal(leafId)) {
@@ -3890,8 +3933,8 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       }
       items.push({
         id: `proc-${leafId}`,
-        label: `@proc:${displayCmd}  ${dur}s`,
-        labelHtml: `<span class="cp-label-prefix">@proc:</span><span class="cp-label-name">${escapeHtml(displayCmd)}</span>` +
+        label: `@proc:${shortDisplayCmd}  ${dur}s`,
+        labelHtml: `<span class="cp-label-prefix">@proc:</span><span class="cp-label-name">${escapeHtml(shortDisplayCmd)}</span>` +
           (shortCwd ? ` <span class="cp-label-cwd">${escapeHtml(shortCwd)}</span>` : "") +
           (tabLabel ? ` <span class="cp-label-tab">${escapeHtml(tabLabel)}</span>` : "") +
           ` <span style="color:var(--ui-chrome-muted);margin-left:0.4em">${dur}s</span>`,
@@ -4325,7 +4368,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
               // Find the process command from the activeProcesses map
               const leafId = selected.id.slice(5); // "proc-<leafId>"
               const proc = activeProcesses.get(leafId);
-              if (proc) return `@proc:${proc.command} `;
+              if (proc) return `@proc:${displayProcessCommand(proc.command)} `;
             }
             return null;
           },
@@ -4874,12 +4917,21 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         getPaneActiveProcess(paneId: string) {
           const entry = activeProcesses.get(paneId);
           if (!entry) return null;
-          return { command: entry.command, cwd: entry.cwd, startedAt: entry.startedAt };
+          return {
+            command: displayProcessCommand(entry.command),
+            cwd: entry.cwd,
+            startedAt: entry.startedAt,
+          };
         },
         getActiveProcesses() {
           const result: Array<{ paneId: string; command: string; cwd: string; startedAt: number }> = [];
           for (const [paneId, entry] of activeProcesses) {
-            result.push({ paneId, command: entry.command, cwd: entry.cwd, startedAt: entry.startedAt });
+            result.push({
+              paneId,
+              command: displayProcessCommand(entry.command),
+              cwd: entry.cwd,
+              startedAt: entry.startedAt,
+            });
           }
           return result;
         },
