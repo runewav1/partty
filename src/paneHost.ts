@@ -554,7 +554,7 @@ export class PaneHost {
     return true;
   }
 
-  /** True when this tab is a lone root leaf (placeholder or transferred). */
+  /** True when this tab is a lone root leaf (single-pane tab shell). */
   isPristineRootTab(): boolean {
     const ids: string[] = [];
     collectLeafIds(this.tree, ids);

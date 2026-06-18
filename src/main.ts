@@ -2348,8 +2348,23 @@ async function boot(): Promise<void> {
     return tabId;
   }
 
+  function rootPaneHasUserState(host: PaneHost): boolean {
+    const rootId = host.getRootPaneId();
+    if (lastPtyDims.has(rootId)) return true;
+    if (activeProcesses.has(rootId)) return true;
+    const pt = host.getPaneTerminal(rootId);
+    if (!pt) return false;
+    const buf = pt.term.buffer.active;
+    if (buf.length > 1 || buf.baseY > 0) return true;
+    if (buf.length === 1) {
+      const text = buf.getLine(0)?.translateToString() ?? "";
+      if (text.trim().length > 0) return true;
+    }
+    return false;
+  }
+
   function receiveTransferredPane(targetHost: PaneHost, paneId: string, pt: PaneTerminal): boolean {
-    if (targetHost.isPristineRootTab()) {
+    if (targetHost.isPristineRootTab() && !rootPaneHasUserState(targetHost)) {
       return targetHost.rebindAsTransferredRoot(paneId, pt);
     }
     return targetHost.receivePaneAtRoot(paneId, pt, PANE_TRANSFER_SPLIT_DIR);
