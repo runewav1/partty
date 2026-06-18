@@ -323,6 +323,13 @@
                 </div>
                 <div class="settings-subsection-hd">Cursor</div>
                 <div class="settings-toggles">
+                  <label class="settings-checkbox-label" title="Always hide the OS mouse cursor over the window"><span>Hide mouse</span><input class="settings-checkbox-input" type="checkbox" name="mouse_hidden" /></label>
+                  <label class="settings-checkbox-label" title="Hide the OS mouse cursor after it stops moving" data-child-of="mouse_hidden"><span>Hide on idle</span><input class="settings-checkbox-input" type="checkbox" name="mouse_hide_on_idle" /></label>
+                  <div class="settings-row settings-row--compact" data-child-of="mouse_hide_on_idle">
+                    <span class="settings-row-label">Idle delay</span>
+                    <input name="mouse_idle_seconds" type="number" min="0.5" max="300" step="0.5" value="3" class="settings-input settings-input--narrow" style="width:4.8em" />
+                    <span class="settings-hint" style="margin-left:2px">s</span>
+                  </div>
                   <label class="settings-checkbox-label" title="Move the OS cursor to the focused pane when you change panes, tabs, or swap layout"><span>Follow focused pane</span><input class="settings-checkbox-input" type="checkbox" name="cursor_follow_pane_focus" checked /></label>
                   <label class="settings-checkbox-label" title="When moving the window to another monitor, warp the cursor onto the focused pane"><span>Follow monitor move</span><input class="settings-checkbox-input" type="checkbox" name="cursor_follow_window_move" /></label>
                   <label class="settings-checkbox-label" title="Place the window at the OS cursor when summoning"><span>Summon at cursor</span><input class="settings-checkbox-input" type="checkbox" name="summon_spawn_at_cursor" /></label>

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { mouseCursorForceVisible } from "./mouseCursor";
 
 /** Mirrors `prefs::Prefs` JSON (snake_case). */
 export type ParttyPrefs = {
@@ -99,6 +100,12 @@ export type ParttyPrefs = {
   process_notification_show_ms?: boolean;
   /** Use translucent process completion toasts. */
   process_notification_transparent?: boolean;
+  /** Always hide the OS mouse cursor (overrides idle hide). */
+  mouse_hidden?: boolean;
+  /** Hide the OS mouse cursor after pointer inactivity. */
+  mouse_hide_on_idle?: boolean;
+  /** Seconds before idle hide (default 3). */
+  mouse_idle_seconds?: number;
 };
 
 type DetectedShell = { name: string; path: string };
@@ -223,6 +230,9 @@ export function createSettingsPanel(
       })(),
       process_notification_show_ms: gc("process_notification_show_ms"),
       process_notification_transparent: gc("process_notification_transparent"),
+      mouse_hidden: gc("mouse_hidden"),
+      mouse_hide_on_idle: gc("mouse_hide_on_idle"),
+      mouse_idle_seconds: clampf(g("mouse_idle_seconds"), 3, 0.5, 300),
     };
   }
 
@@ -244,6 +254,19 @@ export function createSettingsPanel(
   }
 
   function applySettingsTree(): void {
+    // Mouse: idle options are inactive while "hide mouse" is on.
+    {
+      const mouseHiddenEl = form?.querySelector('[name="mouse_hidden"]') as HTMLInputElement | null;
+      const mouseHidden = mouseHiddenEl?.checked ?? false;
+      root.querySelectorAll('[data-child-of="mouse_hidden"]').forEach((r) => {
+        (r as HTMLElement).classList.toggle("settings-tree-hidden", mouseHidden);
+      });
+      const hideOnIdleEl = form?.querySelector('[name="mouse_hide_on_idle"]') as HTMLInputElement | null;
+      const hideOnIdle = hideOnIdleEl?.checked ?? false;
+      root.querySelectorAll('[data-child-of="mouse_hide_on_idle"]').forEach((r) => {
+        (r as HTMLElement).classList.toggle("settings-tree-hidden", !hideOnIdle || mouseHidden);
+      });
+    }
     // File search tree: dim git-aware when search is hidden
     {
       const panelDisabledEl = form?.querySelector('[name="file_tree_disabled"]') as HTMLInputElement | null;
@@ -363,6 +386,9 @@ export function createSettingsPanel(
     setVal("process_notification_show_for", String(pr.process_notification_show_for ?? 5000));
     setChk("process_notification_show_ms", pr.process_notification_show_ms ?? false);
     setChk("process_notification_transparent", pr.process_notification_transparent ?? false);
+    setChk("mouse_hidden", pr.mouse_hidden ?? false);
+    setChk("mouse_hide_on_idle", pr.mouse_hide_on_idle ?? false);
+    setVal("mouse_idle_seconds", String(pr.mouse_idle_seconds ?? 3));
     setSel("split_layout_style", ((v?: string) => { v = (v ?? "balanced").toLowerCase(); return v === "dwindle" || v === "master" ? v : "balanced"; })(pr.split_layout_style));
     setChk("quiet_pane_deferral", pr.quiet_pane_deferral ?? false);
 
@@ -405,6 +431,7 @@ export function createSettingsPanel(
   function close(save = true): void {
     if (!open) return;
     open = false;
+    mouseCursorForceVisible(false);
     root.classList.add("settings-panel--hidden");
     root.setAttribute("aria-hidden", "true");
     if (save) void doSave();
@@ -419,6 +446,10 @@ export function createSettingsPanel(
     searchToggle?.addEventListener("change", () => { applySettingsTree(); applySettingsSearch(); });
     const filesToggle = form?.querySelector('[name="file_tree_disabled"]') as HTMLInputElement | null;
     filesToggle?.addEventListener("change", () => { applySettingsTree(); applySettingsSearch(); });
+    const mouseHiddenToggle = form?.querySelector('[name="mouse_hidden"]') as HTMLInputElement | null;
+    mouseHiddenToggle?.addEventListener("change", () => applySettingsTree());
+    const mouseIdleToggle = form?.querySelector('[name="mouse_hide_on_idle"]') as HTMLInputElement | null;
+    mouseIdleToggle?.addEventListener("change", () => applySettingsTree());
 
     root.querySelector(".settings-panel-backdrop")?.addEventListener("click", (e) => {
       if (e.target === e.currentTarget) close();
@@ -441,6 +472,7 @@ export function createSettingsPanel(
     open: () => {
       if (open) return;
       open = true;
+      mouseCursorForceVisible(true);
       ensureListeners();
       root.classList.remove("settings-panel--hidden");
       root.setAttribute("aria-hidden", "false");

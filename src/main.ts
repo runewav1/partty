@@ -98,6 +98,12 @@ import {
 } from "./toolbarIcons";
 import { parttyPerf } from "./perf";
 import {
+  bindMouseCursorForceVisible,
+  createMouseCursorController,
+  mouseCursorForceVisible,
+  type MouseCursorController,
+} from "./mouseCursor";
+import {
   applyShellCommandLine,
   createActiveProcessEntry,
   displayProcessCommand,
@@ -459,6 +465,36 @@ async function boot(): Promise<void> {
   const quietPaneDeferralRef = {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).quiet_pane_deferral),
   };
+  const mouseHiddenRef = {
+    v: Boolean((persisted.prefs as Partial<ParttyPrefs>).mouse_hidden),
+  };
+  const mouseHideOnIdleRef = {
+    v: Boolean((persisted.prefs as Partial<ParttyPrefs>).mouse_hide_on_idle),
+  };
+  const mouseIdleSecondsRef = {
+    v: Math.max(0.5, Math.min(300, (persisted.prefs as Partial<ParttyPrefs>).mouse_idle_seconds ?? 3)),
+  };
+  let mouseCursorController: MouseCursorController | null = null;
+  const mouseCursorDragRef = { suppress: null as ((dragging: boolean) => void) | null };
+
+  const bootAppWindow = getCurrentWindow();
+  mouseCursorController = createMouseCursorController(
+    () => bootAppWindow,
+    () => ({
+      hidden: mouseHiddenRef.v,
+      hideOnIdle: mouseHideOnIdleRef.v,
+      idleSeconds: mouseIdleSecondsRef.v,
+    }),
+  );
+  bindMouseCursorForceVisible((active) => mouseCursorController?.setSuppress(active));
+  mouseCursorDragRef.suppress = (dragging) => mouseCursorController?.setSuppress(dragging);
+  mouseCursorController.sync();
+  window.addEventListener("mousemove", () => mouseCursorController?.notifyActivity(), { passive: true });
+  window.addEventListener("mousedown", () => mouseCursorController?.notifyActivity(), { passive: true });
+  window.addEventListener("keydown", () => mouseCursorController?.notifyActivity(), { passive: true });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") mouseCursorController?.sync();
+  });
 
   const activeProcesses = new Map<string, ActiveProcessEntry>();
   /** Latest OSC 633;E line per pane, merged until pre-exec or finish. */
@@ -2068,7 +2104,10 @@ async function boot(): Promise<void> {
         }
       },
       onPaneLayout: () => scheduleResizeImmediate(),
-      onPaneLayoutDrag: (dragging) => setTerminalLayoutSuspended(dragging),
+      onPaneLayoutDrag: (dragging) => {
+        setTerminalLayoutSuspended(dragging);
+        mouseCursorDragRef.suppress?.(dragging);
+      },
       onPaneReorder: () => persistCurrentWorkspaceTabLayout(),
     },
       init,
@@ -2486,6 +2525,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     input.value = tab?.name ?? "";
     modal.classList.remove("zen-rename-modal--hidden");
     modal.setAttribute("aria-hidden", "false");
+    mouseCursorForceVisible(true);
     requestAnimationFrame(() => { input.focus(); input.select(); });
   }
 
@@ -2494,6 +2534,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     if (!modal) return;
     modal.classList.add("zen-rename-modal--hidden");
     modal.setAttribute("aria-hidden", "true");
+    mouseCursorForceVisible(false);
     if (commit) {
       const id = renamingTabId;
       const input = document.getElementById("zen-rename-input") as HTMLInputElement | null;
@@ -3143,9 +3184,11 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     return new Promise((resolve) => {
       root.classList.remove("shed-exit-dialog--hidden");
       root.setAttribute("aria-hidden", "false");
+      mouseCursorForceVisible(true);
       const finish = (v: "keep" | "discard" | "cancel") => {
         root.classList.add("shed-exit-dialog--hidden");
         root.setAttribute("aria-hidden", "true");
+        mouseCursorForceVisible(false);
         resolve(v);
       };
       root.querySelector("#shed-exit-keep")?.addEventListener("click", () => finish("keep"), { once: true });
@@ -3607,6 +3650,13 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         processNotificationTransparentRef.v = (saved as Partial<ParttyPrefs>).process_notification_transparent ?? false;
         cursorFollowWindowMoveRef.v = Boolean((saved as Partial<ParttyPrefs>).cursor_follow_window_move);
         cursorFollowPaneFocusRef.v = (saved as Partial<ParttyPrefs>).cursor_follow_pane_focus ?? true;
+        mouseHiddenRef.v = Boolean((saved as Partial<ParttyPrefs>).mouse_hidden);
+        mouseHideOnIdleRef.v = Boolean((saved as Partial<ParttyPrefs>).mouse_hide_on_idle);
+        mouseIdleSecondsRef.v = Math.max(
+          0.5,
+          Math.min(300, (saved as Partial<ParttyPrefs>).mouse_idle_seconds ?? 3),
+        );
+        mouseCursorController?.sync();
         windowMotionRef.v = (saved as Partial<ParttyPrefs>).terminal_window_motion ?? true;
         quietPaneDeferralRef.v = Boolean((saved as Partial<ParttyPrefs>).quiet_pane_deferral);
         syncFileTreeDisabledUi(fileTreeDisabledRef.v);
@@ -3978,6 +4028,19 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     void ptyWrite(targetPaneId, `${command}\r`).catch((e) => console.warn("pty_write @pane:", e));
   }
 
+  async function toggleMouseHidden(): Promise<void> {
+    mouseHiddenRef.v = !mouseHiddenRef.v;
+    try {
+      const state = await invoke<{ prefs: ParttyPrefs }>("get_persisted_state");
+      const next = { ...state.prefs, mouse_hidden: mouseHiddenRef.v };
+      await invoke("set_prefs", { prefs: next });
+      persisted.prefs = next as unknown as Record<string, unknown>;
+    } catch (e) {
+      console.warn("toggleMouseHidden", e);
+    }
+    mouseCursorController?.sync();
+  }
+
   function getMergedPaletteCommands(query: string): PaletteCommand[] {
     const q = query.trimStart();
     if (q.startsWith(":")) {
@@ -4158,6 +4221,14 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         keywords: "focus session hide toolbar chrome distraction free",
         run: () => {
           setZenMode(!document.documentElement.classList.contains("zen-mode"));
+        },
+      },
+      {
+        id: "toggle-mouse-hidden",
+        label: mouseHiddenRef.v ? "Show mouse cursor" : "Hide mouse cursor",
+        keywords: "mouse pointer cursor hide show invisible os",
+        run: () => {
+          void toggleMouseHidden();
         },
       },
       {
@@ -4384,10 +4455,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     renderHelpShortcuts();
     helpPanelEl.classList.remove("help-panel--hidden");
     helpPanelEl.setAttribute("aria-hidden", "false");
+    mouseCursorForceVisible(true);
   };
   closeHelpPanel = () => {
     helpPanelEl?.classList.add("help-panel--hidden");
     helpPanelEl?.setAttribute("aria-hidden", "true");
+    mouseCursorForceVisible(false);
     getFocusedTerm()?.focus();
   };
   toggleHelp = () => {
@@ -4752,6 +4825,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       await new Promise((r) => requestAnimationFrame(r));
       await new Promise((r) => requestAnimationFrame(r));
       releaseBootSurface();
+      mouseCursorController?.sync();
       if (!lp.defer_window_show_until_prepared) {
         paneHost?.forEachPane((id) => {
           void ensurePtyForPane(id);
@@ -5067,6 +5141,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   })();
 
   window.addEventListener("beforeunload", () => {
+    mouseCursorController?.dispose();
     bridgeScrollCleanup?.();
     fileTreePanel?.dispose();
     fileTreeCoordinator?.dispose();

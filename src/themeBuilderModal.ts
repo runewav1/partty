@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import { mouseCursorForceVisible } from "./mouseCursor";
 import type { ParttyPrefs } from "./settingsPanel";
 import {
   applyUiTheme,
@@ -225,6 +226,7 @@ export function createThemeBuilderModal(
   function close(): void {
     if (!open) return;
     open = false;
+    mouseCursorForceVisible(false);
     root.classList.add("theme-builder-root--hidden");
     root.setAttribute("aria-hidden", "true");
     document.documentElement.classList.remove("theme-builder-open");
@@ -273,6 +275,7 @@ export function createThemeBuilderModal(
     open: (options?: ThemeBuilderOpenOptions) => {
       if (open) return;
       open = true;
+      mouseCursorForceVisible(true);
       void (async () => {
         try {
           const data = await invoke<{ prefs: Record<string, unknown> }>("get_persisted_state");

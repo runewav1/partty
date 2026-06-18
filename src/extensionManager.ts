@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import { mouseCursorForceVisible } from "./mouseCursor";
+
 export type ExtensionMeta = {
   id: string;
   name: string;
@@ -63,6 +65,7 @@ export function createExtensionManager(el: HTMLElement): ExtensionManagerApi {
 
   const closeImpl = () => {
     open = false;
+    mouseCursorForceVisible(false);
     el.classList.add("extension-manager--hidden");
     el.setAttribute("aria-hidden", "true");
   };
@@ -75,6 +78,7 @@ export function createExtensionManager(el: HTMLElement): ExtensionManagerApi {
     open: async () => {
       if (open) return;
       open = true;
+      mouseCursorForceVisible(true);
       el.classList.remove("extension-manager--hidden");
       el.setAttribute("aria-hidden", "false");
       await render();

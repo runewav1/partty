@@ -1,4 +1,5 @@
 import { listPresetNames, readPresetJson, deletePresetJson, type Preset } from "./presets";
+import { mouseCursorForceVisible } from "./mouseCursor";
 
 export type PresetsModalApi = {
   open(): void;
@@ -199,6 +200,7 @@ export function createPresetsModal(opts: PresetsModalOptions): PresetsModalApi {
   function close(): void {
     if (!open) return;
     open = false;
+    mouseCursorForceVisible(false);
     root.classList.add("theme-modal--hidden");
     root.setAttribute("aria-hidden", "true");
   }
@@ -207,6 +209,7 @@ export function createPresetsModal(opts: PresetsModalOptions): PresetsModalApi {
     open: () => {
       if (open) return;
       open = true;
+      mouseCursorForceVisible(true);
       selected = 0;
       root.classList.remove("theme-modal--hidden");
       root.setAttribute("aria-hidden", "false");

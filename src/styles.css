@@ -232,6 +232,12 @@ html.partty-booting #terminal-wrap {
   background: var(--term-bg, #2e2e32) !important;
 }
 
+/* OS mouse hide — CSS is reliable on Windows WebView2; Tauri setCursorVisible is flaky there. */
+html.mouse-cursor-hidden,
+html.mouse-cursor-hidden * {
+  cursor: none !important;
+}
+
 #terminal-wrap {
   display: flex;
   flex-direction: column;

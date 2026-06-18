@@ -1,5 +1,6 @@
 import type { PaneNode, PaneSplit } from "./paneHost";
 import { findPaneLeaf } from "./paneHost";
+import { mouseCursorForceVisible } from "./mouseCursor";
 import { writePresetJson, type Preset } from "./presets";
 import { THEME_OPTIONS, themeCssVarsForPrefs } from "./uiTheme";
 
@@ -384,6 +385,7 @@ export function createPresetEditorModal(root: HTMLElement): PresetEditorApi {
   function close(): void {
     if (!open) return;
     open = false;
+    mouseCursorForceVisible(false);
     preset = null;
     selectedId = "";
     root.classList.add("theme-builder-root--hidden");
@@ -398,6 +400,7 @@ export function createPresetEditorModal(root: HTMLElement): PresetEditorApi {
       const ids = collectLeafIds(preset.tree);
       selectedId = ids[0] ?? "";
       open = true;
+      mouseCursorForceVisible(true);
       root.classList.remove("theme-builder-root--hidden");
       root.setAttribute("aria-hidden", "false");
       refreshTree();

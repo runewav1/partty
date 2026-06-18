@@ -1,3 +1,5 @@
+import { mouseCursorForceVisible } from "./mouseCursor";
+
 export type PaneRenamePanelApi = {
   open(paneId: string, currentName?: string): void;
   setPane(paneId: string, currentName?: string): void;
@@ -53,6 +55,7 @@ export function createPaneRenamePanel(opts: {
   function close(): void {
     if (!open) return;
     open = false;
+    mouseCursorForceVisible(false);
     root.classList.add("pane-rename--hidden");
     root.setAttribute("aria-hidden", "true");
   }
@@ -100,6 +103,7 @@ export function createPaneRenamePanel(opts: {
     open: (paneId, currentName = "") => {
       setPane(paneId, currentName);
       open = true;
+      mouseCursorForceVisible(true);
       positionForFirstOpen();
       root.classList.remove("pane-rename--hidden");
       root.setAttribute("aria-hidden", "false");

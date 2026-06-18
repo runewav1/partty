@@ -1,4 +1,5 @@
 import type { PaneHost } from "./paneHost";
+import { mouseCursorForceVisible } from "./mouseCursor";
 import { findMatchingBufferLines, mergeHitsForNavigation, type SearchHit } from "./terminalSearch";
 
 const POS_KEY = "partty.searchModal.pos";
@@ -256,6 +257,7 @@ export function createTerminalSearch(opts: TerminalSearchOptions): TerminalSearc
   function close(): void {
     if (!open) return;
     open = false;
+    mouseCursorForceVisible(false);
     wrap.classList.add("term-search--hidden");
     wrap.setAttribute("aria-hidden", "true");
     document.documentElement.classList.remove("term-search-open");
@@ -281,6 +283,7 @@ export function createTerminalSearch(opts: TerminalSearchOptions): TerminalSearc
 
   function openUi(): void {
     open = true;
+    mouseCursorForceVisible(true);
     loadPos();
     wrap.classList.remove("term-search--hidden");
     wrap.setAttribute("aria-hidden", "false");

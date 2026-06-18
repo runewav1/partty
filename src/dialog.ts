@@ -1,5 +1,7 @@
 /** In-theme modal alert / prompt (no native `window.alert` styling). */
 
+import { mouseCursorForceVisible } from "./mouseCursor";
+
 function ensureHost(): HTMLElement {
   let el = document.getElementById("termie-dialog-host");
   if (!el) {
@@ -13,6 +15,7 @@ function ensureHost(): HTMLElement {
 
 export function showAlert(message: string, title = "Partty"): Promise<void> {
   return new Promise((resolve) => {
+    mouseCursorForceVisible(true);
     const host = ensureHost();
     const backdrop = document.createElement("div");
     backdrop.className = "termie-dialog-backdrop";
@@ -29,6 +32,7 @@ export function showAlert(message: string, title = "Partty"): Promise<void> {
     ok.textContent = "OK";
     const close = () => {
       backdrop.remove();
+      mouseCursorForceVisible(false);
       resolve();
     };
     ok.addEventListener("click", close);
@@ -47,6 +51,7 @@ export function showAlert(message: string, title = "Partty"): Promise<void> {
 
 export function showPrompt(message: string, defaultValue = "", title = "Partty"): Promise<string | null> {
   return new Promise((resolve) => {
+    mouseCursorForceVisible(true);
     const host = ensureHost();
     const backdrop = document.createElement("div");
     backdrop.className = "termie-dialog-backdrop";
@@ -69,6 +74,7 @@ export function showPrompt(message: string, defaultValue = "", title = "Partty")
     ok.textContent = "OK";
     const finish = (v: string | null) => {
       backdrop.remove();
+      mouseCursorForceVisible(false);
       resolve(v);
     };
     cancel.addEventListener("click", () => finish(null));
@@ -101,6 +107,7 @@ export function showConfirm(
   danger = false,
 ): Promise<boolean> {
   return new Promise((resolve) => {
+    mouseCursorForceVisible(true);
     const host = ensureHost();
     const backdrop = document.createElement("div");
     backdrop.className = "termie-dialog-backdrop";
@@ -120,6 +127,7 @@ export function showConfirm(
     yes.textContent = confirmLabel;
     const done = (v: boolean) => {
       backdrop.remove();
+      mouseCursorForceVisible(false);
       resolve(v);
     };
     no.addEventListener("click", () => done(false));

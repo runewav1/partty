@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import { mouseCursorForceVisible } from "./mouseCursor";
 import type { ParttyPrefs } from "./settingsPanel";
 import { loadCustomThemesIntoCache, pickUiPrefs, themeCssVarsForPrefs, THEME_OPTIONS, type ThemeCssVars, type UiThemePrefs } from "./uiTheme";
 
@@ -337,6 +338,7 @@ export function createThemeModal(
   function close(): void {
     if (!open) return;
     open = false;
+    mouseCursorForceVisible(false);
     root.classList.add("theme-modal--hidden");
     root.setAttribute("aria-hidden", "true");
     document.documentElement.classList.remove("theme-modal-open");
@@ -355,6 +357,7 @@ export function createThemeModal(
     open: (options?: ThemeModalOpenOptions) => {
       if (open) return;
       open = true;
+      mouseCursorForceVisible(true);
       commitOverride = options?.onCommit ?? null;
       title.textContent = options?.title ?? "Themes";
       window.addEventListener("keydown", onKey, true);

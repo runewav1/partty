@@ -156,6 +156,10 @@ fn default_process_notification_show_for() -> f64 {
     5000.0
 }
 
+fn default_mouse_idle_seconds() -> f64 {
+    3.0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
@@ -358,6 +362,15 @@ pub struct Prefs {
     /// Use a translucent process-completion toast background.
     #[serde(default)]
     pub process_notification_transparent: bool,
+    /// Always hide the OS mouse cursor over the window (overrides idle hide).
+    #[serde(default)]
+    pub mouse_hidden: bool,
+    /// Hide the OS mouse cursor after it stops moving.
+    #[serde(default)]
+    pub mouse_hide_on_idle: bool,
+    /// Seconds of pointer inactivity before hiding (when `mouse_hide_on_idle`).
+    #[serde(default = "default_mouse_idle_seconds")]
+    pub mouse_idle_seconds: f64,
     /// App chrome + terminal palette id (see frontend `themePresets`).
     #[serde(default = "default_ui_theme")]
     pub ui_theme: String,
@@ -449,6 +462,9 @@ impl Default for Prefs {
             process_notification_show_for: default_process_notification_show_for(),
             process_notification_show_ms: false,
             process_notification_transparent: false,
+            mouse_hidden: false,
+            mouse_hide_on_idle: false,
+            mouse_idle_seconds: default_mouse_idle_seconds(),
         }
     }
 }

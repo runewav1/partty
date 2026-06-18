@@ -2,6 +2,8 @@
  * Lightweight command palette: filter + list render batched in rAF, small static command set.
  */
 
+import { mouseCursorForceVisible } from "./mouseCursor";
+
 export type PaletteCommand = {
   id: string;
   label: string;
@@ -167,6 +169,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
         await onBeforeOpen?.();
         if (open) return;
         open = true;
+        mouseCursorForceVisible(true);
         root.classList.remove("command-palette--hidden");
         root.setAttribute("aria-hidden", "false");
         input.value = "";
@@ -188,6 +191,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
   function closePalette(skipFocus = false): void {
     if (!open) return;
     open = false;
+    mouseCursorForceVisible(false);
     root.classList.add("command-palette--hidden");
     root.setAttribute("aria-hidden", "true");
     list.replaceChildren();
