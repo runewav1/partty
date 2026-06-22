@@ -748,6 +748,11 @@ async function boot(): Promise<void> {
     return data.length <= 2;
   };
 
+  let lastKeydownTs = 0;
+  document.addEventListener("keydown", () => {
+    lastKeydownTs = performance.now();
+  }, true);
+
   const queuePtyWrite = (
     paneId: string,
     data: string,
@@ -755,6 +760,10 @@ async function boot(): Promise<void> {
   ): void => {
     if (!data) return;
     parttyPerf.recordPtyInputBytes(paneId, data.length);
+    if (lastKeydownTs) {
+      parttyPerf.time("input.keydown.to.onData.ms", performance.now() - lastKeydownTs);
+      lastKeydownTs = 0;
+    }
     if (immediate || isLatencySensitiveInput(data)) {
       flushPendingPtyWriteForPane(paneId);
       parttyPerf.mark("pty.input.immediate.calls");
@@ -2218,6 +2227,7 @@ async function boot(): Promise<void> {
         onPaneCreated: (id, pt) => {
           attachTermKeyHandler(pt.term, id);
           pt.term.onData((data) => {
+            parttyPerf.recordInputEvent();
             queuePtyWrite(id, data);
             // Observe input keystrokes for process tracking (command start detection).
             // Mirrors the old CommandHistoryStore.observeInput approach: parse raw
@@ -2409,13 +2419,14 @@ async function boot(): Promise<void> {
             }
           }
         },
-        onPaneDisposed: (pid) => {
-          void ptyKillPane(pid).catch(() => {});
-          paneNames.delete(pid);
-          paneThemes.delete(pid);
-          cleanupPaneVisualState(pid);
-          fileTreePanel?.clearPaneState(pid);
-          fileTreeCoordinator?.handlePaneDispose(pid);
+  onPaneDisposed: (pid) => {
+    void ptyKillPane(pid).catch(() => {});
+    paneNames.delete(pid);
+    paneThemes.delete(pid);
+    cleanupPaneVisualState(pid);
+    parttyPerf.resetPane(pid);
+    fileTreePanel?.clearPaneState(pid);
+    fileTreeCoordinator?.handlePaneDispose(pid);
           // Notify extension subscribers.
           if (extPaneClosedSubs.length > 0) {
             for (const fn of extPaneClosedSubs) {
@@ -6114,8 +6125,9 @@ async function boot(): Promise<void> {
 
   let devMetricsOverlay: DevMetricsOverlayApi | null = null;
   const appRoot = document.getElementById("app");
+  const getFocusedPaneId = (): string | null | undefined => paneHost?.getFocusedPaneId();
   if (parttyPerf.enabled && appRoot) {
-    devMetricsOverlay = createDevMetricsOverlay(appRoot);
+    devMetricsOverlay = createDevMetricsOverlay({ root: appRoot, getFocusedPaneId });
   }
 
   window.addEventListener("keydown", (e) => {
@@ -6127,7 +6139,7 @@ async function boot(): Promise<void> {
     e.preventDefault();
     e.stopPropagation();
     if (!devMetricsOverlay && appRoot) {
-      devMetricsOverlay = createDevMetricsOverlay(appRoot);
+      devMetricsOverlay = createDevMetricsOverlay({ root: appRoot, getFocusedPaneId });
     }
     devMetricsOverlay?.toggle();
   }, true);

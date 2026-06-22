@@ -147,6 +147,8 @@ function installPerformanceObservers(): void {
   }
 }
 
+const inputEventTimes: number[] = [];
+
 export const parttyPerf = {
   enabled: readEnabled(),
   consoleEnabled: readConsoleEnabled(),
@@ -311,6 +313,19 @@ export const parttyPerf = {
     const bytesPerSec = recent.reduce((s, e) => s + e.bytes, 0);
     return { bytesPerSec, totalBytes: w.total };
   },
+  recordInputEvent(): void {
+    if (!this.enabled) return;
+    const now = performance.now();
+    inputEventTimes.push(now);
+    const cutoff = now - 200;
+    while (inputEventTimes.length > 0 && inputEventTimes[0] < cutoff) inputEventTimes.shift();
+    this.gauge("input.events.200ms", inputEventTimes.length);
+  },
+  getInputRate(): number {
+    const cutoff = performance.now() - 1000;
+    const recent = inputEventTimes.filter((t) => t >= cutoff);
+    return recent.length;
+  },
   reset(): void {
     for (const key of Object.keys(counters)) delete counters[key];
     for (const key of Object.keys(gauges)) delete gauges[key];
@@ -320,6 +335,7 @@ export const parttyPerf = {
     paneTimings.clear();
     ptyInputThroughput.clear();
     ptyOutputThroughput.clear();
+    inputEventTimes.length = 0;
   },
 };
 

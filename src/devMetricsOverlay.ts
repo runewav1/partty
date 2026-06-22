@@ -8,7 +8,13 @@ export type DevMetricsOverlayApi = {
   isVisible(): boolean;
 };
 
-export function createDevMetricsOverlay(root: HTMLElement): DevMetricsOverlayApi {
+export type DevMetricsOverlayOptions = {
+  root: HTMLElement;
+  getFocusedPaneId: () => string | null | undefined;
+};
+
+export function createDevMetricsOverlay(opts: DevMetricsOverlayOptions): DevMetricsOverlayApi {
+  const { root, getFocusedPaneId } = opts;
   let visible = false;
   let raf = 0;
 
@@ -77,6 +83,14 @@ export function createDevMetricsOverlay(root: HTMLElement): DevMetricsOverlayApi
       html += `<span class="ov-metric ${cls}">FPS: <strong>${fps.toFixed(1)}</strong></span>`;
     }
 
+    const inputRate = parttyPerf.getInputRate();
+    html += `<span class="ov-metric">Input: <strong>${inputRate}</strong> ev/s</span>`;
+
+    const inputLatency = snap.timings["input.keydown.to.onData.ms"];
+    if (inputLatency) {
+      html += `<span class="ov-metric">Latency: <strong>${(inputLatency.totalMs / inputLatency.count).toFixed(1)}ms</strong> avg</span>`;
+    }
+
     const long50 = snap.counters["frame.long_50ms"] ?? 0;
     const long100 = snap.counters["frame.long_100ms"] ?? 0;
     html += `<span class="ov-metric">Long: <strong>${long50}</strong> (&gt;50ms) <strong>${long100}</strong> (&gt;100ms)</span>`;
@@ -96,11 +110,6 @@ export function createDevMetricsOverlay(root: HTMLElement): DevMetricsOverlayApi
     if (taskTiming) taskLabel += ` (avg ${(taskTiming.totalMs / taskTiming.count).toFixed(0)}ms)`;
     html += `<span class="ov-metric">Long Tasks: <strong>${taskLabel}</strong></span>`;
 
-    const deltaTiming = snap.timings["frame.delta.ms"];
-    if (deltaTiming) {
-      html += `<span class="ov-metric">Render: <strong>${deltaTiming.lastMs.toFixed(2)}ms</strong> (avg ${(deltaTiming.totalMs / deltaTiming.count).toFixed(2)}ms)</span>`;
-    }
-
     container.innerHTML = html;
   }
 
@@ -111,14 +120,17 @@ export function createDevMetricsOverlay(root: HTMLElement): DevMetricsOverlayApi
       return;
     }
 
+    const focusedId = getFocusedPaneId();
     let html = "";
     for (const paneId of paneIds) {
       const snap = parttyPerf.getPaneSnapshot(paneId);
       const inputRate = parttyPerf.getPtyInputRate(paneId);
       const outputRate = parttyPerf.getPtyOutputRate(paneId);
+      const isFocused = paneId === focusedId;
 
-      html += `<div class="ov-pane">`;
-      html += `<div class="ov-pane-id">${paneId}</div>`;
+      const paneCls = `ov-pane${isFocused ? " ov-pane--focused" : ""}`;
+      html += `<div class="${paneCls}">`;
+      html += `<div class="ov-pane-id">${isFocused ? "\u25b6 " : ""}${paneId}</div>`;
       html += `<div class="ov-pane-metrics">`;
 
       if (inputRate) {

@@ -4113,11 +4113,16 @@ html.file-tree-right .command-palette {
   color: var(--ui-chrome-fainter);
   font-style: italic;
 }
+
 .ov-pane {
   margin-top: 4px;
   padding: 4px 6px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--ui-chrome-fg) 4%, transparent);
+}
+.ov-pane--focused {
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 30%, transparent);
 }
 .ov-pane-id {
   font-size: 10px;
@@ -4125,6 +4130,9 @@ html.file-tree-right .command-palette {
   color: var(--accent-primary-light);
   margin-bottom: 2px;
   font-family: var(--font-terminal);
+}
+.ov-pane--focused .ov-pane-id {
+  color: var(--accent-primary-lighter);
 }
 .ov-pane-metrics {
   display: flex;
