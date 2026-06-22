@@ -24,9 +24,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
-
-
-
 pub struct AppState {
     pub pty_panes: Mutex<HashMap<String, Arc<PtySession>>>,
     pub persisted: Mutex<PersistedState>,
@@ -715,6 +712,42 @@ fn write_png_chunk(output: &mut Vec<u8>, chunk_type: &[u8; 4], data: &[u8]) {
     output.extend_from_slice(&crc.to_be_bytes());
 }
 
+/// Run `where.exe` for a single executable name; returns the first resolved full path.
+#[cfg(windows)]
+fn win_where_first(cmd: &str) -> Option<String> {
+    let mut c = StdCommand::new("where.exe");
+    c.arg(cmd)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    crate::subprocess::hide_console_window(&mut c);
+    let out = c.output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8(out.stdout).ok().and_then(|s| {
+        s.lines()
+            .map(|l| l.trim().to_string())
+            .find(|l| !l.is_empty())
+    })
+}
+
+/// Resolve an executable by trying each candidate name via `where.exe` and then
+/// checking fallback filesystem paths.  Returns the first found full path.
+#[cfg(windows)]
+fn win_resolve_app_path(candidates: &[&str], fallback_paths: &[PathBuf]) -> Option<String> {
+    for cand in candidates {
+        if let Some(path) = win_where_first(cand) {
+            return Some(path);
+        }
+    }
+    for path in fallback_paths {
+        if path.exists() {
+            return Some(path.to_string_lossy().to_string());
+        }
+    }
+    None
+}
+
 /// Detect installed editors and terminals on the system.
 /// Returns a list of available editors and terminals with their display names and command names.
 #[tauri::command]
@@ -723,39 +756,6 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
 
     #[cfg(windows)]
     {
-        let where_first = |cmd: &str| -> Option<String> {
-            StdCommand::new("where.exe")
-                .arg(cmd)
-                .output()
-                .ok()
-                .and_then(|output| {
-                    if output.status.success() {
-                        String::from_utf8(output.stdout).ok().and_then(|s| {
-                            s.lines()
-                                .map(|line| line.trim().to_string())
-                                .find(|line| !line.is_empty())
-                        })
-                    } else {
-                        None
-                    }
-                })
-        };
-
-        let resolve_executable =
-            |candidates: &[&str], fallback_paths: &[PathBuf]| -> Option<String> {
-                for cand in candidates {
-                    if let Some(path) = where_first(cand) {
-                        return Some(path);
-                    }
-                }
-                for path in fallback_paths {
-                    if path.exists() {
-                        return Some(path.to_string_lossy().to_string());
-                    }
-                }
-                None
-            };
-
         let local_app_data = std::env::var("LOCALAPPDATA").ok();
         let program_files = std::env::var("ProgramFiles").ok();
         let program_files_x86 = std::env::var("ProgramFiles(x86)").ok();
@@ -818,65 +818,35 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
             ("Vim", &["gvim.exe", "gvim"]),
         ];
 
-        for (name, cmds) in editor_defs {
-            let match_fallbacks: Vec<PathBuf> = fallback
-                .iter()
-                .filter(|p| {
-                    let fname = p
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("")
-                        .to_lowercase();
-                    cmds.iter().any(|c| fname == c.to_lowercase())
-                })
-                .cloned()
-                .collect();
-            if let Some(path) = resolve_executable(cmds, &match_fallbacks) {
-                push_app(name, path.clone(), "editor", Some(path));
-            }
-        }
-
-        let wt_path = resolve_executable(
-            &["wt.exe", "wt"],
-            &fallback
-                .iter()
-                .filter(|p| {
-                    p.file_name()
-                        .and_then(|s| s.to_str())
-                        .map(|n| n.eq_ignore_ascii_case("wt.exe"))
-                        .unwrap_or(false)
-                })
-                .cloned()
-                .collect::<Vec<_>>(),
-        );
-        if wt_path.is_some() {
-            push_app("Windows Terminal", "wt".to_string(), "terminal", wt_path);
-        }
-
-        let pwsh_path = resolve_executable(&["pwsh.exe", "pwsh"], &[]);
-        if pwsh_path.is_some() {
-            push_app("PowerShell 7", "pwsh".to_string(), "terminal", pwsh_path);
-        } else {
-            let powershell_path = resolve_executable(&["powershell.exe", "powershell"], &[]);
-            if powershell_path.is_some() {
-                push_app(
-                    "PowerShell",
-                    "powershell".to_string(),
-                    "terminal",
-                    powershell_path,
-                );
-            }
-        }
-
-        let cmd_path = resolve_executable(&["cmd.exe", "cmd"], &[]).or_else(|| {
-            std::env::var("WINDIR").ok().map(|w| {
-                PathBuf::from(w)
-                    .join("System32\\cmd.exe")
-                    .to_string_lossy()
-                    .to_string()
+        // Pre-compute match_fallbacks for each editor (fast: no subprocess, just path filtering).
+        let editor_fallbacks: Vec<Vec<PathBuf>> = editor_defs
+            .iter()
+            .map(|(_, cmds)| {
+                fallback
+                    .iter()
+                    .filter(|p| {
+                        let fname = p
+                            .file_name()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("")
+                            .to_lowercase();
+                        cmds.iter().any(|c| fname == c.to_lowercase())
+                    })
+                    .cloned()
+                    .collect()
             })
-        });
-        push_app("Command Prompt", "cmd".to_string(), "terminal", cmd_path);
+            .collect();
+
+        let wt_fallbacks: Vec<PathBuf> = fallback
+            .iter()
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|s| s.to_str())
+                    .map(|n| n.eq_ignore_ascii_case("wt.exe"))
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect();
 
         let mut git_bash_fallbacks = Vec::<PathBuf>::new();
         if let Some(base) = &program_files {
@@ -887,7 +857,72 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
             git_bash_fallbacks.push(PathBuf::from(base).join("Git\\bin\\bash.exe"));
             git_bash_fallbacks.push(PathBuf::from(base).join("Git\\git-bash.exe"));
         }
-        let git_bash_path = resolve_executable(&["bash.exe", "bash"], &git_bash_fallbacks);
+
+        // Run all `where.exe` / path-existence detections concurrently.
+        // Wall time drops from O(n × process-spawn-overhead) to O(slowest single detection).
+        let (editor_paths, wt_path, pwsh_path, powershell_path, cmd_path, git_bash_path) =
+            std::thread::scope(|s| {
+                // One handle per editor (8 total)
+                let editor_handles: Vec<_> = editor_defs
+                    .iter()
+                    .zip(editor_fallbacks.iter())
+                    .map(|((_, cmds), ef)| s.spawn(move || win_resolve_app_path(cmds, ef)))
+                    .collect();
+
+                // Terminal handles
+                let wt_handle = s.spawn(|| win_resolve_app_path(&["wt.exe", "wt"], &wt_fallbacks));
+                let pwsh_handle = s.spawn(|| win_resolve_app_path(&["pwsh.exe", "pwsh"], &[]));
+                let ps_handle =
+                    s.spawn(|| win_resolve_app_path(&["powershell.exe", "powershell"], &[]));
+                let cmd_handle = s.spawn(|| {
+                    win_resolve_app_path(&["cmd.exe", "cmd"], &[]).or_else(|| {
+                        std::env::var("WINDIR").ok().map(|w| {
+                            PathBuf::from(w)
+                                .join("System32\\cmd.exe")
+                                .to_string_lossy()
+                                .to_string()
+                        })
+                    })
+                });
+                let git_bash_handle = s.spawn(move || {
+                    win_resolve_app_path(&["bash.exe", "bash"], &git_bash_fallbacks)
+                });
+
+                let editor_paths: Vec<Option<String>> = editor_handles
+                    .into_iter()
+                    .map(|h| h.join().unwrap_or(None))
+                    .collect();
+                (
+                    editor_paths,
+                    wt_handle.join().unwrap_or(None),
+                    pwsh_handle.join().unwrap_or(None),
+                    ps_handle.join().unwrap_or(None),
+                    cmd_handle.join().unwrap_or(None),
+                    git_bash_handle.join().unwrap_or(None),
+                )
+            });
+
+        // Apply detected paths sequentially (deduplication + icon extraction stay single-threaded).
+        for ((name, _), path) in editor_defs.iter().zip(editor_paths.into_iter()) {
+            if let Some(p) = path {
+                push_app(name, p.clone(), "editor", Some(p));
+            }
+        }
+
+        if wt_path.is_some() {
+            push_app("Windows Terminal", "wt".to_string(), "terminal", wt_path);
+        }
+        if pwsh_path.is_some() {
+            push_app("PowerShell 7", "pwsh".to_string(), "terminal", pwsh_path);
+        } else if powershell_path.is_some() {
+            push_app(
+                "PowerShell",
+                "powershell".to_string(),
+                "terminal",
+                powershell_path,
+            );
+        }
+        push_app("Command Prompt", "cmd".to_string(), "terminal", cmd_path);
         if git_bash_path.is_some() {
             push_app(
                 "Git Bash",
@@ -1049,7 +1084,12 @@ fn pty_identity(prefs: &prefs::Prefs, pane_cwd: Option<&str>) -> String {
 }
 
 fn window_effect_config(prefs: &prefs::Prefs) -> Option<tauri::utils::config::WindowEffectsConfig> {
-    match prefs.window_effect_mode.trim().to_ascii_lowercase().as_str() {
+    match prefs
+        .window_effect_mode
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "transparent" => None,
         _ => None,
     }
@@ -1066,8 +1106,6 @@ fn apply_window_effects_to_all(app: &AppHandle, prefs: &prefs::Prefs) {
         apply_window_effects(win, prefs);
     }
 }
-
-
 
 fn kill_pane_session(state: &AppState, pane_id: &str) {
     if let Some(s) = state.pty_panes.lock().remove(pane_id) {
@@ -1131,8 +1169,6 @@ fn position_main_at_cursor_if_prefs(app: &AppHandle) {
         position_window_near_cursor(&win, sz.width, sz.height);
     }
 }
-
-
 
 /// Let the `partty-hide` handler finish WebGL/buffer work on the JS thread, then destroy the
 /// webview from Rust. Avoids `invoke(request_destroy_webview)` from JS, which can tear down the
@@ -1382,12 +1418,7 @@ fn commit_show_window(app: AppHandle) -> Result<(), String> {
         .lock()
         .prefs
         .always_summon_maximized;
-    let saved_maximized = app
-        .state::<AppState>()
-        .persisted
-        .lock()
-        .window
-        .maximized;
+    let saved_maximized = app.state::<AppState>().persisted.lock().window.maximized;
     app.state::<AppState>()
         .hide_destroy_generation
         .fetch_add(1, Ordering::SeqCst);
@@ -1454,7 +1485,14 @@ fn pty_ensure(
         old.kill();
     }
     state.pty_spawn_identity.lock().remove(&pane_id);
-    let session = Arc::new(PtySession::spawn(app, pane_id.clone(), cols, rows, &prefs, initial_cwd)?);
+    let session = Arc::new(PtySession::spawn(
+        app,
+        pane_id.clone(),
+        cols,
+        rows,
+        &prefs,
+        initial_cwd,
+    )?);
     state.pty_panes.lock().insert(pane_id.clone(), session);
     state.pty_spawn_identity.lock().insert(pane_id, want);
     Ok(())
@@ -1475,7 +1513,14 @@ fn pty_spawn(
     state.pty_spawn_identity.lock().remove(&pane_id);
     let prefs = state.persisted.lock().prefs.clone();
     let want = pty_identity(&prefs, initial_cwd.as_deref());
-    let session = Arc::new(PtySession::spawn(app, pane_id.clone(), cols, rows, &prefs, initial_cwd)?);
+    let session = Arc::new(PtySession::spawn(
+        app,
+        pane_id.clone(),
+        cols,
+        rows,
+        &prefs,
+        initial_cwd,
+    )?);
     state.pty_panes.lock().insert(pane_id.clone(), session);
     state.pty_spawn_identity.lock().insert(pane_id, want);
     Ok(())
@@ -1494,12 +1539,17 @@ fn pty_write(state: State<'_, AppState>, pane_id: String, data: String) -> Resul
 }
 
 #[tauri::command]
-fn pty_replay_snapshot(state: State<'_, AppState>, pane_id: String) -> Result<Option<String>, String> {
+fn pty_replay_snapshot(
+    state: State<'_, AppState>,
+    pane_id: String,
+) -> Result<Option<String>, String> {
     let session = {
         let g = state.pty_panes.lock();
         g.get(&pane_id).cloned()
     };
-    Ok(session.map(|s| s.replay_snapshot()).filter(|s| !s.is_empty()))
+    Ok(session
+        .map(|s| s.replay_snapshot())
+        .filter(|s| !s.is_empty()))
 }
 
 #[tauri::command]
@@ -1753,9 +1803,16 @@ fn list_extensions() -> Vec<ExtensionInfo> {
     let state = load_extension_state();
     for entry in dir.flatten() {
         let path = entry.path();
-        if !path.is_dir() { continue; }
-        let id = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        if id.is_empty() || id.starts_with('.') { continue; }
+        if !path.is_dir() {
+            continue;
+        }
+        let id = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if id.is_empty() || id.starts_with('.') {
+            continue;
+        }
 
         let manifest_path = path.join("manifest.json");
         let manifest: ExtensionManifest = std::fs::read_to_string(&manifest_path)
@@ -1769,7 +1826,9 @@ fn list_extensions() -> Vec<ExtensionInfo> {
 
         let index_path = path.join("index.js");
         let code = std::fs::read_to_string(&index_path).unwrap_or_default();
-        if code.trim().is_empty() { continue; }
+        if code.trim().is_empty() {
+            continue;
+        }
 
         let enabled = state.get(&id).copied().unwrap_or(true);
         exts.push(ExtensionInfo {

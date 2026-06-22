@@ -384,7 +384,28 @@ pub fn git_repo_info_impl(cwd: String) -> Result<Option<GitRepoInfo>, String> {
         .unwrap_or("repo")
         .to_string();
 
-    let diffs = cached_diff_counts(&root_abs);
+    // Run `git diff --numstat` and `git ls-files` concurrently — they are
+    // independent operations and together account for the bulk of latency here.
+    let root_for_repo = root_abs.clone();
+    let (diffs, (total_files, remote_url)) = std::thread::scope(|s| {
+        let diff_handle = s.spawn(|| cached_diff_counts(&root_abs));
+        let repo_handle = s.spawn(move || {
+            if let Ok(repo) = Repository::open(&root_for_repo) {
+                let total_files = git_ls_files_count(&root_for_repo)
+                    .or_else(|| repo.index().ok().map(|idx| idx.len() as i32))
+                    .unwrap_or(0);
+                let remote_url = detect_remote_url(&repo);
+                (total_files, remote_url)
+            } else {
+                (0, None)
+            }
+        });
+        (
+            diff_handle.join().unwrap_or_default(),
+            repo_handle.join().unwrap_or((0, None)),
+        )
+    });
+
     let mut changed_files = 0_i32;
     let mut added_lines = 0_i32;
     let mut removed_lines = 0_i32;
@@ -397,16 +418,6 @@ pub fn git_repo_info_impl(cwd: String) -> Result<Option<GitRepoInfo>, String> {
         added_lines = added_lines.saturating_add(a);
         removed_lines = removed_lines.saturating_add(r);
     }
-
-    let (total_files, remote_url) = if let Ok(repo) = Repository::open(&root_abs) {
-        let total_files = git_ls_files_count(&root_abs)
-            .or_else(|| repo.index().ok().map(|idx| idx.len() as i32))
-            .unwrap_or(0);
-        let remote_url = detect_remote_url(&repo);
-        (total_files, remote_url)
-    } else {
-        (0, None)
-    };
 
     Ok(Some(GitRepoInfo {
         root: root_abs.to_string_lossy().into_owned(),

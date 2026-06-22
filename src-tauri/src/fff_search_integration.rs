@@ -3,13 +3,12 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use fff_search::{
-    file_picker::FilePicker, shared::SharedFilePicker,
-    FilePickerOptions, FFFMode, FuzzySearchOptions, GrepConfig, GrepSearchOptions,
-    PaginationArgs, QueryParser,
+    file_picker::FilePicker, shared::SharedFilePicker, FFFMode, FilePickerOptions,
+    FuzzySearchOptions, GrepConfig, GrepSearchOptions, PaginationArgs, QueryParser,
 };
 
 /// A single match line from a content search.
@@ -37,14 +36,27 @@ pub struct SearchResult {
 }
 
 /// Lazily-initialized pickers keyed by workspace root.
-static PICKERS: Mutex<Option<HashMap<PathBuf, SharedFilePicker>>> = Mutex::new(None);
+///
+/// Uses a `parking_lot::RwLock` so that concurrent reads (already-initialized
+/// pickers) never block each other, and the global lock is only held briefly
+/// during map reads/inserts — NOT during the slow `wait_for_scan` call.
+static PICKERS: OnceLock<parking_lot::RwLock<HashMap<PathBuf, SharedFilePicker>>> = OnceLock::new();
+
+fn pickers_map() -> &'static parking_lot::RwLock<HashMap<PathBuf, SharedFilePicker>> {
+    PICKERS.get_or_init(|| parking_lot::RwLock::new(HashMap::new()))
+}
 
 fn get_or_init_picker(root: &PathBuf) -> Result<SharedFilePicker, String> {
-    let mut guard = PICKERS.lock().map_err(|e| e.to_string())?;
-    let map = guard.get_or_insert_with(HashMap::new);
-    if let Some(picker) = map.get(root) {
-        return Ok(picker.clone());
+    // Fast path: read lock only — no blocking if picker already exists.
+    {
+        let guard = pickers_map().read();
+        if let Some(picker) = guard.get(root) {
+            return Ok(picker.clone());
+        }
     }
+
+    // Slow path: initialize the picker *without* holding any lock so that
+    // other searches for different (or the same) roots are not blocked.
     let shared = SharedFilePicker::default();
     FilePicker::new_with_shared_state(
         shared.clone(),
@@ -57,7 +69,14 @@ fn get_or_init_picker(root: &PathBuf) -> Result<SharedFilePicker, String> {
     )
     .map_err(|e| e.to_string())?;
     shared.wait_for_scan(Duration::from_secs(10));
-    map.insert(root.clone(), shared.clone());
+
+    // Insert with write lock, with double-check in case another thread raced us.
+    let mut guard = pickers_map().write();
+    if let Some(existing) = guard.get(root) {
+        // Another thread finished first — use its picker, let ours drop.
+        return Ok(existing.clone());
+    }
+    guard.insert(root.clone(), shared.clone());
     Ok(shared)
 }
 
@@ -84,7 +103,10 @@ pub fn search_files_root(root: String, query: String) -> Result<Vec<SearchResult
         FuzzySearchOptions {
             max_threads: 0,
             current_file: None,
-            pagination: PaginationArgs { offset: 0, limit: 100 },
+            pagination: PaginationArgs {
+                offset: 0,
+                limit: 100,
+            },
             ..Default::default()
         },
     );
@@ -150,7 +172,9 @@ pub fn search_file_contents(root: String, query: String) -> Result<Vec<SearchRes
     // Group matches by file path, collecting details.
     let mut by_path: HashMap<String, (u32, Vec<MatchDetail>)> = HashMap::new();
     for m in &grep_result.matches {
-        let path = grep_result.files[m.file_index].relative_path(picker).to_string();
+        let path = grep_result.files[m.file_index]
+            .relative_path(picker)
+            .to_string();
         let entry = by_path.entry(path).or_insert((0, Vec::new()));
         entry.0 += 1;
         if entry.1.len() < MAX_DETAILS_PER_FILE {

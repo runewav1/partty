@@ -405,70 +405,112 @@ fn push_shell_unique(shells: &mut Vec<DetectedShell>, name: &str, path: String) 
 }
 
 pub fn detect_available_shells() -> Vec<DetectedShell> {
-    let mut shells: Vec<DetectedShell> = Vec::new();
-
-    if let Some(p) = resolve_pwsh_executable() {
-        push_shell_unique(&mut shells, "pwsh", p.to_string_lossy().into_owned());
-    }
-
+    // Collect env vars before spawning threads (avoids repeated env lookups and
+    // keeps thread closures free of env-access races on Windows).
     let sys_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
-    let ps_system = PathBuf::from(&sys_root)
-        .join("System32")
-        .join("WindowsPowerShell")
-        .join("v1.0")
-        .join("powershell.exe");
-    if ps_system.is_file() {
-        push_shell_unique(
-            &mut shells,
-            "powershell",
-            ps_system.to_string_lossy().into_owned(),
-        );
-    } else if has_exe_on_path("powershell.exe") {
-        let p = where_exe_first_line("powershell.exe")
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "powershell.exe".into());
+    let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into());
+    let pf = std::env::var("ProgramFiles").ok();
+    let pf_x86 = std::env::var("ProgramFiles(x86)").ok();
+
+    // Run all five shell detections concurrently. Each may spawn a `where.exe`
+    // child process; running them in parallel cuts total wall time from
+    // O(n × process-spawn-overhead) down to O(1 × slowest-detection).
+    let (pwsh_result, powershell_result, cmd_result, bash_result, wsl_result) =
+        std::thread::scope(|s| {
+            // PowerShell 7 (pwsh)
+            let pwsh =
+                s.spawn(|| resolve_pwsh_executable().map(|p| p.to_string_lossy().into_owned()));
+
+            // Windows PowerShell (powershell.exe)
+            let ps_system_path = PathBuf::from(&sys_root)
+                .join("System32")
+                .join("WindowsPowerShell")
+                .join("v1.0")
+                .join("powershell.exe");
+            let powershell = s.spawn(move || -> Option<String> {
+                if ps_system_path.is_file() {
+                    return Some(ps_system_path.to_string_lossy().into_owned());
+                }
+                if has_exe_on_path("powershell.exe") {
+                    return Some(
+                        where_exe_first_line("powershell.exe")
+                            .map(|p| p.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "powershell.exe".into()),
+                    );
+                }
+                None
+            });
+
+            // cmd.exe
+            let cmd = s.spawn(move || -> Option<String> {
+                if Path::new(&comspec).is_file() {
+                    return Some(comspec);
+                }
+                if has_exe_on_path("cmd.exe") {
+                    return Some(
+                        where_exe_first_line("cmd.exe")
+                            .map(|p| p.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "cmd.exe".into()),
+                    );
+                }
+                None
+            });
+
+            // bash (Git Bash via ProgramFiles, then PATH fallback)
+            let bash = s.spawn(move || -> Option<String> {
+                for base in [pf.as_deref(), pf_x86.as_deref()].into_iter().flatten() {
+                    let p = PathBuf::from(base).join("Git").join("bin").join("bash.exe");
+                    if p.is_file() {
+                        return Some(p.to_string_lossy().into_owned());
+                    }
+                }
+                if has_exe_on_path("bash.exe") {
+                    return Some(
+                        where_exe_first_line("bash.exe")
+                            .map(|p| p.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "bash.exe".into()),
+                    );
+                }
+                None
+            });
+
+            // WSL
+            let wsl = s.spawn(|| -> Option<String> {
+                if has_exe_on_path("wsl.exe") {
+                    return Some(
+                        where_exe_first_line("wsl.exe")
+                            .map(|p| p.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "wsl.exe".into()),
+                    );
+                }
+                None
+            });
+
+            (
+                pwsh.join().unwrap_or(None),
+                powershell.join().unwrap_or(None),
+                cmd.join().unwrap_or(None),
+                bash.join().unwrap_or(None),
+                wsl.join().unwrap_or(None),
+            )
+        });
+
+    let mut shells: Vec<DetectedShell> = Vec::new();
+    if let Some(p) = pwsh_result {
+        push_shell_unique(&mut shells, "pwsh", p);
+    }
+    if let Some(p) = powershell_result {
         push_shell_unique(&mut shells, "powershell", p);
     }
-
-    let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into());
-    if Path::new(&comspec).is_file() {
-        push_shell_unique(&mut shells, "cmd", comspec);
-    } else if has_exe_on_path("cmd.exe") {
-        push_shell_unique(
-            &mut shells,
-            "cmd",
-            where_exe_first_line("cmd.exe")
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "cmd.exe".into()),
-        );
+    if let Some(p) = cmd_result {
+        push_shell_unique(&mut shells, "cmd", p);
     }
-
-    for pf_var in &["ProgramFiles", "ProgramFiles(x86)"] {
-        if let Ok(pf) = std::env::var(pf_var) {
-            let p = PathBuf::from(&pf).join("Git").join("bin").join("bash.exe");
-            if p.is_file() {
-                push_shell_unique(&mut shells, "bash", p.to_string_lossy().into_owned());
-                break;
-            }
-        }
-    }
-    if !shells.iter().any(|s| s.name.eq_ignore_ascii_case("bash")) && has_exe_on_path("bash.exe") {
-        let p = where_exe_first_line("bash.exe")
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "bash.exe".into());
+    if let Some(p) = bash_result {
         push_shell_unique(&mut shells, "bash", p);
     }
-
-    if has_exe_on_path("wsl.exe") {
-        push_shell_unique(
-            &mut shells,
-            "wsl",
-            where_exe_first_line("wsl.exe")
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_else(|| "wsl.exe".into()),
-        );
+    if let Some(p) = wsl_result {
+        push_shell_unique(&mut shells, "wsl", p);
     }
-
     shells
 }
 
@@ -851,5 +893,3 @@ fn shell_command_interactive(prefs: &Prefs) -> Result<CommandBuilder, String> {
 
     apply_cwd(cmd, prefs)
 }
-
-
