@@ -143,6 +143,7 @@ const PTY_OUTPUT_MAX_BATCH_CHARS = 128 * 1024;
 
 const FILE_TREE_STORAGE_KEY = "partty.filetree.visible";
 const FILE_TREE_WIDTH_KEY = "partty.filetree.widthPx";
+const SERIALIZE_STORAGE_KEY = "partty.terminal.serialize";
 const ZEN_MODE_STORAGE_KEY = "partty.zen.enabled";
 const TOOLTIP_STASH_ATTR = "data-partty-tooltip-title";
 /** Set when shell / initial cwd change; next `partty-prepare-show` runs a full PTY reinit. */
@@ -1131,8 +1132,6 @@ async function boot(): Promise<void> {
 
   const paneWebglStates = new Map<string, PaneWebglState>();
   const backendReplayRestoredPanes = new Set<string>();
-  /** Pending plain-text replay after `discard_buffer_on_hide` (focused pane). */
-  let pendingSnapshot: string | null = null;
 
   function getFocusedTerm(): Terminal | null {
     const id = paneHost?.getFocusedPaneId();
@@ -4176,7 +4175,6 @@ async function boot(): Promise<void> {
     liveCwd = null;
     paneCwdHints.clear();
     lastPtyDims.clear();
-    pendingSnapshot = null;
     bridgeScrollCleanup?.();
     bridgeScrollCleanup = null;
     shedWebgl();
@@ -5592,6 +5590,23 @@ async function boot(): Promise<void> {
     true,
   );
 
+  function restoreSerializedTerminals(): void {
+    const raw = localStorage.getItem(SERIALIZE_STORAGE_KEY);
+    if (!raw) return;
+    localStorage.removeItem(SERIALIZE_STORAGE_KEY);
+    try {
+      const map: Record<string, string> = JSON.parse(raw);
+      for (const host of tabPaneHosts.values()) {
+        host.forEachPane((id, pt) => {
+          const data = map[id];
+          if (data) pt.term.write(data);
+        });
+      }
+    } catch {
+      /* corrupt serialized data */
+    }
+  }
+
   async function runPrepareShow(): Promise<void> {
     if (localStorage.getItem(DEFER_PTY_REINIT_KEY) === "1") {
       localStorage.removeItem(DEFER_PTY_REINIT_KEY);
@@ -5600,20 +5615,10 @@ async function boot(): Promise<void> {
     scheduleResizeImmediate();
     await new Promise((r) => requestAnimationFrame(r));
     await new Promise((r) => requestAnimationFrame(r));
+    restoreSerializedTerminals();
     paneHost?.forEachPane((id) => {
       void ensurePtyForPane(id);
     });
-
-    if (pendingSnapshot !== null) {
-      const snap = pendingSnapshot;
-      pendingSnapshot = null;
-      const t = getFocusedTerm();
-      t?.reset();
-      if (snap.length && t) {
-        const tail = /\r|\n/.test(snap.slice(-1)) ? "" : "\r\n";
-        t.write(snap + tail);
-      }
-    }
 
     await mountWebglForFocused();
     const ft = getFocusedTerm();
@@ -5732,7 +5737,6 @@ async function boot(): Promise<void> {
       liveCwd = null;
       paneCwdHints.clear();
       pendingPtyOutputByPane.clear();
-      pendingSnapshot = null;
       paneHost?.forEachPane((_id, p) => {
         p.term.reset();
       });
@@ -5744,8 +5748,12 @@ async function boot(): Promise<void> {
         persistCurrentWorkspaceTabLayout();
       }
       if (lp.discard_buffer_on_hide) {
-        pendingSnapshot = null;
-        paneHost?.forEachPane((_id, p) => p.term.reset());
+        const serialized: Record<string, string> = {};
+        paneHost?.forEachPane((id, pt) => {
+          try { serialized[id] = pt.serialize.serialize(); } catch { /* skip */ }
+          pt.term.reset();
+        });
+        try { localStorage.setItem(SERIALIZE_STORAGE_KEY, JSON.stringify(serialized)); } catch { /* ignore */ }
       }
       if (lp.webgl_shed_on_hide) {
         shedWebgl();
@@ -5761,6 +5769,7 @@ async function boot(): Promise<void> {
       });
     }),
     listen("partty-show", async () => {
+      restoreSerializedTerminals();
       await mountWebglForFocused();
       getFocusedTerm()?.focus();
       scheduleResizeImmediate();

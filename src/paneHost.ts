@@ -1,5 +1,8 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { ImageAddon } from "@xterm/addon-image";
+import { SerializeAddon } from "@xterm/addon-serialize";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { parttyPerf } from "./perf";
 
@@ -20,6 +23,7 @@ export type PaneTerminal = {
   term: Terminal;
   fit: FitAddon;
   image: ImageAddon;
+  serialize: SerializeAddon;
   host: HTMLElement;
   /** Row wrapping the terminal host element. */
   row: HTMLElement;
@@ -1479,10 +1483,16 @@ export class PaneHost {
         term.loadAddon(fit);
         const imageAddon = new ImageAddon();
         term.loadAddon(imageAddon);
+        const unicode11 = new Unicode11Addon();
+        term.loadAddon(unicode11);
+        const graphemes = new UnicodeGraphemesAddon();
+        term.loadAddon(graphemes);
+        const serializeAddon = new SerializeAddon();
+        term.loadAddon(serializeAddon);
         term.open(host);
         parttyPerf.mark("pane.terminal.create");
         parttyPerf.time("pane.terminal.create.ms", performance.now() - createStarted);
-        pt = { term, fit, image: imageAddon, host, row };
+        pt = { term, fit, image: imageAddon, serialize: serializeAddon, host, row };
         this.terminals.set(node.id, pt);
         this.opts.onPaneCreated(node.id, pt);
       }
