@@ -106,6 +106,12 @@ export type ParttyPrefs = {
   mouse_hide_on_idle?: boolean;
   /** Seconds before idle hide (default 3). */
   mouse_idle_seconds?: number;
+  /** Developer metrics collection. Off by default. */
+  dev_perf_enabled?: boolean;
+  /** Print metrics snapshots to the console while enabled. */
+  dev_perf_console?: boolean;
+  /** Console snapshot interval in ms. */
+  dev_perf_console_interval_ms?: number;
 };
 
 type DetectedShell = { name: string; path: string };
@@ -233,6 +239,9 @@ export function createSettingsPanel(
       mouse_hidden: gc("mouse_hidden"),
       mouse_hide_on_idle: gc("mouse_hide_on_idle"),
       mouse_idle_seconds: clampf(g("mouse_idle_seconds"), 3, 0.5, 300),
+      dev_perf_enabled: gc("dev_perf_enabled"),
+      dev_perf_console: gc("dev_perf_console"),
+      dev_perf_console_interval_ms: Math.max(1000, Math.min(60000, parseInt(g("dev_perf_console_interval_ms"), 10) || 5000)),
     };
   }
 
@@ -250,6 +259,14 @@ export function createSettingsPanel(
       console.error("set_prefs", err);
     } finally {
       saving = false;
+    }
+    // Dev tree: console snapshots are only meaningful when metrics are enabled.
+    {
+      const perfEnabledEl = form?.querySelector('[name="dev_perf_enabled"]') as HTMLInputElement | null;
+      const perfEnabled = perfEnabledEl?.checked ?? false;
+      root.querySelectorAll('[data-child-of="dev_perf_enabled"]').forEach((r) => {
+        (r as HTMLElement).classList.toggle("settings-tree-hidden", !perfEnabled);
+      });
     }
   }
 
@@ -389,6 +406,9 @@ export function createSettingsPanel(
     setChk("mouse_hidden", pr.mouse_hidden ?? false);
     setChk("mouse_hide_on_idle", pr.mouse_hide_on_idle ?? false);
     setVal("mouse_idle_seconds", String(pr.mouse_idle_seconds ?? 3));
+    setChk("dev_perf_enabled", pr.dev_perf_enabled ?? false);
+    setChk("dev_perf_console", pr.dev_perf_console ?? false);
+    setVal("dev_perf_console_interval_ms", String(pr.dev_perf_console_interval_ms ?? 5000));
     setSel("split_layout_style", ((v?: string) => { v = (v ?? "balanced").toLowerCase(); return v === "dwindle" || v === "master" ? v : "balanced"; })(pr.split_layout_style));
     setChk("quiet_pane_deferral", pr.quiet_pane_deferral ?? false);
 
@@ -450,6 +470,8 @@ export function createSettingsPanel(
     mouseHiddenToggle?.addEventListener("change", () => applySettingsTree());
     const mouseIdleToggle = form?.querySelector('[name="mouse_hide_on_idle"]') as HTMLInputElement | null;
     mouseIdleToggle?.addEventListener("change", () => applySettingsTree());
+    const devPerfToggle = form?.querySelector('[name="dev_perf_enabled"]') as HTMLInputElement | null;
+    devPerfToggle?.addEventListener("change", () => { applySettingsTree(); applySettingsSearch(); });
 
     root.querySelector(".settings-panel-backdrop")?.addEventListener("click", (e) => {
       if (e.target === e.currentTarget) close();

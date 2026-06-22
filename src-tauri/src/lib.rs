@@ -24,6 +24,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
+/// A fully-spawned PTY session kept ready for instant adoption by the next
+/// `pty_spawn` / `pty_ensure` call with a matching shell identity.
+pub struct WarmPty {
+    pub session: Arc<PtySession>,
+    pub identity: String,
+}
+
 pub struct AppState {
     pub pty_panes: Mutex<HashMap<String, Arc<PtySession>>>,
     pub persisted: Mutex<PersistedState>,
@@ -42,6 +49,8 @@ pub struct AppState {
     pub app_session_id: String,
     /// Filesystem watcher for file tree live-updating.
     pub fs_watcher: fs_watcher::WatcherHandle,
+    /// Pre-warmed PTY session ready for instant pane creation.
+    pub warm_pty: Mutex<Option<WarmPty>>,
 }
 
 fn make_app_session_id() -> String {
@@ -293,7 +302,10 @@ fn open_external_terminal(cwd: String, terminal: Option<String>) -> Result<(), S
                 .encode_wide()
                 .chain(std::iter::once(0))
                 .collect();
-            let wide_cwd: Vec<u16> = OsStr::new(&cwd)
+            // Quote the working directory path; terminals that accept a bare
+            // path argument will see it as a single argument even with spaces.
+            let quoted_cwd = format!("\"{}\"", cwd.replace('"', "\"\""));
+            let wide_cwd: Vec<u16> = OsStr::new(&quoted_cwd)
                 .encode_wide()
                 .chain(std::iter::once(0))
                 .collect();
@@ -404,7 +416,10 @@ fn open_with_editor(path: String, editor: String) -> Result<(), String> {
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
-        let wide_path: Vec<u16> = OsStr::new(&path)
+        // Quote the path so spaces in directory names are handled correctly
+        // by ShellExecuteExW's lpParameters (treated as command-line arguments).
+        let quoted_path = format!("\"{}\"", path.replace('"', "\"\""));
+        let wide_path: Vec<u16> = OsStr::new(&quoted_path)
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
@@ -1107,6 +1122,35 @@ fn apply_window_effects_to_all(app: &AppHandle, prefs: &prefs::Prefs) {
     }
 }
 
+/// Spawn a background thread that pre-warms a PTY session so the NEXT split
+/// can be served instantly (no shell startup wait).
+fn refill_warm_pty(app: &AppHandle, prefs: &prefs::Prefs, identity: String) {
+    let app = app.clone();
+    let prefs = prefs.clone();
+    thread::spawn(move || {
+        // Small delay so the warm spawn doesn't compete with the just-completed
+        // pane spawn for CPU/IO on the same shell binary.
+        thread::sleep(Duration::from_millis(150));
+        // Give the warm session a well-known placeholder ID; it is updated to
+        // the real pane_id atomically when the session is adopted.
+        let warm_id = "__partty_warm__".to_string();
+        match PtySession::spawn(app.clone(), warm_id, 80, 24, &prefs, None) {
+            Ok(session) => {
+                if let Some(state) = app.try_state::<AppState>() {
+                    let mut g = state.warm_pty.lock();
+                    *g = Some(WarmPty {
+                        session: Arc::new(session),
+                        identity,
+                    });
+                }
+            }
+            Err(e) => {
+                eprintln!("partty: warm pty spawn failed: {e}");
+            }
+        }
+    });
+}
+
 fn kill_pane_session(state: &AppState, pane_id: &str) {
     if let Some(s) = state.pty_panes.lock().remove(pane_id) {
         s.kill();
@@ -1486,7 +1530,7 @@ fn pty_ensure(
     }
     state.pty_spawn_identity.lock().remove(&pane_id);
     let session = Arc::new(PtySession::spawn(
-        app,
+        app.clone(),
         pane_id.clone(),
         cols,
         rows,
@@ -1494,7 +1538,13 @@ fn pty_ensure(
         initial_cwd,
     )?);
     state.pty_panes.lock().insert(pane_id.clone(), session);
-    state.pty_spawn_identity.lock().insert(pane_id, want);
+    state
+        .pty_spawn_identity
+        .lock()
+        .insert(pane_id, want.clone());
+
+    // Prime the warm pool for the first pane split.
+    refill_warm_pty(&app, &prefs, want);
     Ok(())
 }
 
@@ -1513,16 +1563,44 @@ fn pty_spawn(
     state.pty_spawn_identity.lock().remove(&pane_id);
     let prefs = state.persisted.lock().prefs.clone();
     let want = pty_identity(&prefs, initial_cwd.as_deref());
-    let session = Arc::new(PtySession::spawn(
-        app,
-        pane_id.clone(),
-        cols,
-        rows,
-        &prefs,
-        initial_cwd,
-    )?);
+
+    // Try to adopt a pre-warmed session (identity must match; cwd ignored for warm
+    // sessions since they start at the prefs default and the shell will cd via OSC).
+    let session: Arc<PtySession> = {
+        let warm = {
+            let mut g = state.warm_pty.lock();
+            if g.as_ref().map(|w| w.identity.as_str()) == Some(want.as_str()) {
+                g.take()
+            } else {
+                None
+            }
+        };
+        if let Some(warm) = warm {
+            // Adopt: update the session's pane_id atomically and resize.
+            *warm.session.pane_id.lock() = pane_id.clone();
+            let _ = warm.session.resize(cols, rows);
+            warm.session
+        } else {
+            // Cold spawn.
+            Arc::new(PtySession::spawn(
+                app.clone(),
+                pane_id.clone(),
+                cols,
+                rows,
+                &prefs,
+                initial_cwd,
+            )?)
+        }
+    };
+
     state.pty_panes.lock().insert(pane_id.clone(), session);
-    state.pty_spawn_identity.lock().insert(pane_id, want);
+    state
+        .pty_spawn_identity
+        .lock()
+        .insert(pane_id, want.clone());
+
+    // Refill the warm slot in the background for the next split.
+    refill_warm_pty(&app, &prefs, want);
     Ok(())
 }
 
@@ -1737,6 +1815,8 @@ fn set_prefs(
         let mut p = state.persisted.lock();
         p.prefs = prefs.clone();
     }
+    // Invalidate the warm PTY — the shell identity may have changed.
+    *state.warm_pty.lock() = None;
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_skip_taskbar(prefs.hidden_from_taskbar);
     }
@@ -1903,6 +1983,7 @@ pub fn run() {
             hide_destroy_generation: AtomicU64::new(0),
             app_session_id: make_app_session_id(),
             fs_watcher: fs_watcher::create_watcher_handle(),
+            warm_pty: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             pty_ensure,

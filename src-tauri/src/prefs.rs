@@ -160,6 +160,10 @@ fn default_mouse_idle_seconds() -> f64 {
     3.0
 }
 
+fn default_dev_perf_console_interval_ms() -> u32 {
+    5000
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
@@ -371,6 +375,15 @@ pub struct Prefs {
     /// Seconds of pointer inactivity before hiding (when `mouse_hide_on_idle`).
     #[serde(default = "default_mouse_idle_seconds")]
     pub mouse_idle_seconds: f64,
+    /// Developer metrics collection. Off by default because it adds observers and rAF sampling.
+    #[serde(default)]
+    pub dev_perf_enabled: bool,
+    /// Print metrics snapshots to the WebView console while developer metrics are enabled.
+    #[serde(default)]
+    pub dev_perf_console: bool,
+    /// Console snapshot interval in milliseconds.
+    #[serde(default = "default_dev_perf_console_interval_ms")]
+    pub dev_perf_console_interval_ms: u32,
     /// App chrome + terminal palette id (see frontend `themePresets`).
     #[serde(default = "default_ui_theme")]
     pub ui_theme: String,
@@ -465,6 +478,9 @@ impl Default for Prefs {
             mouse_hidden: false,
             mouse_hide_on_idle: false,
             mouse_idle_seconds: default_mouse_idle_seconds(),
+            dev_perf_enabled: false,
+            dev_perf_console: false,
+            dev_perf_console_interval_ms: default_dev_perf_console_interval_ms(),
         }
     }
 }

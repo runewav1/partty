@@ -360,6 +360,21 @@
             </div>
 
             <div class="settings-section">
+              <div class="settings-section-hd">Dev</div>
+              <div class="settings-section-bd">
+                <div class="settings-toggles">
+                  <label class="settings-checkbox-label"><span>Metrics</span><input class="settings-checkbox-input" type="checkbox" name="dev_perf_enabled" /></label>
+                  <label class="settings-checkbox-label" data-child-of="dev_perf_enabled"><span>Console snapshots</span><input class="settings-checkbox-input" type="checkbox" name="dev_perf_console" /></label>
+                  <div class="settings-row settings-row--compact" data-child-of="dev_perf_enabled">
+                    <span class="settings-row-label">Snapshot interval</span>
+                    <input name="dev_perf_console_interval_ms" type="number" min="1000" max="60000" step="500" value="5000" class="settings-input settings-input--narrow" />
+                    <span class="settings-hint" style="margin-left:2px">ms</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-section">
               <div class="settings-section-hd">Files</div>
               <div class="settings-section-bd">
                 <div class="settings-row settings-row--compact" data-child-of="file_tree_disabled">

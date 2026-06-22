@@ -1,6 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { availableMonitors, currentMonitor, getCurrentWindow, LogicalPosition, PhysicalPosition } from "@tauri-apps/api/window";
+import {
+  availableMonitors,
+  currentMonitor,
+  getCurrentWindow,
+  LogicalPosition,
+  PhysicalPosition,
+} from "@tauri-apps/api/window";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { FitAddon } from "@xterm/addon-fit";
 
@@ -13,7 +19,13 @@ import {
   mergeLifecyclePrefs,
   type ParttyLifecyclePrefs,
 } from "./termLifecycle";
-import { findPaneLeaf, collectLeafIds, type PaneHostInit, type PaneTerminal, PaneHost } from "./paneHost";
+import {
+  findPaneLeaf,
+  collectLeafIds,
+  type PaneHostInit,
+  type PaneTerminal,
+  PaneHost,
+} from "./paneHost";
 import {
   clearPaneLayout,
   isLayoutValidForRoot,
@@ -53,18 +65,17 @@ import {
   uiPrefsChanged,
   type UiThemePrefs,
 } from "./uiTheme";
-import {
-  createShellIntegrationState,
-  processShellIntegration,
-  type ShellIntegrationState,
-} from "./shellIntegration";
+import type { ShellIntegrationState } from "./shellIntegration";
 import {
   createCommandPalette,
   isCommandPaletteChord,
   isHelpHotkeysChord,
   type PaletteCommand,
 } from "./commandPalette";
-import { createPaneRenamePanel, type PaneRenamePanelApi } from "./paneRenamePanel";
+import {
+  createPaneRenamePanel,
+  type PaneRenamePanelApi,
+} from "./paneRenamePanel";
 import { showAlert } from "./dialog";
 import {
   type PaletteContext,
@@ -74,10 +85,16 @@ import {
 import { normalizeFsPathKey } from "./oscCwd";
 import { createSettingsPanel, type ParttyPrefs } from "./settingsPanel";
 import { createExtensionManager } from "./extensionManager";
-import { createThemeBuilderModal, type ThemeBuilderApi } from "./themeBuilderModal";
+import {
+  createThemeBuilderModal,
+  type ThemeBuilderApi,
+} from "./themeBuilderModal";
 import { createThemeModal, type ThemeModalApi } from "./themeModal";
 import { createPresetsModal, type PresetsModalApi } from "./presetsModal";
-import { createPresetEditorModal, type PresetEditorApi } from "./presetEditorModal";
+import {
+  createPresetEditorModal,
+  type PresetEditorApi,
+} from "./presetEditorModal";
 import { writePresetJson, type Preset } from "./presets";
 import { FileTreePanel } from "./fileTreePanel";
 import { FileTreeCoordinator } from "./fileTreeCoordinator";
@@ -93,10 +110,9 @@ import {
   ptyShellExeToken,
   ptyWrite,
 } from "./ptyIpc";
-import {
-  createTabCloseIcon,
-} from "./toolbarIcons";
+import { createTabCloseIcon } from "./toolbarIcons";
 import { parttyPerf } from "./perf";
+import { createDevMetricsOverlay, type DevMetricsOverlayApi } from "./devMetricsOverlay";
 import {
   bindMouseCursorForceVisible,
   createMouseCursorController,
@@ -119,7 +135,6 @@ import {
 // CSS variables are read after DOM is ready in boot()
 const TERM_BG_FALLBACK = "#2e2e32";
 
-
 const RESIZE_DEBOUNCE_MS = 100;
 const PTY_OUTPUT_FLUSH_MS = 4;
 const PTY_OUTPUT_BACKGROUND_FLUSH_MS = 33;
@@ -137,7 +152,6 @@ const IDLE_WEBGL_MS = 400;
 type PersistedPayload = { prefs: Record<string, unknown> };
 
 const STORAGE_KEY_MIGRATIONS: [string, string][] = [
-
   ["termie.filetree.visible", FILE_TREE_STORAGE_KEY],
   ["termie.filetree.widthPx", FILE_TREE_WIDTH_KEY],
   ["termie.zen.enabled", ZEN_MODE_STORAGE_KEY],
@@ -183,13 +197,21 @@ function ptyDims(fit: FitAddon): { cols: number; rows: number } | null {
   if (!d) return null;
   const cols = Math.floor(Number(d.cols));
   const rows = Math.floor(Number(d.rows));
-  if (!Number.isFinite(cols) || !Number.isFinite(rows) || cols < 2 || rows < 1) {
+  if (
+    !Number.isFinite(cols) ||
+    !Number.isFinite(rows) ||
+    cols < 2 ||
+    rows < 1
+  ) {
     return null;
   }
   return { cols, rows };
 }
 
-function clampPtyColsRows(cols: number, rows: number): { cols: number; rows: number } {
+function clampPtyColsRows(
+  cols: number,
+  rows: number,
+): { cols: number; rows: number } {
   return {
     cols: Math.max(2, Math.min(65535, Math.floor(cols))),
     rows: Math.max(1, Math.min(65535, Math.floor(rows))),
@@ -220,32 +242,76 @@ function motionStyleForPref(value: unknown): string {
 
 function applyTerminalDisplayPrefs(raw: Partial<ParttyPrefs>): void {
   const root = document.documentElement;
-  const paneGap = typeof raw.terminal_pane_gap === "number" ? raw.terminal_pane_gap : raw.terminal_no_gap ? 0 : 6;
-  const sandboxPadding = typeof raw.terminal_sandbox_padding === "number" ? raw.terminal_sandbox_padding : 0;
+  const paneGap =
+    typeof raw.terminal_pane_gap === "number"
+      ? raw.terminal_pane_gap
+      : raw.terminal_no_gap
+        ? 0
+        : 6;
+  const sandboxPadding =
+    typeof raw.terminal_sandbox_padding === "number"
+      ? raw.terminal_sandbox_padding
+      : 0;
   root.classList.toggle("terminal-no-gap", paneGap <= 0);
   root.classList.toggle("terminal-no-round", Boolean(raw.terminal_no_round));
-  root.classList.toggle("terminal-no-pane-border", Boolean(raw.terminal_no_pane_border));
-  root.classList.toggle("terminal-no-focus-border", Boolean(raw.terminal_no_focus_border));
-  root.classList.toggle("terminal-motion-off", animationScaleForPref(raw.terminal_animation_speed) === "0");
-  root.style.setProperty("--termie-animation-scale", animationScaleForPref(raw.terminal_animation_speed));
+  root.classList.toggle(
+    "terminal-no-pane-border",
+    Boolean(raw.terminal_no_pane_border),
+  );
+  root.classList.toggle(
+    "terminal-no-focus-border",
+    Boolean(raw.terminal_no_focus_border),
+  );
+  root.classList.toggle(
+    "terminal-motion-off",
+    animationScaleForPref(raw.terminal_animation_speed) === "0",
+  );
+  root.style.setProperty(
+    "--termie-animation-scale",
+    animationScaleForPref(raw.terminal_animation_speed),
+  );
   root.dataset.motionStyle = motionStyleForPref(raw.terminal_animation_style);
-  const backdropAlpha = typeof raw.window_effect_opacity === "number" ? raw.window_effect_opacity : 0;
+  const backdropAlpha =
+    typeof raw.window_effect_opacity === "number"
+      ? raw.window_effect_opacity
+      : 0;
   const appAlpha = raw.window_effect_mode === "transparent" ? backdropAlpha : 1;
-  const paneRadius = typeof raw.pane_corner_radius === "number" ? raw.pane_corner_radius : 6;
-  root.style.setProperty("--pane-outer-gap", `${Math.max(0, Math.min(32, paneGap))}px`);
-  root.style.setProperty("--pane-sandbox-padding", `${Math.max(0, Math.min(32, sandboxPadding))}px`);
+  const paneRadius =
+    typeof raw.pane_corner_radius === "number" ? raw.pane_corner_radius : 6;
+  root.style.setProperty(
+    "--pane-outer-gap",
+    `${Math.max(0, Math.min(32, paneGap))}px`,
+  );
+  root.style.setProperty(
+    "--pane-sandbox-padding",
+    `${Math.max(0, Math.min(32, sandboxPadding))}px`,
+  );
   root.style.setProperty("--termie-app-bg-alpha", String(appAlpha));
-  root.style.setProperty("--termie-pane-radius", `${Math.max(0, Math.min(32, paneRadius))}px`);
+  root.style.setProperty(
+    "--termie-pane-radius",
+    `${Math.max(0, Math.min(32, paneRadius))}px`,
+  );
 }
 
 function applyPaneFocusScalePrefs(raw: Partial<ParttyPrefs>): void {
   const enabled = raw.focus_pane_scale ?? true;
   const intensity = Math.max(
     0,
-    Math.min(1, typeof raw.pane_focus_scale_intensity === "number" ? raw.pane_focus_scale_intensity : 0.45),
+    Math.min(
+      1,
+      typeof raw.pane_focus_scale_intensity === "number"
+        ? raw.pane_focus_scale_intensity
+        : 0.45,
+    ),
   );
-  document.documentElement.classList.toggle("pane-focus-scale", enabled && intensity > 0);
-  document.documentElement.style.setProperty("--pane-focus-scale-delta", String(intensity * 0.014));
+  document.documentElement.classList.toggle(
+    "pane-focus-scale",
+    enabled && intensity > 0,
+  );
+  document.documentElement.style.setProperty(
+    "--pane-focus-scale-delta",
+    String(intensity * 0.014),
+  );
 }
 
 function normalizeFileTreeSide(raw: unknown): "left" | "right" {
@@ -253,14 +319,30 @@ function normalizeFileTreeSide(raw: unknown): "left" | "right" {
 }
 
 function applyFileTreeSide(side: "left" | "right"): void {
-  document.documentElement.classList.toggle("file-tree-right", side === "right");
+  document.documentElement.classList.toggle(
+    "file-tree-right",
+    side === "right",
+  );
 }
 
-function normalizeSplitLayoutStyle(raw: unknown): "balanced" | "dwindle" | "master" {
+function configureDevPerfPrefs(raw: Partial<ParttyPrefs>): void {
+  parttyPerf.configure({
+    enabled: Boolean(raw.dev_perf_enabled),
+    consoleEnabled: Boolean(raw.dev_perf_console),
+    consoleIntervalMs: raw.dev_perf_console_interval_ms ?? 5000,
+  });
+}
+
+function normalizeSplitLayoutStyle(
+  raw: unknown,
+): "balanced" | "dwindle" | "master" {
   return raw === "dwindle" || raw === "master" ? raw : "balanced";
 }
 
-function resolveTabRootPaneId(layout: PersistedPaneLayout, tabId: string): string {
+function resolveTabRootPaneId(
+  layout: PersistedPaneLayout,
+  tabId: string,
+): string {
   const wsroot = workspaceRootPaneId(tabId);
   if (findPaneLeaf(layout.tree, wsroot)) return wsroot;
   const ids: string[] = [];
@@ -268,7 +350,10 @@ function resolveTabRootPaneId(layout: PersistedPaneLayout, tabId: string): strin
   return ids[0] ?? wsroot;
 }
 
-function isWorkspaceLayoutUsable(p: PersistedPaneLayout, tabId: string): boolean {
+function isWorkspaceLayoutUsable(
+  p: PersistedPaneLayout,
+  tabId: string,
+): boolean {
   const rid = resolveTabRootPaneId(p, tabId);
   if (!isLayoutValidForRoot(p, rid)) return false;
   return findPaneLeaf(p.tree, p.focusedId) != null;
@@ -318,7 +403,9 @@ function maybeBlockBrowserPrintShortcut(e: KeyboardEvent): void {
 }
 
 function terminalFontStackFromDocument(): string {
-  const raw = getComputedStyle(document.documentElement).getPropertyValue("--font-terminal").trim();
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue("--font-terminal")
+    .trim();
   return raw.replace(/^["']|["']$/g, "") || DEFAULT_TERMINAL_FONT_STACK;
 }
 
@@ -326,28 +413,53 @@ async function boot(): Promise<void> {
   migrateParttyLocalStorage();
   const persisted = await invoke<PersistedPayload>("get_persisted_state");
   syncRuntimeShedFromPrefs(persisted.prefs as ParttyPrefs);
+  configureDevPerfPrefs(persisted.prefs as Partial<ParttyPrefs>);
+  parttyPerf.mark("boot.start");
   await loadCustomThemesIntoCache();
   const lp: ParttyLifecyclePrefs = mergeLifecyclePrefs(persisted.prefs);
   const uiPrefs = pickUiPrefs(persisted.prefs);
   let currentUiPrefs = uiPrefs;
   applyUiTheme(uiPrefs);
   applyTerminalDisplayPrefs(persisted.prefs as Partial<ParttyPrefs>);
-  applyFileTreeSide(normalizeFileTreeSide((persisted.prefs as Partial<ParttyPrefs>).file_tree_side));
+  applyFileTreeSide(
+    normalizeFileTreeSide(
+      (persisted.prefs as Partial<ParttyPrefs>).file_tree_side,
+    ),
+  );
 
-  document.documentElement.classList.toggle("pane-blur-unfocused", Boolean((persisted.prefs as Partial<ParttyPrefs>).blur_unfocused_panes));
-  document.documentElement.style.setProperty("--pane-blur-radius", String((persisted.prefs as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6));
-  document.documentElement.classList.toggle("pane-dim-unfocused", Boolean((persisted.prefs as Partial<ParttyPrefs>).dim_unfocused_panes));
+  document.documentElement.classList.toggle(
+    "pane-blur-unfocused",
+    Boolean((persisted.prefs as Partial<ParttyPrefs>).blur_unfocused_panes),
+  );
+  document.documentElement.style.setProperty(
+    "--pane-blur-radius",
+    String((persisted.prefs as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6),
+  );
+  document.documentElement.classList.toggle(
+    "pane-dim-unfocused",
+    Boolean((persisted.prefs as Partial<ParttyPrefs>).dim_unfocused_panes),
+  );
   applyPaneFocusScalePrefs(persisted.prefs as Partial<ParttyPrefs>);
 
-  const fileTreeUserEnabled = localStorage.getItem(FILE_TREE_STORAGE_KEY) === "1";
-  document.documentElement.classList.toggle("file-tree-on", fileTreeUserEnabled);
-  const prefAlwaysZen = Boolean((persisted.prefs as Partial<ParttyPrefs>).always_open_in_zen_mode);
-  const zenModeEnabled = prefAlwaysZen || localStorage.getItem(ZEN_MODE_STORAGE_KEY) === "1";
+  const fileTreeUserEnabled =
+    localStorage.getItem(FILE_TREE_STORAGE_KEY) === "1";
+  document.documentElement.classList.toggle(
+    "file-tree-on",
+    fileTreeUserEnabled,
+  );
+  const prefAlwaysZen = Boolean(
+    (persisted.prefs as Partial<ParttyPrefs>).always_open_in_zen_mode,
+  );
+  const zenModeEnabled =
+    prefAlwaysZen || localStorage.getItem(ZEN_MODE_STORAGE_KEY) === "1";
   document.documentElement.classList.toggle("zen-mode", zenModeEnabled);
   const ftW = localStorage.getItem(FILE_TREE_WIDTH_KEY);
   if (ftW) {
     const n = Math.max(160, Math.min(560, parseInt(ftW, 10) || 260));
-    document.documentElement.style.setProperty("--file-tree-user-width", `${n}px`);
+    document.documentElement.style.setProperty(
+      "--file-tree-user-width",
+      `${n}px`,
+    );
   }
 
   const releaseBootSurface = (): void => {
@@ -367,34 +479,53 @@ async function boot(): Promise<void> {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).auto_copy_selection),
   };
   const showDiffCountsRef = {
-    v: Boolean((persisted.prefs as Partial<ParttyPrefs>).file_tree_show_diff_counts),
+    v: Boolean(
+      (persisted.prefs as Partial<ParttyPrefs>).file_tree_show_diff_counts,
+    ),
   };
   const showGitInfoRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).file_tree_show_git_info ?? true,
+    v:
+      (persisted.prefs as Partial<ParttyPrefs>).file_tree_show_git_info ?? true,
   };
   const fileTreeSideRef = {
-    v: normalizeFileTreeSide((persisted.prefs as Partial<ParttyPrefs>).file_tree_side),
+    v: normalizeFileTreeSide(
+      (persisted.prefs as Partial<ParttyPrefs>).file_tree_side,
+    ),
   };
   const fileTreeDisabledRef = {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).file_tree_disabled),
   };
   const splitLayoutStyleRef = {
-    v: normalizeSplitLayoutStyle((persisted.prefs as Partial<ParttyPrefs>).split_layout_style),
+    v: normalizeSplitLayoutStyle(
+      (persisted.prefs as Partial<ParttyPrefs>).split_layout_style,
+    ),
   };
   const disableSearchRef = {
-    v: Boolean((persisted.prefs as Partial<ParttyPrefs>).file_tree_disable_search),
+    v: Boolean(
+      (persisted.prefs as Partial<ParttyPrefs>).file_tree_disable_search,
+    ),
   };
   const disableTooltipsRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).ui_disable_tooltips ?? false,
   };
   const altClickCursorRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_alt_click_moves_cursor ?? true,
+    v:
+      (persisted.prefs as Partial<ParttyPrefs>)
+        .terminal_alt_click_moves_cursor ?? true,
   };
   const cursorBlinkRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_blink ?? true,
   };
   const cursorInactiveStyleRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_inactive_style as "outline" | "block" | "bar" | "underline" | "none" | undefined ?? "outline",
+    v:
+      ((persisted.prefs as Partial<ParttyPrefs>)
+        .terminal_cursor_inactive_style as
+        | "outline"
+        | "block"
+        | "bar"
+        | "underline"
+        | "none"
+        | undefined) ?? "outline",
   };
   const cursorWidthRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_width ?? 1,
@@ -403,10 +534,14 @@ async function boot(): Promise<void> {
     v: (persisted.prefs as Partial<ParttyPrefs>).terminal_font_size ?? 12,
   };
   const fontWeightRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_font_weight ?? "normal",
+    v:
+      (persisted.prefs as Partial<ParttyPrefs>).terminal_font_weight ??
+      "normal",
   };
   const fontWeightBoldRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_font_weight_bold ?? "bold",
+    v:
+      (persisted.prefs as Partial<ParttyPrefs>).terminal_font_weight_bold ??
+      "bold",
   };
   const lineHeightRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).terminal_line_height ?? 1,
@@ -415,49 +550,81 @@ async function boot(): Promise<void> {
     v: (persisted.prefs as Partial<ParttyPrefs>).terminal_letter_spacing ?? 0,
   };
   const drawBoldBrightRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_draw_bold_bright ?? true,
+    v:
+      (persisted.prefs as Partial<ParttyPrefs>).terminal_draw_bold_bright ??
+      true,
   };
   const customGlyphsRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).terminal_custom_glyphs ?? true,
   };
   const smoothScrollRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_smooth_scroll_duration ?? 0,
+    v:
+      (persisted.prefs as Partial<ParttyPrefs>)
+        .terminal_smooth_scroll_duration ?? 0,
   };
   const scrollSensitivityRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_scroll_sensitivity ?? 1,
+    v:
+      (persisted.prefs as Partial<ParttyPrefs>).terminal_scroll_sensitivity ??
+      1,
   };
   const fastScrollSensitivityRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_fast_scroll_sensitivity ?? 5,
+    v:
+      (persisted.prefs as Partial<ParttyPrefs>)
+        .terminal_fast_scroll_sensitivity ?? 5,
   };
   const contrastRatioRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_minimum_contrast_ratio ?? 1,
+    v:
+      (persisted.prefs as Partial<ParttyPrefs>)
+        .terminal_minimum_contrast_ratio ?? 1,
   };
   const backspaceDeleteSelectionRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_backspace_delete_selection ?? true,
+    v:
+      (persisted.prefs as Partial<ParttyPrefs>)
+        .terminal_backspace_delete_selection ?? true,
   };
   const confirmDeletePromptRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).confirm_delete_prompt ?? true,
   };
   const cursorStyleRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_style as "block" | "underline" | "bar" | undefined ?? "block",
+    v:
+      ((persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_style as
+        | "block"
+        | "underline"
+        | "bar"
+        | undefined) ?? "block",
   };
   const processNotificationThresholdRef = {
-    v: ((p) => Number.isFinite(p) ? Math.max(0.1, p) : 5.0)((persisted.prefs as Partial<ParttyPrefs>).process_notification_threshold ?? 5.0),
+    v: ((p) => (Number.isFinite(p) ? Math.max(0.1, p) : 5.0))(
+      (persisted.prefs as Partial<ParttyPrefs>)
+        .process_notification_threshold ?? 5.0,
+    ),
   };
   const processNotificationShowForRef = {
-    v: ((p) => Number.isFinite(p) ? Math.max(1000, Math.min(30000, p)) : 5000)((persisted.prefs as Partial<ParttyPrefs>).process_notification_show_for ?? 5000),
+    v: ((p) =>
+      Number.isFinite(p) ? Math.max(1000, Math.min(30000, p)) : 5000)(
+      (persisted.prefs as Partial<ParttyPrefs>).process_notification_show_for ??
+        5000,
+    ),
   };
   const processNotificationShowMsRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).process_notification_show_ms ?? false,
+    v:
+      (persisted.prefs as Partial<ParttyPrefs>).process_notification_show_ms ??
+      false,
   };
   const processNotificationTransparentRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).process_notification_transparent ?? false,
+    v:
+      (persisted.prefs as Partial<ParttyPrefs>)
+        .process_notification_transparent ?? false,
   };
   const cursorFollowWindowMoveRef = {
-    v: Boolean((persisted.prefs as Partial<ParttyPrefs>).cursor_follow_window_move),
+    v: Boolean(
+      (persisted.prefs as Partial<ParttyPrefs>).cursor_follow_window_move,
+    ),
   };
   const cursorFollowPaneFocusRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).cursor_follow_pane_focus ?? true,
+    v:
+      (persisted.prefs as Partial<ParttyPrefs>).cursor_follow_pane_focus ??
+      true,
   };
   const windowMotionRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).terminal_window_motion ?? true,
@@ -472,10 +639,18 @@ async function boot(): Promise<void> {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).mouse_hide_on_idle),
   };
   const mouseIdleSecondsRef = {
-    v: Math.max(0.5, Math.min(300, (persisted.prefs as Partial<ParttyPrefs>).mouse_idle_seconds ?? 3)),
+    v: Math.max(
+      0.5,
+      Math.min(
+        300,
+        (persisted.prefs as Partial<ParttyPrefs>).mouse_idle_seconds ?? 3,
+      ),
+    ),
   };
   let mouseCursorController: MouseCursorController | null = null;
-  const mouseCursorDragRef = { suppress: null as ((dragging: boolean) => void) | null };
+  const mouseCursorDragRef = {
+    suppress: null as ((dragging: boolean) => void) | null,
+  };
 
   const bootAppWindow = getCurrentWindow();
   mouseCursorController = createMouseCursorController(
@@ -486,12 +661,27 @@ async function boot(): Promise<void> {
       idleSeconds: mouseIdleSecondsRef.v,
     }),
   );
-  bindMouseCursorForceVisible((active) => mouseCursorController?.setSuppress(active));
-  mouseCursorDragRef.suppress = (dragging) => mouseCursorController?.setSuppress(dragging);
+  bindMouseCursorForceVisible((active) =>
+    mouseCursorController?.setSuppress(active),
+  );
+  mouseCursorDragRef.suppress = (dragging) =>
+    mouseCursorController?.setSuppress(dragging);
   mouseCursorController.sync();
-  window.addEventListener("mousemove", () => mouseCursorController?.notifyActivity(), { passive: true });
-  window.addEventListener("mousedown", () => mouseCursorController?.notifyActivity(), { passive: true });
-  window.addEventListener("keydown", () => mouseCursorController?.notifyActivity(), { passive: true });
+  window.addEventListener(
+    "mousemove",
+    () => mouseCursorController?.notifyActivity(),
+    { passive: true },
+  );
+  window.addEventListener(
+    "mousedown",
+    () => mouseCursorController?.notifyActivity(),
+    { passive: true },
+  );
+  window.addEventListener(
+    "keydown",
+    () => mouseCursorController?.notifyActivity(),
+    { passive: true },
+  );
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") mouseCursorController?.sync();
   });
@@ -504,14 +694,22 @@ async function boot(): Promise<void> {
   /** Extension PTY input subscribers — zero-cost when empty. */
   const extPtyInputSubs: Array<(paneId: string, data: string) => void> = [];
   /** Extension process lifecyle subscribers — zero-cost when empty. */
-  const extProcStartSubs: Array<(proc: { paneId: string; command: string; cwd: string }) => void> = [];
-  const extProcEndSubs: Array<(proc: { paneId: string; command: string; durationMs: number }) => void> = [];
+  const extProcStartSubs: Array<
+    (proc: { paneId: string; command: string; cwd: string }) => void
+  > = [];
+  const extProcEndSubs: Array<
+    (proc: { paneId: string; command: string; durationMs: number }) => void
+  > = [];
   /** Extension pane lifecycle subscribers. */
   const extPaneCreatedSubs: Array<(paneId: string) => void> = [];
   const extPaneClosedSubs: Array<(paneId: string) => void> = [];
   const extFocusSubs: Array<(paneId: string) => void> = [];
   /** Extension palette commands. */
-  const extPaletteCommands: Array<{ id: string; label: string; run: () => void }> = [];
+  const extPaletteCommands: Array<{
+    id: string;
+    label: string;
+    run: () => void;
+  }> = [];
 
   const pendingPtyWriteByPane = new Map<string, string>();
   const pendingPtyOutputByPane = new Map<string, PendingPtyOutput>();
@@ -529,6 +727,8 @@ async function boot(): Promise<void> {
     if (pendingPtyWriteByPane.size === 0) return;
     for (const [paneId, data] of pendingPtyWriteByPane) {
       pendingPtyWriteByPane.delete(paneId);
+      parttyPerf.mark("pty.input.flushes");
+      parttyPerf.mark("pty.input.flush.chars", data.length);
       void ptyWrite(paneId, data).catch((e) => console.error("pty_write", e));
     }
   };
@@ -537,6 +737,8 @@ async function boot(): Promise<void> {
     const pending = pendingPtyWriteByPane.get(paneId);
     if (!pending) return;
     pendingPtyWriteByPane.delete(paneId);
+    parttyPerf.mark("pty.input.flush_pane");
+    parttyPerf.mark("pty.input.flush_pane.chars", pending.length);
     void ptyWrite(paneId, pending).catch((e) => console.error("pty_write", e));
   };
 
@@ -546,31 +748,28 @@ async function boot(): Promise<void> {
     return data.length <= 2;
   };
 
-  const queuePtyWrite = (paneId: string, data: string, immediate = false): void => {
+  const queuePtyWrite = (
+    paneId: string,
+    data: string,
+    immediate = false,
+  ): void => {
     if (!data) return;
+    parttyPerf.recordPtyInputBytes(paneId, data.length);
     if (immediate || isLatencySensitiveInput(data)) {
       flushPendingPtyWriteForPane(paneId);
+      parttyPerf.mark("pty.input.immediate.calls");
+      parttyPerf.mark("pty.input.immediate.chars", data.length);
       void ptyWrite(paneId, data).catch((e) => console.error("pty_write", e));
       parttyPerf.mark("pty.input.immediate");
       return;
     }
+    parttyPerf.mark("pty.input.queued.calls");
+    parttyPerf.mark("pty.input.queued.chars", data.length);
     const prior = pendingPtyWriteByPane.get(paneId);
     pendingPtyWriteByPane.set(paneId, prior ? `${prior}${data}` : data);
     if (pendingPtyWriteRaf) return;
     pendingPtyWriteRaf = requestAnimationFrame(flushPendingPtyWrites);
   };
-
-  function createCwdHandler(paneId: string): (p: string) => void {
-    return (p: string): void => {
-      paneCwdHints.set(paneId, p);
-      lastLiveCwdSignalAt = Date.now();
-      fileTreeCoordinator?.seedPaneCwd(paneId, p);
-      if (paneId !== paneHost?.getFocusedPaneId()) return;
-      if (normalizeFsPathKey(p) === normalizeFsPathKey(liveCwd ?? "")) return;
-      liveCwd = p;
-      scheduleFileTreeRefresh();
-    };
-  }
 
   function finishActiveProcess(paneId: string, endedAt: number): void {
     const entry = activeProcesses.get(paneId);
@@ -579,96 +778,56 @@ async function boot(): Promise<void> {
     const durMs = processDurationMs(entry, endedAt);
     if (durMs / 1000 >= processNotificationThresholdRef.v) {
       const paneName = paneNames.get(paneId) || paneId.slice(0, 8);
-      showProcessNotification(command, paneName, entry.cwd, entry.startedAt, paneId, endedAt);
+      showProcessNotification(
+        command,
+        paneName,
+        entry.cwd,
+        entry.startedAt,
+        paneId,
+        endedAt,
+      );
     }
     if (extProcEndSubs.length > 0) {
       const proc = { paneId, command, durationMs: durMs };
       for (const fn of extProcEndSubs) {
-        try { fn(proc); } catch { /* ignore */ }
+        try {
+          fn(proc);
+        } catch {
+          /* ignore */
+        }
       }
     }
     activeProcesses.delete(paneId);
     pendingShellCommandLine.delete(paneId);
   }
 
-  function processPtyOutputBatch(paneId: string, data: string, eventCount: number, queuedAt: number): void {
+  function processPtyOutputBatch(
+    paneId: string,
+    data: string,
+    eventCount: number,
+    queuedAt: number,
+  ): void {
     const pt = getPaneTerminalById(paneId);
     if (!pt) return;
+    parttyPerf.recordPtyOutputBytes(paneId, data.length);
+    parttyPerf.mark("pty.output.flushes");
     parttyPerf.mark("pty.output.events", eventCount);
     parttyPerf.mark("pty.output.chars", data.length);
     parttyPerf.time("pty.output.queue.ms", performance.now() - queuedAt);
 
-    // Hidden-tab panes: skip all processing, just stream to xterm buffer.
-    const inActiveTab = paneHost?.getPaneTerminal(paneId) !== null;
-    if (!inActiveTab) {
-      try { pt.term.write(data); } catch { /* ignore */ }
-      return;
-    }
-
-    // Fast path: no OSC escape in data → no parsing at all.
-    if (!data.includes("\x1b]")) {
-      try { pt.term.write(data); } catch { /* ignore */ }
-      return;
-    }
-
-    const siState = ensureShellState(paneId);
-    const cwdHandler = createCwdHandler(paneId);
-    const parseStarted = performance.now();
-    let si: ReturnType<typeof processShellIntegration>;
-    try {
-      si = processShellIntegration(data, siState, cwdHandler, { commandEvents: true });
-    } catch (err) {
-      console.error("[proc] shell integration parse error", err);
-      try { pt.term.write(data); } catch { /* ignore */ }
-      return;
-    }
-    parttyPerf.time("pty.output.cwd_parse.ms", performance.now() - parseStarted);
-
-    // Process shell integration events for CWD + command tracking
-    for (const evt of si.events) {
-      if (evt.kind === "command-line") {
-        const merged = mergeProcessCommand(pendingShellCommandLine.get(paneId) ?? "", evt.text);
-        if (merged) pendingShellCommandLine.set(paneId, merged);
-        const entry = activeProcesses.get(paneId);
-        if (entry) {
-          applyShellCommandLine(entry, evt.text);
-        }
-      } else if (evt.kind === "pre-exec") {
-        let entry = activeProcesses.get(paneId);
-        if (!entry) {
-          const cmd = pendingShellCommandLine.get(paneId);
-          if (!cmd) continue;
-          entry = createActiveProcessEntry(cmd, paneCwdHints.get(paneId) || "");
-          activeProcesses.set(paneId, entry);
-          if (extProcStartSubs.length > 0) {
-            const start = { paneId, command: displayProcessCommand(entry.command), cwd: entry.cwd };
-            for (const fn of extProcStartSubs) {
-              try { fn(start); } catch { /* ignore */ }
-            }
-          }
-        }
-        markProcessExecStart(entry);
-        pendingShellCommandLine.delete(paneId);
-      } else if (evt.kind === "command-done") {
-        finishActiveProcess(paneId, Date.now());
-      } else if (evt.kind === "prompt-start") {
-        const entry = activeProcesses.get(paneId);
-        if (entry && shouldEndOnPromptStart(entry)) {
-          finishActiveProcess(paneId, Date.now());
-        }
-      }
-    }
-
-    if (fileTreeCoordinator && si.events.length > 0) {
-      fileTreeCoordinator.processShellIntegrationEvents(paneId, si.events);
-    }
-
+    // OSC 7 / 133 / 633 are stripped and forwarded as structured `pty-cwd` /
+    // `pty-shell-event` side-channel events by the Rust emitter.  Write the
+    // pre-cleaned bytes directly — no character-by-character JS parsing needed.
     const writeStarted = performance.now();
     try {
-      pt.term.write(si.cleaned, () => {
-        parttyPerf.time("xterm.write.callback.ms", performance.now() - writeStarted);
+      pt.term.write(data, () => {
+        const elapsed = performance.now() - writeStarted;
+        parttyPerf.time("xterm.write.callback.ms", elapsed);
+        parttyPerf.paneTime(paneId, "xterm.render.ms", elapsed);
       });
-      parttyPerf.time("xterm.write.call.ms", performance.now() - writeStarted);
+      const elapsed = performance.now() - writeStarted;
+      parttyPerf.time("xterm.write.call.ms", elapsed);
+      parttyPerf.paneTime(paneId, "xterm.render.call.ms", elapsed);
     } catch (e) {
       console.warn("xterm.write", e);
     }
@@ -695,11 +854,20 @@ async function boot(): Promise<void> {
     for (const [paneId, batch] of batches) {
       const isFocused = paneId === focusedPaneId;
       const age = now - batch.queuedAt;
-      if (!isFocused && age < PTY_OUTPUT_BACKGROUND_FLUSH_MS && batch.data.length < PTY_OUTPUT_MAX_BATCH_CHARS) {
+      if (
+        !isFocused &&
+        age < PTY_OUTPUT_BACKGROUND_FLUSH_MS &&
+        batch.data.length < PTY_OUTPUT_MAX_BATCH_CHARS
+      ) {
         pendingPtyOutputByPane.set(paneId, batch);
         continue;
       }
-      processPtyOutputBatch(paneId, batch.data, batch.eventCount, batch.queuedAt);
+      processPtyOutputBatch(
+        paneId,
+        batch.data,
+        batch.eventCount,
+        batch.queuedAt,
+      );
     }
     if (pendingPtyOutputByPane.size > 0) schedulePtyOutputFlush();
   }
@@ -709,7 +877,10 @@ async function boot(): Promise<void> {
       pendingPtyOutputRaf = requestAnimationFrame(flushPendingPtyOutputs);
     }
     if (!pendingPtyOutputTimer) {
-      pendingPtyOutputTimer = window.setTimeout(flushPendingPtyOutputs, PTY_OUTPUT_FLUSH_MS);
+      pendingPtyOutputTimer = window.setTimeout(
+        flushPendingPtyOutputs,
+        PTY_OUTPUT_FLUSH_MS,
+      );
     }
   }
 
@@ -720,10 +891,13 @@ async function boot(): Promise<void> {
       !pendingPtyOutputByPane.has(paneId) &&
       paneId === paneHost?.getFocusedPaneId()
     ) {
+      parttyPerf.mark("pty.output.immediate.chars", data.length);
       processPtyOutputBatch(paneId, data, 1, performance.now());
       parttyPerf.mark("pty.output.immediate");
       return;
     }
+    parttyPerf.mark("pty.output.queued.events");
+    parttyPerf.mark("pty.output.queued.chars", data.length);
     const existing = pendingPtyOutputByPane.get(paneId);
     if (existing) {
       existing.data += data;
@@ -763,9 +937,21 @@ async function boot(): Promise<void> {
     const rows = Math.max(1, term.rows);
     const cellW = rect.width / cols;
     const cellH = rect.height / rows;
-    if (!Number.isFinite(cellW) || !Number.isFinite(cellH) || cellW <= 0 || cellH <= 0) return null;
-    const col = Math.max(0, Math.min(cols - 1, Math.floor((ev.clientX - rect.left) / cellW)));
-    const row = Math.max(0, Math.min(rows - 1, Math.floor((ev.clientY - rect.top) / cellH)));
+    if (
+      !Number.isFinite(cellW) ||
+      !Number.isFinite(cellH) ||
+      cellW <= 0 ||
+      cellH <= 0
+    )
+      return null;
+    const col = Math.max(
+      0,
+      Math.min(cols - 1, Math.floor((ev.clientX - rect.left) / cellW)),
+    );
+    const row = Math.max(
+      0,
+      Math.min(rows - 1, Math.floor((ev.clientY - rect.top) / cellH)),
+    );
     return { col, row };
   };
 
@@ -791,7 +977,11 @@ async function boot(): Promise<void> {
     return null;
   };
 
-  const openLinkFromCtrlClick = (term: Terminal, host: HTMLElement, ev: MouseEvent): boolean => {
+  const openLinkFromCtrlClick = (
+    term: Terminal,
+    host: HTMLElement,
+    ev: MouseEvent,
+  ): boolean => {
     if (!(ev.ctrlKey || ev.metaKey) || ev.button !== 0) return false;
     const cell = getTerminalClickCell(term, host, ev);
     if (!cell) return false;
@@ -804,11 +994,17 @@ async function boot(): Promise<void> {
 
     ev.preventDefault();
     ev.stopPropagation();
-    void invoke("open_external_url", { url }).catch((e) => void showAlert(String(e), "Open link"));
+    void invoke("open_external_url", { url }).catch(
+      (e) => void showAlert(String(e), "Open link"),
+    );
     return true;
   };
 
-  const updateCtrlLinkHover = (term: Terminal, host: HTMLElement, ev: MouseEvent): void => {
+  const updateCtrlLinkHover = (
+    term: Terminal,
+    host: HTMLElement,
+    ev: MouseEvent,
+  ): void => {
     if (!(ev.ctrlKey || ev.metaKey)) {
       host.classList.remove("pane-terminal-host--ctrl-link-hover");
       host.removeAttribute("title");
@@ -834,7 +1030,8 @@ async function boot(): Promise<void> {
   };
 
   const isTooltipSuppressed = (): boolean =>
-    disableTooltipsRef.v || document.documentElement.classList.contains("zen-mode");
+    disableTooltipsRef.v ||
+    document.documentElement.classList.contains("zen-mode");
 
   const syncTooltipForElement = (el: HTMLElement, suppress: boolean): void => {
     if (suppress) {
@@ -870,7 +1067,11 @@ async function boot(): Promise<void> {
     tooltipObserver = new MutationObserver((mutations) => {
       const suppress = isTooltipSuppressed();
       for (const m of mutations) {
-        if (m.type === "attributes" && m.target instanceof HTMLElement && m.attributeName === "title") {
+        if (
+          m.type === "attributes" &&
+          m.target instanceof HTMLElement &&
+          m.attributeName === "title"
+        ) {
           syncTooltipForElement(m.target, suppress);
           continue;
         }
@@ -878,9 +1079,9 @@ async function boot(): Promise<void> {
         m.addedNodes.forEach((n) => {
           if (!(n instanceof HTMLElement)) return;
           syncTooltipForElement(n, suppress);
-          n.querySelectorAll<HTMLElement>("[title], [data-partty-tooltip-title]").forEach((el) =>
-            syncTooltipForElement(el, suppress),
-          );
+          n.querySelectorAll<HTMLElement>(
+            "[title], [data-partty-tooltip-title]",
+          ).forEach((el) => syncTooltipForElement(el, suppress));
         });
       }
     });
@@ -894,15 +1095,6 @@ async function boot(): Promise<void> {
 
   ensureTooltipObserver();
   applyTooltipPolicy(document);
-
-  function ensureShellState(paneId: string): ShellIntegrationState {
-    let s = paneShellState.get(paneId);
-    if (!s) {
-      s = createShellIntegrationState();
-      paneShellState.set(paneId, s);
-    }
-    return s;
-  }
 
   function copyToClipboard(text: string): void {
     if (!text) return;
@@ -980,16 +1172,21 @@ async function boot(): Promise<void> {
   }
 
   function focusFileTreePanel(): boolean {
-    if (!document.documentElement.classList.contains("file-tree-on")) return false;
+    if (!document.documentElement.classList.contains("file-tree-on"))
+      return false;
     const dock = document.getElementById("file-tree-dock");
     if (!dock || dock.getAttribute("aria-hidden") === "true") return false;
-    const scroll = document.getElementById("file-tree-scroll") as HTMLElement | null;
+    const scroll = document.getElementById(
+      "file-tree-scroll",
+    ) as HTMLElement | null;
     if (!scroll) return false;
     scroll.focus();
     return true;
   }
 
-  function focusAdjacentPaneByArrow(key: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"): boolean {
+  function focusAdjacentPaneByArrow(
+    key: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown",
+  ): boolean {
     const host = paneHost;
     if (!host) return false;
     const currentId = host.getFocusedPaneId();
@@ -1001,16 +1198,22 @@ async function boot(): Promise<void> {
     return true;
   }
 
-  function swapFocusedPaneWithAdjacent(key: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"): boolean {
+  function swapFocusedPaneWithAdjacent(
+    key: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown",
+  ): boolean {
     const host = paneHost;
     if (!host) return false;
     const currentId = host.getFocusedPaneId();
     if (!currentId) return false;
     const swapped = host.swapPaneWithAdjacent(currentId, key);
     if (swapped) {
-      const motionOn = !document.documentElement.classList.contains("terminal-motion-off")
-        && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      scheduleCursorWarpToPane(currentId, { force: true, delayMs: motionOn ? 480 : 0 });
+      const motionOn =
+        !document.documentElement.classList.contains("terminal-motion-off") &&
+        !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      scheduleCursorWarpToPane(currentId, {
+        force: true,
+        delayMs: motionOn ? 480 : 0,
+      });
     }
     return swapped;
   }
@@ -1026,6 +1229,7 @@ async function boot(): Promise<void> {
     try {
       await ptyKillPane(id);
       host.removePane(id);
+      parttyPerf.resetPane(id);
     } catch (e) {
       console.warn("pty_kill_pane", e);
     }
@@ -1036,6 +1240,7 @@ async function boot(): Promise<void> {
     for (const id of removed) {
       try {
         await ptyKillPane(id);
+        parttyPerf.resetPane(id);
       } catch (e) {
         console.warn("pty_kill_pane", e);
       }
@@ -1052,6 +1257,7 @@ async function boot(): Promise<void> {
   function disposeWebglForPane(paneId: string): void {
     const state = paneWebglStates.get(paneId);
     if (!state) return;
+    const started = performance.now();
     state.status = "disposed";
     try {
       state.contextLossDispose?.dispose();
@@ -1065,11 +1271,13 @@ async function boot(): Promise<void> {
     }
     paneWebglStates.delete(paneId);
     parttyPerf.mark("webgl.dispose");
+    parttyPerf.time("webgl.dispose.ms", performance.now() - started);
     updateWebglPerfGauges();
   }
 
   function shedWebgl(): void {
-    for (const paneId of [...paneWebglStates.keys()]) disposeWebglForPane(paneId);
+    for (const paneId of [...paneWebglStates.keys()])
+      disposeWebglForPane(paneId);
   }
 
   function updateWebglPerfGauges(): void {
@@ -1087,12 +1295,17 @@ async function boot(): Promise<void> {
   }
 
   async function ensureWebglOnPane(paneId: string): Promise<void> {
-    if (!lp.preload_webgl_on_startup && document.visibilityState === "hidden") return;
+    if (!lp.preload_webgl_on_startup && document.visibilityState === "hidden")
+      return;
     const pt = paneHost?.getPaneTerminal(paneId);
     if (!pt) return;
     const existing = paneWebglStates.get(paneId);
     if (existing?.status === "ready" || existing?.status === "pending") return;
-    if (existing?.status === "failed" && existing.lastFailureAt && Date.now() - existing.lastFailureAt < 10_000) {
+    if (
+      existing?.status === "failed" &&
+      existing.lastFailureAt &&
+      Date.now() - existing.lastFailureAt < 10_000
+    ) {
       return;
     }
 
@@ -1108,7 +1321,8 @@ async function boot(): Promise<void> {
 
     const delays = [0, 50, 120, 240];
     for (let i = 0; i < delays.length; i++) {
-      if (delays[i] > 0) await new Promise<void>((r) => setTimeout(r, delays[i]));
+      if (delays[i] > 0)
+        await new Promise<void>((r) => setTimeout(r, delays[i]));
       if (paneWebglStates.get(paneId)?.generation !== generation) return;
       const started = performance.now();
       try {
@@ -1174,7 +1388,10 @@ async function boot(): Promise<void> {
     return (active.getLine(0)?.translateToString(false).trim() ?? "") === "";
   }
 
-  async function replayBackendSnapshotOnce(paneId: string, pt: PaneTerminal): Promise<void> {
+  async function replayBackendSnapshotOnce(
+    paneId: string,
+    pt: PaneTerminal,
+  ): Promise<void> {
     if (backendReplayRestoredPanes.has(paneId)) return;
     backendReplayRestoredPanes.add(paneId);
     if (!isTerminalVisiblyEmpty(pt.term)) return;
@@ -1231,7 +1448,10 @@ async function boot(): Promise<void> {
     ev.preventDefault();
     ev.stopPropagation();
     const direction = ev.deltaY < 0 ? 1 : -1;
-    pendingZoomByPane.set(paneId, (pendingZoomByPane.get(paneId) ?? 0) + direction);
+    pendingZoomByPane.set(
+      paneId,
+      (pendingZoomByPane.get(paneId) ?? 0) + direction,
+    );
     if (!zoomRaf) zoomRaf = requestAnimationFrame(flushPendingPaneZoom);
   }
 
@@ -1247,16 +1467,19 @@ async function boot(): Promise<void> {
       focused: () => paneHost?.getFocusedPaneDescriptor() ?? null,
       metrics: (paneId?: string) => {
         const id = paneId || paneHost?.getFocusedPaneId();
-        return id ? paneHost?.getPaneDescriptor(id, true) ?? null : null;
+        return id ? (paneHost?.getPaneDescriptor(id, true) ?? null) : null;
       },
       focus: (paneId: string) => paneHost?.setFocusedPaneId(paneId),
       rename: (paneId: string, name: string) => {
-        const trimmed = String(name ?? "").trim().replace(/\s+/g, "_");
+        const trimmed = String(name ?? "")
+          .trim()
+          .replace(/\s+/g, "_");
         if (trimmed) paneNames.set(paneId, trimmed);
         else paneNames.delete(paneId);
         persistCurrentWorkspaceTabLayout();
       },
-      zoom: (paneId: string, delta: number) => zoomPaneTerminal(paneId, Number(delta) || 0),
+      zoom: (paneId: string, delta: number) =>
+        zoomPaneTerminal(paneId, Number(delta) || 0),
     };
   }
 
@@ -1279,7 +1502,10 @@ async function boot(): Promise<void> {
         !e.shiftKey &&
         !e.altKey &&
         !e.metaKey &&
-        (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown")
+        (e.key === "ArrowLeft" ||
+          e.key === "ArrowRight" ||
+          e.key === "ArrowUp" ||
+          e.key === "ArrowDown")
       ) {
         if (focusAdjacentPaneByArrow(e.key)) {
           e.preventDefault();
@@ -1405,7 +1631,10 @@ async function boot(): Promise<void> {
         e.shiftKey &&
         !e.altKey &&
         !e.metaKey &&
-        (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "ArrowUp" || e.key === "ArrowDown")
+        (e.key === "ArrowLeft" ||
+          e.key === "ArrowRight" ||
+          e.key === "ArrowUp" ||
+          e.key === "ArrowDown")
       ) {
         e.preventDefault();
         return swapFocusedPaneWithAdjacent(e.key);
@@ -1451,7 +1680,10 @@ async function boot(): Promise<void> {
       host.remountPaneSurfaces();
       host.forEachPane((id, pt) => {
         const th = xtermThemeForPane(id);
-        pt.term.options.theme = { ...th, cursorAccent: th.background ?? TERM_BG_FALLBACK };
+        pt.term.options.theme = {
+          ...th,
+          cursorAccent: th.background ?? TERM_BG_FALLBACK,
+        };
         pt.term.refresh(0, pt.term.rows - 1);
       });
     }
@@ -1464,7 +1696,10 @@ async function boot(): Promise<void> {
     const pt = paneHost?.getPaneTerminal(paneId);
     if (pt) {
       const th = xtermThemeForPane(paneId);
-      pt.term.options.theme = { ...th, cursorAccent: th.background ?? TERM_BG_FALLBACK };
+      pt.term.options.theme = {
+        ...th,
+        cursorAccent: th.background ?? TERM_BG_FALLBACK,
+      };
       pt.term.refresh(0, pt.term.rows - 1);
     }
   }
@@ -1476,7 +1711,10 @@ async function boot(): Promise<void> {
   let pendingSuspendedLayout = false;
 
   function runLayoutPassForHost(host: PaneHost, forceRefresh = false): void {
+    const passStarted = performance.now();
+    let paneCount = 0;
     host.forEachPane((paneId, pt) => {
+      paneCount++;
       const fitStarted = performance.now();
       pt.fit.fit();
       parttyPerf.time("layout.fit.ms", performance.now() - fitStarted);
@@ -1491,15 +1729,20 @@ async function boot(): Promise<void> {
       }
       lastPtyDims.set(paneId, safe);
       parttyPerf.mark("layout.pty_resize");
+      parttyPerf.time("layout.pty_resize.invoke.ms", performance.now() - fitStarted);
       void ptyResize(paneId, safe.cols, safe.rows)
         .then(() => {
           pt.term.refresh(0, pt.term.rows - 1);
         })
         .catch((e) => console.warn("pty_resize", e));
     });
+    parttyPerf.mark("layout.pass");
+    parttyPerf.gauge("layout.pass.panes", paneCount);
+    parttyPerf.time("layout.pass.ms", performance.now() - passStarted);
   }
 
   function runLayoutPass(forceRefresh = false): void {
+    parttyPerf.mark(forceRefresh || layoutForceRefresh ? "layout.pass.force" : "layout.pass.normal");
     layoutRaf = 0;
     const shouldForceRefresh = forceRefresh || layoutForceRefresh;
     layoutForceRefresh = false;
@@ -1509,6 +1752,7 @@ async function boot(): Promise<void> {
 
   /** PTY + xterm stay aligned after pane/window refocus (TUIs need SIGWINCH-sized PTY + refresh). */
   function reflowAllPanes(): void {
+    parttyPerf.mark("layout.reflow_all");
     lastPtyDims.clear();
     scheduleResizeImmediate(true);
   }
@@ -1562,7 +1806,8 @@ async function boot(): Promise<void> {
       const p = await ptyShellCwd(paneId);
       if (p == null || !p.trim()) return;
       const next = p.trim();
-      if (normalizeFsPathKey(next) === normalizeFsPathKey(liveCwd ?? "")) return;
+      if (normalizeFsPathKey(next) === normalizeFsPathKey(liveCwd ?? ""))
+        return;
       liveCwd = next;
       scheduleFileTreeRefresh();
     } catch {
@@ -1572,9 +1817,10 @@ async function boot(): Promise<void> {
 
   async function setDeleteConfirmPrompt(enabled: boolean): Promise<void> {
     try {
-      const state = await invoke<{ window: Record<string, unknown>; prefs: ParttyPrefs }>(
-        "get_persisted_state",
-      );
+      const state = await invoke<{
+        window: Record<string, unknown>;
+        prefs: ParttyPrefs;
+      }>("get_persisted_state");
       const next = { ...state.prefs, confirm_delete_prompt: enabled };
       await invoke("set_prefs", { prefs: next });
       confirmDeletePromptRef.v = enabled;
@@ -1615,7 +1861,9 @@ async function boot(): Promise<void> {
 
   function toggleFileTree(): void {
     if (fileTreeDisabledRef.v) return;
-    setFileTreeEnabled(!document.documentElement.classList.contains("file-tree-on"));
+    setFileTreeEnabled(
+      !document.documentElement.classList.contains("file-tree-on"),
+    );
   }
 
   function focusFileTreeFilter(): boolean {
@@ -1688,14 +1936,21 @@ async function boot(): Promise<void> {
   function setTerminalLayoutSuspended(suspended: boolean): void {
     if (terminalLayoutSuspended === suspended) return;
     terminalLayoutSuspended = suspended;
-    document.documentElement.classList.toggle("terminal-layout-suspended", suspended);
+    document.documentElement.classList.toggle(
+      "terminal-layout-suspended",
+      suspended,
+    );
     if (!suspended && pendingSuspendedLayout) {
       pendingSuspendedLayout = false;
       scheduleResizeImmediate(true);
     }
   }
 
-  async function ensurePtyForPane(paneId: string, ptIn?: PaneTerminal, initialCwd?: string | null): Promise<void> {
+  async function ensurePtyForPane(
+    paneId: string,
+    ptIn?: PaneTerminal,
+    initialCwd?: string | null,
+  ): Promise<void> {
     const pt = ptIn ?? paneHost?.getPaneTerminal(paneId);
     if (!pt) return;
     const effectiveCwd = initialCwd ?? paneCwdHints.get(paneId) ?? null;
@@ -1734,8 +1989,13 @@ async function boot(): Promise<void> {
         return;
       } catch (e) {
         lastErr = e;
+        parttyPerf.mark("pty.ensure.failure");
         const msg = String(e).toLowerCase();
-        if (/not found|cannot find|does not exist|no such file|access denied|permission denied|invalid/i.test(msg)) {
+        if (
+          /not found|cannot find|does not exist|no such file|access denied|permission denied|invalid/i.test(
+            msg,
+          )
+        ) {
           break;
         }
       }
@@ -1745,7 +2005,9 @@ async function boot(): Promise<void> {
     parttyPerf.mark("pty.ensure.failure");
     parttyPerf.time("pty.ensure.ms", performance.now() - ensureStarted);
     try {
-      pt.term.write(`\r\n\x1b[31mShell failed after retries.\x1b[0m \x1b[90m${msg}\x1b[0m\r\n`);
+      pt.term.write(
+        `\r\n\x1b[31mShell failed after retries.\x1b[0m \x1b[90m${msg}\x1b[0m\r\n`,
+      );
     } catch {
       /* ignore */
     }
@@ -1768,7 +2030,10 @@ async function boot(): Promise<void> {
           const max = vp.scrollHeight - vp.clientHeight;
           const t = max > 0 ? vp.scrollTop / max : 0;
           const intensity = Math.max(0.22, 0.88 - t * 0.66);
-          bridge.style.setProperty("--terminal-bridge-intensity", intensity.toFixed(3));
+          bridge.style.setProperty(
+            "--terminal-bridge-intensity",
+            intensity.toFixed(3),
+          );
         };
         vp.addEventListener("scroll", onScroll, { passive: true });
         bridgeScrollCleanup = () => vp.removeEventListener("scroll", onScroll);
@@ -1781,7 +2046,9 @@ async function boot(): Promise<void> {
 
   let tabsState: TabsStateV1 = loadTabsState();
   let activeWorkspaceTabId =
-    tabsState.tabs.find((t) => t.id === tabsState.activeTabId)?.id ?? tabsState.tabs[0]?.id ?? "tab-1";
+    tabsState.tabs.find((t) => t.id === tabsState.activeTabId)?.id ??
+    tabsState.tabs[0]?.id ??
+    "tab-1";
   tabsState = { ...tabsState, activeTabId: activeWorkspaceTabId };
   saveTabsState(tabsState);
   /** One pane host per workspace tab so shells + scrollback survive tab switches. */
@@ -1799,7 +2066,10 @@ async function boot(): Promise<void> {
 
   let cursorWarpReady = false;
 
-  function scheduleCursorWarpToPane(paneId?: string, opts: CursorWarpOptions = {}): void {
+  function scheduleCursorWarpToPane(
+    paneId?: string,
+    opts: CursorWarpOptions = {},
+  ): void {
     if (!cursorWarpReady) return;
     if (!opts.bypassPanePref && !cursorFollowPaneFocusRef.v) return;
     if (!opts.force && focusFollowsRef.v) return;
@@ -1825,11 +2095,15 @@ async function boot(): Promise<void> {
       if (!host) return;
       const el = host
         .getHostRoot()
-        .querySelector(`.pane-leaf[data-pane-id="${CSS.escape(id)}"]`) as HTMLElement | null;
+        .querySelector(
+          `.pane-leaf[data-pane-id="${CSS.escape(id)}"]`,
+        ) as HTMLElement | null;
       const rect = el?.getBoundingClientRect();
       const cx = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
       const cy = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
-      await appWindow.setCursorPosition(new LogicalPosition(Math.round(cx), Math.round(cy)));
+      await appWindow.setCursorPosition(
+        new LogicalPosition(Math.round(cx), Math.round(cy)),
+      );
       if (host === paneHost) {
         getFocusedTerm()?.focus();
       } else {
@@ -1842,7 +2116,9 @@ async function boot(): Promise<void> {
 
   function xtermThemeForPane(paneId: string) {
     const paneTheme = paneThemes.get(paneId);
-    return paneTheme ? buildXtermThemeFromPrefs(paneTheme) : buildXtermThemeFromDocument();
+    return paneTheme
+      ? buildXtermThemeFromPrefs(paneTheme)
+      : buildXtermThemeFromDocument();
   }
 
   function cssVarsForPane(paneId: string): Record<string, string> | null {
@@ -1850,271 +2126,323 @@ async function boot(): Promise<void> {
     return paneTheme ? themeCssVarsForPrefs(paneTheme) : null;
   }
 
-  function createPaneHost(container: HTMLElement, init: PaneHostInit | undefined, rootPaneId: string): PaneHost {
+  function createPaneHost(
+    container: HTMLElement,
+    init: PaneHostInit | undefined,
+    rootPaneId: string,
+  ): PaneHost {
     return new PaneHost(
       container,
       {
-      rootPaneId,
-      scrollbackLines: lp.scrollback_lines,
-      fontStack: terminalFontStackFromDocument(),
-      cursorStyle: cursorStyleRef.v,
-      cursorBlink: cursorBlinkRef.v,
-      cursorInactiveStyle: cursorInactiveStyleRef.v,
-      cursorWidth: cursorWidthRef.v,
-      altClickMovesCursor: altClickCursorRef.v,
-      fontSize: fontSizeRef.v,
-      fontWeight: fontWeightRef.v,
-      fontWeightBold: fontWeightBoldRef.v,
-      lineHeight: lineHeightRef.v,
-      letterSpacing: letterSpacingRef.v,
-      drawBoldTextInBrightColors: drawBoldBrightRef.v,
-      customGlyphs: customGlyphsRef.v,
-      smoothScrollDuration: smoothScrollRef.v,
-      scrollSensitivity: scrollSensitivityRef.v,
-      fastScrollSensitivity: fastScrollSensitivityRef.v,
-            minimumContrastRatio: contrastRatioRef.v,
+        rootPaneId,
+        scrollbackLines: lp.scrollback_lines,
+        fontStack: terminalFontStackFromDocument(),
+        cursorStyle: cursorStyleRef.v,
+        cursorBlink: cursorBlinkRef.v,
+        cursorInactiveStyle: cursorInactiveStyleRef.v,
+        cursorWidth: cursorWidthRef.v,
+        altClickMovesCursor: altClickCursorRef.v,
+        fontSize: fontSizeRef.v,
+        fontWeight: fontWeightRef.v,
+        fontWeightBold: fontWeightBoldRef.v,
+        lineHeight: lineHeightRef.v,
+        letterSpacing: letterSpacingRef.v,
+        drawBoldTextInBrightColors: drawBoldBrightRef.v,
+        customGlyphs: customGlyphsRef.v,
+        smoothScrollDuration: smoothScrollRef.v,
+        scrollSensitivity: scrollSensitivityRef.v,
+        fastScrollSensitivity: fastScrollSensitivityRef.v,
+        minimumContrastRatio: contrastRatioRef.v,
 
-
-      linkHandler: {
-        activate: (_event, uri) => {
-          if (uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("mailto:")) {
-            void invoke("open_external_url", { url: uri }).catch((e) => void showAlert(String(e), "Open link"));
+        linkHandler: {
+          activate: (_event, uri) => {
+            if (
+              uri.startsWith("http://") ||
+              uri.startsWith("https://") ||
+              uri.startsWith("mailto:")
+            ) {
+              void invoke("open_external_url", { url: uri }).catch(
+                (e) => void showAlert(String(e), "Open link"),
+              );
+            }
+          },
+        },
+        getTheme: (paneId) => xtermThemeForPane(paneId),
+        getPaneName: (paneId) => paneNames.get(paneId),
+        getPaneCssVars: (paneId) => cssVarsForPane(paneId),
+        getSplitLayoutStyle: () => splitLayoutStyleRef.v,
+        focusFollowsCursor: () => focusFollowsRef.v,
+        onPaneFocus: (id) => {
+          lastFocusedPaneId = id;
+          if (paneRenamePanel?.isOpen())
+            paneRenamePanel.setPane(id, paneNames.get(id) ?? "");
+          const pt = paneHost?.getPaneTerminal(id);
+          if (pt) {
+            lastPtyDims.delete(id);
+            requestAnimationFrame(() => {
+              pt.fit.fit();
+              scheduleResizeImmediate(true);
+            });
+            pt.term.focus();
+          }
+          void ptyFocusPane(id).catch(() => {});
+          fileTreePanel?.setActivePane(id);
+          if (fileTreeCoordinator) {
+            fileTreeCoordinator.seedPaneCwd(id, paneCwdHints.get(id));
+            fileTreeCoordinator.handlePaneFocus(id);
+          } else {
+            const hint = paneCwdHints.get(id);
+            if (hint) {
+              liveCwd = hint;
+              scheduleFileTreeRefresh();
+            }
+          }
+          void syncCwdFromBackend();
+          void remountAuxiliaryForFocus(id);
+          try {
+            scheduleCursorWarpToPane(id);
+          } catch {
+            /* ignore */
+          }
+          // Notify extension subscribers.
+          if (extFocusSubs.length > 0) {
+            for (const fn of extFocusSubs) {
+              try {
+                fn(id);
+              } catch {
+                /* ignore */
+              }
+            }
           }
         },
-      },
-      getTheme: (paneId) => xtermThemeForPane(paneId),
-      getPaneName: (paneId) => paneNames.get(paneId),
-      getPaneCssVars: (paneId) => cssVarsForPane(paneId),
-      getSplitLayoutStyle: () => splitLayoutStyleRef.v,
-      focusFollowsCursor: () => focusFollowsRef.v,
-      onPaneFocus: (id) => {
-        lastFocusedPaneId = id;
-        if (paneRenamePanel?.isOpen()) paneRenamePanel.setPane(id, paneNames.get(id) ?? "");
-        const pt = paneHost?.getPaneTerminal(id);
-        if (pt) {
-          lastPtyDims.delete(id);
-          requestAnimationFrame(() => {
-            pt.fit.fit();
-            scheduleResizeImmediate(true);
-          });
-          pt.term.focus();
-        }
-        void ptyFocusPane(id).catch(() => {});
-        fileTreePanel?.setActivePane(id);
-        if (fileTreeCoordinator) {
-          fileTreeCoordinator.seedPaneCwd(id, paneCwdHints.get(id));
-          fileTreeCoordinator.handlePaneFocus(id);
-        } else {
-          const hint = paneCwdHints.get(id);
-          if (hint) {
-            liveCwd = hint;
-            scheduleFileTreeRefresh();
-          }
-        }
-        void syncCwdFromBackend();
-        void remountAuxiliaryForFocus(id);
-        try {
-          scheduleCursorWarpToPane(id);
-        } catch {
-          /* ignore */
-        }
-        // Notify extension subscribers.
-        if (extFocusSubs.length > 0) {
-          for (const fn of extFocusSubs) {
-            try { fn(id); } catch { /* ignore */ }
-          }
-        }
-      },
-      onPaneCreated: (id, pt) => {
-        attachTermKeyHandler(pt.term, id);
-        pt.term.onData((data) => {
-          queuePtyWrite(id, data);
-          // Observe input keystrokes for process tracking (command start detection).
-          // Mirrors the old CommandHistoryStore.observeInput approach: parse raw
-          // keystrokes, strip ANSI/OSC sequences, handle editing keystrokes.
-          {
-            let buf = processInputBuffers.get(id) ?? "";
-            let i = 0;
-            while (i < data.length) {
-              const ch = data[i];
-              const code = ch.charCodeAt(0);
+        onPaneCreated: (id, pt) => {
+          attachTermKeyHandler(pt.term, id);
+          pt.term.onData((data) => {
+            queuePtyWrite(id, data);
+            // Observe input keystrokes for process tracking (command start detection).
+            // Mirrors the old CommandHistoryStore.observeInput approach: parse raw
+            // keystrokes, strip ANSI/OSC sequences, handle editing keystrokes.
+            {
+              let buf = processInputBuffers.get(id) ?? "";
+              let i = 0;
+              while (i < data.length) {
+                const ch = data[i];
+                const code = ch.charCodeAt(0);
 
-              // Skip ANSI escape / CSI / OSC sequences entirely.
-              if (ch === "\x1b") {
-                if (data[i + 1] === "]") {
-                  // OSC: \x1b] ... BEL or ST
-                  const end = data.indexOf("\x07", i + 2);
-                  const st = data.indexOf("\x1b\\", i + 2);
-                  let n = end === -1 ? st : st === -1 ? end : Math.min(end, st);
-                  i = n === -1 ? data.length : n + (data[n] === "\x1b" ? 2 : 1);
+                // Skip ANSI escape / CSI / OSC sequences entirely.
+                if (ch === "\x1b") {
+                  if (data[i + 1] === "]") {
+                    // OSC: \x1b] ... BEL or ST
+                    const end = data.indexOf("\x07", i + 2);
+                    const st = data.indexOf("\x1b\\", i + 2);
+                    let n =
+                      end === -1 ? st : st === -1 ? end : Math.min(end, st);
+                    i =
+                      n === -1 ? data.length : n + (data[n] === "\x1b" ? 2 : 1);
+                    continue;
+                  }
+                  if (data[i + 1] === "[") {
+                    // CSI: \x1b[ ... final byte @–~
+                    let j = i + 2;
+                    while (j < data.length && data.charCodeAt(j) < 0x40) j++;
+                    i = j < data.length ? j + 1 : data.length;
+                    continue;
+                  }
+                  if (
+                    data[i + 1] === "P" ||
+                    data[i + 1] === "_" ||
+                    data[i + 1] === "^" ||
+                    data[i + 1] === "X"
+                  ) {
+                    // DCS / APC / PM / SOS terminated by ST
+                    const st = data.indexOf("\x1b\\", i + 2);
+                    i = st === -1 ? data.length : st + 2;
+                    continue;
+                  }
+                  // Other escape (e.g. \x1bO for SS3 sequences): skip 2 chars
+                  i += 2;
                   continue;
                 }
-                if (data[i + 1] === "[") {
-                  // CSI: \x1b[ ... final byte @–~
-                  let j = i + 2;
-                  while (j < data.length && data.charCodeAt(j) < 0x40) j++;
-                  i = j < data.length ? j + 1 : data.length;
-                  continue;
-                }
-                if (data[i + 1] === "P" || data[i + 1] === "_" || data[i + 1] === "^" || data[i + 1] === "X") {
-                  // DCS / APC / PM / SOS terminated by ST
-                  const st = data.indexOf("\x1b\\", i + 2);
-                  i = st === -1 ? data.length : st + 2;
-                  continue;
-                }
-                // Other escape (e.g. \x1bO for SS3 sequences): skip 2 chars
-                i += 2;
-                continue;
-              }
 
-              // Enter — finalize the command.
-              if (ch === "\r" || ch === "\n") {
-                const cmd = normalizeCommandLine(buf);
-                if (cmd) {
-                  // Only start tracking if no process is already active for this pane.
-                  // This prevents Enter keystrokes inside a TUI (nvim, htop, etc.) from
-                  // overwriting the command that originally started the process.
-                  if (!activeProcesses.has(id)) {
-                    const proc = createActiveProcessEntry(cmd, paneCwdHints.get(id) || "");
-                    activeProcesses.set(id, proc);
-                    // Notify extension subscribers.
-                    if (extProcStartSubs.length > 0) {
-                      const start = { paneId: id, command: displayProcessCommand(cmd), cwd: proc.cwd };
-                      for (const fn of extProcStartSubs) {
-                        try { fn(start); } catch { /* ignore */ }
+                // Enter — finalize the command.
+                if (ch === "\r" || ch === "\n") {
+                  const cmd = normalizeCommandLine(buf);
+                  if (cmd) {
+                    // Only start tracking if no process is already active for this pane.
+                    // This prevents Enter keystrokes inside a TUI (nvim, htop, etc.) from
+                    // overwriting the command that originally started the process.
+                    if (!activeProcesses.has(id)) {
+                      const proc = createActiveProcessEntry(
+                        cmd,
+                        paneCwdHints.get(id) || "",
+                      );
+                      activeProcesses.set(id, proc);
+                      // Notify extension subscribers.
+                      if (extProcStartSubs.length > 0) {
+                        const start = {
+                          paneId: id,
+                          command: displayProcessCommand(cmd),
+                          cwd: proc.cwd,
+                        };
+                        for (const fn of extProcStartSubs) {
+                          try {
+                            fn(start);
+                          } catch {
+                            /* ignore */
+                          }
+                        }
                       }
                     }
                   }
+                  buf = "";
+                  i++;
+                  continue;
                 }
-                buf = "";
-                i++;
-                continue;
-              }
 
-              // Backspace (BS or DEL).
-              if (ch === "\b" || code === 0x7f) {
-                buf = buf.slice(0, -1);
-                i++;
-                continue;
-              }
+                // Backspace (BS or DEL).
+                if (ch === "\b" || code === 0x7f) {
+                  buf = buf.slice(0, -1);
+                  i++;
+                  continue;
+                }
 
-              // Ctrl+W  or  Ctrl+Backspace → delete last word.
-              if (code === 0x17 || ch === "\x1b\x7f" || ch === "\x1b\x08") {
-                buf = buf.replace(/\S+\s*$/, "").trimEnd();
-                i++;
-                continue;
-              }
+                // Ctrl+W  or  Ctrl+Backspace → delete last word.
+                if (code === 0x17 || ch === "\x1b\x7f" || ch === "\x1b\x08") {
+                  buf = buf.replace(/\S+\s*$/, "").trimEnd();
+                  i++;
+                  continue;
+                }
 
-              // Ctrl+U → clear line.
-              if (code === 0x15) {
-                buf = "";
-                i++;
-                continue;
-              }
+                // Ctrl+U → clear line.
+                if (code === 0x15) {
+                  buf = "";
+                  i++;
+                  continue;
+                }
 
-              // Printable character or tab.
-              if ((code >= 0x20 && code !== 0x7f) || code === 0x09) {
-                buf += ch;
-                i++;
-                continue;
-              }
+                // Printable character or tab.
+                if ((code >= 0x20 && code !== 0x7f) || code === 0x09) {
+                  buf += ch;
+                  i++;
+                  continue;
+                }
 
-              // Unknown control char — skip.
-              i++;
+                // Unknown control char — skip.
+                i++;
+              }
+              processInputBuffers.set(id, buf);
             }
-            processInputBuffers.set(id, buf);
-          }
-          // Notify extension PTY input subscribers (zero-cost when empty).
-          if (extPtyInputSubs.length > 0) {
-            for (const fn of extPtyInputSubs) {
-              try { fn(id, data); } catch { /* ignore */ }
+            // Notify extension PTY input subscribers (zero-cost when empty).
+            if (extPtyInputSubs.length > 0) {
+              for (const fn of extPtyInputSubs) {
+                try {
+                  fn(id, data);
+                } catch {
+                  /* ignore */
+                }
+              }
+            }
+            if (data.includes("\r") || data.includes("\n")) {
+              scheduleCwdSync();
+            }
+          });
+          const onHostClick = (ev: MouseEvent) => {
+            if (openLinkFromCtrlClick(pt.term, pt.host, ev)) return;
+          };
+          const onHostWheel = (ev: WheelEvent) => handlePaneZoomWheel(id, ev);
+          const onHostMouseMove = (ev: MouseEvent) => {
+            updateCtrlLinkHover(pt.term, pt.host, ev);
+          };
+          const onHostMouseLeave = () => {
+            pt.host.classList.remove("pane-terminal-host--ctrl-link-hover");
+            pt.host.removeAttribute("title");
+          };
+          pt.host.addEventListener("click", onHostClick);
+          pt.host.addEventListener("wheel", onHostWheel, { passive: false });
+          pt.host.addEventListener("mousemove", onHostMouseMove);
+          pt.host.addEventListener("mouseleave", onHostMouseLeave);
+          const onSelDispose = pt.term.onSelectionChange(() => {
+            if (!autoCopySelectionRef.v || !pt.term.hasSelection()) return;
+            copyToClipboard(pt.term.getSelection());
+          });
+
+          // Register cleanup for pane teardown.
+          paneHostCleanups.set(id, [
+            () => pt.host.removeEventListener("click", onHostClick),
+            () => pt.host.removeEventListener("wheel", onHostWheel),
+            () => pt.host.removeEventListener("mousemove", onHostMouseMove),
+            () => pt.host.removeEventListener("mouseleave", onHostMouseLeave),
+            () => onSelDispose.dispose(),
+          ]);
+          if (lp.preload_webgl_on_startup) void ensureWebglOnPane(id);
+          const explicitCwd =
+            pendingPaneSpawnCwd.get(id) ?? pendingNewPaneCwd.v;
+          pendingPaneSpawnCwd.delete(id);
+          pendingNewPaneCwd.v = null;
+          const inheritedCwd = explicitCwd ?? paneCwdHints.get(id) ?? null;
+          if (inheritedCwd) paneCwdHints.set(id, inheritedCwd);
+          queueMicrotask(() => {
+            void ensurePtyForPane(id, pt, inheritedCwd);
+          });
+          scheduleCreationReflow(id);
+          const paneResizeObs = new ResizeObserver(() => {
+            if (terminalLayoutSuspended) return;
+            if (pt.host.clientWidth < 2 || pt.host.clientHeight < 2) return;
+            lastPtyDims.delete(id);
+            pt.fit.fit();
+            if (getPaneHostByPaneId(id) === paneHost) scheduleResizeImmediate();
+          });
+          paneResizeObs.observe(pt.host);
+          const priorCleanups = paneHostCleanups.get(id) ?? [];
+          paneHostCleanups.set(id, [
+            ...priorCleanups,
+            () => paneResizeObs.disconnect(),
+          ]);
+          // Notify extension subscribers.
+          if (extPaneCreatedSubs.length > 0) {
+            for (const fn of extPaneCreatedSubs) {
+              try {
+                fn(id);
+              } catch {
+                /* ignore */
+              }
             }
           }
-          if (data.includes("\r") || data.includes("\n")) {
-            scheduleCwdSync();
+        },
+        onPaneDisposed: (pid) => {
+          void ptyKillPane(pid).catch(() => {});
+          paneNames.delete(pid);
+          paneThemes.delete(pid);
+          cleanupPaneVisualState(pid);
+          fileTreePanel?.clearPaneState(pid);
+          fileTreeCoordinator?.handlePaneDispose(pid);
+          // Notify extension subscribers.
+          if (extPaneClosedSubs.length > 0) {
+            for (const fn of extPaneClosedSubs) {
+              try {
+                fn(pid);
+              } catch {
+                /* ignore */
+              }
+            }
           }
-        });
-        const onHostClick = (ev: MouseEvent) => {
-          if (openLinkFromCtrlClick(pt.term, pt.host, ev)) return;
-        };
-        const onHostWheel = (ev: WheelEvent) => handlePaneZoomWheel(id, ev);
-        const onHostMouseMove = (ev: MouseEvent) => {
-          updateCtrlLinkHover(pt.term, pt.host, ev);
-        };
-        const onHostMouseLeave = () => {
-          pt.host.classList.remove("pane-terminal-host--ctrl-link-hover");
-          pt.host.removeAttribute("title");
-        };
-        pt.host.addEventListener("click", onHostClick);
-        pt.host.addEventListener("wheel", onHostWheel, { passive: false });
-        pt.host.addEventListener("mousemove", onHostMouseMove);
-        pt.host.addEventListener("mouseleave", onHostMouseLeave);
-        const onSelDispose = pt.term.onSelectionChange(() => {
-          if (!autoCopySelectionRef.v || !pt.term.hasSelection()) return;
-          copyToClipboard(pt.term.getSelection());
-        });
-
-        // Register cleanup for pane teardown.
-        paneHostCleanups.set(id, [
-          () => pt.host.removeEventListener("click", onHostClick),
-          () => pt.host.removeEventListener("wheel", onHostWheel),
-          () => pt.host.removeEventListener("mousemove", onHostMouseMove),
-          () => pt.host.removeEventListener("mouseleave", onHostMouseLeave),
-          () => onSelDispose.dispose(),
-        ]);
-        if (lp.preload_webgl_on_startup) void ensureWebglOnPane(id);
-        const explicitCwd = pendingPaneSpawnCwd.get(id) ?? pendingNewPaneCwd.v;
-        pendingPaneSpawnCwd.delete(id);
-        pendingNewPaneCwd.v = null;
-        const inheritedCwd = explicitCwd ?? paneCwdHints.get(id) ?? null;
-        if (inheritedCwd) paneCwdHints.set(id, inheritedCwd);
-        queueMicrotask(() => {
-          void ensurePtyForPane(id, pt, inheritedCwd);
-        });
-        scheduleCreationReflow(id);
-        const paneResizeObs = new ResizeObserver(() => {
-          if (terminalLayoutSuspended) return;
-          if (pt.host.clientWidth < 2 || pt.host.clientHeight < 2) return;
-          lastPtyDims.delete(id);
-          pt.fit.fit();
-          if (getPaneHostByPaneId(id) === paneHost) scheduleResizeImmediate();
-        });
-        paneResizeObs.observe(pt.host);
-        const priorCleanups = paneHostCleanups.get(id) ?? [];
-        paneHostCleanups.set(id, [...priorCleanups, () => paneResizeObs.disconnect()]);
-        // Notify extension subscribers.
-        if (extPaneCreatedSubs.length > 0) {
-          for (const fn of extPaneCreatedSubs) {
-            try { fn(id); } catch { /* ignore */ }
-          }
-        }
+        },
+        onPaneLayout: () => scheduleResizeImmediate(),
+        onPaneLayoutDrag: (dragging) => {
+          setTerminalLayoutSuspended(dragging);
+          mouseCursorDragRef.suppress?.(dragging);
+        },
+        onPaneReorder: () => persistCurrentWorkspaceTabLayout(),
       },
-      onPaneDisposed: (pid) => {
-        void ptyKillPane(pid).catch(() => {});
-        paneNames.delete(pid);
-        paneThemes.delete(pid);
-        cleanupPaneVisualState(pid);
-        fileTreePanel?.clearPaneState(pid);
-        fileTreeCoordinator?.handlePaneDispose(pid);
-        // Notify extension subscribers.
-        if (extPaneClosedSubs.length > 0) {
-          for (const fn of extPaneClosedSubs) {
-            try { fn(pid); } catch { /* ignore */ }
-          }
-        }
-      },
-      onPaneLayout: () => scheduleResizeImmediate(),
-      onPaneLayoutDrag: (dragging) => {
-        setTerminalLayoutSuspended(dragging);
-        mouseCursorDragRef.suppress?.(dragging);
-      },
-      onPaneReorder: () => persistCurrentWorkspaceTabLayout(),
-    },
       init,
     );
   }
 
-  function createTabPaneShellAndHost(tabId: string, init: PaneHostInit, rootPaneId?: string): PaneHost {
+  function createTabPaneShellAndHost(
+    tabId: string,
+    init: PaneHostInit,
+    rootPaneId?: string,
+  ): PaneHost {
     const paneRoot = document.getElementById("terminal-pane-root");
     if (!paneRoot) throw new Error("#terminal-pane-root missing");
     const shell = document.createElement("div");
@@ -2144,11 +2472,15 @@ async function boot(): Promise<void> {
       const cleaned = name.trim().replace(/\s+/g, "_");
       if (cleaned) paneNames.set(paneId, cleaned);
     }
-    createTabPaneShellAndHost(tab.id, {
-      initialTree: layout.tree,
-      initialFocusedId: layout.focusedId,
-      initialFloating: layout.floating,
-    }, resolveTabRootPaneId(layout, tab.id));
+    createTabPaneShellAndHost(
+      tab.id,
+      {
+        initialTree: layout.tree,
+        initialFocusedId: layout.focusedId,
+        initialFloating: layout.floating,
+      },
+      resolveTabRootPaneId(layout, tab.id),
+    );
     if (tab.id !== activeWorkspaceTabId) {
       tabPaneShells.get(tab.id)?.classList.add("term-tab-pane-shell--hidden");
     }
@@ -2197,15 +2529,19 @@ async function boot(): Promise<void> {
     const prevTabId = activeWorkspaceTabId;
     const prevShell = tabPaneShells.get(prevTabId);
     const nextShell = tabPaneShells.get(tabId);
-    const motionOn = !document.documentElement.classList.contains("terminal-motion-off")
-      && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const motionOn =
+      !document.documentElement.classList.contains("terminal-motion-off") &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     activeWorkspaceTabId = tabId;
     tabsState = { ...tabsState, activeTabId: tabId };
     saveTabsState(tabsState);
 
     for (const shell of tabPaneShells.values()) {
-      shell.classList.remove("term-tab-pane-shell--entering", "term-tab-pane-shell--leaving");
+      shell.classList.remove(
+        "term-tab-pane-shell--entering",
+        "term-tab-pane-shell--leaving",
+      );
     }
 
     paneHost = nextHost;
@@ -2241,7 +2577,8 @@ async function boot(): Promise<void> {
         if (activeWorkspaceTabId !== capturedTabId) return;
         nextShell.classList.remove("term-tab-pane-shell--entering");
         for (const [id, shell] of tabPaneShells) {
-          if (id !== capturedTabId) shell.classList.add("term-tab-pane-shell--hidden");
+          if (id !== capturedTabId)
+            shell.classList.add("term-tab-pane-shell--hidden");
         }
         scheduleCreationReflowForHost(nextHost);
         scheduleResizeImmediate(true);
@@ -2258,7 +2595,10 @@ async function boot(): Promise<void> {
 
     fileTreePanel?.setActivePane(lastFocusedPaneId);
     if (fileTreeCoordinator) {
-      fileTreeCoordinator.seedPaneCwd(lastFocusedPaneId, paneCwdHints.get(lastFocusedPaneId));
+      fileTreeCoordinator.seedPaneCwd(
+        lastFocusedPaneId,
+        paneCwdHints.get(lastFocusedPaneId),
+      );
       fileTreeCoordinator.handlePaneFocus(lastFocusedPaneId);
     } else {
       const hint = paneCwdHints.get(lastFocusedPaneId);
@@ -2267,24 +2607,37 @@ async function boot(): Promise<void> {
         scheduleFileTreeRefresh();
       }
     }
-    document.documentElement.classList.toggle("term-tabs-multiple", tabsState.tabs.length > 1);
+    document.documentElement.classList.toggle(
+      "term-tabs-multiple",
+      tabsState.tabs.length > 1,
+    );
     renderWorkspaceTabsBar();
     scheduleCwdSync();
     getFocusedTerm()?.focus();
-    const tabMotionOn = !document.documentElement.classList.contains("terminal-motion-off")
-      && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    scheduleCursorWarpToPane(lastFocusedPaneId, { force: true, delayMs: tabMotionOn ? 420 : 0 });
+    const tabMotionOn =
+      !document.documentElement.classList.contains("terminal-motion-off") &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    scheduleCursorWarpToPane(lastFocusedPaneId, {
+      force: true,
+      delayMs: tabMotionOn ? 420 : 0,
+    });
     // Notify extension subscribers on tab switch (onPaneFocus only fires within a tab).
     if (extFocusSubs.length > 0 && lastFocusedPaneId) {
       for (const fn of extFocusSubs) {
-        try { fn(lastFocusedPaneId); } catch { /* ignore */ }
+        try {
+          fn(lastFocusedPaneId);
+        } catch {
+          /* ignore */
+        }
       }
     }
   }
 
   function visibleWorkspaceTabsInOrder(): TabRecord[] {
     const sortedTabs = [...tabsState.tabs].sort((a, b) => a.order - b.order);
-    const sortedGroups = [...tabsState.groups].sort((a, b) => a.order - b.order);
+    const sortedGroups = [...tabsState.groups].sort(
+      (a, b) => a.order - b.order,
+    );
     const groupedTabs = new Map<string, TabRecord[]>();
     for (const tab of sortedTabs) {
       if (!tab.groupId) continue;
@@ -2292,11 +2645,17 @@ async function boot(): Promise<void> {
       bucket.push(tab);
       groupedTabs.set(tab.groupId, bucket);
     }
-    const items: Array<{ type: "tab" | "group"; order: number; tab?: TabRecord; group?: TabGroup }> = [];
+    const items: Array<{
+      type: "tab" | "group";
+      order: number;
+      tab?: TabRecord;
+      group?: TabGroup;
+    }> = [];
     for (const tab of sortedTabs) {
       if (!tab.groupId) items.push({ type: "tab", order: tab.order, tab });
     }
-    for (const group of sortedGroups) items.push({ type: "group", order: group.order, group });
+    for (const group of sortedGroups)
+      items.push({ type: "group", order: group.order, group });
     items.sort((a, b) => a.order - b.order);
 
     const visible: TabRecord[] = [];
@@ -2319,7 +2678,11 @@ async function boot(): Promise<void> {
     else openNewWorkspaceTab();
   }
 
-  function openTabWithTransferredPane(paneId: string, pt: PaneTerminal, switchTo: boolean): string {
+  function openTabWithTransferredPane(
+    paneId: string,
+    pt: PaneTerminal,
+    switchTo: boolean,
+  ): string {
     const tabId = crypto.randomUUID();
     const name = nextTabName(tabsState.tabs);
     const layout: PersistedPaneLayout = {
@@ -2330,7 +2693,10 @@ async function boot(): Promise<void> {
     const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
     tabsState = {
       ...tabsState,
-      tabs: [...tabsState.tabs, { id: tabId, name, groupId: null, color: null, order: maxOrder + 1 }],
+      tabs: [
+        ...tabsState.tabs,
+        { id: tabId, name, groupId: null, color: null, order: maxOrder + 1 },
+      ],
     };
     saveTabsState(tabsState);
     persistLayoutForTab(tabId, layout);
@@ -2363,14 +2729,21 @@ async function boot(): Promise<void> {
     return false;
   }
 
-  function receiveTransferredPane(targetHost: PaneHost, paneId: string, pt: PaneTerminal): boolean {
+  function receiveTransferredPane(
+    targetHost: PaneHost,
+    paneId: string,
+    pt: PaneTerminal,
+  ): boolean {
     if (targetHost.isPristineRootTab() && !rootPaneHasUserState(targetHost)) {
       return targetHost.rebindAsTransferredRoot(paneId, pt);
     }
     return targetHost.receivePaneAtRoot(paneId, pt, PANE_TRANSFER_SPLIT_DIR);
   }
 
-  function takePaneForTransfer(host: PaneHost, paneId: string): PaneTerminal | null {
+  function takePaneForTransfer(
+    host: PaneHost,
+    paneId: string,
+  ): PaneTerminal | null {
     if (host.isPristineRootTab()) {
       return host.takeSolePane(paneId, { saveRollback: true });
     }
@@ -2449,7 +2822,9 @@ async function boot(): Promise<void> {
     const newId = crypto.randomUUID();
     const dup = duplicateTabLayout(raw, fromTabId, newId);
     persistLayoutForTab(newId, dup);
-    const sourceName = tabsState.tabs.find((t) => t.id === fromTabId)?.name ?? nextTabName(tabsState.tabs);
+    const sourceName =
+      tabsState.tabs.find((t) => t.id === fromTabId)?.name ??
+      nextTabName(tabsState.tabs);
     const existing = new Set(tabsState.tabs.map((t) => t.name.toLowerCase()));
     const m = sourceName.match(/^(.*?)(\d+)?$/);
     const base = (m?.[1] ?? sourceName).trimEnd() || sourceName;
@@ -2461,10 +2836,25 @@ async function boot(): Promise<void> {
       candidate = `${base}${n + 1}`;
     }
     const sourceTab = tabsState.tabs.find((t) => t.id === fromTabId);
-const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
-tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candidate, groupId: sourceTab?.groupId ?? null, color: sourceTab?.color ?? null, order: maxOrder + 1 }] };
+    const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
+    tabsState = {
+      ...tabsState,
+      tabs: [
+        ...tabsState.tabs,
+        {
+          id: newId,
+          name: candidate,
+          groupId: sourceTab?.groupId ?? null,
+          color: sourceTab?.color ?? null,
+          order: maxOrder + 1,
+        },
+      ],
+    };
     saveTabsState(tabsState);
-    createTabPaneShellAndHost(newId, { initialTree: dup.tree, initialFocusedId: dup.focusedId });
+    createTabPaneShellAndHost(newId, {
+      initialTree: dup.tree,
+      initialFocusedId: dup.focusedId,
+    });
     switchWorkspaceTab(newId);
   }
 
@@ -2496,7 +2886,10 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       if (!other) return;
       switchWorkspaceTab(other.id);
     }
-    tabsState = { ...tabsState, tabs: tabsState.tabs.filter((t) => t.id !== tabId) };
+    tabsState = {
+      ...tabsState,
+      tabs: tabsState.tabs.filter((t) => t.id !== tabId),
+    };
     saveTabsState(tabsState);
     disposeTabPaneHost(tabId);
     try {
@@ -2504,7 +2897,10 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     } catch {
       /* ignore */
     }
-    document.documentElement.classList.toggle("term-tabs-multiple", tabsState.tabs.length > 1);
+    document.documentElement.classList.toggle(
+      "term-tabs-multiple",
+      tabsState.tabs.length > 1,
+    );
     renderWorkspaceTabsBar();
     scheduleResizeImmediate();
     getFocusedTerm()?.focus();
@@ -2517,7 +2913,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     const id = renamingTabId;
     if (!id) return;
     const strip = document.getElementById("term-tabs-strip");
-    const inp = strip?.querySelector(`input[data-tab-rename="${id}"]`) as HTMLInputElement | null;
+    const inp = strip?.querySelector(
+      `input[data-tab-rename="${id}"]`,
+    ) as HTMLInputElement | null;
     const raw = inp?.value ?? "";
     renamingTabId = null;
     if (commit) {
@@ -2533,15 +2931,22 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
 
   function openZenRenameModal(): void {
     const modal = document.getElementById("zen-rename-modal");
-    const input = document.getElementById("zen-rename-input") as HTMLInputElement | null;
-    const form = modal?.querySelector(".zen-rename-form") as HTMLFormElement | null;
+    const input = document.getElementById(
+      "zen-rename-input",
+    ) as HTMLInputElement | null;
+    const form = modal?.querySelector(
+      ".zen-rename-form",
+    ) as HTMLFormElement | null;
     if (!modal || !input || !form) return;
     const tab = tabsState.tabs.find((t) => t.id === renamingTabId);
     input.value = tab?.name ?? "";
     modal.classList.remove("zen-rename-modal--hidden");
     modal.setAttribute("aria-hidden", "false");
     mouseCursorForceVisible(true);
-    requestAnimationFrame(() => { input.focus(); input.select(); });
+    requestAnimationFrame(() => {
+      input.focus();
+      input.select();
+    });
   }
 
   function closeZenRenameModal(commit: boolean): void {
@@ -2552,7 +2957,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     mouseCursorForceVisible(false);
     if (commit) {
       const id = renamingTabId;
-      const input = document.getElementById("zen-rename-input") as HTMLInputElement | null;
+      const input = document.getElementById(
+        "zen-rename-input",
+      ) as HTMLInputElement | null;
       const v = input?.value.trim();
       if (id && v) {
         const t = tabsState.tabs.find((x) => x.id === id);
@@ -2574,7 +2981,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     renderWorkspaceTabsBar();
     requestAnimationFrame(() => {
       const strip = document.getElementById("term-tabs-strip");
-      const inp = strip?.querySelector(`input[data-tab-rename="${tabId}"]`) as HTMLInputElement | null;
+      const inp = strip?.querySelector(
+        `input[data-tab-rename="${tabId}"]`,
+      ) as HTMLInputElement | null;
       inp?.focus();
       inp?.select();
     });
@@ -2584,7 +2993,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     const id = renamingGroupId;
     if (!id) return;
     const strip = document.getElementById("term-tabs-strip");
-    const inp = strip?.querySelector(`input[data-group-rename="${id}"]`) as HTMLInputElement | null;
+    const inp = strip?.querySelector(
+      `input[data-group-rename="${id}"]`,
+    ) as HTMLInputElement | null;
     const raw = inp?.value ?? "";
     renamingGroupId = null;
     if (commit) {
@@ -2603,7 +3014,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     renderWorkspaceTabsBar();
     requestAnimationFrame(() => {
       const strip = document.getElementById("term-tabs-strip");
-      const inp = strip?.querySelector(`input[data-group-rename="${groupId}"]`) as HTMLInputElement | null;
+      const inp = strip?.querySelector(
+        `input[data-group-rename="${groupId}"]`,
+      ) as HTMLInputElement | null;
       inp?.focus();
       inp?.select();
     });
@@ -2614,16 +3027,29 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     const name = nextTabName(tabsState.tabs);
     const empty = emptyWorkspaceLayout(id);
     const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
-    tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id, name, groupId: null, color: null, order: maxOrder + 1 }] };
+    tabsState = {
+      ...tabsState,
+      tabs: [
+        ...tabsState.tabs,
+        { id, name, groupId: null, color: null, order: maxOrder + 1 },
+      ],
+    };
     saveTabsState(tabsState);
     persistLayoutForTab(id, empty);
-    createTabPaneShellAndHost(id, { initialTree: empty.tree, initialFocusedId: empty.focusedId });
+    createTabPaneShellAndHost(id, {
+      initialTree: empty.tree,
+      initialFocusedId: empty.focusedId,
+    });
     if (switchTo) switchWorkspaceTab(id);
     else renderWorkspaceTabsBar();
     return id;
   }
 
-  function openTabContextMenu(clientX: number, clientY: number, tab: TabRecord): void {
+  function openTabContextMenu(
+    clientX: number,
+    clientY: number,
+    tab: TabRecord,
+  ): void {
     if (!tabMenuEl) return;
     tabMenuEl.replaceChildren();
     const mk = (label: string, fn: () => void) => {
@@ -2654,7 +3080,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       input.addEventListener("input", () => {
         tabsState = {
           ...tabsState,
-          tabs: tabsState.tabs.map((t) => t.id === tab.id ? { ...t, color: input.value } : t),
+          tabs: tabsState.tabs.map((t) =>
+            t.id === tab.id ? { ...t, color: input.value } : t,
+          ),
         };
         saveTabsState(tabsState);
         renderWorkspaceTabsBar();
@@ -2674,8 +3102,19 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       const maxOrder = Math.max(0, ...tabsState.groups.map((g) => g.order));
       tabsState = {
         ...tabsState,
-        groups: [...tabsState.groups, { id: groupId, name: groupName, color: null, collapsed: false, order: maxOrder + 1 }],
-        tabs: tabsState.tabs.map((t) => t.id === tab.id ? { ...t, groupId } : t),
+        groups: [
+          ...tabsState.groups,
+          {
+            id: groupId,
+            name: groupName,
+            color: null,
+            collapsed: false,
+            order: maxOrder + 1,
+          },
+        ],
+        tabs: tabsState.tabs.map((t) =>
+          t.id === tab.id ? { ...t, groupId } : t,
+        ),
       };
       saveTabsState(tabsState);
       renderWorkspaceTabsBar();
@@ -2689,7 +3128,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
           if (group) {
             tabsState = {
               ...tabsState,
-              tabs: tabsState.tabs.map((t) => t.id === tab.id ? { ...t, groupId: group.id } : t),
+              tabs: tabsState.tabs.map((t) =>
+                t.id === tab.id ? { ...t, groupId: group.id } : t,
+              ),
             };
             saveTabsState(tabsState);
             renderWorkspaceTabsBar();
@@ -2701,7 +3142,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       mk("Remove from group", () => {
         tabsState = {
           ...tabsState,
-          tabs: tabsState.tabs.map((t) => t.id === tab.id ? { ...t, groupId: null } : t),
+          tabs: tabsState.tabs.map((t) =>
+            t.id === tab.id ? { ...t, groupId: null } : t,
+          ),
         };
         saveTabsState(tabsState);
         renderWorkspaceTabsBar();
@@ -2716,7 +3159,11 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     tabMenuEl.setAttribute("aria-hidden", "false");
   }
 
-  function openGroupContextMenu(clientX: number, clientY: number, group: TabGroup): void {
+  function openGroupContextMenu(
+    clientX: number,
+    clientY: number,
+    group: TabGroup,
+  ): void {
     if (!tabMenuEl) return;
     tabMenuEl.replaceChildren();
     const mk = (label: string, fn: () => void) => {
@@ -2747,7 +3194,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       input.addEventListener("input", () => {
         tabsState = {
           ...tabsState,
-          groups: tabsState.groups.map((g) => g.id === group.id ? { ...g, color: input.value } : g),
+          groups: tabsState.groups.map((g) =>
+            g.id === group.id ? { ...g, color: input.value } : g,
+          ),
         };
         saveTabsState(tabsState);
         renderWorkspaceTabsBar();
@@ -2763,7 +3212,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     mk(group.collapsed ? "Expand group" : "Collapse group", () => {
       tabsState = {
         ...tabsState,
-        groups: tabsState.groups.map((g) => g.id === group.id ? { ...g, collapsed: !g.collapsed } : g),
+        groups: tabsState.groups.map((g) =>
+          g.id === group.id ? { ...g, collapsed: !g.collapsed } : g,
+        ),
       };
       saveTabsState(tabsState);
       renderWorkspaceTabsBar();
@@ -2772,7 +3223,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       tabsState = {
         ...tabsState,
         groups: tabsState.groups.filter((g) => g.id !== group.id),
-        tabs: tabsState.tabs.map((t) => (t.groupId === group.id ? { ...t, groupId: null } : t)),
+        tabs: tabsState.tabs.map((t) =>
+          t.groupId === group.id ? { ...t, groupId: null } : t,
+        ),
       };
       saveTabsState(tabsState);
       renderWorkspaceTabsBar();
@@ -2787,7 +3240,8 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     "pointerdown",
     (e) => {
       if (tabMenuEl?.classList.contains("tab-context-menu--hidden")) return;
-      if (tabMenuEl && !tabMenuEl.contains(e.target as Node)) hideTabContextMenu();
+      if (tabMenuEl && !tabMenuEl.contains(e.target as Node))
+        hideTabContextMenu();
     },
     true,
   );
@@ -2799,7 +3253,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         const index = tabHotkeyIndexFromEvent(e);
         if (index != null) {
           const t = e.target as HTMLElement | null;
-          if (t?.closest("#command-palette") || t?.closest("#settings-panel") || t?.closest(".term-search")) return;
+          if (
+            t?.closest("#command-palette") ||
+            t?.closest("#settings-panel") ||
+            t?.closest(".term-search")
+          )
+            return;
           e.preventDefault();
           e.stopPropagation();
           moveFocusedPaneToTabHotkeyIndex(index);
@@ -2840,7 +3299,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         return;
       }
       if (e.shiftKey) return;
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight" && e.key !== "ArrowUp" && e.key !== "ArrowDown") {
+      if (
+        e.key !== "ArrowLeft" &&
+        e.key !== "ArrowRight" &&
+        e.key !== "ArrowUp" &&
+        e.key !== "ArrowDown"
+      ) {
         return;
       }
 
@@ -2877,7 +3341,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       if (target.closest("#file-tree-dock")) return;
       const terminalRoot = document.getElementById("terminal-pane-root");
       if (!terminalRoot || !terminalRoot.contains(target)) return;
-      if (target.closest("input, textarea, select, button, [contenteditable='true']")) return;
+      if (
+        target.closest(
+          "input, textarea, select, button, [contenteditable='true']",
+        )
+      )
+        return;
       focusActiveTerminal();
     },
     true,
@@ -2892,7 +3361,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
 
     // Sort tabs and groups by order
     const sortedTabs = [...tabsState.tabs].sort((a, b) => a.order - b.order);
-    const sortedGroups = [...tabsState.groups].sort((a, b) => a.order - b.order);
+    const sortedGroups = [...tabsState.groups].sort(
+      (a, b) => a.order - b.order,
+    );
 
     // Group tabs by groupId
     const groupedTabs = new Map<string, TabRecord[]>();
@@ -2906,7 +3377,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     }
 
     // Create a unified list of items (tabs and groups) sorted by order
-    const items: Array<{ type: "tab" | "group", order: number, tab?: TabRecord, group?: TabGroup }> = [];
+    const items: Array<{
+      type: "tab" | "group";
+      order: number;
+      tab?: TabRecord;
+      group?: TabGroup;
+    }> = [];
     for (const tab of sortedTabs) {
       if (!tab.groupId) {
         items.push({ type: "tab", order: tab.order, tab });
@@ -2993,11 +3469,15 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
           e.stopPropagation();
           const from = tabDragId;
           tabDragId = null;
-          document.querySelectorAll(".term-tab--dragging").forEach((el) => el.classList.remove("term-tab--dragging"));
+          document
+            .querySelectorAll(".term-tab--dragging")
+            .forEach((el) => el.classList.remove("term-tab--dragging"));
           if (!from) return;
           tabsState = {
             ...tabsState,
-            tabs: tabsState.tabs.map((t) => t.id === from ? { ...t, groupId: group.id } : t),
+            tabs: tabsState.tabs.map((t) =>
+              t.id === from ? { ...t, groupId: group.id } : t,
+            ),
           };
           saveTabsState(tabsState);
           renderWorkspaceTabsBar();
@@ -3010,7 +3490,10 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
           const groupTabsContainer = document.createElement("div");
           groupTabsContainer.className = "term-tab-group-tabs";
           if (group.color) {
-            groupTabsContainer.style.setProperty("--tab-group-color", group.color);
+            groupTabsContainer.style.setProperty(
+              "--tab-group-color",
+              group.color,
+            );
           }
           for (const tab of tabs) {
             renderTab(groupTabsContainer, tab, group.color);
@@ -3020,7 +3503,11 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       }
     }
 
-    function renderTab(strip: HTMLElement, tab: TabRecord, groupColor: string | null = null): void {
+    function renderTab(
+      strip: HTMLElement,
+      tab: TabRecord,
+      groupColor: string | null = null,
+    ): void {
       if (renamingTabId === tab.id) {
         const renameWrap = document.createElement("div");
         renameWrap.className = "term-tab-rename-row";
@@ -3055,8 +3542,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       btn.title = "Right-click for tab actions";
       btn.draggable = true;
       btn.role = "tab";
-      btn.setAttribute("aria-selected", tab.id === activeWorkspaceTabId ? "true" : "false");
-      if (tab.id === activeWorkspaceTabId) btn.classList.add("term-tab--active");
+      btn.setAttribute(
+        "aria-selected",
+        tab.id === activeWorkspaceTabId ? "true" : "false",
+      );
+      if (tab.id === activeWorkspaceTabId)
+        btn.classList.add("term-tab--active");
 
       // Apply tab color (from tab itself or from group)
       const tabColor = tab.color || groupColor;
@@ -3111,10 +3602,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   let tabDragId: string | null = null;
   let groupDragId: string | null = null;
   let suppressTabClickUntilMs = 0;
-  document.getElementById("term-tabs-strip")?.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-  });
+  document
+    .getElementById("term-tabs-strip")
+    ?.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    });
   document.getElementById("term-tabs-strip")?.addEventListener("drop", (e) => {
     e.preventDefault();
     const fromTab = tabDragId;
@@ -3122,12 +3615,18 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     tabDragId = null;
     groupDragId = null;
     suppressTabClickUntilMs = performance.now() + 150;
-    document.querySelectorAll(".term-tab--dragging").forEach((el) => el.classList.remove("term-tab--dragging"));
-    document.querySelectorAll(".term-tab-group--dragging").forEach((el) => el.classList.remove("term-tab-group--dragging"));
+    document
+      .querySelectorAll(".term-tab--dragging")
+      .forEach((el) => el.classList.remove("term-tab--dragging"));
+    document
+      .querySelectorAll(".term-tab-group--dragging")
+      .forEach((el) => el.classList.remove("term-tab-group--dragging"));
 
     // Handle tab reordering
     if (fromTab) {
-      const over = (e.target as HTMLElement).closest?.(".term-tab") as HTMLElement | null;
+      const over = (e.target as HTMLElement).closest?.(
+        ".term-tab",
+      ) as HTMLElement | null;
       const toTabId = over?.dataset.tabId;
       if (!fromTab || !toTabId || fromTab === toTabId) return;
       const a = tabsState.tabs.findIndex((x) => x.id === fromTab);
@@ -3137,7 +3636,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       const [mv] = next.splice(a, 1);
       next.splice(b, 0, mv);
       // Update order values
-      next.forEach((tab, i) => tab.order = i);
+      next.forEach((tab, i) => (tab.order = i));
       tabsState = { ...tabsState, tabs: next };
       saveTabsState(tabsState);
       renderWorkspaceTabsBar();
@@ -3145,8 +3644,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
 
     // Handle group reordering
     if (fromGroup) {
-      const over = (e.target as HTMLElement).closest?.(".term-tab-group") as HTMLElement | null;
-      const toGroup = tabsState.groups.find((g) => over?.textContent?.includes(g.name));
+      const over = (e.target as HTMLElement).closest?.(
+        ".term-tab-group",
+      ) as HTMLElement | null;
+      const toGroup = tabsState.groups.find((g) =>
+        over?.textContent?.includes(g.name),
+      );
       if (!fromGroup || !toGroup || fromGroup === toGroup.id) return;
       const a = tabsState.groups.findIndex((x) => x.id === fromGroup);
       const b = tabsState.groups.findIndex((x) => x.id === toGroup.id);
@@ -3155,7 +3658,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       const [mv] = next.splice(a, 1);
       next.splice(b, 0, mv);
       // Update order values
-      next.forEach((group, i) => group.order = i);
+      next.forEach((group, i) => (group.order = i));
       tabsState = { ...tabsState, groups: next };
       saveTabsState(tabsState);
       renderWorkspaceTabsBar();
@@ -3194,7 +3697,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     });
   })();
 
-  function showShedExitDialog(root: HTMLElement | null): Promise<"keep" | "discard" | "cancel"> {
+  function showShedExitDialog(
+    root: HTMLElement | null,
+  ): Promise<"keep" | "discard" | "cancel"> {
     if (!root) return Promise.resolve("cancel");
     return new Promise((resolve) => {
       root.classList.remove("shed-exit-dialog--hidden");
@@ -3206,21 +3711,31 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         mouseCursorForceVisible(false);
         resolve(v);
       };
-      root.querySelector("#shed-exit-keep")?.addEventListener("click", () => finish("keep"), { once: true });
-      root.querySelector("#shed-exit-discard")?.addEventListener("click", () => finish("discard"), {
-        once: true,
-      });
-      root.querySelector("#shed-exit-cancel")?.addEventListener("click", () => finish("cancel"), {
-        once: true,
-      });
+      root
+        .querySelector("#shed-exit-keep")
+        ?.addEventListener("click", () => finish("keep"), { once: true });
+      root
+        .querySelector("#shed-exit-discard")
+        ?.addEventListener("click", () => finish("discard"), {
+          once: true,
+        });
+      root
+        .querySelector("#shed-exit-cancel")
+        ?.addEventListener("click", () => finish("cancel"), {
+          once: true,
+        });
     });
   }
 
   if (paneHost) {
-    void remountAuxiliaryForFocus(paneHost.getFocusedPaneId() ?? paneHost.getRootPaneId());
+    void remountAuxiliaryForFocus(
+      paneHost.getFocusedPaneId() ?? paneHost.getRootPaneId(),
+    );
   }
 
-  const paneRenameRoot = document.getElementById("pane-rename-root") as HTMLElement | null;
+  const paneRenameRoot = document.getElementById(
+    "pane-rename-root",
+  ) as HTMLElement | null;
   const paneRenamePanel: PaneRenamePanelApi | null = paneRenameRoot
     ? createPaneRenamePanel({
         root: paneRenameRoot,
@@ -3236,18 +3751,22 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   const themeBuilderRoot = document.getElementById("theme-builder-root");
   let themeBuilder: ThemeBuilderApi | null = null;
   if (themeBuilderRoot) {
-    themeBuilder = createThemeBuilderModal(themeBuilderRoot as HTMLElement, (prefs) => {
-      currentUiPrefs = prefs;
-      applyUiTheme(prefs);
-      refreshAllTerminalThemes();
-    });
+    themeBuilder = createThemeBuilderModal(
+      themeBuilderRoot as HTMLElement,
+      (prefs) => {
+        currentUiPrefs = prefs;
+        applyUiTheme(prefs);
+        refreshAllTerminalThemes();
+      },
+    );
   }
 
   const themeModalRoot = document.getElementById("theme-modal-root");
   let themeModal: ThemeModalApi | null = null;
   let openFocusedPaneTheme = (): void => {};
   let themeTargetPaneId: string | null = null;
-  let paneThemeRestore: { id: string; theme: PaneThemePrefs | null } | null = null;
+  let paneThemeRestore: { id: string; theme: PaneThemePrefs | null } | null =
+    null;
   if (themeModalRoot) {
     const resetThemeModalTarget = (): void => {
       if (paneThemeRestore) {
@@ -3275,12 +3794,16 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       if (!paneId) return;
       themeTargetPaneId = paneId;
       const existing = paneThemes.get(paneId);
-      paneThemeRestore = { id: paneId, theme: existing ? { ...existing } : null };
+      paneThemeRestore = {
+        id: paneId,
+        theme: existing ? { ...existing } : null,
+      };
       const appPrefs = currentUiPrefs;
       const initialPrefs: UiThemePrefs = {
         ...appPrefs,
         ui_theme: existing?.ui_theme ?? appPrefs.ui_theme,
-        ui_theme_variant: existing?.ui_theme_variant ?? appPrefs.ui_theme_variant,
+        ui_theme_variant:
+          existing?.ui_theme_variant ?? appPrefs.ui_theme_variant,
       };
       themeModal?.open({
         title: "Pane Theme",
@@ -3309,16 +3832,23 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         if (!pl) return null;
         const pids: string[] = [];
         (function collect(n: typeof pl.tree): void {
-          if (n.kind === "leaf") { pids.push(n.id); return; }
-          collect(n.a); collect(n.b);
+          if (n.kind === "leaf") {
+            pids.push(n.id);
+            return;
+          }
+          collect(n.a);
+          collect(n.b);
         })(pl.tree);
         // Normalize root pane id to a stable neutral value
         const rootId = pids[0] ?? "";
         const idNorm = new Map<string, string>();
         if (rootId) idNorm.set(rootId, "root");
         for (let i = 1; i < pids.length; i++) idNorm.set(pids[i]!, `p${i}`);
-        function normTree(n: NonNullable<typeof pl>["tree"]): NonNullable<typeof pl>["tree"] {
-          if (n.kind === "leaf") return { kind: "leaf", id: idNorm.get(n.id) ?? n.id };
+        function normTree(
+          n: NonNullable<typeof pl>["tree"],
+        ): NonNullable<typeof pl>["tree"] {
+          if (n.kind === "leaf")
+            return { kind: "leaf", id: idNorm.get(n.id) ?? n.id };
           return { ...n, a: normTree(n.a), b: normTree(n.b) };
         }
         function normMap<T>(src: Record<string, T>): Record<string, T> {
@@ -3332,40 +3862,76 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         const preset: Preset = {
           v: 1,
           name,
-          tabName: tabsState.tabs.find((t) => t.id === activeWorkspaceTabId)?.name ?? name,
+          tabName:
+            tabsState.tabs.find((t) => t.id === activeWorkspaceTabId)?.name ??
+            name,
           tree: normTree(pl!.tree),
           focusedId: idNorm.get(pl!.focusedId) ?? pl!.focusedId,
           floating: Object.fromEntries(
-            Object.entries(pl!.floating ?? {}).map(([id, state]) => [idNorm.get(id) ?? id, state]),
+            Object.entries(pl!.floating ?? {}).map(([id, state]) => [
+              idNorm.get(id) ?? id,
+              state,
+            ]),
           ),
-          paneThemes: normMap(Object.fromEntries(pids.filter((id) => paneThemes.has(id)).map((id) => [id, paneThemes.get(id)!]))),
-          paneNames: normMap(Object.fromEntries(pids.filter((id) => paneNames.has(id)).map((id) => [id, paneNames.get(id)!]))),
-          paneCwds: normMap(Object.fromEntries(pids.filter((id) => paneCwdHints.has(id)).map((id) => [id, paneCwdHints.get(id)!]))),
-          paneFontSizes: normMap(Object.fromEntries(
-            pids.map((id) => {
-              const pt = paneHost?.getPaneTerminal(id);
-              const sz = pt ? Number(pt.term.options.fontSize ?? 12) : 12;
-              return [id, sz] as [string, number];
-            }).filter(([, sz]) => sz !== 12),
-          )),
+          paneThemes: normMap(
+            Object.fromEntries(
+              pids
+                .filter((id) => paneThemes.has(id))
+                .map((id) => [id, paneThemes.get(id)!]),
+            ),
+          ),
+          paneNames: normMap(
+            Object.fromEntries(
+              pids
+                .filter((id) => paneNames.has(id))
+                .map((id) => [id, paneNames.get(id)!]),
+            ),
+          ),
+          paneCwds: normMap(
+            Object.fromEntries(
+              pids
+                .filter((id) => paneCwdHints.has(id))
+                .map((id) => [id, paneCwdHints.get(id)!]),
+            ),
+          ),
+          paneFontSizes: normMap(
+            Object.fromEntries(
+              pids
+                .map((id) => {
+                  const pt = paneHost?.getPaneTerminal(id);
+                  const sz = pt ? Number(pt.term.options.fontSize ?? 12) : 12;
+                  return [id, sz] as [string, number];
+                })
+                .filter(([, sz]) => sz !== 12),
+            ),
+          ),
           startupCommands: {},
         };
         // Preserve existing startup commands when re-saving
         try {
-          const existing = await invoke<string>("read_preset_json", { name }).catch(() => null);
+          const existing = await invoke<string>("read_preset_json", {
+            name,
+          }).catch(() => null);
           if (existing) {
             const prev = JSON.parse(existing) as Preset;
-            if (prev.startupCommands) preset.startupCommands = { ...prev.startupCommands };
+            if (prev.startupCommands)
+              preset.startupCommands = { ...prev.startupCommands };
           }
-        } catch { /* first save, no existing file */ }
+        } catch {
+          /* first save, no existing file */
+        }
         await writePresetJson(name, JSON.stringify(preset));
         return name;
       },
       onLoad: async (preset) => {
         const ids: string[] = [];
         (function collect(n: typeof preset.tree): void {
-          if (n.kind === "leaf") { ids.push(n.id); return; }
-          collect(n.a); collect(n.b);
+          if (n.kind === "leaf") {
+            ids.push(n.id);
+            return;
+          }
+          collect(n.a);
+          collect(n.b);
         })(preset.tree);
         const newTabId = crypto.randomUUID();
         const newRoot = workspaceRootPaneId(newTabId);
@@ -3376,19 +3942,32 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
           if (!idMap.has(id)) idMap.set(id, crypto.randomUUID());
         }
         function mapNode(n: typeof preset.tree): typeof preset.tree {
-          if (n.kind === "leaf") return { kind: "leaf", id: idMap.get(n.id) ?? crypto.randomUUID() };
+          if (n.kind === "leaf")
+            return { kind: "leaf", id: idMap.get(n.id) ?? crypto.randomUUID() };
           return { ...n, a: mapNode(n.a), b: mapNode(n.b) };
         }
         const tree = mapNode(preset.tree);
         const focusedId = idMap.get(preset.focusedId) ?? "";
-        const floating: Record<string, typeof preset.floating[string]> = {};
+        const floating: Record<string, (typeof preset.floating)[string]> = {};
         for (const [oid, state] of Object.entries(preset.floating)) {
           const nid = idMap.get(oid);
           if (nid) floating[nid] = { ...state };
         }
 
         const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
-        tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newTabId, name: preset.tabName || preset.name, groupId: null, color: null, order: maxOrder + 1 }] };
+        tabsState = {
+          ...tabsState,
+          tabs: [
+            ...tabsState.tabs,
+            {
+              id: newTabId,
+              name: preset.tabName || preset.name,
+              groupId: null,
+              color: null,
+              order: maxOrder + 1,
+            },
+          ],
+        };
         saveTabsState(tabsState);
         const pl: PersistedPaneLayout = { v: 1, tree, focusedId, floating };
         persistLayoutForTab(newTabId, pl);
@@ -3410,13 +3989,20 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         }
         createTabPaneShellAndHost(
           newTabId,
-          { initialTree: tree, initialFocusedId: focusedId, initialFloating: floating },
+          {
+            initialTree: tree,
+            initialFocusedId: focusedId,
+            initialFloating: floating,
+          },
           resolveTabRootPaneId({ v: 1, tree, focusedId, floating }, newTabId),
         );
         switchWorkspaceTab(newTabId);
         const presetHost = tabPaneHosts.get(newTabId);
         if (presetHost) scheduleCreationReflowForHost(presetHost);
-        if (preset.startupCommands && Object.keys(preset.startupCommands).length > 0) {
+        if (
+          preset.startupCommands &&
+          Object.keys(preset.startupCommands).length > 0
+        ) {
           setTimeout(() => {
             for (const [oid, cmd] of Object.entries(preset.startupCommands)) {
               const nid = idMap.get(oid);
@@ -3432,25 +4018,58 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   window.addEventListener(
     "keydown",
     (e) => {
-      if (e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.key === "o" || e.key === "O")) {
+      if (
+        e.ctrlKey &&
+        e.shiftKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        (e.key === "o" || e.key === "O")
+      ) {
         const t = e.target as HTMLElement | null;
-        if (t?.closest("#command-palette") || t?.closest("#settings-panel") || t?.closest(".term-search")) return;
+        if (
+          t?.closest("#command-palette") ||
+          t?.closest("#settings-panel") ||
+          t?.closest(".term-search")
+        )
+          return;
         e.preventDefault();
         e.stopPropagation();
         toggleFocusedPaneFloating();
         return;
       }
-      if (e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.key === "e" || e.key === "E")) {
+      if (
+        e.ctrlKey &&
+        e.shiftKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        (e.key === "e" || e.key === "E")
+      ) {
         const t = e.target as HTMLElement | null;
-        if (t?.closest("#command-palette") || t?.closest("#settings-panel") || t?.closest(".term-search")) return;
+        if (
+          t?.closest("#command-palette") ||
+          t?.closest("#settings-panel") ||
+          t?.closest(".term-search")
+        )
+          return;
         e.preventDefault();
         e.stopPropagation();
         toggleFileTree();
         return;
       }
-      if (e.ctrlKey && !e.shiftKey && !e.metaKey && !e.altKey && e.key === ",") {
+      if (
+        e.ctrlKey &&
+        !e.shiftKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        e.key === ","
+      ) {
         const t = e.target as HTMLElement | null;
-        if (t?.closest("#command-palette") || t?.closest("#settings-panel") || t?.closest(".term-search")) return;
+        if (
+          t?.closest("#command-palette") ||
+          t?.closest("#settings-panel") ||
+          t?.closest(".term-search")
+        )
+          return;
         e.preventDefault();
         e.stopPropagation();
         settingsApi?.open();
@@ -3487,7 +4106,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   );
 
   const fileTreeDockEl = document.getElementById("file-tree-dock");
-  const fileTreeResizeHandle = document.getElementById("file-tree-resize-handle");
+  const fileTreeResizeHandle = document.getElementById(
+    "file-tree-resize-handle",
+  );
   async function setFileTreeSide(side: "left" | "right"): Promise<void> {
     const normalized = normalizeFileTreeSide(side);
     fileTreeSideRef.v = normalized;
@@ -3495,11 +4116,16 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     const current = persisted.prefs as Partial<ParttyPrefs>;
     const next = { ...(current as ParttyPrefs), file_tree_side: normalized };
     persisted.prefs = next as unknown as Record<string, unknown>;
-    await invoke("set_prefs", { prefs: next }).catch((e) => console.warn("set_prefs file_tree_side", e));
+    await invoke("set_prefs", { prefs: next }).catch((e) =>
+      console.warn("set_prefs file_tree_side", e),
+    );
     scheduleResizeImmediate();
   }
   if (fileTreeDockEl) {
-    fileTreeDockEl.setAttribute("aria-hidden", fileTreeUserEnabled ? "false" : "true");
+    fileTreeDockEl.setAttribute(
+      "aria-hidden",
+      fileTreeUserEnabled ? "false" : "true",
+    );
   }
 
   fileTreeResizeHandle?.addEventListener("pointerdown", (e) => {
@@ -3510,9 +4136,15 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     const startX = e.clientX;
     const startW = fileTreeDockEl?.getBoundingClientRect().width ?? 260;
     const onMove = (ev: PointerEvent): void => {
-      const delta = fileTreeSideRef.v === "right" ? startX - ev.clientX : ev.clientX - startX;
+      const delta =
+        fileTreeSideRef.v === "right"
+          ? startX - ev.clientX
+          : ev.clientX - startX;
       const next = Math.round(Math.max(160, Math.min(560, startW + delta)));
-      document.documentElement.style.setProperty("--file-tree-user-width", `${next}px`);
+      document.documentElement.style.setProperty(
+        "--file-tree-user-width",
+        `${next}px`,
+      );
     };
     const onUp = (): void => {
       fileTreeResizeHandle.classList.remove("file-tree-resize-active");
@@ -3571,15 +4203,25 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   }
 
   const cpRoot = document.getElementById("command-palette");
-  const cpInput = document.getElementById("command-palette-input") as HTMLInputElement | null;
+  const cpInput = document.getElementById(
+    "command-palette-input",
+  ) as HTMLInputElement | null;
   const cpList = document.getElementById("command-palette-list");
   const cpListView = document.getElementById("command-palette-list-view");
   const cpBuilder = document.getElementById("command-palette-builder");
   const cpBuilderBack = document.getElementById("command-palette-builder-back");
-  const paletteCmdName = document.getElementById("palette-cmd-name") as HTMLInputElement | null;
-  const paletteCmdText = document.getElementById("palette-cmd-text") as HTMLTextAreaElement | null;
-  const paletteCmdGlobal = document.getElementById("palette-cmd-global") as HTMLInputElement | null;
-  const paletteCmdCwd = document.getElementById("palette-cmd-cwd") as HTMLInputElement | null;
+  const paletteCmdName = document.getElementById(
+    "palette-cmd-name",
+  ) as HTMLInputElement | null;
+  const paletteCmdText = document.getElementById(
+    "palette-cmd-text",
+  ) as HTMLTextAreaElement | null;
+  const paletteCmdGlobal = document.getElementById(
+    "palette-cmd-global",
+  ) as HTMLInputElement | null;
+  const paletteCmdCwd = document.getElementById(
+    "palette-cmd-cwd",
+  ) as HTMLInputElement | null;
   const paletteCmdSave = document.getElementById("palette-cmd-save");
 
   const helpPanelEl = document.getElementById("help-panel");
@@ -3615,97 +4257,168 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   };
 
   const settingsApi = settingsPanelEl
-    ? createSettingsPanel(settingsPanelEl, async (saved: ParttyPrefs, previous: ParttyPrefs) => {
-        syncRuntimeShedFromPrefs(saved);
-        focusFollowsRef.v = saved.focus_follows_cursor;
-        persisted.prefs = saved as unknown as Record<string, unknown>;
-        Object.assign(lp, mergeLifecyclePrefs(persisted.prefs));
-        autoCopySelectionRef.v = saved.auto_copy_selection;
-        showDiffCountsRef.v = saved.file_tree_show_diff_counts;
-        showGitInfoRef.v = saved.file_tree_show_git_info;
-        fileTreeSideRef.v = normalizeFileTreeSide(saved.file_tree_side);
-        applyFileTreeSide(fileTreeSideRef.v);
-        fileTreeDisabledRef.v = saved.file_tree_disabled ?? false;
-        splitLayoutStyleRef.v = normalizeSplitLayoutStyle(saved.split_layout_style);
-        disableSearchRef.v = saved.file_tree_disable_search ?? false;
-        confirmDeletePromptRef.v = saved.confirm_delete_prompt ?? true;
-        disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
-        altClickCursorRef.v = saved.terminal_alt_click_moves_cursor ?? true;
-        cursorBlinkRef.v = saved.terminal_cursor_blink ?? true;
-        cursorInactiveStyleRef.v = (saved as Partial<ParttyPrefs>).terminal_cursor_inactive_style as "outline" | "block" | "bar" | "underline" | "none" | undefined ?? "outline";
-        cursorWidthRef.v = (saved as Partial<ParttyPrefs>).terminal_cursor_width ?? 1;
-        fontSizeRef.v = (saved as Partial<ParttyPrefs>).terminal_font_size ?? 12;
-        fontWeightRef.v = (saved as Partial<ParttyPrefs>).terminal_font_weight ?? "normal";
-        fontWeightBoldRef.v = (saved as Partial<ParttyPrefs>).terminal_font_weight_bold ?? "bold";
-        lineHeightRef.v = (saved as Partial<ParttyPrefs>).terminal_line_height ?? 1;
-        letterSpacingRef.v = (saved as Partial<ParttyPrefs>).terminal_letter_spacing ?? 0;
-        drawBoldBrightRef.v = (saved as Partial<ParttyPrefs>).terminal_draw_bold_bright ?? true;
-        customGlyphsRef.v = (saved as Partial<ParttyPrefs>).terminal_custom_glyphs ?? true;
-        smoothScrollRef.v = (saved as Partial<ParttyPrefs>).terminal_smooth_scroll_duration ?? 0;
-        scrollSensitivityRef.v = (saved as Partial<ParttyPrefs>).terminal_scroll_sensitivity ?? 1;
-        fastScrollSensitivityRef.v = (saved as Partial<ParttyPrefs>).terminal_fast_scroll_sensitivity ?? 5;
-        contrastRatioRef.v = (saved as Partial<ParttyPrefs>).terminal_minimum_contrast_ratio ?? 1;
-        applyTerminalDisplayOptions();
-        backspaceDeleteSelectionRef.v = saved.terminal_backspace_delete_selection ?? true;
-        if ((saved.terminal_cursor_style ?? "block") !== cursorStyleRef.v) {
-          cursorStyleRef.v = (saved.terminal_cursor_style as "block" | "underline" | "bar") ?? "block";
-          for (const host of tabPaneHosts.values()) {
-            host.setCursorStyle(cursorStyleRef.v);
+    ? createSettingsPanel(
+        settingsPanelEl,
+        async (saved: ParttyPrefs, previous: ParttyPrefs) => {
+          syncRuntimeShedFromPrefs(saved);
+          configureDevPerfPrefs(saved);
+          focusFollowsRef.v = saved.focus_follows_cursor;
+          persisted.prefs = saved as unknown as Record<string, unknown>;
+          Object.assign(lp, mergeLifecyclePrefs(persisted.prefs));
+          autoCopySelectionRef.v = saved.auto_copy_selection;
+          showDiffCountsRef.v = saved.file_tree_show_diff_counts;
+          showGitInfoRef.v = saved.file_tree_show_git_info;
+          fileTreeSideRef.v = normalizeFileTreeSide(saved.file_tree_side);
+          applyFileTreeSide(fileTreeSideRef.v);
+          fileTreeDisabledRef.v = saved.file_tree_disabled ?? false;
+          splitLayoutStyleRef.v = normalizeSplitLayoutStyle(
+            saved.split_layout_style,
+          );
+          disableSearchRef.v = saved.file_tree_disable_search ?? false;
+          confirmDeletePromptRef.v = saved.confirm_delete_prompt ?? true;
+          disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
+          altClickCursorRef.v = saved.terminal_alt_click_moves_cursor ?? true;
+          cursorBlinkRef.v = saved.terminal_cursor_blink ?? true;
+          cursorInactiveStyleRef.v =
+            ((saved as Partial<ParttyPrefs>).terminal_cursor_inactive_style as
+              | "outline"
+              | "block"
+              | "bar"
+              | "underline"
+              | "none"
+              | undefined) ?? "outline";
+          cursorWidthRef.v =
+            (saved as Partial<ParttyPrefs>).terminal_cursor_width ?? 1;
+          fontSizeRef.v =
+            (saved as Partial<ParttyPrefs>).terminal_font_size ?? 12;
+          fontWeightRef.v =
+            (saved as Partial<ParttyPrefs>).terminal_font_weight ?? "normal";
+          fontWeightBoldRef.v =
+            (saved as Partial<ParttyPrefs>).terminal_font_weight_bold ?? "bold";
+          lineHeightRef.v =
+            (saved as Partial<ParttyPrefs>).terminal_line_height ?? 1;
+          letterSpacingRef.v =
+            (saved as Partial<ParttyPrefs>).terminal_letter_spacing ?? 0;
+          drawBoldBrightRef.v =
+            (saved as Partial<ParttyPrefs>).terminal_draw_bold_bright ?? true;
+          customGlyphsRef.v =
+            (saved as Partial<ParttyPrefs>).terminal_custom_glyphs ?? true;
+          smoothScrollRef.v =
+            (saved as Partial<ParttyPrefs>).terminal_smooth_scroll_duration ??
+            0;
+          scrollSensitivityRef.v =
+            (saved as Partial<ParttyPrefs>).terminal_scroll_sensitivity ?? 1;
+          fastScrollSensitivityRef.v =
+            (saved as Partial<ParttyPrefs>).terminal_fast_scroll_sensitivity ??
+            5;
+          contrastRatioRef.v =
+            (saved as Partial<ParttyPrefs>).terminal_minimum_contrast_ratio ??
+            1;
+          applyTerminalDisplayOptions();
+          backspaceDeleteSelectionRef.v =
+            saved.terminal_backspace_delete_selection ?? true;
+          if ((saved.terminal_cursor_style ?? "block") !== cursorStyleRef.v) {
+            cursorStyleRef.v =
+              (saved.terminal_cursor_style as "block" | "underline" | "bar") ??
+              "block";
+            for (const host of tabPaneHosts.values()) {
+              host.setCursorStyle(cursorStyleRef.v);
+            }
           }
-        }
-        const threshold = (saved as Partial<ParttyPrefs>).process_notification_threshold;
-        if (typeof threshold === "number" && Number.isFinite(threshold)) {
-        processNotificationThresholdRef.v = Math.max(0.1, threshold);
-        }
-        const showFor = (saved as Partial<ParttyPrefs>).process_notification_show_for;
-        if (typeof showFor === "number" && Number.isFinite(showFor)) {
-          processNotificationShowForRef.v = Math.max(1000, Math.min(30000, showFor));
-        }
-        processNotificationShowMsRef.v = (saved as Partial<ParttyPrefs>).process_notification_show_ms ?? false;
-        processNotificationTransparentRef.v = (saved as Partial<ParttyPrefs>).process_notification_transparent ?? false;
-        cursorFollowWindowMoveRef.v = Boolean((saved as Partial<ParttyPrefs>).cursor_follow_window_move);
-        cursorFollowPaneFocusRef.v = (saved as Partial<ParttyPrefs>).cursor_follow_pane_focus ?? true;
-        mouseHiddenRef.v = Boolean((saved as Partial<ParttyPrefs>).mouse_hidden);
-        mouseHideOnIdleRef.v = Boolean((saved as Partial<ParttyPrefs>).mouse_hide_on_idle);
-        mouseIdleSecondsRef.v = Math.max(
-          0.5,
-          Math.min(300, (saved as Partial<ParttyPrefs>).mouse_idle_seconds ?? 3),
-        );
-        mouseCursorController?.sync();
-        windowMotionRef.v = (saved as Partial<ParttyPrefs>).terminal_window_motion ?? true;
-        quietPaneDeferralRef.v = Boolean((saved as Partial<ParttyPrefs>).quiet_pane_deferral);
-        syncFileTreeDisabledUi(fileTreeDisabledRef.v);
-        fileTreePanel?.setSearchEnabled(!(saved.file_tree_disable_search ?? false));
-        applyTerminalDisplayPrefs(saved);
-        if (saved.scrollback_lines !== previous.scrollback_lines) {
-          for (const host of tabPaneHosts.values()) {
-            host.setScrollbackLines(saved.scrollback_lines);
+          const threshold = (saved as Partial<ParttyPrefs>)
+            .process_notification_threshold;
+          if (typeof threshold === "number" && Number.isFinite(threshold)) {
+            processNotificationThresholdRef.v = Math.max(0.1, threshold);
           }
-        }
-        applyTooltipPolicy(document);
-        document.documentElement.classList.toggle("pane-blur-unfocused", saved.blur_unfocused_panes);
-        document.documentElement.style.setProperty("--pane-blur-radius", String((saved as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6));
-        document.documentElement.classList.toggle("pane-dim-unfocused", saved.dim_unfocused_panes);
-        applyPaneFocusScalePrefs(saved);
-        // Gap / sandbox padding changes resize each pane's content box but not the
-        // observed container, so re-fit explicitly to apply them live.
-        scheduleResizeImmediate(true);
-        if (saved.always_open_in_zen_mode) {
-          setZenMode(true);
-        }
-        const prevUi = pickUiPrefs(previous as unknown as Record<string, unknown>);
-        const nextUi = pickUiPrefs(saved as unknown as Record<string, unknown>);
-        if (uiPrefsChanged(prevUi, nextUi)) {
-          currentUiPrefs = nextUi;
-          applyUiTheme(nextUi);
-          refreshAllTerminalThemes();
-        }
-        const shellChanged = shellPrefKey(saved.shell) !== shellPrefKey(previous.shell);
-        const cwdChanged = (saved.initial_cwd ?? "").trim() !== (previous.initial_cwd ?? "").trim();
-        if (shellChanged || cwdChanged) {
-          localStorage.setItem(DEFER_PTY_REINIT_KEY, "1");
-        }
-      })
+          const showFor = (saved as Partial<ParttyPrefs>)
+            .process_notification_show_for;
+          if (typeof showFor === "number" && Number.isFinite(showFor)) {
+            processNotificationShowForRef.v = Math.max(
+              1000,
+              Math.min(30000, showFor),
+            );
+          }
+          processNotificationShowMsRef.v =
+            (saved as Partial<ParttyPrefs>).process_notification_show_ms ??
+            false;
+          processNotificationTransparentRef.v =
+            (saved as Partial<ParttyPrefs>).process_notification_transparent ??
+            false;
+          cursorFollowWindowMoveRef.v = Boolean(
+            (saved as Partial<ParttyPrefs>).cursor_follow_window_move,
+          );
+          cursorFollowPaneFocusRef.v =
+            (saved as Partial<ParttyPrefs>).cursor_follow_pane_focus ?? true;
+          mouseHiddenRef.v = Boolean(
+            (saved as Partial<ParttyPrefs>).mouse_hidden,
+          );
+          mouseHideOnIdleRef.v = Boolean(
+            (saved as Partial<ParttyPrefs>).mouse_hide_on_idle,
+          );
+          mouseIdleSecondsRef.v = Math.max(
+            0.5,
+            Math.min(
+              300,
+              (saved as Partial<ParttyPrefs>).mouse_idle_seconds ?? 3,
+            ),
+          );
+          mouseCursorController?.sync();
+          windowMotionRef.v =
+            (saved as Partial<ParttyPrefs>).terminal_window_motion ?? true;
+          quietPaneDeferralRef.v = Boolean(
+            (saved as Partial<ParttyPrefs>).quiet_pane_deferral,
+          );
+          syncFileTreeDisabledUi(fileTreeDisabledRef.v);
+          fileTreePanel?.setSearchEnabled(
+            !(saved.file_tree_disable_search ?? false),
+          );
+          applyTerminalDisplayPrefs(saved);
+          if (saved.scrollback_lines !== previous.scrollback_lines) {
+            for (const host of tabPaneHosts.values()) {
+              host.setScrollbackLines(saved.scrollback_lines);
+            }
+          }
+          applyTooltipPolicy(document);
+          document.documentElement.classList.toggle(
+            "pane-blur-unfocused",
+            saved.blur_unfocused_panes,
+          );
+          document.documentElement.style.setProperty(
+            "--pane-blur-radius",
+            String((saved as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6),
+          );
+          document.documentElement.classList.toggle(
+            "pane-dim-unfocused",
+            saved.dim_unfocused_panes,
+          );
+          applyPaneFocusScalePrefs(saved);
+          // Gap / sandbox padding changes resize each pane's content box but not the
+          // observed container, so re-fit explicitly to apply them live.
+          scheduleResizeImmediate(true);
+          if (saved.always_open_in_zen_mode) {
+            setZenMode(true);
+          }
+          const prevUi = pickUiPrefs(
+            previous as unknown as Record<string, unknown>,
+          );
+          const nextUi = pickUiPrefs(
+            saved as unknown as Record<string, unknown>,
+          );
+          if (uiPrefsChanged(prevUi, nextUi)) {
+            currentUiPrefs = nextUi;
+            applyUiTheme(nextUi);
+            refreshAllTerminalThemes();
+          }
+          const shellChanged =
+            shellPrefKey(saved.shell) !== shellPrefKey(previous.shell);
+          const cwdChanged =
+            (saved.initial_cwd ?? "").trim() !==
+            (previous.initial_cwd ?? "").trim();
+          if (shellChanged || cwdChanged) {
+            localStorage.setItem(DEFER_PTY_REINIT_KEY, "1");
+          }
+        },
+      )
     : null;
 
   const cpPanel = document.querySelector(".command-palette-panel");
@@ -3768,11 +4481,20 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     const t = (token ?? "").toLowerCase();
     const p = prefsShell.toLowerCase();
     if (t === "cmd" || t.includes("cmd")) return "cls\r";
-    if (!t && p.includes("cmd") && !p.includes("pwsh") && !p.includes("powershell")) return "cls\r";
+    if (
+      !t &&
+      p.includes("cmd") &&
+      !p.includes("pwsh") &&
+      !p.includes("powershell")
+    )
+      return "cls\r";
     return "clear\r";
   }
 
-  function restartLineForToken(token: string | null, prefsShell: string): string {
+  function restartLineForToken(
+    token: string | null,
+    prefsShell: string,
+  ): string {
     const t = (token ?? "").toLowerCase();
     const p = prefsShell.toLowerCase();
     if (t.includes("pwsh")) return "pwsh\r";
@@ -3828,7 +4550,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
           token = null;
         }
         const line = restartLineForToken(token, prefsShell);
-        void ptyWrite(id, line).catch((e) => console.warn("> restart shell", e));
+        void ptyWrite(id, line).catch((e) =>
+          console.warn("> restart shell", e),
+        );
       }
     }
   }
@@ -3852,7 +4576,8 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         id: `tab-switch-${tab.id}`,
         label: `: ${tab.name}`,
         keywords: `tab workspace ${tab.name} ${extra} alt ${index + 1}`,
-        hotkey: index < 9 ? `Alt+${index + 1}` : index === 9 ? "Alt+0" : undefined,
+        hotkey:
+          index < 9 ? `Alt+${index + 1}` : index === 9 ? "Alt+0" : undefined,
         run: () => switchWorkspaceTab(tab.id),
       };
     });
@@ -3861,7 +4586,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   function getPaneTargetCommands(query: string): PaletteCommand[] {
     const afterTag = query.slice(6);
     const spaceIdx = afterTag.indexOf(" ");
-    const panePart = (spaceIdx === -1 ? afterTag : afterTag.slice(0, spaceIdx)).trimStart().toLowerCase();
+    const panePart = (spaceIdx === -1 ? afterTag : afterTag.slice(0, spaceIdx))
+      .trimStart()
+      .toLowerCase();
 
     // When a command follows the pane name, show a single dispatch entry.
     // This prevents the palette's word-split filter from eliminating pane entries
@@ -3872,18 +4599,30 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       for (const host of tabPaneHosts.values()) {
         for (const leafId of host.getLeafIdsInOrder()) {
           const name = paneNames.get(leafId) || leafId.slice(0, 8);
-          if (name.toLowerCase() !== panePart && leafId.slice(0, 8).toLowerCase() !== panePart) continue;
+          if (
+            name.toLowerCase() !== panePart &&
+            leafId.slice(0, 8).toLowerCase() !== panePart
+          )
+            continue;
           const cwd = paneCwdHints.get(leafId) || "";
-          const shortCwd = cwd.split(/[\\/]/).filter(Boolean).slice(-2).join("/") || cwd;
-          return [{
-            id: `pane-dispatch-${leafId}`,
-            label: `@pane:${name}${command ? ` → ${command}` : ""}`,
-            labelHtml: `<span class="cp-label-prefix">@pane:</span><span class="cp-label-name">${escapeHtml(name)}</span>` +
-              (shortCwd ? ` <span class="cp-label-cwd">${escapeHtml(shortCwd)}</span>` : "") +
-              (command ? ` <span class="cp-label-prefix" style="font-weight:400">→</span> ${escapeHtml(command)}` : ""),
-            keywords: `${name} ${cwd} ${command}`,
-            run: () => dispatchPaneCommand(leafId, query),
-          }];
+          const shortCwd =
+            cwd.split(/[\\/]/).filter(Boolean).slice(-2).join("/") || cwd;
+          return [
+            {
+              id: `pane-dispatch-${leafId}`,
+              label: `@pane:${name}${command ? ` → ${command}` : ""}`,
+              labelHtml:
+                `<span class="cp-label-prefix">@pane:</span><span class="cp-label-name">${escapeHtml(name)}</span>` +
+                (shortCwd
+                  ? ` <span class="cp-label-cwd">${escapeHtml(shortCwd)}</span>`
+                  : "") +
+                (command
+                  ? ` <span class="cp-label-prefix" style="font-weight:400">→</span> ${escapeHtml(command)}`
+                  : ""),
+              keywords: `${name} ${cwd} ${command}`,
+              run: () => dispatchPaneCommand(leafId, query),
+            },
+          ];
         }
       }
       // No pane matched — show empty
@@ -3894,14 +4633,19 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     const items: PaletteCommand[] = [];
     for (const [tabId, host] of tabPaneHosts) {
       const tab = tabsState.tabs.find((t) => t.id === tabId);
-      const tabLabel = tab ? (tab.name || `Tab ${tabsState.tabs.indexOf(tab) + 1}`) : tabId.slice(0, 6);
+      const tabLabel = tab
+        ? tab.name || `Tab ${tabsState.tabs.indexOf(tab) + 1}`
+        : tabId.slice(0, 6);
       for (const leafId of host.getLeafIdsInOrder()) {
         const name = paneNames.get(leafId) || leafId.slice(0, 8);
         const cwd = paneCwdHints.get(leafId) || "";
-        const shortCwd = cwd.split(/[\\/]/).filter(Boolean).slice(-2).join("/") || cwd;
+        const shortCwd =
+          cwd.split(/[\\/]/).filter(Boolean).slice(-2).join("/") || cwd;
         const hay = `${name} ${cwd} ${tabLabel}`.toLowerCase();
         if (panePart && !hay.includes(panePart)) continue;
-        const cwdHtml = shortCwd ? ` <span class="cp-label-cwd">${escapeHtml(shortCwd)}</span>` : "";
+        const cwdHtml = shortCwd
+          ? ` <span class="cp-label-cwd">${escapeHtml(shortCwd)}</span>`
+          : "";
         items.push({
           id: `pane-target-${leafId}`,
           label: `@pane:${name}  ${shortCwd}  [${tabLabel}]`,
@@ -3915,11 +4659,17 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   }
 
   function escapeHtml(s: string): string {
-    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    return s
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
   }
 
   let processToastTimer = 0;
-  const processToast = document.getElementById("proc-toast") as HTMLElement | null;
+  const processToast = document.getElementById(
+    "proc-toast",
+  ) as HTMLElement | null;
 
   function navigateToPane(paneId: string): void {
     for (const [tabId, host] of tabPaneHosts) {
@@ -3940,9 +4690,14 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     endedAt = Date.now(),
   ): void {
     if (!processToast) return;
-    processToast.classList.toggle("proc-toast--transparent", processNotificationTransparentRef.v);
-    const shortCmd = command.length > 50 ? command.slice(0, 47) + "\u2026" : command;
-    const shortCwd = cwd.split(/[\\/]/).filter(Boolean).slice(-2).join("/") || cwd;
+    processToast.classList.toggle(
+      "proc-toast--transparent",
+      processNotificationTransparentRef.v,
+    );
+    const shortCmd =
+      command.length > 50 ? command.slice(0, 47) + "\u2026" : command;
+    const shortCwd =
+      cwd.split(/[\\/]/).filter(Boolean).slice(-2).join("/") || cwd;
     const ms = Math.max(0, endedAt - startedAt);
     let durStr: string;
     if (processNotificationShowMsRef.v) {
@@ -3969,39 +4724,58 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   });
 
   function getProcCommands(query: string): PaletteCommand[] {
-    const afterTag = query.slice(query.startsWith("@proc:") ? 6 : 5).trimStart();
+    const afterTag = query
+      .slice(query.startsWith("@proc:") ? 6 : 5)
+      .trimStart();
     const words = afterTag ? afterTag.split(/\s+/) : [];
     const prefix = words.join(" ").toLowerCase();
 
-    if (activeProcesses.size === 0) return [{
-      id: "proc-none",
-      label: "No active processes",
-      keywords: "@proc proc process",
-      run: () => {},
-    }];
+    if (activeProcesses.size === 0)
+      return [
+        {
+          id: "proc-none",
+          label: "No active processes",
+          keywords: "@proc proc process",
+          run: () => {},
+        },
+      ];
 
     const items: PaletteCommand[] = [];
     for (const [leafId, proc] of activeProcesses) {
       const displayCmd = displayProcessCommand(proc.command);
-      if (prefix && !displayCmd.toLowerCase().startsWith(prefix) && !displayCmd.toLowerCase().includes(prefix)) continue;
+      if (
+        prefix &&
+        !displayCmd.toLowerCase().startsWith(prefix) &&
+        !displayCmd.toLowerCase().includes(prefix)
+      )
+        continue;
       const name = paneNames.get(leafId) || leafId.slice(0, 8);
-      const shortCwd = proc.cwd.split(/[\\/]/).filter(Boolean).slice(-2).join("/") || proc.cwd;
+      const shortCwd =
+        proc.cwd.split(/[\\/]/).filter(Boolean).slice(-2).join("/") || proc.cwd;
       const dur = ((Date.now() - proc.startedAt) / 1000).toFixed(0);
-      const shortDisplayCmd = displayCmd.length > 50 ? displayCmd.slice(0, 47) + "\u2026" : displayCmd;
+      const shortDisplayCmd =
+        displayCmd.length > 50
+          ? displayCmd.slice(0, 47) + "\u2026"
+          : displayCmd;
       let tabLabel = "";
       for (const [tid, host] of tabPaneHosts) {
         if (host.getPaneTerminal(leafId)) {
           const t = tabsState.tabs.find((x) => x.id === tid);
-          tabLabel = t ? (t.name || `T${tabsState.tabs.indexOf(t) + 1}`) : "";
+          tabLabel = t ? t.name || `T${tabsState.tabs.indexOf(t) + 1}` : "";
           break;
         }
       }
       items.push({
         id: `proc-${leafId}`,
         label: `@proc:${shortDisplayCmd}  ${dur}s`,
-        labelHtml: `<span class="cp-label-prefix">@proc:</span><span class="cp-label-name">${escapeHtml(shortDisplayCmd)}</span>` +
-          (shortCwd ? ` <span class="cp-label-cwd">${escapeHtml(shortCwd)}</span>` : "") +
-          (tabLabel ? ` <span class="cp-label-tab">${escapeHtml(tabLabel)}</span>` : "") +
+        labelHtml:
+          `<span class="cp-label-prefix">@proc:</span><span class="cp-label-name">${escapeHtml(shortDisplayCmd)}</span>` +
+          (shortCwd
+            ? ` <span class="cp-label-cwd">${escapeHtml(shortCwd)}</span>`
+            : "") +
+          (tabLabel
+            ? ` <span class="cp-label-tab">${escapeHtml(tabLabel)}</span>`
+            : "") +
           ` <span style="color:var(--ui-chrome-muted);margin-left:0.4em">${dur}s</span>`,
         keywords: `@proc proc ${displayCmd} ${proc.cwd} ${name} ${tabLabel}`,
         run: () => {
@@ -4015,12 +4789,18 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         },
       });
     }
-    return items.length > 0 ? items : [{
-      id: "proc-none",
-      label: prefix ? `No process matching "${prefix}"` : "No active processes",
-      keywords: "@proc proc process",
-      run: () => {},
-    }];
+    return items.length > 0
+      ? items
+      : [
+          {
+            id: "proc-none",
+            label: prefix
+              ? `No process matching "${prefix}"`
+              : "No active processes",
+            keywords: "@proc proc process",
+            run: () => {},
+          },
+        ];
   }
 
   function dispatchPaneCommand(targetPaneId: string, query: string): void {
@@ -4040,7 +4820,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       }
       return;
     }
-    void ptyWrite(targetPaneId, `${command}\r`).catch((e) => console.warn("pty_write @pane:", e));
+    void ptyWrite(targetPaneId, `${command}\r`).catch((e) =>
+      console.warn("pty_write @pane:", e),
+    );
   }
 
   async function toggleMouseHidden(): Promise<void> {
@@ -4253,7 +5035,10 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         run: () => {
           themeTargetPaneId = null;
           paneThemeRestore = null;
-          themeModal?.open({ title: "App Theme", initialPrefs: currentUiPrefs });
+          themeModal?.open({
+            title: "App Theme",
+            initialPrefs: currentUiPrefs,
+          });
         },
       },
       {
@@ -4291,7 +5076,8 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         label: isBackgroundWorkMode()
           ? "Shed PTYs when hidden"
           : "Keep PTYs alive when hidden",
-        keywords: "background keep alive pty buffer webview shed hide memory agent logs tui session",
+        keywords:
+          "background keep alive pty buffer webview shed hide memory agent logs tui session",
         run: () => void setBackgroundWorkMode(!isBackgroundWorkMode()),
       },
       // --- Window ---
@@ -4389,10 +5175,14 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   }
 
   function renderHelpShortcuts(): void {
-    const list = helpPanelEl?.querySelector(".help-shortcuts") as HTMLElement | null;
+    const list = helpPanelEl?.querySelector(
+      ".help-shortcuts",
+    ) as HTMLElement | null;
     if (!list) return;
     const seen = new Set<string>();
-    const rows: { hotkey: string; label: string }[] = [{ hotkey: "Ctrl+Shift+P", label: "Command palette" }];
+    const rows: { hotkey: string; label: string }[] = [
+      { hotkey: "Ctrl+Shift+P", label: "Command palette" },
+    ];
     for (const cmd of getMergedPaletteCommands("")) {
       const hotkey = cmd.hotkey?.trim();
       if (!hotkey || seen.has(hotkey)) continue;
@@ -4411,21 +5201,23 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       { hotkey: "Alt+Shift+Drag", label: "Move window from anywhere" },
       { hotkey: "Right-click", label: "Paste from clipboard" },
     );
-    list.replaceChildren(...rows.map(({ hotkey, label }) => {
-      const row = document.createElement("div");
-      row.className = "help-shortcut";
-      for (const part of hotkey.split("+")) {
-        const key = document.createElement("kbd");
-        key.className = "help-key";
-        key.textContent = part;
-        row.appendChild(key);
-      }
-      const desc = document.createElement("span");
-      desc.className = "help-desc";
-      desc.textContent = label;
-      row.appendChild(desc);
-      return row;
-    }));
+    list.replaceChildren(
+      ...rows.map(({ hotkey, label }) => {
+        const row = document.createElement("div");
+        row.className = "help-shortcut";
+        for (const part of hotkey.split("+")) {
+          const key = document.createElement("kbd");
+          key.className = "help-key";
+          key.textContent = part;
+          row.appendChild(key);
+        }
+        const desc = document.createElement("span");
+        desc.className = "help-desc";
+        desc.textContent = label;
+        row.appendChild(desc);
+        return row;
+      }),
+    );
   }
 
   const commandPalette =
@@ -4444,13 +5236,22 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
             getFocusedTerm()?.focus();
           },
           onTabComplete: (currentInput: string, selected) => {
-            if (currentInput.startsWith("@pane:") && selected && selected.id.startsWith("pane-target-")) {
+            if (
+              currentInput.startsWith("@pane:") &&
+              selected &&
+              selected.id.startsWith("pane-target-")
+            ) {
               const label = selected.label;
               const nameEnd = label.indexOf("  ");
-              const paneName = nameEnd === -1 ? label.slice(6) : label.slice(6, nameEnd);
+              const paneName =
+                nameEnd === -1 ? label.slice(6) : label.slice(6, nameEnd);
               return `@pane:${paneName} `;
             }
-            if ((currentInput.startsWith("@proc:") || currentInput === "@proc") && selected && selected.id.startsWith("proc-")) {
+            if (
+              (currentInput.startsWith("@proc:") || currentInput === "@proc") &&
+              selected &&
+              selected.id.startsWith("proc-")
+            ) {
               // Find the process command from the activeProcesses map
               const leafId = selected.id.slice(5); // "proc-<leafId>"
               const proc = activeProcesses.get(leafId);
@@ -4484,27 +5285,41 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     else closeHelpPanel();
   };
 
-  document.getElementById("help-close")?.addEventListener("click", () => closeHelpPanel());
-  helpPanelEl?.querySelector("[data-close-help]")?.addEventListener("click", () => closeHelpPanel());
+  document
+    .getElementById("help-close")
+    ?.addEventListener("click", () => closeHelpPanel());
+  helpPanelEl
+    ?.querySelector("[data-close-help]")
+    ?.addEventListener("click", () => closeHelpPanel());
 
   // Zen tab rename modal
   const zenModal = document.getElementById("zen-rename-modal");
-  zenModal?.querySelector(".zen-rename-form")?.addEventListener("submit", (e) => {
-    e.preventDefault();
-    closeZenRenameModal(true);
-  });
+  zenModal
+    ?.querySelector(".zen-rename-form")
+    ?.addEventListener("submit", (e) => {
+      e.preventDefault();
+      closeZenRenameModal(true);
+    });
   zenModal?.querySelectorAll("[data-zen-rename-close]").forEach((el) => {
     el.addEventListener("click", () => closeZenRenameModal(false));
   });
-  zenModal?.querySelector(".zen-rename-backdrop")?.addEventListener("click", (e) => {
-    if (e.target === e.currentTarget) closeZenRenameModal(false);
-  });
+  zenModal
+    ?.querySelector(".zen-rename-backdrop")
+    ?.addEventListener("click", (e) => {
+      if (e.target === e.currentTarget) closeZenRenameModal(false);
+    });
   zenModal?.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeZenRenameModal(false);
   });
-  const extManagerEl = document.getElementById("extension-manager") as HTMLElement | null;
-  const extManagerApi = extManagerEl ? createExtensionManager(extManagerEl) : null;
-  extManagerEl?.querySelector("[data-ext-close]")?.addEventListener("click", () => extManagerApi?.close());
+  const extManagerEl = document.getElementById(
+    "extension-manager",
+  ) as HTMLElement | null;
+  const extManagerApi = extManagerEl
+    ? createExtensionManager(extManagerEl)
+    : null;
+  extManagerEl
+    ?.querySelector("[data-ext-close]")
+    ?.addEventListener("click", () => extManagerApi?.close());
   const appWindow = getCurrentWindow();
   async function syncMaximizeButtonTitle(): Promise<void> {
     const btn = document.getElementById("window-maximize");
@@ -4521,9 +5336,11 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   void appWindow.onResized(() => {
     void syncMaximizeButtonTitle();
   });
-  document.getElementById("window-maximize")?.addEventListener("pointerenter", () => {
-    void syncMaximizeButtonTitle();
-  });
+  document
+    .getElementById("window-maximize")
+    ?.addEventListener("pointerenter", () => {
+      void syncMaximizeButtonTitle();
+    });
   document.getElementById("window-quit")?.addEventListener("click", () => {
     void appWindow.destroy().catch(() => {});
   });
@@ -4542,7 +5359,8 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   let windowMotionTimer = 0;
   function playWindowMotion(): void {
     if (!windowMotionRef.v) return;
-    if (document.documentElement.classList.contains("terminal-motion-off")) return;
+    if (document.documentElement.classList.contains("terminal-motion-off"))
+      return;
     const el = document.getElementById("terminal-pane-root") ?? terminalContent;
     if (!el) return;
     el.classList.remove("window-motion-settle");
@@ -4601,7 +5419,7 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       if (idx < 0) idx = 0;
       const from = cur ?? monitors[idx];
       const n = monitors.length;
-      const to = monitors[((idx + direction) % n + n) % n];
+      const to = monitors[(((idx + direction) % n) + n) % n];
       const wasMaximized = await appWindow.isMaximized();
       if (wasMaximized) await appWindow.unmaximize();
       const pos = await appWindow.outerPosition();
@@ -4610,14 +5428,21 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       const relY = pos.y - from.position.y;
       const maxX = to.position.x + Math.max(0, to.size.width - size.width);
       const maxY = to.position.y + Math.max(0, to.size.height - size.height);
-      const nextX = Math.round(Math.min(Math.max(to.position.x + relX, to.position.x), maxX));
-      const nextY = Math.round(Math.min(Math.max(to.position.y + relY, to.position.y), maxY));
+      const nextX = Math.round(
+        Math.min(Math.max(to.position.x + relX, to.position.x), maxX),
+      );
+      const nextY = Math.round(
+        Math.min(Math.max(to.position.y + relY, to.position.y), maxY),
+      );
       await appWindow.setPosition(new PhysicalPosition(nextX, nextY));
       if (wasMaximized) await appWindow.maximize();
       await syncMaximizeButtonTitle();
       playWindowMotion();
       if (cursorFollowWindowMoveRef.v) {
-        scheduleCursorWarpToPane(undefined, { force: true, bypassPanePref: true });
+        scheduleCursorWarpToPane(undefined, {
+          force: true,
+          bypassPanePref: true,
+        });
       }
     } catch {
       /* ignore */
@@ -4630,7 +5455,8 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   window.addEventListener(
     "mousedown",
     (e) => {
-      if (e.button !== 0 || !e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return;
+      if (e.button !== 0 || !e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey)
+        return;
       e.preventDefault();
       e.stopPropagation();
       void appWindow.startDragging().catch(() => {});
@@ -4650,10 +5476,16 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         return;
       if (
         t?.closest("#settings-panel") &&
-        (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT")
       )
         return;
-      if (t?.closest(".termie-dialog-input") || t?.closest(".termie-dialog-panel")) return;
+      if (
+        t?.closest(".termie-dialog-input") ||
+        t?.closest(".termie-dialog-panel")
+      )
+        return;
       e.preventDefault();
       e.stopPropagation();
       toggleHelp();
@@ -4717,7 +5549,8 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     document.addEventListener(
       "keydown",
       (e) => {
-        if (e.key !== "Escape" || !commandPalette.isOpen() || !builderMode) return;
+        if (e.key !== "Escape" || !commandPalette.isOpen() || !builderMode)
+          return;
         e.preventDefault();
         e.stopPropagation();
         hideBuilder();
@@ -4737,7 +5570,10 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         themeModal.close();
         return;
       }
-      if (helpPanelEl && !helpPanelEl.classList.contains("help-panel--hidden")) {
+      if (
+        helpPanelEl &&
+        !helpPanelEl.classList.contains("help-panel--hidden")
+      ) {
         e.preventDefault();
         closeHelpPanel();
       }
@@ -4776,7 +5612,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
     reflowAllPanes();
 
     if (lp.defer_window_show_until_prepared) {
-      await invoke("commit_show_window").catch((e) => console.error("commit_show_window", e));
+      await invoke("commit_show_window").catch((e) =>
+        console.error("commit_show_window", e),
+      );
     }
   }
 
@@ -4785,12 +5623,92 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       const { pane_id, data } = event.payload;
       queuePtyOutput(pane_id, data);
     }),
+    listen<{ paneId: string; cwd: string }>("pty-cwd", (event) => {
+      const { paneId, cwd } = event.payload;
+      paneCwdHints.set(paneId, cwd);
+      lastLiveCwdSignalAt = Date.now();
+      fileTreeCoordinator?.seedPaneCwd(paneId, cwd);
+      if (paneId !== paneHost?.getFocusedPaneId()) return;
+      if (normalizeFsPathKey(cwd) === normalizeFsPathKey(liveCwd ?? "")) return;
+      liveCwd = cwd;
+      scheduleFileTreeRefresh();
+    }),
+
+    listen<{
+      paneId: string;
+      kind: string;
+      exitCode?: number | null;
+      text?: string;
+    }>("pty-shell-event", (event) => {
+      const { paneId, kind, text } = event.payload;
+      switch (kind) {
+        case "commandLine": {
+          if (!text) break;
+          const merged = mergeProcessCommand(
+            pendingShellCommandLine.get(paneId) ?? "",
+            text,
+          );
+          if (merged) pendingShellCommandLine.set(paneId, merged);
+          const entry = activeProcesses.get(paneId);
+          if (entry) {
+            applyShellCommandLine(entry, text);
+          }
+          break;
+        }
+        case "preExec": {
+          let entry = activeProcesses.get(paneId);
+          if (!entry) {
+            const cmd = pendingShellCommandLine.get(paneId);
+            if (!cmd) break;
+            entry = createActiveProcessEntry(
+              cmd,
+              paneCwdHints.get(paneId) || "",
+            );
+            activeProcesses.set(paneId, entry);
+            if (extProcStartSubs.length > 0) {
+              const start = {
+                paneId,
+                command: displayProcessCommand(entry.command),
+                cwd: entry.cwd,
+              };
+              for (const fn of extProcStartSubs) {
+                try {
+                  fn(start);
+                } catch {
+                  /* ignore */
+                }
+              }
+            }
+          }
+          markProcessExecStart(entry);
+          pendingShellCommandLine.delete(paneId);
+          break;
+        }
+        case "commandDone": {
+          finishActiveProcess(paneId, Date.now());
+          break;
+        }
+        case "promptStart": {
+          const entry = activeProcesses.get(paneId);
+          if (entry && shouldEndOnPromptStart(entry)) {
+            finishActiveProcess(paneId, Date.now());
+          }
+          break;
+        }
+      }
+    }),
+
     listen<PtyExitEvent>("pty-exit", async (event) => {
       const { pane_id } = event.payload;
       const pending = pendingPtyOutputByPane.get(pane_id);
       if (pending) {
         pendingPtyOutputByPane.delete(pane_id);
-        processPtyOutputBatch(pane_id, pending.data, pending.eventCount, pending.queuedAt);
+        processPtyOutputBatch(
+          pane_id,
+          pending.data,
+          pending.eventCount,
+          pending.queuedAt,
+        );
       }
       await ptyAckExit(pane_id);
       const pt = getPaneTerminalById(pane_id);
@@ -4928,10 +5846,15 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         const focusedPaneId = paneHost?.getFocusedPaneId();
         if (focusedPaneId) {
           fileTreePanel.setActivePane(focusedPaneId);
-          fileTreeCoordinator.seedPaneCwd(focusedPaneId, paneCwdHints.get(focusedPaneId) ?? liveCwd);
+          fileTreeCoordinator.seedPaneCwd(
+            focusedPaneId,
+            paneCwdHints.get(focusedPaneId) ?? liveCwd,
+          );
           fileTreeCoordinator.handlePaneFocus(focusedPaneId);
         }
-        void fileTreeCoordinator.syncCwdFromBackend().then(() => fileTreeCoordinator?.refresh());
+        void fileTreeCoordinator
+          .syncCwdFromBackend()
+          .then(() => fileTreeCoordinator?.refresh());
       }
       scheduleResizeImmediate();
     })();
@@ -4952,10 +5875,16 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
   // that exports an activate(api) function.
   void (async () => {
     try {
-      const allExts = await invoke<Array<{
-        id: string; name: string; version: string; description: string;
-        code: string; enabled: boolean;
-      }>>("list_extensions");
+      const allExts = await invoke<
+        Array<{
+          id: string;
+          name: string;
+          version: string;
+          description: string;
+          code: string;
+          enabled: boolean;
+        }>
+      >("list_extensions");
       const exts = allExts.filter((e) => e.enabled);
       if (exts.length === 0) return;
 
@@ -4969,10 +5898,16 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
           if (!ptyOutputUnlisten) {
             const unlisten = listen<PtyOutputEvent>("pty-output", (ev) => {
               for (const sub of ptyOutputSubs) {
-                try { sub(ev.payload.pane_id, ev.payload.data); } catch { /* ignore */ }
+                try {
+                  sub(ev.payload.pane_id, ev.payload.data);
+                } catch {
+                  /* ignore */
+                }
               }
             });
-            ptyOutputUnlisten = () => { unlisten.then((u) => u()); };
+            ptyOutputUnlisten = () => {
+              unlisten.then((u) => u());
+            };
           }
           return () => {
             ptyOutputSubs.delete(fn);
@@ -4989,14 +5924,22 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
             if (idx !== -1) extPtyInputSubs.splice(idx, 1);
           };
         },
-        onProcessStart(fn: (proc: { paneId: string; command: string; cwd: string }) => void) {
+        onProcessStart(
+          fn: (proc: { paneId: string; command: string; cwd: string }) => void,
+        ) {
           extProcStartSubs.push(fn);
           return () => {
             const idx = extProcStartSubs.indexOf(fn);
             if (idx !== -1) extProcStartSubs.splice(idx, 1);
           };
         },
-        onProcessEnd(fn: (proc: { paneId: string; command: string; durationMs: number }) => void) {
+        onProcessEnd(
+          fn: (proc: {
+            paneId: string;
+            command: string;
+            durationMs: number;
+          }) => void,
+        ) {
           extProcEndSubs.push(fn);
           return () => {
             const idx = extProcEndSubs.indexOf(fn);
@@ -5013,7 +5956,12 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
           };
         },
         getActiveProcesses() {
-          const result: Array<{ paneId: string; command: string; cwd: string; startedAt: number }> = [];
+          const result: Array<{
+            paneId: string;
+            command: string;
+            cwd: string;
+            startedAt: number;
+          }> = [];
           for (const [paneId, entry] of activeProcesses) {
             result.push({
               paneId,
@@ -5030,7 +5978,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         showNotification(command: string, detail: string, paneId?: string) {
           if (!processToast) return;
           processToast.dataset.paneId = paneId ?? "";
-          const navArrow = paneId ? `<button class="proc-toast-nav" title="Go to pane">\u2192</button>` : "";
+          const navArrow = paneId
+            ? `<button class="proc-toast-nav" title="Go to pane">\u2192</button>`
+            : "";
           processToast.innerHTML = `<span class="proc-toast-cmd">${escapeHtml(command)}</span> ${escapeHtml(detail)}${navArrow}`;
           processToast.classList.remove("proc-toast--hidden");
           if (processToastTimer) clearTimeout(processToastTimer);
@@ -5042,7 +5992,9 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
           try {
             const raw = localStorage.getItem(`partty.ext.${key}`);
             return raw ? JSON.parse(raw) : fallback;
-          } catch { return fallback; }
+          } catch {
+            return fallback;
+          }
         },
         setPref<T>(key: string, value: T): void {
           localStorage.setItem(`partty.ext.${key}`, JSON.stringify(value));
@@ -5050,19 +6002,24 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
         getAppTheme() {
           return {
             ui: currentUiPrefs,
-            terminal: buildXtermThemeFromPrefs(persisted.prefs as PaneThemePrefs),
+            terminal: buildXtermThemeFromPrefs(
+              persisted.prefs as PaneThemePrefs,
+            ),
           };
         },
         getPaneTheme(paneId: string) {
           const pt = getPaneTerminalById(paneId);
-          const theme = pt ? { ...pt.term.options.theme } : buildXtermThemeFromPrefs(persisted.prefs as PaneThemePrefs);
+          const theme = pt
+            ? { ...pt.term.options.theme }
+            : buildXtermThemeFromPrefs(persisted.prefs as PaneThemePrefs);
           const override = paneThemes.get(paneId);
           return { theme, override: override ?? null };
         },
         getFocusedPaneId: () => paneHost?.getFocusedPaneId() ?? null,
         getPaneIds: () => {
           const ids: string[] = [];
-          for (const host of tabPaneHosts.values()) ids.push(...host.getLeafIdsInOrder());
+          for (const host of tabPaneHosts.values())
+            ids.push(...host.getLeafIdsInOrder());
           return ids;
         },
         getPaneCwd: (paneId: string) => paneCwdHints.get(paneId) ?? null,
@@ -5154,6 +6111,26 @@ tabsState = { ...tabsState, tabs: [...tabsState.tabs, { id: newId, name: candida
       // Extensions directory doesn't exist or is empty — nothing to load.
     }
   })();
+
+  let devMetricsOverlay: DevMetricsOverlayApi | null = null;
+  const appRoot = document.getElementById("app");
+  if (parttyPerf.enabled && appRoot) {
+    devMetricsOverlay = createDevMetricsOverlay(appRoot);
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if (!e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return;
+    if (e.key !== "D" && e.key !== "d") return;
+    const t = e.target as HTMLElement | null;
+    if (t?.closest("#command-palette") || t?.closest("#settings-panel") || t?.closest(".term-search")) return;
+    if (!parttyPerf.enabled) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!devMetricsOverlay && appRoot) {
+      devMetricsOverlay = createDevMetricsOverlay(appRoot);
+    }
+    devMetricsOverlay?.toggle();
+  }, true);
 
   window.addEventListener("beforeunload", () => {
     mouseCursorController?.dispose();

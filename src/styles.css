@@ -4013,3 +4013,122 @@ html.file-tree-right .command-palette {
 .extension-manager-item .settings-checkbox-input {
   margin-top: 1px;
 }
+
+/* ===== Developer Metrics Overlay ===== */
+.dev-overlay {
+  position: fixed;
+  top: 48px;
+  right: 12px;
+  width: 340px;
+  max-height: calc(100vh - 64px);
+  background: color-mix(in srgb, var(--term-bg) 94%, #000 6%);
+  border: 1px solid color-mix(in srgb, var(--ui-chrome-muted) 20%, transparent);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  z-index: 5000;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--ui-chrome-fg);
+  display: flex;
+  flex-direction: column;
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+  user-select: none;
+}
+.dev-overlay--hidden {
+  display: none;
+}
+.dev-overlay-handle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ui-chrome-muted);
+  cursor: grab;
+  border-bottom: 1px solid color-mix(in srgb, var(--ui-chrome-muted) 14%, transparent);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.dev-overlay-handle:active {
+  cursor: grabbing;
+}
+.dev-overlay-close {
+  background: none;
+  border: none;
+  color: var(--ui-chrome-fainter);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.dev-overlay-close:hover {
+  color: var(--ui-chrome-fg);
+}
+.dev-overlay-body {
+  padding: 6px 10px 10px;
+  overflow-y: auto;
+  flex: 1;
+}
+.dev-overlay-section {
+  margin-top: 6px;
+}
+.dev-overlay-section:first-child {
+  margin-top: 0;
+}
+.dev-overlay-section--panes {
+  border-top: 1px solid color-mix(in srgb, var(--ui-chrome-muted) 12%, transparent);
+  padding-top: 6px;
+  margin-top: 6px;
+}
+.dev-overlay-section-title {
+  font-size: 10px;
+  color: var(--ui-chrome-fainter);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.dev-overlay-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ov-metric {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ui-chrome-muted);
+}
+.ov-metric strong {
+  color: var(--ui-chrome-fg);
+  font-weight: 600;
+}
+.ov-metric--warn strong {
+  color: #ef4444;
+}
+.ov-metric--mid strong {
+  color: #f59e0b;
+}
+.ov-metric--dim {
+  color: var(--ui-chrome-fainter);
+  font-style: italic;
+}
+.ov-pane {
+  margin-top: 4px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ui-chrome-fg) 4%, transparent);
+}
+.ov-pane-id {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent-primary-light);
+  margin-bottom: 2px;
+  font-family: var(--font-terminal);
+}
+.ov-pane-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 4px;
+}
