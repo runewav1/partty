@@ -1130,7 +1130,7 @@ fn config_dir() -> Option<PathBuf> {
     Some(home.join(".partty"))
 }
 
-fn ensure_config_dir() -> Option<PathBuf> {
+pub(crate) fn ensure_config_dir() -> Option<PathBuf> {
     let dir = config_dir()?;
     let _ = fs::create_dir_all(&dir);
     Some(dir)

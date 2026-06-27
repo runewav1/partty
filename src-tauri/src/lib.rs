@@ -1,6 +1,7 @@
 mod fff_search_integration;
 mod fs_watcher;
 mod fs_workspace;
+mod keybinds;
 mod palette_commands;
 #[cfg(windows)]
 mod peb_cwd_windows;
@@ -2019,6 +2020,9 @@ pub fn run() {
             palette_commands::get_palette_context,
             palette_commands::upsert_palette_command,
             palette_commands::delete_palette_command,
+            keybinds::get_keybinds,
+            keybinds::set_keybind,
+            keybinds::reset_keybinds,
             read_dir_entries,
             read_dir_summary,
             git_workdir_status,
