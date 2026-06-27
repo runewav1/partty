@@ -45,7 +45,6 @@
 |-----|------|---------|
 | `bright_bold` | bool | `true` |
 | `custom_glyphs` | bool | `true` |
-| `contrast_ratio` | float | `1.0` (off). `4.5` = WCAG AA |
 | `backspace_deletes_selection` | bool | `true` |
 
 ## `[pane]`

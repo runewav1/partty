@@ -575,11 +575,6 @@ async function boot(): Promise<void> {
       (persisted.prefs as Partial<ParttyPrefs>)
         .terminal_fast_scroll_sensitivity ?? 5,
   };
-  const contrastRatioRef = {
-    v:
-      (persisted.prefs as Partial<ParttyPrefs>)
-        .terminal_minimum_contrast_ratio ?? 1,
-  };
   const backspaceDeleteSelectionRef = {
     v:
       (persisted.prefs as Partial<ParttyPrefs>)
@@ -2111,8 +2106,6 @@ async function boot(): Promise<void> {
         smoothScrollDuration: smoothScrollRef.v,
         scrollSensitivity: scrollSensitivityRef.v,
         fastScrollSensitivity: fastScrollSensitivityRef.v,
-        minimumContrastRatio: contrastRatioRef.v,
-
         linkHandler: {
           activate: (_event, uri) => {
             if (
@@ -4176,7 +4169,6 @@ async function boot(): Promise<void> {
         t.options.smoothScrollDuration = smoothScrollRef.v;
         t.options.scrollSensitivity = scrollSensitivityRef.v;
         t.options.fastScrollSensitivity = fastScrollSensitivityRef.v;
-        t.options.minimumContrastRatio = contrastRatioRef.v;
       }
     }
   };
@@ -4236,9 +4228,6 @@ async function boot(): Promise<void> {
           fastScrollSensitivityRef.v =
             (saved as Partial<ParttyPrefs>).terminal_fast_scroll_sensitivity ??
             5;
-          contrastRatioRef.v =
-            (saved as Partial<ParttyPrefs>).terminal_minimum_contrast_ratio ??
-            1;
           applyTerminalDisplayOptions();
           backspaceDeleteSelectionRef.v =
             saved.terminal_backspace_delete_selection ?? true;

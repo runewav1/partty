@@ -122,9 +122,6 @@ fn default_scroll_sensitivity() -> f64 {
 fn default_fast_scroll_sensitivity() -> f64 {
     5.0
 }
-fn default_minimum_contrast_ratio() -> f64 {
-    1.0
-}
 fn default_process_notification_threshold() -> f64 {
     5.0
 }
@@ -266,9 +263,6 @@ pub struct Prefs {
     pub terminal_scroll_sensitivity: f64,
     #[serde(default = "default_fast_scroll_sensitivity")]
     pub terminal_fast_scroll_sensitivity: f64,
-    #[serde(default = "default_minimum_contrast_ratio")]
-    pub terminal_minimum_contrast_ratio: f64,
-    #[serde(default = "default_process_notification_threshold")]
     pub process_notification_threshold: f64,
     #[serde(default = "default_process_notification_show_for")]
     pub process_notification_show_for: f64,
@@ -371,7 +365,6 @@ impl Default for Prefs {
             terminal_smooth_scroll_duration: 0.0,
             terminal_scroll_sensitivity: default_scroll_sensitivity(),
             terminal_fast_scroll_sensitivity: default_fast_scroll_sensitivity(),
-            terminal_minimum_contrast_ratio: default_minimum_contrast_ratio(),
             process_notification_threshold: default_process_notification_threshold(),
             process_notification_show_for: default_process_notification_show_for(),
             process_notification_show_ms: false,
@@ -540,8 +533,6 @@ pub struct DisplaySection {
     pub bright_bold: bool,
     #[serde(default = "default_true")]
     pub custom_glyphs: bool,
-    #[serde(default = "default_minimum_contrast_ratio")]
-    pub contrast_ratio: f64,
     #[serde(default = "default_terminal_backspace_delete_selection")]
     pub backspace_deletes_selection: bool,
 }
@@ -551,7 +542,6 @@ impl Default for DisplaySection {
         Self {
             bright_bold: true,
             custom_glyphs: true,
-            contrast_ratio: default_minimum_contrast_ratio(),
             backspace_deletes_selection: true,
         }
     }
@@ -908,7 +898,6 @@ impl From<ConfigToml> for Prefs {
             terminal_fast_scroll_sensitivity: c.scroll.fast_sensitivity,
             terminal_draw_bold_bright: c.display.bright_bold,
             terminal_custom_glyphs: c.display.custom_glyphs,
-            terminal_minimum_contrast_ratio: c.display.contrast_ratio,
             terminal_backspace_delete_selection: c.display.backspace_deletes_selection,
             blur_unfocused_panes: c.pane.blur,
             pane_blur_radius: c.pane.blur_radius,
@@ -1003,7 +992,6 @@ impl From<&Prefs> for ConfigToml {
             display: DisplaySection {
                 bright_bold: p.terminal_draw_bold_bright,
                 custom_glyphs: p.terminal_custom_glyphs,
-                contrast_ratio: p.terminal_minimum_contrast_ratio,
                 backspace_deletes_selection: p.terminal_backspace_delete_selection,
             },
             pane: PaneSection {
