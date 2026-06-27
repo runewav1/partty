@@ -46,11 +46,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#3b4261",
       "--backdrop-darkest": "rgba(13, 16, 33, 0.52)",
       "--input-bg": "#1a1b26",
-      "--input-border": "#3b4261",
-      "--minimap-track": "rgba(0,0,0,0.35)",
-      "--minimap-thumb": "rgba(122,162,247,0.35)",
-      "--minimap-thumb-border": "rgba(192,202,245,0.45)",
-      "--pane-divider": "rgba(122,162,247,0.25)",
+      "--input-border": "#3b4261",      "--pane-divider": "rgba(122,162,247,0.25)",
       "--pane-divider-hover": "rgba(122,162,247,0.42)",
     },
   },
@@ -70,11 +66,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#4f585e",
       "--backdrop-darkest": "rgba(20, 26, 28, 0.5)",
       "--input-bg": "#2d353b",
-      "--input-border": "#4f585e",
-      "--minimap-track": "rgba(0,0,0,0.32)",
-      "--minimap-thumb": "rgba(167,192,128,0.35)",
-      "--minimap-thumb-border": "rgba(211,198,170,0.4)",
-      "--pane-divider": "rgba(167,192,128,0.22)",
+      "--input-border": "#4f585e",      "--pane-divider": "rgba(167,192,128,0.22)",
       "--pane-divider-hover": "rgba(167,192,128,0.38)",
     },
   },
@@ -94,9 +86,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#242936",
       "--backdrop-darkest": "rgba(5, 8, 12, 0.55)",
       "--input-bg": "#0b0e14",
-      "--input-border": "#242936",
-      "--minimap-thumb": "rgba(89,194,255,0.35)",
-      "--pane-divider": "rgba(89,194,255,0.22)",
+      "--input-border": "#242936",      "--pane-divider": "rgba(89,194,255,0.22)",
       "--pane-divider-hover": "rgba(89,194,255,0.4)",
     },
   },
@@ -115,9 +105,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#45475a",
       "--backdrop-darkest": "rgba(17, 17, 27, 0.55)",
       "--input-bg": "#1e1e2e",
-      "--input-border": "#45475a",
-      "--minimap-thumb": "rgba(203,166,247,0.38)",
-      "--pane-divider": "rgba(203,166,247,0.25)",
+      "--input-border": "#45475a",      "--pane-divider": "rgba(203,166,247,0.25)",
       "--pane-divider-hover": "rgba(203,166,247,0.42)",
     },
     macchiato: {
@@ -133,9 +121,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#494d64",
       "--backdrop-darkest": "rgba(20, 22, 36, 0.52)",
       "--input-bg": "#24273a",
-      "--input-border": "#494d64",
-      "--minimap-thumb": "rgba(198,160,246,0.35)",
-      "--pane-divider": "rgba(198,160,246,0.24)",
+      "--input-border": "#494d64",      "--pane-divider": "rgba(198,160,246,0.24)",
       "--pane-divider-hover": "rgba(198,160,246,0.4)",
     },
     frappe: {
@@ -150,9 +136,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#51576d",
       "--backdrop-darkest": "rgba(24, 26, 36, 0.5)",
       "--input-bg": "#303446",
-      "--input-border": "#51576d",
-      "--minimap-thumb": "rgba(202,158,230,0.35)",
-      "--pane-divider": "rgba(202,158,230,0.22)",
+      "--input-border": "#51576d",      "--pane-divider": "rgba(202,158,230,0.22)",
       "--pane-divider-hover": "rgba(202,158,230,0.4)",
     },
     latte: {
@@ -169,10 +153,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#bcc0cc",
       "--backdrop-darkest": "rgba(76, 79, 105, 0.35)",
       "--input-bg": "#eff1f5",
-      "--input-border": "#acb0be",
-      "--minimap-track": "rgba(0,0,0,0.08)",
-      "--minimap-thumb": "rgba(136,57,239,0.25)",
-      "--pane-divider": "rgba(136,57,239,0.2)",
+      "--input-border": "#acb0be",      "--pane-divider": "rgba(136,57,239,0.2)",
       "--pane-divider-hover": "rgba(136,57,239,0.35)",
     },
   },
@@ -189,9 +170,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#494d64",
       "--backdrop-darkest": "rgba(20, 22, 36, 0.52)",
       "--input-bg": "#24273a",
-      "--input-border": "#494d64",
-      "--minimap-thumb": "rgba(198,160,246,0.35)",
-      "--pane-divider": "rgba(198,160,246,0.24)",
+      "--input-border": "#494d64",      "--pane-divider": "rgba(198,160,246,0.24)",
       "--pane-divider-hover": "rgba(198,160,246,0.4)",
     },
   },
@@ -209,9 +188,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#504945",
       "--backdrop-darkest": "rgba(20, 18, 16, 0.55)",
       "--input-bg": "#32302f",
-      "--input-border": "#504945",
-      "--minimap-thumb": "rgba(254,128,25,0.35)",
-      "--pane-divider": "rgba(254,128,25,0.22)",
+      "--input-border": "#504945",      "--pane-divider": "rgba(254,128,25,0.22)",
       "--pane-divider-hover": "rgba(254,128,25,0.4)",
     },
     hard_dark: {
@@ -226,9 +203,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#3c3836",
       "--backdrop-darkest": "rgba(10, 10, 10, 0.58)",
       "--input-bg": "#1d2021",
-      "--input-border": "#3c3836",
-      "--minimap-thumb": "rgba(254,128,25,0.38)",
-      "--pane-divider": "rgba(254,128,25,0.25)",
+      "--input-border": "#3c3836",      "--pane-divider": "rgba(254,128,25,0.25)",
       "--pane-divider-hover": "rgba(254,128,25,0.42)",
     },
     soft_light: {
@@ -245,10 +220,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#d5c4a1",
       "--backdrop-darkest": "rgba(80, 60, 40, 0.25)",
       "--input-bg": "#f2e5bc",
-      "--input-border": "#d5c4a1",
-      "--minimap-track": "rgba(0,0,0,0.06)",
-      "--minimap-thumb": "rgba(175,58,3,0.28)",
-      "--pane-divider": "rgba(175,58,3,0.2)",
+      "--input-border": "#d5c4a1",      "--pane-divider": "rgba(175,58,3,0.2)",
       "--pane-divider-hover": "rgba(175,58,3,0.35)",
     },
     hard_light: {
@@ -263,10 +235,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#d5c4a1",
       "--backdrop-darkest": "rgba(60, 45, 30, 0.22)",
       "--input-bg": "#f9f5d7",
-      "--input-border": "#bdae93",
-      "--minimap-track": "rgba(0,0,0,0.07)",
-      "--minimap-thumb": "rgba(157,0,6,0.22)",
-      "--pane-divider": "rgba(181,118,20,0.22)",
+      "--input-border": "#bdae93",      "--pane-divider": "rgba(181,118,20,0.22)",
       "--pane-divider-hover": "rgba(181,118,20,0.38)",
     },
   },
@@ -284,9 +253,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#363646",
       "--backdrop-darkest": "rgba(15, 15, 22, 0.55)",
       "--input-bg": "#1f1f28",
-      "--input-border": "#363646",
-      "--minimap-thumb": "rgba(126,156,216,0.35)",
-      "--pane-divider": "rgba(126,156,216,0.22)",
+      "--input-border": "#363646",      "--pane-divider": "rgba(126,156,216,0.22)",
       "--pane-divider-hover": "rgba(126,156,216,0.4)",
     },
   },
@@ -304,9 +271,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#4c566a",
       "--backdrop-darkest": "rgba(20, 24, 32, 0.52)",
       "--input-bg": "#2e3440",
-      "--input-border": "#4c566a",
-      "--minimap-thumb": "rgba(136,192,208,0.35)",
-      "--pane-divider": "rgba(136,192,208,0.24)",
+      "--input-border": "#4c566a",      "--pane-divider": "rgba(136,192,208,0.24)",
       "--pane-divider-hover": "rgba(136,192,208,0.4)",
     },
   },
@@ -323,9 +288,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#14532d",
       "--backdrop-darkest": "rgba(0, 10, 2, 0.65)",
       "--input-bg": "#020805",
-      "--input-border": "#14532d",
-      "--minimap-thumb": "rgba(57,255,20,0.35)",
-      "--pane-divider": "rgba(57,255,20,0.25)",
+      "--input-border": "#14532d",      "--pane-divider": "rgba(57,255,20,0.25)",
       "--pane-divider-hover": "rgba(57,255,20,0.45)",
     },
   },
@@ -343,9 +306,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#3e4451",
       "--backdrop-darkest": "rgba(20, 22, 28, 0.52)",
       "--input-bg": "#282c34",
-      "--input-border": "#3e4451",
-      "--minimap-thumb": "rgba(97,175,239,0.35)",
-      "--pane-divider": "rgba(97,175,239,0.22)",
+      "--input-border": "#3e4451",      "--pane-divider": "rgba(97,175,239,0.22)",
       "--pane-divider-hover": "rgba(97,175,239,0.4)",
     },
   },
@@ -363,9 +324,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#44475a",
       "--backdrop-darkest": "rgba(20, 21, 28, 0.55)",
       "--input-bg": "#282a36",
-      "--input-border": "#44475a",
-      "--minimap-thumb": "rgba(189,147,249,0.35)",
-      "--pane-divider": "rgba(189,147,249,0.24)",
+      "--input-border": "#44475a",      "--pane-divider": "rgba(189,147,249,0.24)",
       "--pane-divider-hover": "rgba(189,147,249,0.42)",
     },
   },
@@ -383,9 +342,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#0c4a5c",
       "--backdrop-darkest": "rgba(0, 20, 28, 0.55)",
       "--input-bg": "#002b36",
-      "--input-border": "#0c4a5c",
-      "--minimap-thumb": "rgba(38,139,210,0.35)",
-      "--pane-divider": "rgba(38,139,210,0.22)",
+      "--input-border": "#0c4a5c",      "--pane-divider": "rgba(38,139,210,0.22)",
       "--pane-divider-hover": "rgba(38,139,210,0.4)",
     },
     light: {
@@ -400,10 +357,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#d5cdc0",
       "--backdrop-darkest": "rgba(60, 55, 40, 0.22)",
       "--input-bg": "#fdf6e3",
-      "--input-border": "#93a1a1",
-      "--minimap-track": "rgba(0,0,0,0.06)",
-      "--minimap-thumb": "rgba(38,139,210,0.25)",
-      "--pane-divider": "rgba(38,139,210,0.2)",
+      "--input-border": "#93a1a1",      "--pane-divider": "rgba(38,139,210,0.2)",
       "--pane-divider-hover": "rgba(38,139,210,0.35)",
     },
   },
@@ -421,9 +375,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#403d52",
       "--backdrop-darkest": "rgba(12, 10, 18, 0.55)",
       "--input-bg": "#191724",
-      "--input-border": "#403d52",
-      "--minimap-thumb": "rgba(196,167,231,0.35)",
-      "--pane-divider": "rgba(196,167,231,0.22)",
+      "--input-border": "#403d52",      "--pane-divider": "rgba(196,167,231,0.22)",
       "--pane-divider-hover": "rgba(196,167,231,0.4)",
     },
   },
@@ -441,9 +393,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#4e5577",
       "--backdrop-darkest": "rgba(18, 21, 32, 0.55)",
       "--input-bg": "#292d3e",
-      "--input-border": "#4e5577",
-      "--minimap-thumb": "rgba(130,170,255,0.36)",
-      "--pane-divider": "rgba(130,170,255,0.24)",
+      "--input-border": "#4e5577",      "--pane-divider": "rgba(130,170,255,0.24)",
       "--pane-divider-hover": "rgba(130,170,255,0.42)",
     },
   },
@@ -461,9 +411,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#525349",
       "--backdrop-darkest": "rgba(14, 15, 12, 0.58)",
       "--input-bg": "#272822",
-      "--input-border": "#525349",
-      "--minimap-thumb": "rgba(166,226,46,0.34)",
-      "--pane-divider": "rgba(166,226,46,0.22)",
+      "--input-border": "#525349",      "--pane-divider": "rgba(166,226,46,0.22)",
       "--pane-divider-hover": "rgba(166,226,46,0.4)",
     },
   },
@@ -483,9 +431,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#30363d",
       "--backdrop-darkest": "rgba(1, 4, 9, 0.6)",
       "--input-bg": "#0d1117",
-      "--input-border": "#30363d",
-      "--minimap-thumb": "rgba(88,166,255,0.35)",
-      "--pane-divider": "rgba(88,166,255,0.22)",
+      "--input-border": "#30363d",      "--pane-divider": "rgba(88,166,255,0.22)",
       "--pane-divider-hover": "rgba(88,166,255,0.4)",
     },
   },
@@ -505,10 +451,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#d0d7de",
       "--backdrop-darkest": "rgba(36, 41, 47, 0.22)",
       "--input-bg": "#ffffff",
-      "--input-border": "#d0d7de",
-      "--minimap-track": "rgba(0,0,0,0.06)",
-      "--minimap-thumb": "rgba(9,105,218,0.24)",
-      "--pane-divider": "rgba(9,105,218,0.18)",
+      "--input-border": "#d0d7de",      "--pane-divider": "rgba(9,105,218,0.18)",
       "--pane-divider-hover": "rgba(9,105,218,0.34)",
     },
   },
@@ -526,9 +469,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#214862",
       "--backdrop-darkest": "rgba(0, 8, 18, 0.62)",
       "--input-bg": "#011627",
-      "--input-border": "#214862",
-      "--minimap-thumb": "rgba(127,219,202,0.34)",
-      "--pane-divider": "rgba(127,219,202,0.22)",
+      "--input-border": "#214862",      "--pane-divider": "rgba(127,219,202,0.22)",
       "--pane-divider-hover": "rgba(127,219,202,0.4)",
     },
   },
@@ -547,9 +488,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#6d3f8f",
       "--backdrop-darkest": "rgba(18, 10, 28, 0.58)",
       "--input-bg": "#2b213a",
-      "--input-border": "#6d3f8f",
-      "--minimap-thumb": "rgba(249,42,173,0.35)",
-      "--pane-divider": "rgba(0,229,255,0.24)",
+      "--input-border": "#6d3f8f",      "--pane-divider": "rgba(0,229,255,0.24)",
       "--pane-divider-hover": "rgba(249,42,173,0.42)",
     },
   },
@@ -569,31 +508,34 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--panel-border": "#393939",
       "--backdrop-darkest": "rgba(0, 0, 0, 0.6)",
       "--input-bg": "#161616",
-      "--input-border": "#393939",
-      "--minimap-thumb": "rgba(120,169,255,0.34)",
-      "--pane-divider": "rgba(120,169,255,0.22)",
+      "--input-border": "#393939",      "--pane-divider": "rgba(120,169,255,0.22)",
       "--pane-divider-hover": "rgba(120,169,255,0.4)",
     },
   },
 };
 
-/** Loaded from `%LOCALAPPDATA%/termie/custom_themes/*.json` (see Rust `custom_themes_dir`). */
+type ThemeInfo = { name: string; colors: Record<string, string>; prefs: Record<string, unknown> | null };
+
 const customThemeVarsCache: Record<string, ThemeCssVars> = {};
+const themePrefsCache: Record<string, Record<string, unknown>> = {};
 
 export async function loadCustomThemesIntoCache(): Promise<void> {
   for (const k of Object.keys(customThemeVarsCache)) {
     delete customThemeVarsCache[k];
   }
+  for (const k of Object.keys(themePrefsCache)) {
+    delete themePrefsCache[k];
+  }
   try {
-    const names = await invoke<string[]>("list_custom_theme_names");
+    const names = await invoke<string[]>("list_themes");
     for (const name of names) {
-      const raw = await invoke<string>("read_custom_theme_json", { name });
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      const vars: ThemeCssVars = {};
-      for (const [k, v] of Object.entries(parsed)) {
-        if (k.startsWith("--") && typeof v === "string") vars[k] = v;
+      const info = await invoke<ThemeInfo>("read_theme", { name });
+      if (info.colors && Object.keys(info.colors).length) {
+        customThemeVarsCache[name] = info.colors;
       }
-      if (Object.keys(vars).length) customThemeVarsCache[name] = vars;
+      if (info.prefs) {
+        themePrefsCache[name] = info.prefs;
+      }
     }
   } catch {
     /* ignore */
@@ -602,6 +544,10 @@ export async function loadCustomThemesIntoCache(): Promise<void> {
 
 export function registerCustomThemeInCache(slug: string, vars: ThemeCssVars): void {
   customThemeVarsCache[slug] = vars;
+}
+
+export function getThemePrefsCache(): Record<string, Record<string, unknown>> {
+  return themePrefsCache;
 }
 
 /** Keys written when saving the current appearance as a custom theme file. */
@@ -623,9 +569,6 @@ export const THEME_EXPORT_CSS_KEYS: readonly string[] = [
   "--backdrop-darkest",
   "--input-bg",
   "--input-border",
-  "--minimap-track",
-  "--minimap-thumb",
-  "--minimap-thumb-border",
   "--pane-divider",
   "--pane-divider-hover",
 ];
@@ -989,7 +932,6 @@ export function applyUiTheme(prefs: UiThemePrefs): void {
         name.startsWith("--panel-") ||
         name.startsWith("--backdrop-") ||
         name.startsWith("--input-") ||
-        name.startsWith("--minimap-") ||
         name.startsWith("--pane-divider")
       ) {
         toClear.push(name);

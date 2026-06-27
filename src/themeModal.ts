@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { mouseCursorForceVisible } from "./mouseCursor";
 import type { ParttyPrefs } from "./settingsPanel";
-import { loadCustomThemesIntoCache, pickUiPrefs, themeCssVarsForPrefs, THEME_OPTIONS, type ThemeCssVars, type UiThemePrefs } from "./uiTheme";
+import { loadCustomThemesIntoCache, pickUiPrefs, themeCssVarsForPrefs, THEME_OPTIONS, getThemePrefsCache, type ThemeCssVars, type UiThemePrefs } from "./uiTheme";
 
 const POS_KEY = "partty.themeModal.pos";
 
@@ -130,7 +130,7 @@ export function createThemeModal(
     await loadCustomThemesIntoCache();
     let names: string[] = [];
     try {
-      names = await invoke<string[]>("list_custom_theme_names");
+      names = await invoke<string[]>("list_themes");
     } catch {
       names = [];
     }
@@ -279,11 +279,18 @@ export function createThemeModal(
       }
       const data = await invoke<Persisted>("get_persisted_state");
       const prev = data.prefs as ParttyPrefs;
-      const next: ParttyPrefs = {
+      let next: ParttyPrefs = {
         ...prev,
         ui_theme: row.themeId,
         ui_theme_variant: row.variantId,
       };
+      if (row.themeId.startsWith("custom:")) {
+        const slug = row.themeId.slice(7);
+        const tprefs = getThemePrefsCache()[slug];
+        if (tprefs) {
+          next = { ...next, ...tprefs } as ParttyPrefs;
+        }
+      }
       await invoke("set_prefs", { prefs: next });
       initial = null;
       onPreview(picked);

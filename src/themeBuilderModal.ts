@@ -43,9 +43,6 @@ const LABELS: Record<string, string> = {
   "--ui-gray-700": "Modal / panel surface",
   "--ui-gray-400": "Muted text / icons",
   "--ui-gray-300": "Bright chrome text",
-  "--minimap-track": "Minimap track",
-  "--minimap-thumb": "Minimap thumb",
-  "--minimap-thumb-border": "Minimap thumb border",
   "--pane-divider": "Pane divider",
   "--pane-divider-hover": "Pane divider (hover)",
 };
@@ -184,7 +181,7 @@ export function createThemeBuilderModal(
     customList.appendChild(h3);
     let names: string[] = [];
     try {
-      names = await invoke<string[]>("list_custom_theme_names");
+      names = await invoke<string[]>("list_themes");
     } catch {
       names = [];
     }
@@ -209,7 +206,7 @@ export function createThemeBuilderModal(
         void (async () => {
           if (!window.confirm(`Remove custom theme “${name}”?`)) return;
           try {
-            await invoke("delete_custom_theme_json", { name });
+            await invoke("delete_theme", { name });
             await loadCustomThemesIntoCache();
             await refreshCustomList();
           } catch (e) {
@@ -247,9 +244,9 @@ export function createThemeBuilderModal(
         return;
       }
       try {
-        await invoke("write_custom_theme_json", {
+        await invoke("write_theme", {
           name: slug,
-          json: JSON.stringify(vars, null, 2),
+          colors: vars,
         });
         registerCustomThemeInCache(slug, vars);
         await loadCustomThemesIntoCache();

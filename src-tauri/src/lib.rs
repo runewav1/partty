@@ -8,6 +8,7 @@ mod peb_cwd_windows;
 mod prefs;
 mod pty;
 mod subprocess;
+mod theme;
 mod win_console;
 mod window_state;
 
@@ -1733,43 +1734,6 @@ fn get_persisted_state(state: State<'_, AppState>) -> PersistedState {
 }
 
 #[tauri::command]
-fn list_custom_theme_names() -> Result<Vec<String>, String> {
-    let dir = prefs::custom_themes_dir()?;
-    let mut out = Vec::new();
-    for e in fs::read_dir(&dir).map_err(|e| e.to_string())? {
-        let e = e.map_err(|e| e.to_string())?;
-        let name = e.file_name().to_string_lossy().into_owned();
-        if let Some(stem) = name.strip_suffix(".json") {
-            out.push(stem.to_string());
-        }
-    }
-    out.sort();
-    Ok(out)
-}
-
-#[tauri::command]
-fn read_custom_theme_json(name: String) -> Result<String, String> {
-    prefs::validate_custom_theme_name(&name)?;
-    let path = prefs::custom_themes_dir()?.join(format!("{name}.json"));
-    fs::read_to_string(&path).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn write_custom_theme_json(name: String, json: String) -> Result<(), String> {
-    prefs::validate_custom_theme_name(&name)?;
-    serde_json::from_str::<serde_json::Value>(&json).map_err(|e| e.to_string())?;
-    let path = prefs::custom_themes_dir()?.join(format!("{name}.json"));
-    fs::write(path, json).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn delete_custom_theme_json(name: String) -> Result<(), String> {
-    prefs::validate_custom_theme_name(&name)?;
-    let path = prefs::custom_themes_dir()?.join(format!("{name}.json"));
-    fs::remove_file(path).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 fn list_preset_names() -> Result<Vec<String>, String> {
     let dir = prefs::presets_dir()?;
     let mut out = Vec::new();
@@ -2001,10 +1965,11 @@ pub fn run() {
             pty_shell_exe_token,
             get_persisted_state,
             get_app_session_id,
-            list_custom_theme_names,
-            read_custom_theme_json,
-            write_custom_theme_json,
-            delete_custom_theme_json,
+            theme::list_themes,
+            theme::read_theme,
+            theme::write_theme,
+            theme::delete_theme,
+            theme::get_theme_effective_prefs,
             list_preset_names,
             read_preset_json,
             write_preset_json,
