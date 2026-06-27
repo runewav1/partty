@@ -163,7 +163,7 @@ pub fn snapshot_and_save(app: &AppHandle) {
     let state = app.state::<crate::AppState>();
     let mut persisted = state.persisted.lock();
     snapshot_window_into(&mut persisted, &win);
-    save_state(&persisted);
+    save_state(&persisted.window);
 }
 
 /// Apply saved bounds before show/maximize dance.

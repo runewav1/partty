@@ -90,8 +90,6 @@ export type ParttyPrefs = {
   terminal_scroll_sensitivity?: number;
   /** Fast (Alt+wheel) scroll speed multiplier. */
   terminal_fast_scroll_sensitivity?: number;
-  /** Minimum contrast ratio for foreground text (1 = off, 4.5 = WCAG AA). */
-  terminal_minimum_contrast_ratio?: number;
   /** Minimum seconds a command must run before a completion toast is shown (default 5.0). */
   process_notification_threshold: number;
   /** How long the toast stays visible in ms (default 5000, min 1000, max 30000). */
@@ -223,7 +221,6 @@ export function createSettingsPanel(
       terminal_smooth_scroll_duration: clampf(g("terminal_smooth_scroll_duration"), 0, 0, 1000),
       terminal_scroll_sensitivity: clampf(g("terminal_scroll_sensitivity"), 1, 0.1, 10),
       terminal_fast_scroll_sensitivity: clampf(g("terminal_fast_scroll_sensitivity"), 5, 1, 50),
-      terminal_minimum_contrast_ratio: clampf(g("terminal_minimum_contrast_ratio"), 1, 1, 21),
       process_notification_threshold: ((): number => {
         const raw = g("process_notification_threshold");
         const n = Number.parseFloat(raw);
@@ -398,7 +395,6 @@ export function createSettingsPanel(
     setVal("terminal_smooth_scroll_duration", String(pr.terminal_smooth_scroll_duration ?? 0));
     setVal("terminal_scroll_sensitivity", String(pr.terminal_scroll_sensitivity ?? 1));
     setVal("terminal_fast_scroll_sensitivity", String(pr.terminal_fast_scroll_sensitivity ?? 5));
-    setVal("terminal_minimum_contrast_ratio", String(pr.terminal_minimum_contrast_ratio ?? 1));
     setVal("process_notification_threshold", String(pr.process_notification_threshold ?? 5.0));
     setVal("process_notification_show_for", String(pr.process_notification_show_for ?? 5000));
     setChk("process_notification_show_ms", pr.process_notification_show_ms ?? false);

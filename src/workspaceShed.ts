@@ -5,8 +5,6 @@ export const RUNTIME_SHED_WORKSPACE_EXIT_KEY = "partty.runtime.shed_workspace_ex
 
 const TABS_STATE_KEY = "partty.tabs.v1";
 const TAB_LAYOUT_PREFIX = "partty.tab.layout.v1.";
-const MINIMAP_STORAGE_KEY = "partty.minimap.enabled";
-const MINIMAP_HIDDEN_PANES_KEY = "partty.minimap.hiddenPanes";
 const ZEN_MODE_STORAGE_KEY = "partty.zen.enabled";
 const DEFER_PTY_REINIT_KEY = "partty.defer_pty_reinit";
 const THEME_MODAL_POS = "partty.themeModal.pos";
@@ -60,8 +58,6 @@ export function shedWorkspaceLocalState(): void {
       if (k.startsWith(TAB_LAYOUT_PREFIX)) localStorage.removeItem(k);
     }
     clearPaneLayout();
-    localStorage.removeItem(MINIMAP_STORAGE_KEY);
-    localStorage.removeItem(MINIMAP_HIDDEN_PANES_KEY);
     localStorage.removeItem(ZEN_MODE_STORAGE_KEY);
     localStorage.removeItem(DEFER_PTY_REINIT_KEY);
     localStorage.removeItem(THEME_MODAL_POS);

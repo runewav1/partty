@@ -1,17 +1,19 @@
 mod fff_search_integration;
 mod fs_watcher;
 mod fs_workspace;
+mod keybinds;
 mod palette_commands;
 #[cfg(windows)]
 mod peb_cwd_windows;
 mod prefs;
 mod pty;
 mod subprocess;
+mod theme;
 mod win_console;
 mod window_state;
 
 use parking_lot::Mutex;
-use prefs::{load_state, PersistedState};
+use prefs::{load_persisted, save_prefs, PersistedState};
 use pty::PtySession;
 use std::collections::HashMap;
 use std::fs;
@@ -1204,7 +1206,7 @@ fn position_main_at_cursor_if_prefs(app: &AppHandle) {
         return;
     };
     // Use disk prefs: this runs from the single-instance callback before `AppState` may exist.
-    let st = load_state();
+    let st = load_persisted();
     let at_cursor = st.prefs.summon_spawn_at_cursor;
     if !at_cursor {
         return;
@@ -1316,7 +1318,7 @@ async fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
 }
 
 fn spawn_show_main_window(app: AppHandle) {
-    let defer_prep = load_state().prefs.defer_window_show_until_prepared;
+    let defer_prep = load_persisted().prefs.defer_window_show_until_prepared;
     tauri::async_runtime::spawn(async move {
         // Single-instance / early paths can call this before `AppState` is managed; bail safely.
         if app.try_state::<AppState>().is_none() {
@@ -1732,43 +1734,6 @@ fn get_persisted_state(state: State<'_, AppState>) -> PersistedState {
 }
 
 #[tauri::command]
-fn list_custom_theme_names() -> Result<Vec<String>, String> {
-    let dir = prefs::custom_themes_dir()?;
-    let mut out = Vec::new();
-    for e in fs::read_dir(&dir).map_err(|e| e.to_string())? {
-        let e = e.map_err(|e| e.to_string())?;
-        let name = e.file_name().to_string_lossy().into_owned();
-        if let Some(stem) = name.strip_suffix(".json") {
-            out.push(stem.to_string());
-        }
-    }
-    out.sort();
-    Ok(out)
-}
-
-#[tauri::command]
-fn read_custom_theme_json(name: String) -> Result<String, String> {
-    prefs::validate_custom_theme_name(&name)?;
-    let path = prefs::custom_themes_dir()?.join(format!("{name}.json"));
-    fs::read_to_string(&path).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn write_custom_theme_json(name: String, json: String) -> Result<(), String> {
-    prefs::validate_custom_theme_name(&name)?;
-    serde_json::from_str::<serde_json::Value>(&json).map_err(|e| e.to_string())?;
-    let path = prefs::custom_themes_dir()?.join(format!("{name}.json"));
-    fs::write(path, json).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn delete_custom_theme_json(name: String) -> Result<(), String> {
-    prefs::validate_custom_theme_name(&name)?;
-    let path = prefs::custom_themes_dir()?.join(format!("{name}.json"));
-    fs::remove_file(path).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 fn list_preset_names() -> Result<Vec<String>, String> {
     let dir = prefs::presets_dir()?;
     let mut out = Vec::new();
@@ -1815,6 +1780,7 @@ fn set_prefs(
         let mut p = state.persisted.lock();
         p.prefs = prefs.clone();
     }
+    save_prefs(&prefs);
     // Invalidate the warm PTY — the shell identity may have changed.
     *state.warm_pty.lock() = None;
     if let Some(w) = app.get_webview_window("main") {
@@ -1848,7 +1814,7 @@ struct ExtensionInfo {
 }
 
 fn extension_state_path() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|d| d.join("partty").join("extension_state.json"))
+    prefs::extension_state_path()
 }
 
 fn load_extension_state() -> HashMap<String, bool> {
@@ -1868,12 +1834,12 @@ fn save_extension_state(state: &HashMap<String, bool>) {
     }
 }
 
-/// Scan %LOCALAPPDATA%/partty/extensions/ for extension folders containing a manifest.json and index.js.
+/// Scan ~/.partty/extensions/ for extension folders containing a manifest.json and index.js.
 #[tauri::command]
 fn list_extensions() -> Vec<ExtensionInfo> {
     let mut exts = Vec::new();
-    let base = match dirs::data_local_dir() {
-        Some(d) => d.join("partty").join("extensions"),
+    let base = match prefs::extensions_dir() {
+        Some(d) => d,
         None => return exts,
     };
     let dir = match std::fs::read_dir(&base) {
@@ -1932,7 +1898,7 @@ fn set_extension_enabled(id: String, enabled: bool) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut loaded = load_state();
+    let mut loaded = load_persisted();
     window_state::sanitize_window_state(&mut loaded.window);
 
     tauri::Builder::default()
@@ -1941,7 +1907,7 @@ pub fn run() {
         // first instance can be left in a bad state depending on platform).
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // `AppState` is not available until after `.manage()`; this callback can run earlier.
-            let defer_prep = load_state().prefs.defer_window_show_until_prepared;
+            let defer_prep = load_persisted().prefs.defer_window_show_until_prepared;
             if let Some(w) = app.get_webview_window("main") {
                 if defer_prep {
                     let _ = w.emit("partty-prepare-show", ());
@@ -1999,10 +1965,11 @@ pub fn run() {
             pty_shell_exe_token,
             get_persisted_state,
             get_app_session_id,
-            list_custom_theme_names,
-            read_custom_theme_json,
-            write_custom_theme_json,
-            delete_custom_theme_json,
+            theme::list_themes,
+            theme::read_theme,
+            theme::write_theme,
+            theme::delete_theme,
+            theme::get_theme_effective_prefs,
             list_preset_names,
             read_preset_json,
             write_preset_json,
@@ -2018,6 +1985,9 @@ pub fn run() {
             palette_commands::get_palette_context,
             palette_commands::upsert_palette_command,
             palette_commands::delete_palette_command,
+            keybinds::get_keybinds,
+            keybinds::set_keybind,
+            keybinds::reset_keybinds,
             read_dir_entries,
             read_dir_summary,
             git_workdir_status,

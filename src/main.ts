@@ -68,14 +68,15 @@ import {
 import type { ShellIntegrationState } from "./shellIntegration";
 import {
   createCommandPalette,
-  isCommandPaletteChord,
-  isHelpHotkeysChord,
   type PaletteCommand,
 } from "./commandPalette";
 import {
   createPaneRenamePanel,
   type PaneRenamePanelApi,
 } from "./paneRenamePanel";
+import {
+  createKeybinds,
+} from "./keybinds";
 import { showAlert } from "./dialog";
 import {
   type PaletteContext,
@@ -412,6 +413,7 @@ function terminalFontStackFromDocument(): string {
 
 async function boot(): Promise<void> {
   migrateParttyLocalStorage();
+  const k = createKeybinds();
   const persisted = await invoke<PersistedPayload>("get_persisted_state");
   syncRuntimeShedFromPrefs(persisted.prefs as ParttyPrefs);
   configureDevPerfPrefs(persisted.prefs as Partial<ParttyPrefs>);
@@ -572,11 +574,6 @@ async function boot(): Promise<void> {
     v:
       (persisted.prefs as Partial<ParttyPrefs>)
         .terminal_fast_scroll_sensitivity ?? 5,
-  };
-  const contrastRatioRef = {
-    v:
-      (persisted.prefs as Partial<ParttyPrefs>)
-        .terminal_minimum_contrast_ratio ?? 1,
   };
   const backspaceDeleteSelectionRef = {
     v:
@@ -1494,47 +1491,85 @@ async function boot(): Promise<void> {
   function attachTermKeyHandler(term: Terminal, paneId: string): void {
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
-      if (
-        e.shiftKey &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        !e.metaKey &&
-        e.key === "Enter"
-      ) {
-        e.preventDefault();
-        queuePtyWrite(paneId, "\n", true);
-        return false;
-      }
-      if (
-        e.ctrlKey &&
-        !e.shiftKey &&
-        !e.altKey &&
-        !e.metaKey &&
-        (e.key === "ArrowLeft" ||
-          e.key === "ArrowRight" ||
-          e.key === "ArrowUp" ||
-          e.key === "ArrowDown")
-      ) {
-        if (focusAdjacentPaneByArrow(e.key)) {
-          e.preventDefault();
-          return false;
-        }
-      }
-      if (
-        e.ctrlKey &&
-        !e.shiftKey &&
-        !e.altKey &&
-        !e.metaKey &&
-        (e.key === "c" || e.key === "C")
-      ) {
-        if (term.hasSelection()) {
-          e.preventDefault();
-          copyToClipboard(term.getSelection());
-          return false;
+
+      const m = k.match(e,
+        "terminal.newline",
+        "pane.focus_left", "pane.focus_right", "pane.focus_up", "pane.focus_down",
+        "terminal.copy",
+        "palette.chord",
+        "pane.split_right",
+        "pane.split_down",
+        "pane.move_to_tab",
+        "pane.float_toggle",
+        "pane.swap_left", "pane.swap_right", "pane.swap_up", "pane.swap_down",
+        "pane.close",
+        "file_tree.toggle",
+      );
+
+      if (m) {
+        switch (m) {
+          case "terminal.newline":
+            e.preventDefault();
+            queuePtyWrite(paneId, "\n", true);
+            return false;
+          case "pane.focus_left":
+          case "pane.focus_right":
+          case "pane.focus_up":
+          case "pane.focus_down":
+            if (focusAdjacentPaneByArrow(e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown")) {
+              e.preventDefault();
+              return false;
+            }
+            break;
+          case "terminal.copy":
+            if (term.hasSelection()) {
+              e.preventDefault();
+              copyToClipboard(term.getSelection());
+              return false;
+            }
+            break;
+          case "palette.chord":
+            e.preventDefault();
+            return false;
+          case "pane.split_right":
+            e.preventDefault();
+            splitFocusedWithCwd("h");
+            return false;
+          case "pane.split_down":
+            e.preventDefault();
+            splitFocusedWithCwd("v");
+            return false;
+          case "pane.move_to_tab": {
+            const idx = tabHotkeyIndexFromEvent(e);
+            if (idx != null) {
+              e.preventDefault();
+              moveFocusedPaneToTabHotkeyIndex(idx);
+              return false;
+            }
+            break;
+          }
+          case "pane.float_toggle":
+            e.preventDefault();
+            toggleFocusedPaneFloating();
+            return false;
+          case "pane.swap_left":
+          case "pane.swap_right":
+          case "pane.swap_up":
+          case "pane.swap_down":
+            e.preventDefault();
+            return swapFocusedPaneWithAdjacent(e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown");
+          case "pane.close":
+            e.preventDefault();
+            void closeFocusedPane();
+            return false;
+          case "file_tree.toggle":
+            e.preventDefault();
+            toggleFileTree();
+            return false;
         }
         return true;
       }
-      // Backspace delete selection
+
       if (
         !e.ctrlKey &&
         !e.shiftKey &&
@@ -1545,21 +1580,16 @@ async function boot(): Promise<void> {
         backspaceDeleteSelectionRef.v
       ) {
         e.preventDefault();
-        // Get the selection using xterm's selection API
         const selection = (term as any)._core._selectionService.selection;
         if (selection) {
           const start = selection.start;
           const end = selection.end;
           const buffer = term.buffer.active;
-
-          // Calculate the actual number of characters between selection start and end
           let backspaceCount = 0;
           if (start && end) {
             if (start.y === end.y) {
-              // Single line selection
               backspaceCount = end.x - start.x;
             } else {
-              // Multi-line selection: count characters from cursor to selection start
               const cursorX = buffer.cursorX;
               const cursorY = buffer.cursorY;
               if (start.y === cursorY) {
@@ -1567,17 +1597,13 @@ async function boot(): Promise<void> {
               } else if (end.y === cursorY) {
                 backspaceCount = cursorX - end.x;
               } else {
-                // Selection doesn't include cursor, just clear it
                 term.clearSelection();
                 return false;
               }
             }
           }
-
-          // Ensure we don't send negative or zero backspaces
           if (backspaceCount > 0) {
             term.clearSelection();
-            // Send backspaces with a small delay to ensure proper rendering
             setTimeout(() => {
               term.paste("\b".repeat(backspaceCount));
             }, 10);
@@ -1587,86 +1613,6 @@ async function boot(): Promise<void> {
         } else {
           term.clearSelection();
         }
-        return false;
-      }
-      if (isCommandPaletteChord(e)) {
-        e.preventDefault();
-        return false;
-      }
-      if (
-        e.altKey &&
-        !e.ctrlKey &&
-        !e.shiftKey &&
-        !e.metaKey &&
-        (e.key === "v" || e.key === "V")
-      ) {
-        e.preventDefault();
-        splitFocusedWithCwd("h");
-        return false;
-      }
-      if (
-        e.altKey &&
-        !e.ctrlKey &&
-        !e.shiftKey &&
-        !e.metaKey &&
-        (e.key === "h" || e.key === "H")
-      ) {
-        e.preventDefault();
-        splitFocusedWithCwd("v");
-        return false;
-      }
-      if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey) {
-        const index = tabHotkeyIndexFromEvent(e);
-        if (index != null) {
-          e.preventDefault();
-          moveFocusedPaneToTabHotkeyIndex(index);
-          return false;
-        }
-      }
-      if (
-        e.ctrlKey &&
-        e.shiftKey &&
-        !e.altKey &&
-        !e.metaKey &&
-        (e.key === "o" || e.key === "O")
-      ) {
-        e.preventDefault();
-        toggleFocusedPaneFloating();
-        return false;
-      }
-      if (
-        e.ctrlKey &&
-        e.shiftKey &&
-        !e.altKey &&
-        !e.metaKey &&
-        (e.key === "ArrowLeft" ||
-          e.key === "ArrowRight" ||
-          e.key === "ArrowUp" ||
-          e.key === "ArrowDown")
-      ) {
-        e.preventDefault();
-        return swapFocusedPaneWithAdjacent(e.key);
-      }
-      if (
-        e.ctrlKey &&
-        e.shiftKey &&
-        !e.altKey &&
-        !e.metaKey &&
-        (e.key === "w" || e.key === "W")
-      ) {
-        e.preventDefault();
-        void closeFocusedPane();
-        return false;
-      }
-      if (
-        e.ctrlKey &&
-        e.shiftKey &&
-        !e.altKey &&
-        !e.metaKey &&
-        (e.key === "e" || e.key === "E")
-      ) {
-        e.preventDefault();
-        toggleFileTree();
         return false;
       }
       return true;
@@ -2160,8 +2106,6 @@ async function boot(): Promise<void> {
         smoothScrollDuration: smoothScrollRef.v,
         scrollSensitivity: scrollSensitivityRef.v,
         fastScrollSensitivity: fastScrollSensitivityRef.v,
-        minimumContrastRatio: contrastRatioRef.v,
-
         linkHandler: {
           activate: (_event, uri) => {
             if (
@@ -3259,85 +3203,85 @@ async function boot(): Promise<void> {
   window.addEventListener(
     "keydown",
     (e) => {
-      if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey) {
-        const index = tabHotkeyIndexFromEvent(e);
-        if (index != null) {
-          const t = e.target as HTMLElement | null;
-          if (
-            t?.closest("#command-palette") ||
-            t?.closest("#settings-panel") ||
-            t?.closest(".term-search")
-          )
-            return;
-          e.preventDefault();
-          e.stopPropagation();
-          moveFocusedPaneToTabHotkeyIndex(index);
+      const mMoveTab = k.matchParam(e, "pane.move_to_tab");
+      if (mMoveTab) {
+        const t = e.target as HTMLElement | null;
+        if (
+          t?.closest("#command-palette") ||
+          t?.closest("#settings-panel") ||
+          t?.closest(".term-search")
+        )
           return;
-        }
+        e.preventDefault();
+        e.stopPropagation();
+        moveFocusedPaneToTabHotkeyIndex(mMoveTab.param === 0 ? 9 : mMoveTab.param - 1);
+        return;
       }
-      if (!e.altKey || e.ctrlKey || e.metaKey) return;
-      if (/^[0-9]$/.test(e.key)) {
-        const index = e.key === "0" ? 9 : Number.parseInt(e.key, 10) - 1;
+
+      const mSwitchTab = k.matchParam(e, "tab.switch");
+      if (mSwitchTab) {
         e.preventDefault();
         e.stopPropagation();
         if (e.shiftKey) return;
-        switchOrCreateTabForHotkeyIndex(index);
+        switchOrCreateTabForHotkeyIndex(mSwitchTab.param === 0 ? 9 : mSwitchTab.param - 1);
         return;
       }
-      if (e.shiftKey && e.key === "ArrowRight") {
+
+      const m = k.match(e,
+        "window.move_next_monitor",
+        "window.move_prev_monitor",
+        "window.maximize",
+        "window.restore",
+        "focus.file_tree",
+        "focus.terminal",
+        "focus.pane_up", "focus.pane_down",
+      );
+
+      if (m === "window.move_next_monitor") {
         e.preventDefault();
         e.stopPropagation();
         void moveWindowToAdjacentMonitor(1);
         return;
       }
-      if (e.shiftKey && e.key === "ArrowLeft") {
+      if (m === "window.move_prev_monitor") {
         e.preventDefault();
         e.stopPropagation();
         void moveWindowToAdjacentMonitor(-1);
         return;
       }
-      if (e.shiftKey && e.key === "ArrowUp") {
+      if (m === "window.maximize") {
         e.preventDefault();
         e.stopPropagation();
         void setWindowMaximized(true);
         return;
       }
-      if (e.shiftKey && e.key === "ArrowDown") {
+      if (m === "window.restore") {
         e.preventDefault();
         e.stopPropagation();
         void setWindowMaximized(false);
         return;
       }
-      if (e.shiftKey) return;
-      if (
-        e.key !== "ArrowLeft" &&
-        e.key !== "ArrowRight" &&
-        e.key !== "ArrowUp" &&
-        e.key !== "ArrowDown"
-      ) {
-        return;
-      }
 
-      const t = e.target as HTMLElement | null;
-      const inFileTree = Boolean(t?.closest("#file-tree-dock"));
-      if (inFileTree) {
-        if (e.key === "ArrowRight") {
+      if (m === "focus.file_tree" || m === "focus.pane_up" || m === "focus.terminal" || m === "focus.pane_down") {
+        const t = e.target as HTMLElement | null;
+        const inFileTree = Boolean(t?.closest("#file-tree-dock"));
+        if (inFileTree) {
+          if (m === "focus.terminal") {
+            e.preventDefault();
+            e.stopPropagation();
+            focusActiveTerminal();
+          }
+          return;
+        }
+        if (m === "focus.file_tree" && focusFileTreePanel()) {
           e.preventDefault();
           e.stopPropagation();
-          focusActiveTerminal();
+          return;
         }
-        return;
-      }
-
-      if (e.key === "ArrowLeft" && focusFileTreePanel()) {
-        e.preventDefault();
-        e.stopPropagation();
-        return;
-      }
-
-      if (focusAdjacentPaneByArrow(e.key)) {
-        e.preventDefault();
-        e.stopPropagation();
+        if (focusAdjacentPaneByArrow(e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown")) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
       }
     },
     true,
@@ -4028,62 +3972,27 @@ async function boot(): Promise<void> {
   window.addEventListener(
     "keydown",
     (e) => {
+      const m = k.match(e, "pane.float_toggle", "file_tree.toggle", "settings.open");
+      if (!m) return;
+      const t = e.target as HTMLElement | null;
       if (
-        e.ctrlKey &&
-        e.shiftKey &&
-        !e.metaKey &&
-        !e.altKey &&
-        (e.key === "o" || e.key === "O")
-      ) {
-        const t = e.target as HTMLElement | null;
-        if (
-          t?.closest("#command-palette") ||
-          t?.closest("#settings-panel") ||
-          t?.closest(".term-search")
-        )
-          return;
-        e.preventDefault();
-        e.stopPropagation();
-        toggleFocusedPaneFloating();
+        t?.closest("#command-palette") ||
+        t?.closest("#settings-panel") ||
+        t?.closest(".term-search")
+      )
         return;
-      }
-      if (
-        e.ctrlKey &&
-        e.shiftKey &&
-        !e.metaKey &&
-        !e.altKey &&
-        (e.key === "e" || e.key === "E")
-      ) {
-        const t = e.target as HTMLElement | null;
-        if (
-          t?.closest("#command-palette") ||
-          t?.closest("#settings-panel") ||
-          t?.closest(".term-search")
-        )
-          return;
-        e.preventDefault();
-        e.stopPropagation();
-        toggleFileTree();
-        return;
-      }
-      if (
-        e.ctrlKey &&
-        !e.shiftKey &&
-        !e.metaKey &&
-        !e.altKey &&
-        e.key === ","
-      ) {
-        const t = e.target as HTMLElement | null;
-        if (
-          t?.closest("#command-palette") ||
-          t?.closest("#settings-panel") ||
-          t?.closest(".term-search")
-        )
-          return;
-        e.preventDefault();
-        e.stopPropagation();
-        settingsApi?.open();
-        return;
+      e.preventDefault();
+      e.stopPropagation();
+      switch (m) {
+        case "pane.float_toggle":
+          toggleFocusedPaneFloating();
+          break;
+        case "file_tree.toggle":
+          toggleFileTree();
+          break;
+        case "settings.open":
+          settingsApi?.open();
+          break;
       }
     },
     true,
@@ -4260,7 +4169,6 @@ async function boot(): Promise<void> {
         t.options.smoothScrollDuration = smoothScrollRef.v;
         t.options.scrollSensitivity = scrollSensitivityRef.v;
         t.options.fastScrollSensitivity = fastScrollSensitivityRef.v;
-        t.options.minimumContrastRatio = contrastRatioRef.v;
       }
     }
   };
@@ -4320,9 +4228,6 @@ async function boot(): Promise<void> {
           fastScrollSensitivityRef.v =
             (saved as Partial<ParttyPrefs>).terminal_fast_scroll_sensitivity ??
             5;
-          contrastRatioRef.v =
-            (saved as Partial<ParttyPrefs>).terminal_minimum_contrast_ratio ??
-            1;
           applyTerminalDisplayOptions();
           backspaceDeleteSelectionRef.v =
             saved.terminal_backspace_delete_selection ?? true;
@@ -5476,7 +5381,7 @@ async function boot(): Promise<void> {
   window.addEventListener(
     "keydown",
     (e) => {
-      if (!isHelpHotkeysChord(e)) return;
+      if (!k.match(e, "help.toggle")) return;
       const t = e.target as HTMLElement | null;
       if (
         t?.closest("#command-palette") &&
@@ -5539,7 +5444,7 @@ async function boot(): Promise<void> {
     window.addEventListener(
       "keydown",
       (e) => {
-        if (!isCommandPaletteChord(e)) return;
+        if (!k.match(e, "palette.open")) return;
         e.preventDefault();
         e.stopPropagation();
         if (builderMode) {
@@ -6140,8 +6045,7 @@ async function boot(): Promise<void> {
   }
 
   window.addEventListener("keydown", (e) => {
-    if (!e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return;
-    if (e.key !== "D" && e.key !== "d") return;
+    if (!k.match(e, "dev.toggle")) return;
     const t = e.target as HTMLElement | null;
     if (t?.closest("#command-palette") || t?.closest("#settings-panel") || t?.closest(".term-search")) return;
     if (!parttyPerf.enabled) return;
