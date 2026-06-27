@@ -139,7 +139,6 @@ const TERM_BG_FALLBACK = "#2e2e32";
 const RESIZE_DEBOUNCE_MS = 100;
 const PTY_OUTPUT_FLUSH_MS = 4;
 const PTY_OUTPUT_BACKGROUND_FLUSH_MS = 33;
-const PTY_OUTPUT_INTERACTIVE_CHARS = 2048;
 const PTY_OUTPUT_MAX_BATCH_CHARS = 128 * 1024;
 
 const FILE_TREE_STORAGE_KEY = "partty.filetree.visible";
@@ -894,7 +893,6 @@ async function boot(): Promise<void> {
   function queuePtyOutput(paneId: string, data: string): void {
     if (!data) return;
     if (
-      data.length <= PTY_OUTPUT_INTERACTIVE_CHARS &&
       !pendingPtyOutputByPane.has(paneId) &&
       paneId === paneHost?.getFocusedPaneId()
     ) {

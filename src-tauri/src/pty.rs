@@ -14,8 +14,8 @@ const SHELL_INTEGRATION_PWSH: &str = include_str!("../scripts/partty-shell-integ
 const SHELL_INTEGRATION_BASH: &str = include_str!("../scripts/partty-shell-integration.bash");
 #[allow(dead_code)]
 const SHELL_INTEGRATION_ZSH: &str = include_str!("../scripts/partty-shell-integration.zsh");
-const PTY_OUTPUT_BATCH_BYTES: usize = 64 * 1024;
-const PTY_OUTPUT_BATCH_MS: u64 = 1;
+const PTY_OUTPUT_BATCH_BYTES: usize = 128 * 1024;
+const PTY_OUTPUT_BATCH_MS: u64 = 3;
 const PTY_REPLAY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, serde::Serialize)]
@@ -80,6 +80,8 @@ enum OscSideEvent {
 struct OscStripper {
     /// Bytes held over from the previous chunk that ended mid-sequence.
     partial: Vec<u8>,
+    /// Reusable scratch buffer for the cleaned output.
+    scratch: Vec<u8>,
     /// Shell-integration properties (e.g. `IsWindows`, `Cwd`) set via OSC 633 P.
     properties: HashMap<String, String>,
 }
@@ -88,6 +90,7 @@ impl OscStripper {
     fn new() -> Self {
         Self {
             partial: Vec::new(),
+            scratch: Vec::with_capacity(16 * 1024),
             properties: HashMap::new(),
         }
     }
@@ -105,7 +108,7 @@ impl OscStripper {
 
     fn process_slice(&mut self, buf: &[u8]) -> (Vec<u8>, Vec<OscSideEvent>) {
         let mut events = Vec::new();
-        let mut output = Vec::with_capacity(buf.len());
+        self.scratch.clear();
         let mut i = 0;
 
         while i < buf.len() {
@@ -116,27 +119,27 @@ impl OscStripper {
                         let payload = &buf[i + 2..payload_end];
                         if !self.dispatch_osc(payload, &mut events) {
                             // Unknown OSC: pass through for xterm.js
-                            output.extend_from_slice(&buf[i..seq_end]);
+                            self.scratch.extend_from_slice(&buf[i..seq_end]);
                         }
                         i = seq_end;
                     }
                     None => {
                         // Incomplete: carry remainder to next chunk
                         self.partial.extend_from_slice(&buf[i..]);
-                        return (output, events);
+                        return (std::mem::take(&mut self.scratch), events);
                     }
                 }
             } else if buf[i] == 0x1b && i + 1 == buf.len() {
                 // Lone ESC at end — might be ESC ] split across chunks
                 self.partial.push(0x1b);
-                return (output, events);
+                return (std::mem::take(&mut self.scratch), events);
             } else {
-                output.push(buf[i]);
+                self.scratch.push(buf[i]);
                 i += 1;
             }
         }
 
-        (output, events)
+        (std::mem::take(&mut self.scratch), events)
     }
 
     /// Returns `true` if the OSC was recognised and should be stripped.
@@ -490,7 +493,10 @@ impl PtySession {
                     let (cleaned_bytes, osc_events) = stripper.process(&pending);
                     pending.clear();
 
-                    let text = String::from_utf8_lossy(&cleaned_bytes).into_owned();
+                    let text = match String::from_utf8(cleaned_bytes) {
+                        Ok(s) => s,
+                        Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+                    };
                     append_replay_buffer(&replay_emitter, &text);
 
                     // Emit CWD and shell-integration side events first (before output).
