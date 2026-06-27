@@ -8,7 +8,7 @@ use std::sync::mpsc::{sync_channel, RecvTimeoutError};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 const SHELL_INTEGRATION_PWSH: &str = include_str!("../scripts/partty-shell-integration.ps1");
 const SHELL_INTEGRATION_BASH: &str = include_str!("../scripts/partty-shell-integration.bash");
@@ -17,12 +17,6 @@ const SHELL_INTEGRATION_ZSH: &str = include_str!("../scripts/partty-shell-integr
 const PTY_OUTPUT_BATCH_BYTES: usize = 128 * 1024;
 const PTY_OUTPUT_BATCH_MS: u64 = 3;
 const PTY_REPLAY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
-
-#[derive(Clone, serde::Serialize)]
-pub struct PtyOutputEvent {
-    pub pane_id: String,
-    pub data: String,
-}
 
 #[derive(Clone, serde::Serialize)]
 pub struct PtyExitEvent {
@@ -457,6 +451,9 @@ impl PtySession {
         let replay_emitter = Arc::clone(&replay_buffer);
         let app_emit = app.clone();
         let pane_id_emitter = Arc::clone(&pane_id_arc);
+        let window_emit = app
+            .get_webview_window("main")
+            .expect("main window not available at PTY spawn");
         let _emitter = thread::spawn(move || {
             let batch_window = Duration::from_millis(PTY_OUTPUT_BATCH_MS);
             let mut pending = Vec::<u8>::with_capacity(16 * 1024);
@@ -559,11 +556,10 @@ impl PtySession {
                         }
                     }
 
-                    let ev = PtyOutputEvent {
-                        pane_id: pane,
-                        data: text,
-                    };
-                    let _ = app_emit.emit("pty-output", ev);
+                    let pane_json = serde_json::to_string(&pane).unwrap();
+                    let data_json = serde_json::to_string(&text).unwrap();
+                    let _ = window_emit
+                        .eval(&format!("window.__partty_out({},{})", pane_json, data_json));
                 }
 
                 if disconnected {

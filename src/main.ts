@@ -360,7 +360,6 @@ function isWorkspaceLayoutUsable(
   return findPaneLeaf(p.tree, p.focusedId) != null;
 }
 
-type PtyOutputEvent = { pane_id: string; data: string };
 type PtyExitEvent = { pane_id: string };
 type PaneWebglStatus = "pending" | "ready" | "failed" | "disposed";
 type PaneWebglState = {
@@ -690,6 +689,8 @@ async function boot(): Promise<void> {
   const paneHostCleanups = new Map<string, Array<() => void>>();
   /** Extension PTY input subscribers — zero-cost when empty. */
   const extPtyInputSubs: Array<(paneId: string, data: string) => void> = [];
+  /** Extension PTY output subscribers — zero-cost when empty. */
+  const extPtyOutputSubs: Array<(paneId: string, data: string) => void> = [];
   /** Extension process lifecyle subscribers — zero-cost when empty. */
   const extProcStartSubs: Array<
     (proc: { paneId: string; command: string; cwd: string }) => void
@@ -921,6 +922,24 @@ async function boot(): Promise<void> {
     }
     schedulePtyOutputFlush();
   }
+
+  /**
+   * Direct-eval entry point for PTY output, called from the Rust emitter
+   * via {@code window.eval("window.__partty_out(...)")} — bypasses the
+   * Tauri event routing overhead.
+   */
+  (window as any).__partty_out = (paneId: string, data: string) => {
+    queuePtyOutput(paneId, data);
+    if (extPtyOutputSubs.length > 0) {
+      for (const fn of extPtyOutputSubs) {
+        try {
+          fn(paneId, data);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  };
 
   const getTerminalClickCell = (
     term: Terminal,
@@ -5538,10 +5557,6 @@ async function boot(): Promise<void> {
   }
 
   await Promise.all([
-    listen<PtyOutputEvent>("pty-output", (event) => {
-      const { pane_id, data } = event.payload;
-      queuePtyOutput(pane_id, data);
-    }),
     listen<{ paneId: string; cwd: string }>("pty-cwd", (event) => {
       const { paneId, cwd } = event.payload;
       paneCwdHints.set(paneId, cwd);
@@ -5812,32 +5827,12 @@ async function boot(): Promise<void> {
       if (exts.length === 0) return;
 
       // Listener registries — zero overhead when no extensions subscribe.
-      const ptyOutputSubs = new Set<(paneId: string, data: string) => void>();
-      let ptyOutputUnlisten: (() => void) | null = null;
-
       const extApi: Record<string, unknown> = {
         onPtyOutput(fn: (paneId: string, data: string) => void) {
-          ptyOutputSubs.add(fn);
-          if (!ptyOutputUnlisten) {
-            const unlisten = listen<PtyOutputEvent>("pty-output", (ev) => {
-              for (const sub of ptyOutputSubs) {
-                try {
-                  sub(ev.payload.pane_id, ev.payload.data);
-                } catch {
-                  /* ignore */
-                }
-              }
-            });
-            ptyOutputUnlisten = () => {
-              unlisten.then((u) => u());
-            };
-          }
+          extPtyOutputSubs.push(fn);
           return () => {
-            ptyOutputSubs.delete(fn);
-            if (ptyOutputSubs.size === 0 && ptyOutputUnlisten) {
-              ptyOutputUnlisten();
-              ptyOutputUnlisten = null;
-            }
+            const idx = extPtyOutputSubs.indexOf(fn);
+            if (idx !== -1) extPtyOutputSubs.splice(idx, 1);
           };
         },
         onPtyInput(fn: (paneId: string, data: string) => void) {
