@@ -1065,6 +1065,7 @@ fn windows_shell_command(prefs: &Prefs) -> Result<CommandBuilder, String> {
                 command,
             ]);
             c.env("TERM_PROGRAM", "partty");
+            c.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
             c.env("PARTTY_SHELL_INTEGRATION", "1");
             apply_cwd(c, prefs)
         }
@@ -1090,6 +1091,7 @@ source "{}"
                 "-i".to_string(),
             ]);
             c.env("TERM_PROGRAM", "partty");
+            c.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
             c.env("PARTTY_SHELL_INTEGRATION", "1");
             apply_cwd(c, prefs)
         }
@@ -1105,6 +1107,7 @@ source "{}"
             let mut c = CommandBuilder::new("zsh.exe");
             c.args(["-i".to_string(), "-c".to_string(), command]);
             c.env("TERM_PROGRAM", "partty");
+            c.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
             c.env("PARTTY_SHELL_INTEGRATION", "1");
             apply_cwd(c, prefs)
         }
