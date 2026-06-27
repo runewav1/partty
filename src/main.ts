@@ -3241,7 +3241,7 @@ async function boot(): Promise<void> {
         "window.restore",
         "focus.file_tree",
         "focus.terminal",
-        "focus.pane_left", "focus.pane_right", "focus.pane_up", "focus.pane_down",
+        "focus.pane_up", "focus.pane_down",
       );
 
       if (m === "window.move_next_monitor") {
@@ -3269,7 +3269,7 @@ async function boot(): Promise<void> {
         return;
       }
 
-      if (m === "focus.file_tree" || m === "focus.pane_left" || m === "focus.terminal" || m === "focus.pane_right" || m === "focus.pane_up" || m === "focus.pane_down") {
+      if (m === "focus.file_tree" || m === "focus.pane_up" || m === "focus.terminal" || m === "focus.pane_down") {
         const t = e.target as HTMLElement | null;
         const inFileTree = Boolean(t?.closest("#file-tree-dock"));
         if (inFileTree) {

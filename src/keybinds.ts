@@ -120,8 +120,6 @@ const DEFAULT_BINDS: Record<string, string> = {
   "file_tree.toggle": "Ctrl+Shift+E",
   "focus.file_tree": "Alt+ArrowLeft",
   "focus.terminal": "Alt+ArrowRight",
-  "focus.pane_left": "Alt+ArrowLeft",
-  "focus.pane_right": "Alt+ArrowRight",
   "focus.pane_up": "Alt+ArrowUp",
   "focus.pane_down": "Alt+ArrowDown",
   "terminal.newline": "Shift+Enter",
