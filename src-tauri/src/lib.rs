@@ -11,7 +11,7 @@ mod win_console;
 mod window_state;
 
 use parking_lot::Mutex;
-use prefs::{load_state, PersistedState};
+use prefs::{load_persisted, save_prefs, PersistedState};
 use pty::PtySession;
 use std::collections::HashMap;
 use std::fs;
@@ -1204,7 +1204,7 @@ fn position_main_at_cursor_if_prefs(app: &AppHandle) {
         return;
     };
     // Use disk prefs: this runs from the single-instance callback before `AppState` may exist.
-    let st = load_state();
+    let st = load_persisted();
     let at_cursor = st.prefs.summon_spawn_at_cursor;
     if !at_cursor {
         return;
@@ -1316,7 +1316,7 @@ async fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
 }
 
 fn spawn_show_main_window(app: AppHandle) {
-    let defer_prep = load_state().prefs.defer_window_show_until_prepared;
+    let defer_prep = load_persisted().prefs.defer_window_show_until_prepared;
     tauri::async_runtime::spawn(async move {
         // Single-instance / early paths can call this before `AppState` is managed; bail safely.
         if app.try_state::<AppState>().is_none() {
@@ -1815,6 +1815,7 @@ fn set_prefs(
         let mut p = state.persisted.lock();
         p.prefs = prefs.clone();
     }
+    save_prefs(&prefs);
     // Invalidate the warm PTY — the shell identity may have changed.
     *state.warm_pty.lock() = None;
     if let Some(w) = app.get_webview_window("main") {
@@ -1848,7 +1849,7 @@ struct ExtensionInfo {
 }
 
 fn extension_state_path() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|d| d.join("partty").join("extension_state.json"))
+    prefs::extension_state_path()
 }
 
 fn load_extension_state() -> HashMap<String, bool> {
@@ -1868,12 +1869,12 @@ fn save_extension_state(state: &HashMap<String, bool>) {
     }
 }
 
-/// Scan %LOCALAPPDATA%/partty/extensions/ for extension folders containing a manifest.json and index.js.
+/// Scan ~/.partty/extensions/ for extension folders containing a manifest.json and index.js.
 #[tauri::command]
 fn list_extensions() -> Vec<ExtensionInfo> {
     let mut exts = Vec::new();
-    let base = match dirs::data_local_dir() {
-        Some(d) => d.join("partty").join("extensions"),
+    let base = match prefs::extensions_dir() {
+        Some(d) => d,
         None => return exts,
     };
     let dir = match std::fs::read_dir(&base) {
@@ -1932,7 +1933,7 @@ fn set_extension_enabled(id: String, enabled: bool) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let mut loaded = load_state();
+    let mut loaded = load_persisted();
     window_state::sanitize_window_state(&mut loaded.window);
 
     tauri::Builder::default()
@@ -1941,7 +1942,7 @@ pub fn run() {
         // first instance can be left in a bad state depending on platform).
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // `AppState` is not available until after `.manage()`; this callback can run earlier.
-            let defer_prep = load_state().prefs.defer_window_show_until_prepared;
+            let defer_prep = load_persisted().prefs.defer_window_show_until_prepared;
             if let Some(w) = app.get_webview_window("main") {
                 if defer_prep {
                     let _ = w.emit("partty-prepare-show", ());

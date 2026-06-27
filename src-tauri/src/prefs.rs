@@ -2,6 +2,10 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+// ---------------------------------------------------------------------------
+// WindowState — stored in ~/.partty/state.json (hidden, for rehydration)
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WindowState {
@@ -24,373 +28,270 @@ impl Default for WindowState {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Default helpers (unchanged)
+// ---------------------------------------------------------------------------
+
 fn default_true() -> bool {
     true
 }
-
 fn default_pane_blur_radius() -> f64 {
     1.6
 }
-
 fn default_pane_focus_scale_intensity() -> f64 {
     0.45
 }
-
 fn default_confirm_delete_prompt() -> bool {
     true
 }
-
 fn default_file_tree_show_git_info() -> bool {
     true
 }
-
 fn default_file_tree_side() -> String {
     "left".to_string()
 }
-
 fn default_ui_disable_tooltips() -> bool {
     false
 }
-
 fn default_terminal_backspace_delete_selection() -> bool {
     true
 }
-
 fn default_scrollback_lines() -> u32 {
     1000
 }
-
 fn default_snapshot_max_lines() -> u32 {
     2500
 }
-
 fn default_ui_theme() -> String {
     "system".to_string()
 }
-
 fn default_ui_theme_variant() -> String {
     "default".to_string()
 }
-
 fn default_terminal_animation_speed() -> String {
     "normal".to_string()
 }
-
 fn default_terminal_animation_style() -> String {
     "smooth".to_string()
 }
-
 fn default_split_layout_style() -> String {
     "balanced".to_string()
 }
-
 fn default_terminal_pane_gap() -> f64 {
     6.0
 }
-
 fn default_terminal_sandbox_padding() -> f64 {
     0.0
 }
-
 fn default_window_effect_mode() -> String {
     "transparent".to_string()
 }
-
 fn default_window_effect_opacity() -> f64 {
     0.0
 }
-
 fn default_pane_corner_radius() -> f64 {
     6.0
 }
-
 fn default_cursor_style() -> String {
     "block".to_string()
 }
-
 fn default_cursor_inactive_style() -> String {
     "outline".to_string()
 }
-
 fn default_cursor_width() -> f64 {
     1.0
 }
-
 fn default_font_size() -> f64 {
     12.0
 }
-
 fn default_font_weight() -> String {
     "normal".to_string()
 }
-
 fn default_font_weight_bold() -> String {
     "bold".to_string()
 }
-
 fn default_line_height() -> f64 {
     1.0
 }
-
 fn default_letter_spacing() -> f64 {
     0.0
 }
-
 fn default_scroll_sensitivity() -> f64 {
     1.0
 }
-
 fn default_fast_scroll_sensitivity() -> f64 {
     5.0
 }
-
 fn default_minimum_contrast_ratio() -> f64 {
     1.0
 }
-
 fn default_process_notification_threshold() -> f64 {
     5.0
 }
-
 fn default_process_notification_show_for() -> f64 {
     5000.0
 }
-
 fn default_mouse_idle_seconds() -> f64 {
     3.0
 }
-
 fn default_dev_perf_console_interval_ms() -> u32 {
     5000
 }
+
+// ===========================================================================
+// Prefs — flat, in-memory representation (unchanged field names for IPC compat)
+// ===========================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
     pub shell: String,
-    /// When true, drop ConPTY on hide (new shell on next show).
     pub shed_on_hide: bool,
     pub always_on_top: bool,
     pub initial_cwd: Option<String>,
-    /// Dispose WebGL addon when hiding; DOM renderer holds the buffer until next show.
     #[serde(default = "default_true")]
     pub webgl_shed_on_hide: bool,
-    /// Snapshot plain text, `reset()` xterm, shed WebGL — replay on next show (saves emulator RAM).
     pub discard_buffer_on_hide: bool,
-    /// xterm scrollback capacity (older lines discarded by xterm when over limit).
     #[serde(default = "default_scrollback_lines")]
     pub scrollback_lines: u32,
-    /// Max lines kept when building a snapshot for `discard_buffer_on_hide`.
     #[serde(default = "default_snapshot_max_lines")]
     pub snapshot_max_lines: u32,
-    /// Spawn ConPTY while the window is still hidden (warm first open).
     #[serde(default = "default_true")]
     pub preload_pty_on_startup: bool,
-    /// Load WebGL during hidden startup (with preload PTY).
     #[serde(default = "default_true")]
     pub preload_webgl_on_startup: bool,
-    /// Emit prepare-show and wait for `commit_show_window` before `Window::show`.
     #[serde(default = "default_true")]
     pub defer_window_show_until_prepared: bool,
-    /// Destroy the main webview window on hide (after JS teardown) to release WebView2 RAM; recreated on next show.
     #[serde(default = "default_true")]
     pub destroy_webview_on_hide: bool,
-    /// When true, moving the mouse between terminal panes moves focus (split view). Default: click to focus.
     #[serde(default)]
     pub focus_follows_cursor: bool,
-    /// Apply a subtle blur to unfocused panes while split.
     #[serde(default)]
     pub blur_unfocused_panes: bool,
-    /// Blur radius in px applied to unfocused split panes when blur is enabled.
     #[serde(default = "default_pane_blur_radius")]
     pub pane_blur_radius: f64,
-    /// Apply a subtle dimming effect to unfocused panes while split.
     #[serde(default)]
     pub dim_unfocused_panes: bool,
-    /// Slight scale-up on the focused split pane (and scale-down on inactive panes).
     #[serde(default = "default_true")]
     pub focus_pane_scale: bool,
-    /// Focus scale intensity from 0 (off) to 1 (strong).
     #[serde(default = "default_pane_focus_scale_intensity")]
     pub pane_focus_scale_intensity: f64,
-    /// Automatically copy terminal text whenever the selection changes.
     #[serde(default)]
     pub auto_copy_selection: bool,
-    /// `keep` | `shed` | `ask` — workspace localStorage on exit (tabs, layouts, etc.).
     #[serde(default)]
     pub shed_workspace_exit: String,
-    /// When true, window is shown maximized (overrides last size until turned off).
     #[serde(default)]
     pub always_summon_maximized: bool,
-    /// When true, summoning the main window (overlay toggle) places it at the OS cursor.
     #[serde(default)]
     pub summon_spawn_at_cursor: bool,
-    /// When true, moving the window to another monitor (Alt+Shift+Right) warps the OS
-    /// cursor along with it, onto the focused pane.
     #[serde(default)]
     pub cursor_follow_window_move: bool,
-    /// When true, warp the OS cursor to the focused pane on focus/tab/swap changes.
     #[serde(default = "default_true")]
     pub cursor_follow_pane_focus: bool,
-    /// Windows: hide window from taskbar (tool window style).
     #[serde(default)]
     pub hidden_from_taskbar: bool,
-    /// Show git diff +/- counts next to file panel status badges.
     #[serde(default)]
     pub file_tree_show_diff_counts: bool,
-    /// Show git info panel at the bottom of the file tree.
     #[serde(default = "default_file_tree_show_git_info")]
     pub file_tree_show_git_info: bool,
-    /// Hide the file tree completely and disable its shortcuts/commands.
     #[serde(default)]
     pub file_tree_disabled: bool,
-    /// Disable the file tree search/filter bar (reclaims vertical space).
     #[serde(default)]
     pub file_tree_disable_search: bool,
-    /// `left` | `right` — dock side for the file tree.
     #[serde(default = "default_file_tree_side")]
     pub file_tree_side: String,
-    /// Ask for confirmation before deleting items from the file tree.
     #[serde(default = "default_confirm_delete_prompt")]
     pub confirm_delete_prompt: bool,
-    /// Disable native hover tooltips in the UI (also forced while in zen mode).
     #[serde(default = "default_ui_disable_tooltips")]
     pub ui_disable_tooltips: bool,
-    /// When true, backspace deletes the selected text block in the terminal.
     #[serde(default = "default_terminal_backspace_delete_selection")]
     pub terminal_backspace_delete_selection: bool,
-    /// Start the app in zen mode on every launch/show.
     #[serde(default)]
     pub always_open_in_zen_mode: bool,
-    /// Remove pane/container gaps for dense terminal layouts.
     #[serde(default)]
     pub terminal_no_gap: bool,
-    /// Pane/container gap in px.
     #[serde(default = "default_terminal_pane_gap")]
     pub terminal_pane_gap: f64,
-    /// Padding around the pane sandbox in px.
     #[serde(default = "default_terminal_sandbox_padding")]
     pub terminal_sandbox_padding: f64,
-    /// Remove rounded pane/chrome corners for dense terminal layouts.
     #[serde(default)]
     pub terminal_no_round: bool,
-    /// Hide pane borders entirely, including split/floating borders.
     #[serde(default)]
     pub terminal_no_pane_border: bool,
-    /// Keep pane borders but do not accent the focused split pane border.
     #[serde(default)]
     pub terminal_no_focus_border: bool,
-    /// `off` | `fast` | `normal` | `slow` — scales terminal UI animations.
     #[serde(default = "default_terminal_animation_speed")]
     pub terminal_animation_speed: String,
-    /// `smooth` | `snappy` | `gentle` | `bouncy` — easing character of UI animations.
     #[serde(default = "default_terminal_animation_style")]
     pub terminal_animation_style: String,
-    /// Play a subtle settle animation on the panes when the window is
-    /// resized/restored/maximized or moved between monitors.
     #[serde(default = "default_true")]
     pub terminal_window_motion: bool,
-    /// `balanced` | `dwindle` | `master` — pane split insertion math.
     #[serde(default = "default_split_layout_style")]
     pub split_layout_style: String,
-    /// When true, Ctrl+Shift+number moves a pane to another tab without switching to it.
     #[serde(default)]
     pub quiet_pane_deferral: bool,
-    /// `off` | `transparent` — Tauri window backdrop mode.
     #[serde(default = "default_window_effect_mode")]
     pub window_effect_mode: String,
-    /// Reserved alpha value for window backdrop tinting.
     #[serde(default = "default_window_effect_opacity")]
     pub window_effect_opacity: f64,
-    /// Pane corner radius in px when square panes are disabled.
     #[serde(default = "default_pane_corner_radius")]
     pub pane_corner_radius: f64,
-    /// `block` | `underline` | `bar` — terminal cursor style.
     #[serde(default = "default_cursor_style")]
     pub terminal_cursor_style: String,
-    /// Whether the cursor blinks.
     #[serde(default = "default_true")]
     pub terminal_cursor_blink: bool,
-    /// `outline` | `block` | `bar` | `underline` | `none` — cursor style when unfocused.
     #[serde(default = "default_cursor_inactive_style")]
     pub terminal_cursor_inactive_style: String,
-    /// Cursor width in px when `cursor_style` is `bar`.
     #[serde(default = "default_cursor_width")]
     pub terminal_cursor_width: f64,
-    /// Alt+click repositions the terminal cursor (xterm built-in).
     #[serde(default = "default_true")]
     pub terminal_alt_click_moves_cursor: bool,
-    /// Font size in px.
     #[serde(default = "default_font_size")]
     pub terminal_font_size: f64,
-    /// Font weight for non‑bold text (CSS value).
     #[serde(default = "default_font_weight")]
     pub terminal_font_weight: String,
-    /// Font weight for bold text (CSS value).
     #[serde(default = "default_font_weight_bold")]
     pub terminal_font_weight_bold: String,
-    /// Line height multiplier.
     #[serde(default = "default_line_height")]
     pub terminal_line_height: f64,
-    /// Letter spacing in px.
     #[serde(default = "default_letter_spacing")]
     pub terminal_letter_spacing: f64,
-    /// Draw bold text in bright ANSI colors.
     #[serde(default = "default_true")]
     pub terminal_draw_bold_bright: bool,
-    /// Draw custom glyphs for box‑drawing characters.
     #[serde(default = "default_true")]
     pub terminal_custom_glyphs: bool,
-    /// Smooth‑scroll duration in ms (0 = instant).
     #[serde(default)]
     pub terminal_smooth_scroll_duration: f64,
-    /// Normal scroll speed multiplier.
     #[serde(default = "default_scroll_sensitivity")]
     pub terminal_scroll_sensitivity: f64,
-    /// Fast‑scroll (Alt+wheel) speed multiplier.
     #[serde(default = "default_fast_scroll_sensitivity")]
     pub terminal_fast_scroll_sensitivity: f64,
-    /// Minimum contrast ratio for foreground text (1 = off).
     #[serde(default = "default_minimum_contrast_ratio")]
     pub terminal_minimum_contrast_ratio: f64,
-    /// Minimum command duration (seconds) before a completion notification fires.
-    /// Sub‑second granularity is supported (e.g. 2.5 = 2.5 s). Default 5.0.
     #[serde(default = "default_process_notification_threshold")]
     pub process_notification_threshold: f64,
-    /// How long the completion toast stays visible in milliseconds (1000–30000). Default 5000.
     #[serde(default = "default_process_notification_show_for")]
     pub process_notification_show_for: f64,
-    /// Show millisecond precision in process completion toasts.
     #[serde(default)]
     pub process_notification_show_ms: bool,
-    /// Use a translucent process-completion toast background.
     #[serde(default)]
     pub process_notification_transparent: bool,
-    /// Always hide the OS mouse cursor over the window (overrides idle hide).
     #[serde(default)]
     pub mouse_hidden: bool,
-    /// Hide the OS mouse cursor after it stops moving.
     #[serde(default)]
     pub mouse_hide_on_idle: bool,
-    /// Seconds of pointer inactivity before hiding (when `mouse_hide_on_idle`).
     #[serde(default = "default_mouse_idle_seconds")]
     pub mouse_idle_seconds: f64,
-    /// Developer metrics collection. Off by default because it adds observers and rAF sampling.
     #[serde(default)]
     pub dev_perf_enabled: bool,
-    /// Print metrics snapshots to the WebView console while developer metrics are enabled.
     #[serde(default)]
     pub dev_perf_console: bool,
-    /// Console snapshot interval in milliseconds.
     #[serde(default = "default_dev_perf_console_interval_ms")]
     pub dev_perf_console_interval_ms: u32,
-    /// App chrome + terminal palette id (see frontend `themePresets`).
     #[serde(default = "default_ui_theme")]
     pub ui_theme: String,
-    /// Sub-palette: e.g. gruvbox soft/hard/light; solarized dark/light; catppuccin flavor.
     #[serde(default = "default_ui_theme_variant")]
     pub ui_theme_variant: String,
-    /// Font stack for xterm (empty = browser default stack with nerd-font fallbacks).
     #[serde(default)]
     pub font_terminal: String,
     #[serde(default)]
@@ -485,6 +386,725 @@ impl Default for Prefs {
     }
 }
 
+// ===========================================================================
+// ConfigToml — organized TOML sections for disk persistence
+// ===========================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConfigToml {
+    #[serde(default)]
+    pub shell: ShellSection,
+    #[serde(default)]
+    pub cursor: CursorSection,
+    #[serde(default)]
+    pub font: FontSection,
+    #[serde(default)]
+    pub scroll: ScrollSection,
+    #[serde(default)]
+    pub display: DisplaySection,
+    #[serde(default)]
+    pub pane: PaneSection,
+    #[serde(default)]
+    pub animation: AnimationSection,
+    #[serde(default)]
+    pub split: SplitSection,
+    #[serde(default)]
+    pub window: WindowSection,
+    #[serde(default)]
+    pub lifecycle: LifecycleSection,
+    #[serde(default)]
+    pub focus: FocusSection,
+    #[serde(default)]
+    pub file_tree: FileTreeSection,
+    #[serde(default)]
+    pub workspace: WorkspaceSection,
+    #[serde(default)]
+    pub notifications: NotificationsSection,
+    #[serde(default)]
+    pub mouse: MouseSection,
+    #[serde(default)]
+    pub ui: UiSection,
+    #[serde(default)]
+    pub theme: ThemeSection,
+    #[serde(default)]
+    pub font_terminal: FontFamilySection,
+    #[serde(default)]
+    pub font_ui: FontFamilySection,
+    #[serde(default)]
+    pub font_file_tree: FontFamilySection,
+    #[serde(default)]
+    pub dev: DevSection,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShellSection {
+    #[serde(default = "default_shell_command")]
+    pub command: String,
+    pub initial_dir: Option<String>,
+}
+
+fn default_shell_command() -> String {
+    "pwsh".to_string()
+}
+
+impl Default for ShellSection {
+    fn default() -> Self {
+        Self {
+            command: default_shell_command(),
+            initial_dir: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CursorSection {
+    #[serde(default = "default_cursor_style")]
+    pub style: String,
+    #[serde(default = "default_true")]
+    pub blink: bool,
+    #[serde(default = "default_cursor_width")]
+    pub width: f64,
+    #[serde(default = "default_cursor_inactive_style")]
+    pub inactive_style: String,
+    #[serde(default = "default_true")]
+    pub alt_click_moves: bool,
+}
+
+impl Default for CursorSection {
+    fn default() -> Self {
+        Self {
+            style: default_cursor_style(),
+            blink: true,
+            width: default_cursor_width(),
+            inactive_style: default_cursor_inactive_style(),
+            alt_click_moves: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FontSection {
+    #[serde(default = "default_font_size")]
+    pub size: f64,
+    #[serde(default = "default_font_weight")]
+    pub weight: String,
+    #[serde(default = "default_font_weight_bold")]
+    pub weight_bold: String,
+    #[serde(default = "default_line_height")]
+    pub line_height: f64,
+    #[serde(default = "default_letter_spacing")]
+    pub letter_spacing: f64,
+}
+
+impl Default for FontSection {
+    fn default() -> Self {
+        Self {
+            size: default_font_size(),
+            weight: default_font_weight(),
+            weight_bold: default_font_weight_bold(),
+            line_height: default_line_height(),
+            letter_spacing: default_letter_spacing(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScrollSection {
+    #[serde(default = "default_scrollback_lines")]
+    pub backlog: u32,
+    #[serde(default = "default_snapshot_max_lines")]
+    pub snapshot_max: u32,
+    #[serde(default)]
+    pub smooth_duration_ms: f64,
+    #[serde(default = "default_scroll_sensitivity")]
+    pub sensitivity: f64,
+    #[serde(default = "default_fast_scroll_sensitivity")]
+    pub fast_sensitivity: f64,
+}
+
+impl Default for ScrollSection {
+    fn default() -> Self {
+        Self {
+            backlog: default_scrollback_lines(),
+            snapshot_max: default_snapshot_max_lines(),
+            smooth_duration_ms: 0.0,
+            sensitivity: default_scroll_sensitivity(),
+            fast_sensitivity: default_fast_scroll_sensitivity(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DisplaySection {
+    #[serde(default = "default_true")]
+    pub bright_bold: bool,
+    #[serde(default = "default_true")]
+    pub custom_glyphs: bool,
+    #[serde(default = "default_minimum_contrast_ratio")]
+    pub contrast_ratio: f64,
+    #[serde(default = "default_terminal_backspace_delete_selection")]
+    pub backspace_deletes_selection: bool,
+}
+
+impl Default for DisplaySection {
+    fn default() -> Self {
+        Self {
+            bright_bold: true,
+            custom_glyphs: true,
+            contrast_ratio: default_minimum_contrast_ratio(),
+            backspace_deletes_selection: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaneSection {
+    #[serde(default)]
+    pub blur: bool,
+    #[serde(default = "default_pane_blur_radius")]
+    pub blur_radius: f64,
+    #[serde(default)]
+    pub dim: bool,
+    #[serde(default = "default_true")]
+    pub focus_scale: bool,
+    #[serde(default = "default_pane_focus_scale_intensity")]
+    pub focus_scale_intensity: f64,
+    #[serde(default = "default_pane_corner_radius")]
+    pub corner_radius: f64,
+    #[serde(default = "default_terminal_pane_gap")]
+    pub gap: f64,
+    #[serde(default = "default_terminal_sandbox_padding")]
+    pub padding: f64,
+    #[serde(default)]
+    pub square: bool,
+    #[serde(default)]
+    pub no_border: bool,
+    #[serde(default)]
+    pub no_focus_border: bool,
+}
+
+impl Default for PaneSection {
+    fn default() -> Self {
+        Self {
+            blur: false,
+            blur_radius: default_pane_blur_radius(),
+            dim: false,
+            focus_scale: true,
+            focus_scale_intensity: default_pane_focus_scale_intensity(),
+            corner_radius: default_pane_corner_radius(),
+            gap: default_terminal_pane_gap(),
+            padding: default_terminal_sandbox_padding(),
+            square: false,
+            no_border: false,
+            no_focus_border: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnimationSection {
+    #[serde(default = "default_terminal_animation_speed")]
+    pub speed: String,
+    #[serde(default = "default_terminal_animation_style")]
+    pub easing: String,
+    #[serde(default = "default_true")]
+    pub window_motion: bool,
+}
+
+impl Default for AnimationSection {
+    fn default() -> Self {
+        Self {
+            speed: default_terminal_animation_speed(),
+            easing: default_terminal_animation_style(),
+            window_motion: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SplitSection {
+    #[serde(default = "default_split_layout_style")]
+    pub layout: String,
+    #[serde(default)]
+    pub quiet_defer: bool,
+}
+
+impl Default for SplitSection {
+    fn default() -> Self {
+        Self {
+            layout: default_split_layout_style(),
+            quiet_defer: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WindowSection {
+    #[serde(default)]
+    pub always_on_top: bool,
+    #[serde(default)]
+    pub summon_maximized: bool,
+    #[serde(default)]
+    pub summon_at_cursor: bool,
+    #[serde(default)]
+    pub hidden_from_taskbar: bool,
+    #[serde(default = "default_window_effect_mode")]
+    pub effect: String,
+    #[serde(default = "default_window_effect_opacity")]
+    pub effect_opacity: f64,
+}
+
+impl Default for WindowSection {
+    fn default() -> Self {
+        Self {
+            always_on_top: false,
+            summon_maximized: false,
+            summon_at_cursor: false,
+            hidden_from_taskbar: false,
+            effect: default_window_effect_mode(),
+            effect_opacity: default_window_effect_opacity(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifecycleSection {
+    #[serde(default)]
+    pub shed_on_hide: bool,
+    #[serde(default = "default_true")]
+    pub webgl_shed_on_hide: bool,
+    #[serde(default)]
+    pub discard_buffer: bool,
+    #[serde(default = "default_true")]
+    pub prewarm_pty: bool,
+    #[serde(default = "default_true")]
+    pub prewarm_webgl: bool,
+    #[serde(default = "default_true")]
+    pub defer_show: bool,
+    #[serde(default = "default_true")]
+    pub destroy_webview: bool,
+}
+
+impl Default for LifecycleSection {
+    fn default() -> Self {
+        Self {
+            shed_on_hide: false,
+            webgl_shed_on_hide: true,
+            discard_buffer: false,
+            prewarm_pty: true,
+            prewarm_webgl: true,
+            defer_show: true,
+            destroy_webview: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FocusSection {
+    #[serde(default)]
+    pub follows_mouse: bool,
+    #[serde(default = "default_true")]
+    pub warp_to_pane: bool,
+    #[serde(default)]
+    pub warp_with_window: bool,
+}
+
+impl Default for FocusSection {
+    fn default() -> Self {
+        Self {
+            follows_mouse: false,
+            warp_to_pane: true,
+            warp_with_window: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileTreeSection {
+    #[serde(default)]
+    pub disabled: bool,
+    #[serde(default)]
+    pub hide_search: bool,
+    #[serde(default = "default_file_tree_side")]
+    pub side: String,
+    #[serde(default)]
+    pub diff_counts: bool,
+    #[serde(default = "default_file_tree_show_git_info")]
+    pub git_info: bool,
+    #[serde(default = "default_confirm_delete_prompt")]
+    pub confirm_delete: bool,
+}
+
+impl Default for FileTreeSection {
+    fn default() -> Self {
+        Self {
+            disabled: false,
+            hide_search: false,
+            side: default_file_tree_side(),
+            diff_counts: false,
+            git_info: true,
+            confirm_delete: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceSection {
+    #[serde(default)]
+    pub shed_on_exit: String,
+    #[serde(default)]
+    pub auto_copy: bool,
+}
+
+impl Default for WorkspaceSection {
+    fn default() -> Self {
+        Self {
+            shed_on_exit: "keep".to_string(),
+            auto_copy: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationsSection {
+    #[serde(default = "default_process_notification_threshold")]
+    pub command_threshold_secs: f64,
+    #[serde(default = "default_process_notification_show_for")]
+    pub toast_duration_ms: f64,
+    #[serde(default)]
+    pub show_milliseconds: bool,
+    #[serde(default)]
+    pub translucent: bool,
+}
+
+impl Default for NotificationsSection {
+    fn default() -> Self {
+        Self {
+            command_threshold_secs: default_process_notification_threshold(),
+            toast_duration_ms: default_process_notification_show_for(),
+            show_milliseconds: false,
+            translucent: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MouseSection {
+    #[serde(default)]
+    pub always_hidden: bool,
+    #[serde(default)]
+    pub hide_on_idle: bool,
+    #[serde(default = "default_mouse_idle_seconds")]
+    pub idle_timeout_secs: f64,
+}
+
+impl Default for MouseSection {
+    fn default() -> Self {
+        Self {
+            always_hidden: false,
+            hide_on_idle: false,
+            idle_timeout_secs: default_mouse_idle_seconds(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiSection {
+    #[serde(default = "default_ui_disable_tooltips")]
+    pub hide_tooltips: bool,
+    #[serde(default)]
+    pub zen_on_start: bool,
+}
+
+impl Default for UiSection {
+    fn default() -> Self {
+        Self {
+            hide_tooltips: false,
+            zen_on_start: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeSection {
+    #[serde(default = "default_ui_theme")]
+    pub active: String,
+    #[serde(default = "default_ui_theme_variant")]
+    pub variant: String,
+}
+
+impl Default for ThemeSection {
+    fn default() -> Self {
+        Self {
+            active: default_ui_theme(),
+            variant: default_ui_theme_variant(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FontFamilySection {
+    #[serde(default)]
+    pub family: String,
+}
+
+impl Default for FontFamilySection {
+    fn default() -> Self {
+        Self {
+            family: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DevSection {
+    #[serde(default)]
+    pub perf: DevPerfSection,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DevPerfSection {
+    #[serde(default)]
+    pub enable: bool,
+    #[serde(default)]
+    pub console: bool,
+    #[serde(default = "default_dev_perf_console_interval_ms")]
+    pub console_interval_ms: u32,
+}
+
+impl Default for DevPerfSection {
+    fn default() -> Self {
+        Self {
+            enable: false,
+            console: false,
+            console_interval_ms: default_dev_perf_console_interval_ms(),
+        }
+    }
+}
+
+// ===========================================================================
+// Conversions between flat Prefs (IPC) and organized ConfigToml (disk)
+// ===========================================================================
+
+impl From<ConfigToml> for Prefs {
+    fn from(c: ConfigToml) -> Self {
+        Self {
+            shell: c.shell.command,
+            initial_cwd: c.shell.initial_dir,
+            terminal_cursor_style: c.cursor.style,
+            terminal_cursor_blink: c.cursor.blink,
+            terminal_cursor_width: c.cursor.width,
+            terminal_cursor_inactive_style: c.cursor.inactive_style,
+            terminal_alt_click_moves_cursor: c.cursor.alt_click_moves,
+            terminal_font_size: c.font.size,
+            terminal_font_weight: c.font.weight,
+            terminal_font_weight_bold: c.font.weight_bold,
+            terminal_line_height: c.font.line_height,
+            terminal_letter_spacing: c.font.letter_spacing,
+            scrollback_lines: c.scroll.backlog,
+            snapshot_max_lines: c.scroll.snapshot_max,
+            terminal_smooth_scroll_duration: c.scroll.smooth_duration_ms,
+            terminal_scroll_sensitivity: c.scroll.sensitivity,
+            terminal_fast_scroll_sensitivity: c.scroll.fast_sensitivity,
+            terminal_draw_bold_bright: c.display.bright_bold,
+            terminal_custom_glyphs: c.display.custom_glyphs,
+            terminal_minimum_contrast_ratio: c.display.contrast_ratio,
+            terminal_backspace_delete_selection: c.display.backspace_deletes_selection,
+            blur_unfocused_panes: c.pane.blur,
+            pane_blur_radius: c.pane.blur_radius,
+            dim_unfocused_panes: c.pane.dim,
+            focus_pane_scale: c.pane.focus_scale,
+            pane_focus_scale_intensity: c.pane.focus_scale_intensity,
+            pane_corner_radius: c.pane.corner_radius,
+            terminal_pane_gap: c.pane.gap,
+            terminal_sandbox_padding: c.pane.padding,
+            terminal_no_gap: c.pane.gap <= 0.0 && c.pane.square,
+            terminal_no_round: c.pane.square,
+            terminal_no_pane_border: c.pane.no_border,
+            terminal_no_focus_border: c.pane.no_focus_border,
+            terminal_animation_speed: c.animation.speed,
+            terminal_animation_style: c.animation.easing,
+            terminal_window_motion: c.animation.window_motion,
+            split_layout_style: c.split.layout,
+            quiet_pane_deferral: c.split.quiet_defer,
+            always_on_top: c.window.always_on_top,
+            always_summon_maximized: c.window.summon_maximized,
+            summon_spawn_at_cursor: c.window.summon_at_cursor,
+            hidden_from_taskbar: c.window.hidden_from_taskbar,
+            window_effect_mode: c.window.effect,
+            window_effect_opacity: c.window.effect_opacity,
+            shed_on_hide: c.lifecycle.shed_on_hide,
+            webgl_shed_on_hide: c.lifecycle.webgl_shed_on_hide,
+            discard_buffer_on_hide: c.lifecycle.discard_buffer,
+            preload_pty_on_startup: c.lifecycle.prewarm_pty,
+            preload_webgl_on_startup: c.lifecycle.prewarm_webgl,
+            defer_window_show_until_prepared: c.lifecycle.defer_show,
+            destroy_webview_on_hide: c.lifecycle.destroy_webview,
+            focus_follows_cursor: c.focus.follows_mouse,
+            cursor_follow_pane_focus: c.focus.warp_to_pane,
+            cursor_follow_window_move: c.focus.warp_with_window,
+            file_tree_disabled: c.file_tree.disabled,
+            file_tree_disable_search: c.file_tree.hide_search,
+            file_tree_side: c.file_tree.side,
+            file_tree_show_diff_counts: c.file_tree.diff_counts,
+            file_tree_show_git_info: c.file_tree.git_info,
+            confirm_delete_prompt: c.file_tree.confirm_delete,
+            shed_workspace_exit: c.workspace.shed_on_exit,
+            auto_copy_selection: c.workspace.auto_copy,
+            process_notification_threshold: c.notifications.command_threshold_secs,
+            process_notification_show_for: c.notifications.toast_duration_ms,
+            process_notification_show_ms: c.notifications.show_milliseconds,
+            process_notification_transparent: c.notifications.translucent,
+            mouse_hidden: c.mouse.always_hidden,
+            mouse_hide_on_idle: c.mouse.hide_on_idle,
+            mouse_idle_seconds: c.mouse.idle_timeout_secs,
+            ui_disable_tooltips: c.ui.hide_tooltips,
+            always_open_in_zen_mode: c.ui.zen_on_start,
+            ui_theme: c.theme.active,
+            ui_theme_variant: c.theme.variant,
+            font_terminal: c.font_terminal.family,
+            font_ui: c.font_ui.family,
+            font_file_tree: c.font_file_tree.family,
+            dev_perf_enabled: c.dev.perf.enable,
+            dev_perf_console: c.dev.perf.console,
+            dev_perf_console_interval_ms: c.dev.perf.console_interval_ms,
+        }
+    }
+}
+
+impl From<&Prefs> for ConfigToml {
+    fn from(p: &Prefs) -> Self {
+        Self {
+            shell: ShellSection {
+                command: p.shell.clone(),
+                initial_dir: p.initial_cwd.clone(),
+            },
+            cursor: CursorSection {
+                style: p.terminal_cursor_style.clone(),
+                blink: p.terminal_cursor_blink,
+                width: p.terminal_cursor_width,
+                inactive_style: p.terminal_cursor_inactive_style.clone(),
+                alt_click_moves: p.terminal_alt_click_moves_cursor,
+            },
+            font: FontSection {
+                size: p.terminal_font_size,
+                weight: p.terminal_font_weight.clone(),
+                weight_bold: p.terminal_font_weight_bold.clone(),
+                line_height: p.terminal_line_height,
+                letter_spacing: p.terminal_letter_spacing,
+            },
+            scroll: ScrollSection {
+                backlog: p.scrollback_lines,
+                snapshot_max: p.snapshot_max_lines,
+                smooth_duration_ms: p.terminal_smooth_scroll_duration,
+                sensitivity: p.terminal_scroll_sensitivity,
+                fast_sensitivity: p.terminal_fast_scroll_sensitivity,
+            },
+            display: DisplaySection {
+                bright_bold: p.terminal_draw_bold_bright,
+                custom_glyphs: p.terminal_custom_glyphs,
+                contrast_ratio: p.terminal_minimum_contrast_ratio,
+                backspace_deletes_selection: p.terminal_backspace_delete_selection,
+            },
+            pane: PaneSection {
+                blur: p.blur_unfocused_panes,
+                blur_radius: p.pane_blur_radius,
+                dim: p.dim_unfocused_panes,
+                focus_scale: p.focus_pane_scale,
+                focus_scale_intensity: p.pane_focus_scale_intensity,
+                corner_radius: p.pane_corner_radius,
+                gap: p.terminal_pane_gap,
+                padding: p.terminal_sandbox_padding,
+                square: p.terminal_no_round,
+                no_border: p.terminal_no_pane_border,
+                no_focus_border: p.terminal_no_focus_border,
+            },
+            animation: AnimationSection {
+                speed: p.terminal_animation_speed.clone(),
+                easing: p.terminal_animation_style.clone(),
+                window_motion: p.terminal_window_motion,
+            },
+            split: SplitSection {
+                layout: p.split_layout_style.clone(),
+                quiet_defer: p.quiet_pane_deferral,
+            },
+            window: WindowSection {
+                always_on_top: p.always_on_top,
+                summon_maximized: p.always_summon_maximized,
+                summon_at_cursor: p.summon_spawn_at_cursor,
+                hidden_from_taskbar: p.hidden_from_taskbar,
+                effect: p.window_effect_mode.clone(),
+                effect_opacity: p.window_effect_opacity,
+            },
+            lifecycle: LifecycleSection {
+                shed_on_hide: p.shed_on_hide,
+                webgl_shed_on_hide: p.webgl_shed_on_hide,
+                discard_buffer: p.discard_buffer_on_hide,
+                prewarm_pty: p.preload_pty_on_startup,
+                prewarm_webgl: p.preload_webgl_on_startup,
+                defer_show: p.defer_window_show_until_prepared,
+                destroy_webview: p.destroy_webview_on_hide,
+            },
+            focus: FocusSection {
+                follows_mouse: p.focus_follows_cursor,
+                warp_to_pane: p.cursor_follow_pane_focus,
+                warp_with_window: p.cursor_follow_window_move,
+            },
+            file_tree: FileTreeSection {
+                disabled: p.file_tree_disabled,
+                hide_search: p.file_tree_disable_search,
+                side: p.file_tree_side.clone(),
+                diff_counts: p.file_tree_show_diff_counts,
+                git_info: p.file_tree_show_git_info,
+                confirm_delete: p.confirm_delete_prompt,
+            },
+            workspace: WorkspaceSection {
+                shed_on_exit: p.shed_workspace_exit.clone(),
+                auto_copy: p.auto_copy_selection,
+            },
+            notifications: NotificationsSection {
+                command_threshold_secs: p.process_notification_threshold,
+                toast_duration_ms: p.process_notification_show_for,
+                show_milliseconds: p.process_notification_show_ms,
+                translucent: p.process_notification_transparent,
+            },
+            mouse: MouseSection {
+                always_hidden: p.mouse_hidden,
+                hide_on_idle: p.mouse_hide_on_idle,
+                idle_timeout_secs: p.mouse_idle_seconds,
+            },
+            ui: UiSection {
+                hide_tooltips: p.ui_disable_tooltips,
+                zen_on_start: p.always_open_in_zen_mode,
+            },
+            theme: ThemeSection {
+                active: p.ui_theme.clone(),
+                variant: p.ui_theme_variant.clone(),
+            },
+            font_terminal: FontFamilySection {
+                family: p.font_terminal.clone(),
+            },
+            font_ui: FontFamilySection {
+                family: p.font_ui.clone(),
+            },
+            font_file_tree: FontFamilySection {
+                family: p.font_file_tree.clone(),
+            },
+            dev: DevSection {
+                perf: DevPerfSection {
+                    enable: p.dev_perf_enabled,
+                    console: p.dev_perf_console,
+                    console_interval_ms: p.dev_perf_console_interval_ms,
+                },
+            },
+        }
+    }
+}
+
+// ===========================================================================
+// PersistedState — convenience wrapper returned to frontend over IPC
+// ===========================================================================
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PersistedState {
@@ -501,88 +1121,102 @@ impl Default for PersistedState {
     }
 }
 
+// ===========================================================================
+// Paths — ~/.partty/
+// ===========================================================================
+
+fn config_dir() -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    Some(home.join(".partty"))
+}
+
+fn ensure_config_dir() -> Option<PathBuf> {
+    let dir = config_dir()?;
+    let _ = fs::create_dir_all(&dir);
+    Some(dir)
+}
+
 pub fn state_path() -> Option<PathBuf> {
-    let base = dirs::data_local_dir()?;
-    let dir = base.join("partty");
-    let old_dir = base.join("termie");
-    if !dir.exists() && old_dir.exists() {
-        let _ = fs::create_dir_all(&dir);
-        let old_state = old_dir.join("state.json");
-        let new_state = dir.join("state.json");
-        if old_state.exists() && !new_state.exists() {
-            let _ = fs::copy(old_state, new_state);
-        }
-        let old_themes = old_dir.join("custom_themes");
-        let new_themes = dir.join("custom_themes");
-        if old_themes.exists() && !new_themes.exists() {
-            let _ = fs::create_dir_all(&new_themes);
-            if let Ok(entries) = fs::read_dir(old_themes) {
-                for entry in entries.flatten() {
-                    let from = entry.path();
-                    if from.is_file() {
-                        let _ = fs::copy(&from, new_themes.join(entry.file_name()));
-                    }
-                }
-            }
-        }
-    }
-    fs::create_dir_all(&dir).ok()?;
+    let dir = ensure_config_dir()?;
     Some(dir.join("state.json"))
 }
 
-pub fn load_state() -> PersistedState {
-    let Some(path) = state_path() else {
-        return PersistedState::default();
-    };
-    let Ok(s) = fs::read_to_string(&path) else {
-        return PersistedState::default();
-    };
-    let mut v: serde_json::Value = match serde_json::from_str(&s) {
-        Ok(v) => v,
-        Err(_) => return PersistedState::default(),
-    };
-    if let Some(prefs) = v.get_mut("prefs") {
-        if let Some(obj) = prefs.as_object_mut() {
-            if let Some(serde_json::Value::Bool(b)) = obj.remove("shed_workspace_on_exit") {
-                obj.insert(
-                    "shed_workspace_exit".into(),
-                    serde_json::Value::String(if b { "shed".into() } else { "keep".into() }),
-                );
-            }
-            if let Some(serde_json::Value::String(mode)) = obj.get_mut("shed_workspace_exit") {
-                let next = match mode.to_lowercase().as_str() {
-                    "always" => "shed",
-                    "never" => "keep",
-                    "ask" => "ask",
-                    "shed" => "shed",
-                    _ => "keep",
-                };
-                *mode = next.into();
-            }
-        }
-    }
-    serde_json::from_value(v).unwrap_or_default()
+fn config_toml_path() -> Option<PathBuf> {
+    let dir = ensure_config_dir()?;
+    Some(dir.join("config.toml"))
 }
 
-pub fn save_state(state: &PersistedState) {
+// ===========================================================================
+// Load / Save
+// ===========================================================================
+
+pub fn load_window_state() -> WindowState {
+    let Some(path) = state_path() else {
+        return WindowState::default();
+    };
+    fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+pub fn save_window_state(ws: &WindowState) {
     let Some(path) = state_path() else {
         return;
     };
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    if let Ok(bytes) = serde_json::to_string_pretty(state) {
+    if let Ok(bytes) = serde_json::to_string_pretty(ws) {
         let _ = fs::write(path, bytes);
     }
 }
 
-/// Same parent directory as `state.json`, e.g. `%LOCALAPPDATA%/partty/custom_themes/`.
+pub fn load_prefs() -> Prefs {
+    let Some(path) = config_toml_path() else {
+        return Prefs::default();
+    };
+    let Ok(s) = fs::read_to_string(&path) else {
+        return Prefs::default();
+    };
+    let config: ConfigToml = toml::from_str(&s).unwrap_or_default();
+    config.into()
+}
+
+pub fn save_prefs(prefs: &Prefs) {
+    let Some(path) = config_toml_path() else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let config = ConfigToml::from(prefs);
+    if let Ok(bytes) = toml::to_string_pretty(&config) {
+        let _ = fs::write(path, bytes);
+    }
+}
+
+pub fn load_persisted() -> PersistedState {
+    PersistedState {
+        window: load_window_state(),
+        prefs: load_prefs(),
+    }
+}
+
+pub fn save_state(ws: &WindowState) {
+    save_window_state(ws);
+}
+
+// ===========================================================================
+// Subdirectory helpers — under ~/.partty/
+// ===========================================================================
+
 pub fn custom_themes_dir() -> Result<PathBuf, String> {
-    let mut p = state_path().ok_or_else(|| "could not resolve app data dir".to_string())?;
-    p.pop();
-    p.push("custom_themes");
-    fs::create_dir_all(&p).map_err(|e| e.to_string())?;
-    Ok(p)
+    let dir = ensure_config_dir()
+        .ok_or_else(|| "could not resolve home dir".to_string())?
+        .join("themes");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
 }
 
 pub fn validate_custom_theme_name(name: &str) -> Result<(), String> {
@@ -598,13 +1232,12 @@ pub fn validate_custom_theme_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Presets directory: `%LOCALAPPDATA%/partty/presets/`.
 pub fn presets_dir() -> Result<PathBuf, String> {
-    let mut p = state_path().ok_or_else(|| "could not resolve app data dir".to_string())?;
-    p.pop();
-    p.push("presets");
-    fs::create_dir_all(&p).map_err(|e| e.to_string())?;
-    Ok(p)
+    let dir = ensure_config_dir()
+        .ok_or_else(|| "could not resolve home dir".to_string())?
+        .join("presets");
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
 }
 
 pub fn validate_preset_name(name: &str) -> Result<(), String> {
@@ -618,4 +1251,22 @@ pub fn validate_preset_name(name: &str) -> Result<(), String> {
         return Err("preset name: use letters, numbers, dashes, underscores only".into());
     }
     Ok(())
+}
+
+/// Extension state path (still JSON, one file for all extension toggles).
+pub fn extension_state_path() -> Option<PathBuf> {
+    let dir = ensure_config_dir()?;
+    Some(dir.join("extension_state.json"))
+}
+
+/// Palette commands path.
+pub fn palette_commands_path() -> Option<PathBuf> {
+    let dir = ensure_config_dir()?;
+    Some(dir.join("palette_commands.json"))
+}
+
+/// Extensions directory.
+pub fn extensions_dir() -> Option<PathBuf> {
+    let dir = ensure_config_dir()?;
+    Some(dir.join("extensions"))
 }

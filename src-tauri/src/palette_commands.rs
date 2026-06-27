@@ -20,19 +20,7 @@ struct PaletteCommandsFile {
 }
 
 fn palette_commands_path() -> Option<PathBuf> {
-    let base = dirs::data_local_dir()?;
-    let dir = base.join("partty");
-    let old_dir = base.join("termie");
-    if !dir.exists() && old_dir.exists() {
-        let _ = fs::create_dir_all(&dir);
-        let old_path = old_dir.join("palette_commands.json");
-        let new_path = dir.join("palette_commands.json");
-        if old_path.exists() && !new_path.exists() {
-            let _ = fs::copy(old_path, new_path);
-        }
-    }
-    fs::create_dir_all(&dir).ok()?;
-    Some(dir.join("palette_commands.json"))
+    super::prefs::palette_commands_path()
 }
 
 pub fn load_palette_commands_disk() -> Vec<SavedPaletteCommand> {
