@@ -1470,6 +1470,7 @@ export class PaneHost {
           fontWeightBold: (this.opts.fontWeightBold ?? "bold") as any,
           letterSpacing: this.opts.letterSpacing ?? 0,
           lineHeight: this.opts.lineHeight ?? 1,
+          logLevel: "off",
           minimumContrastRatio: this.opts.minimumContrastRatio ?? 1,
           rescaleOverlappingGlyphs: false,
           scrollOnEraseInDisplay: false,

@@ -827,14 +827,10 @@ async function boot(): Promise<void> {
     // pre-cleaned bytes directly — no character-by-character JS parsing needed.
     const writeStarted = performance.now();
     try {
-      pt.term.write(data, () => {
-        const elapsed = performance.now() - writeStarted;
-        parttyPerf.time("xterm.write.callback.ms", elapsed);
-        parttyPerf.paneTime(paneId, "xterm.render.ms", elapsed);
-      });
+      pt.term.write(data);
       const elapsed = performance.now() - writeStarted;
-      parttyPerf.time("xterm.write.call.ms", elapsed);
-      parttyPerf.paneTime(paneId, "xterm.render.call.ms", elapsed);
+      parttyPerf.time("xterm.write.ms", elapsed);
+      parttyPerf.paneTime(paneId, "xterm.render.ms", elapsed);
     } catch (e) {
       console.warn("xterm.write", e);
     }
