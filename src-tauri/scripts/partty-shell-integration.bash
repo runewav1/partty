@@ -24,16 +24,16 @@ __termie_detect_platform() {
   local uname_s
   uname_s="$(uname -s 2>/dev/null || echo 'Unknown')"
   case "$uname_s" in
-    CYGWIN*|MSYS*|MINGW*|MINGW32*|MINGW64*) echo "msys" ;;
-    Linux)
-      if [[ -n "$WSL_DISTRO_NAME" ]] || grep -qiE '(Microsoft|WSL)' /proc/version 2>/dev/null; then
-        echo "wsl"
-      else
-        echo "linux"
-      fi
-      ;;
-    Darwin*) echo "macos" ;;
-    *) echo "unix" ;;
+  CYGWIN* | MSYS* | MINGW* | MINGW32* | MINGW64*) echo "msys" ;;
+  Linux)
+    if [[ -n "$WSL_DISTRO_NAME" ]] || grep -qiE '(Microsoft|WSL)' /proc/version 2>/dev/null; then
+      echo "wsl"
+    else
+      echo "linux"
+    fi
+    ;;
+  Darwin*) echo "macos" ;;
+  *) echo "unix" ;;
   esac
 }
 
@@ -75,8 +75,8 @@ __termie_wsl_to_win_path() {
 __termie_get_cwd() {
   local cwd="${PWD:-$(pwd 2>/dev/null)}"
   case "$__TERMIE_PLATFORM" in
-    msys) cwd="$(__termie_msys_to_win_path "$cwd")" ;;
-    wsl) cwd="$(__termie_wsl_to_win_path "$cwd")" ;;
+  msys) cwd="$(__termie_msys_to_win_path "$cwd")" ;;
+  wsl) cwd="$(__termie_wsl_to_win_path "$cwd")" ;;
   esac
   printf '%s' "$cwd"
 }
@@ -88,9 +88,12 @@ __termie_path_to_uri() {
   for ((i = 0; i < ${#path}; i++)); do
     char="${path:i:1}"
     case "$char" in
-      [a-zA-Z0-9._~:/-]) encoded+="$char" ;;
-      ' ') encoded+="%20" ;;
-      *) printf -v hex '%02X' "'$char"; encoded+="%$hex" ;;
+    [a-zA-Z0-9._~:/-]) encoded+="$char" ;;
+    ' ') encoded+="%20" ;;
+    *)
+      printf -v hex '%02X' "'$char"
+      encoded+="%$hex"
+      ;;
     esac
   done
   encoded="${encoded//\\//}"
@@ -106,7 +109,8 @@ __termie_path_to_uri() {
 }
 
 __termie_emit_osc() {
-  local code="$1"; shift
+  local code="$1"
+  shift
   local payload="$code"
   [[ $# -gt 0 ]] && payload+=";$*"
   printf '\e]%s\a' "$payload"
@@ -173,12 +177,12 @@ if [[ -n "$BASH_VERSION" ]]; then
 
   __termie_debug_trap() {
     case "$BASH_COMMAND" in
-      __termie_*|'__termie_precmd'*|'__termie_update_ps1'*|'__termie_debug_trap'*)
-        return
-        ;;
-      "$PROMPT_COMMAND"|"$PROMPT_COMMAND;"*)
-        return
-        ;;
+    __termie_* | '__termie_precmd'* | '__termie_update_ps1'* | '__termie_debug_trap'*)
+      return
+      ;;
+    "$PROMPT_COMMAND" | "$PROMPT_COMMAND;"*)
+      return
+      ;;
     esac
     [[ "$BASH_SUBSHELL" -gt 0 ]] && return
     [[ -z "$BASH_COMMAND" ]] && return
@@ -188,10 +192,10 @@ if [[ -n "$BASH_VERSION" ]]; then
 fi
 
 case "$__TERMIE_PLATFORM" in
-  msys|wsl) __termie_emit_osc "633" "P" "IsWindows=True" ;;
-  *) __termie_emit_osc "633" "P" "IsWindows=False" ;;
+msys | wsl) __termie_emit_osc "633" "P" "IsWindows=True" ;;
+*) __termie_emit_osc "633" "P" "IsWindows=False" ;;
 esac
 __termie_emit_osc "633" "P" "ShellType=bash"
 export PARTTY_SHELL_INTEGRATION=1
 export TERM_PROGRAM="partty"
-export TERM_PROGRAM_VERSION="1.0.0"
+export TERM_PROGRAM_VERSION="0.1.0"

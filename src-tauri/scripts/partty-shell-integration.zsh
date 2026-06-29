@@ -165,4 +165,4 @@ esac
 __termie_emit_osc "633" "P" "ShellType=zsh"
 export PARTTY_SHELL_INTEGRATION=1
 export TERM_PROGRAM="partty"
-export TERM_PROGRAM_VERSION="1.0.0"
+export TERM_PROGRAM_VERSION="0.1.0"
