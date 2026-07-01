@@ -35,7 +35,6 @@ pub fn sanitize_window_state(ws: &mut WindowState) {
     ws.width = ws.width.clamp(MIN_WINDOW_WIDTH, 16_000);
     ws.height = ws.height.clamp(MIN_WINDOW_HEIGHT, 16_000);
 
-    #[cfg(windows)]
     {
         use windows_sys::Win32::UI::WindowsAndMessaging::{
             GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
@@ -64,7 +63,6 @@ pub fn sanitize_window_state(ws: &mut WindowState) {
     }
 }
 
-#[cfg(windows)]
 fn read_normal_placement(window: &WebviewWindow) -> Option<(i32, i32, u32, u32)> {
     use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowPlacement, WINDOWPLACEMENT};
 
@@ -91,11 +89,6 @@ fn read_normal_placement(window: &WebviewWindow) -> Option<(i32, i32, u32, u32)>
         let height = (r.bottom - r.top).max(MIN_WINDOW_HEIGHT as i32) as u32;
         Some((r.left, r.top, width, height))
     }
-}
-
-#[cfg(not(windows))]
-fn read_normal_placement(_window: &WebviewWindow) -> Option<(i32, i32, u32, u32)> {
-    None
 }
 
 /// Read the window's current geometry into `PersistedState.window`.

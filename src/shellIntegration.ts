@@ -53,34 +53,25 @@ function toWindowsAbsPath(input: string): string {
   return raw.replace(/\//g, "\\");
 }
 
-function normalizeCwdPath(value: string, properties: Map<string, string>): string {
-  const isWindows = (properties.get("IsWindows") ?? "").toLowerCase() === "true";
-  if (isWindows) return toWindowsAbsPath(value);
-  return value.trim();
+function normalizeCwdPath(value: string, _properties: Map<string, string>): string {
+  return toWindowsAbsPath(value);
 }
 
-function uriToLocalPath(payload: string, properties: Map<string, string>): string | null {
+function uriToLocalPath(payload: string, _properties: Map<string, string>): string | null {
   const raw = payload.trim();
   if (!raw) return null;
-  const isWindows = (properties.get("IsWindows") ?? "").toLowerCase() === "true"
-    || /\bWindows\b/i.test(navigator.userAgent);
   try {
     const href = raw.includes("://") ? raw : `file:///${raw.replace(/^\/+/, "")}`;
     const u = new URL(href);
     if (u.protocol !== "file:") return null;
     let p = decodeURIComponent(u.pathname);
-    if (isWindows) {
-      if (u.hostname) {
-        const unc = `\\\\${u.hostname}${p}`.replace(/\//g, "\\");
-        return unc || null;
-      }
-      if (/^\/[a-zA-Z]:/.test(p)) p = p.slice(1);
-      return toWindowsAbsPath(p);
+    if (u.hostname) {
+      const unc = `\\\\${u.hostname}${p}`.replace(/\//g, "\\");
+      return unc || null;
     }
-    return p || null;
+    if (/^\/[a-zA-Z]:/.test(p)) p = p.slice(1);
+    return toWindowsAbsPath(p);
   } catch {
-    if (!isWindows) return null;
-    // URL constructor failed (e.g. unencoded spaces). Try to recover the path.
     let cleaned = raw;
     try { cleaned = decodeURIComponent(cleaned); } catch { /* raw is fine */ }
     return toWindowsAbsPath(cleaned) || null;

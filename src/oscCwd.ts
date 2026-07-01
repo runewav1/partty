@@ -18,14 +18,10 @@ export function normalizeFsPathKey(p: string): string {
     .toLowerCase();
 }
 
-function isWindowsHost(): boolean {
-  return /\bWindows\b/i.test(navigator.userAgent) || /^Win/i.test(navigator.platform);
-}
-
 /**
  * True only for paths the native Tauri filesystem backend can open directly.
- * This intentionally rejects WSL/POSIX cwd values on Windows so the file panel
- * does not call Rust commands with paths that Rust will reject as non-absolute.
+ * Rejects WSL/POSIX cwd values so the file panel does not call Rust commands
+ * with paths that Rust will reject as non-absolute.
  */
 export function isNativeAbsoluteFsPath(path: string | null | undefined): path is string {
   const p = path?.trim();
@@ -34,7 +30,5 @@ export function isNativeAbsoluteFsPath(path: string | null | undefined): path is
   if (/^[a-zA-Z]:[\\/]/.test(p)) return true;
   if (/^\\\\[^\\]+\\[^\\]+/.test(p)) return true;
   if (/^\/\/[^/]+\/[^/]+/.test(p)) return true;
-  if (isWindowsHost()) return false;
-  return p.startsWith("/");
+  return false;
 }
-

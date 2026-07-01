@@ -5,23 +5,14 @@
 //! them. We pick the **deepest descendant** of the root shell PID in that set so `cwd` / exe match
 //! the foreground shell, not only the parent process.
 
-#[cfg(windows)]
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
-#[cfg(windows)]
 use windows_sys::Win32::System::Console::{AttachConsole, FreeConsole, GetConsoleProcessList};
 
 /// PID used for OS cwd / exe queries: nested shell when detectable, otherwise the PTY root.
-#[cfg(windows)]
 pub fn effective_cwd_target_pid(root_shell_pid: u32) -> u32 {
     foreground_pid_for_console_session(root_shell_pid).unwrap_or(root_shell_pid)
 }
 
-#[cfg(not(windows))]
-pub fn effective_cwd_target_pid(root_shell_pid: u32) -> u32 {
-    root_shell_pid
-}
-
-#[cfg(windows)]
 fn foreground_pid_for_console_session(root_shell_pid: u32) -> Option<u32> {
     let ids = get_console_process_ids(root_shell_pid)?;
     if ids.is_empty() {
@@ -34,7 +25,6 @@ fn foreground_pid_for_console_session(root_shell_pid: u32) -> Option<u32> {
 }
 
 /// Returns PIDs attached to the same console as `root_shell_pid` (in arbitrary order).
-#[cfg(windows)]
 fn get_console_process_ids(root_shell_pid: u32) -> Option<Vec<u32>> {
     unsafe {
         // Drop our own console handle if present (e.g. `cargo run`), so we can attach elsewhere.
@@ -65,7 +55,6 @@ fn get_console_process_ids(root_shell_pid: u32) -> Option<Vec<u32>> {
 }
 
 /// Shortest path length from `pid` up to `ancestor`, or `None` if `ancestor` is not on the chain.
-#[cfg(windows)]
 fn depth_to_ancestor(pid: Pid, ancestor: Pid, sys: &System) -> Option<u32> {
     if pid == ancestor {
         return Some(0);
@@ -86,7 +75,6 @@ fn depth_to_ancestor(pid: Pid, ancestor: Pid, sys: &System) -> Option<u32> {
 }
 
 /// Among console-attached processes, choose the one deepest under `root_shell_pid`.
-#[cfg(windows)]
 fn pick_deepest_descendant(root_shell_pid: u32, console_pids: &[u32]) -> Option<u32> {
     let root = Pid::from_u32(root_shell_pid);
     let pids: Vec<Pid> = console_pids.iter().copied().map(Pid::from_u32).collect();

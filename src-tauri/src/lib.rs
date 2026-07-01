@@ -3,7 +3,6 @@ mod fs_watcher;
 mod fs_workspace;
 mod keybinds;
 mod palette_commands;
-#[cfg(windows)]
 mod peb_cwd_windows;
 mod prefs;
 mod pty;
@@ -179,7 +178,6 @@ fn open_in_editor(path: String) -> Result<(), String> {
     if !p.exists() {
         return Err(format!("path does not exist: {}", path));
     }
-    #[cfg(windows)]
     {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
@@ -208,10 +206,6 @@ fn open_in_editor(path: String) -> Result<(), String> {
             }
         }
     }
-    #[cfg(not(windows))]
-    {
-        opener::open(&p).map_err(|e| e.to_string())?;
-    }
     Ok(())
 }
 
@@ -228,7 +222,6 @@ fn reveal_in_explorer(path: String) -> Result<(), String> {
     } else {
         &p
     };
-    #[cfg(windows)]
     {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
@@ -260,20 +253,6 @@ fn reveal_in_explorer(path: String) -> Result<(), String> {
             }
         }
     }
-    #[cfg(target_os = "macos")]
-    {
-        StdCommand::new("open")
-            .arg(target)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        StdCommand::new("xdg-open")
-            .arg(target)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
     Ok(())
 }
 
@@ -284,7 +263,6 @@ fn open_external_terminal(cwd: String, terminal: Option<String>) -> Result<(), S
     if !cdir.is_dir() {
         return Err(format!("not a directory: {}", cwd));
     }
-    #[cfg(windows)]
     {
         let requested = terminal.unwrap_or_else(|| "wt".to_string()).to_lowercase();
 
@@ -372,28 +350,6 @@ fn open_external_terminal(cwd: String, terminal: Option<String>) -> Result<(), S
             }
         }
     }
-    #[cfg(target_os = "macos")]
-    {
-        StdCommand::new("open")
-            .args(["-a", "Terminal", &cwd])
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        StdCommand::new("xdg-terminal")
-            .arg("--working-directory")
-            .arg(&cwd)
-            .spawn()
-            .or_else(|_| {
-                StdCommand::new("gnome-terminal")
-                    .arg("--working-directory")
-                    .arg(&cwd)
-                    .spawn()
-            })
-            .or_else(|_| StdCommand::new("x-terminal-emulator").arg(&cwd).spawn())
-            .map_err(|e| e.to_string())?;
-    }
     Ok(())
 }
 
@@ -405,7 +361,6 @@ fn open_with_editor(path: String, editor: String) -> Result<(), String> {
     }
     // Use the editor command directly (already resolved by detection)
     let bin = editor.as_str();
-    #[cfg(windows)]
     {
         use std::ffi::OsStr;
         use std::os::windows::ffi::OsStrExt;
@@ -445,19 +400,11 @@ fn open_with_editor(path: String, editor: String) -> Result<(), String> {
             }
         }
     }
-    #[cfg(not(windows))]
-    {
-        StdCommand::new(bin)
-            .arg(&path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
     Ok(())
 }
 
 /// Extract icon from an executable using Windows SHGetFileInfo API.
 /// Returns base64-encoded PNG icon data with MIME type.
-#[cfg(windows)]
 fn extract_exe_icon(exe_path: &str) -> Option<(String, String)> {
     use base64::{engine::general_purpose::STANDARD, Engine as _};
     use std::ffi::OsStr;
@@ -674,7 +621,6 @@ fn extract_exe_icon(exe_path: &str) -> Option<(String, String)> {
 }
 
 /// Simple PNG encoder for RGBA data
-#[cfg(windows)]
 fn encode_png(data: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
     let mut png_data = Vec::new();
 
@@ -713,7 +659,6 @@ fn encode_png(data: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
     Some(png_data)
 }
 
-#[cfg(windows)]
 fn write_png_chunk(output: &mut Vec<u8>, chunk_type: &[u8; 4], data: &[u8]) {
     // Length (4 bytes, big-endian)
     output.extend_from_slice(&(data.len() as u32).to_be_bytes());
@@ -730,7 +675,6 @@ fn write_png_chunk(output: &mut Vec<u8>, chunk_type: &[u8; 4], data: &[u8]) {
 }
 
 /// Run `where.exe` for a single executable name; returns the first resolved full path.
-#[cfg(windows)]
 fn win_where_first(cmd: &str) -> Option<String> {
     let mut c = StdCommand::new("where.exe");
     c.arg(cmd)
@@ -750,7 +694,6 @@ fn win_where_first(cmd: &str) -> Option<String> {
 
 /// Resolve an executable by trying each candidate name via `where.exe` and then
 /// checking fallback filesystem paths.  Returns the first found full path.
-#[cfg(windows)]
 fn win_resolve_app_path(candidates: &[&str], fallback_paths: &[PathBuf]) -> Option<String> {
     for cand in candidates {
         if let Some(path) = win_where_first(cand) {
@@ -771,7 +714,6 @@ fn win_resolve_app_path(candidates: &[&str], fallback_paths: &[PathBuf]) -> Opti
 fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
     let mut apps = Vec::new();
 
-    #[cfg(windows)]
     {
         let local_app_data = std::env::var("LOCALAPPDATA").ok();
         let program_files = std::env::var("ProgramFiles").ok();
@@ -950,108 +892,6 @@ fn detect_installed_apps() -> Result<Vec<DetectedApp>, String> {
         }
     }
 
-    #[cfg(target_os = "macos")]
-    {
-        // macOS detection using which command
-        let mac_editors = vec![
-            ("Visual Studio Code", "code"),
-            ("Cursor", "cursor"),
-            ("Zed", "zed"),
-            ("Sublime Text", "subl"),
-            ("Vim", "vim"),
-            ("Neovim", "nvim"),
-        ];
-
-        for (display_name, command) in mac_editors {
-            if let Ok(output) = StdCommand::new("which").arg(command).output() {
-                if output.status.success() {
-                    apps.push(DetectedApp {
-                        name: display_name.to_string(),
-                        command: command.to_string(),
-                        app_type: "editor".to_string(),
-                        icon_data: None,
-                        icon_mime: None,
-                    });
-                }
-            }
-        }
-
-        // macOS terminals
-        if let Ok(_) = StdCommand::new("which").arg("Terminal").output() {
-            apps.push(DetectedApp {
-                name: "Terminal".to_string(),
-                command: "Terminal".to_string(),
-                app_type: "terminal".to_string(),
-                icon_data: None,
-                icon_mime: None,
-            });
-        }
-
-        if let Ok(_) = StdCommand::new("which").arg("iTerm").output() {
-            apps.push(DetectedApp {
-                name: "iTerm2".to_string(),
-                command: "iTerm".to_string(),
-                app_type: "terminal".to_string(),
-                icon_data: None,
-                icon_mime: None,
-            });
-        }
-    }
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        // Linux detection using which command
-        let linux_editors = vec![
-            ("Visual Studio Code", "code"),
-            ("Cursor", "cursor"),
-            ("Zed", "zed"),
-            ("Sublime Text", "subl"),
-            ("Vim", "vim"),
-            ("Neovim", "nvim"),
-            ("Nano", "nano"),
-            ("Gedit", "gedit"),
-            ("Kate", "kate"),
-        ];
-
-        for (display_name, command) in linux_editors {
-            if let Ok(output) = StdCommand::new("which").arg(command).output() {
-                if output.status.success() {
-                    apps.push(DetectedApp {
-                        name: display_name.to_string(),
-                        command: command.to_string(),
-                        app_type: "editor".to_string(),
-                        icon_data: None,
-                        icon_mime: None,
-                    });
-                }
-            }
-        }
-
-        // Linux terminals
-        let linux_terminals = vec![
-            ("GNOME Terminal", "gnome-terminal"),
-            ("Konsole", "konsole"),
-            ("xfce4-terminal", "xfce4-terminal"),
-            ("Alacritty", "alacritty"),
-            ("Kitty", "kitty"),
-            ("Terminator", "terminator"),
-        ];
-
-        for (display_name, command) in linux_terminals {
-            if let Ok(output) = StdCommand::new("which").arg(command).output() {
-                if output.status.success() {
-                    apps.push(DetectedApp {
-                        name: display_name.to_string(),
-                        command: command.to_string(),
-                        app_type: "terminal".to_string(),
-                        icon_data: None,
-                        icon_mime: None,
-                    });
-                }
-            }
-        }
-    }
-
     Ok(apps)
 }
 
@@ -1071,23 +911,8 @@ fn run_file(path: String) -> Result<(), String> {
     if !p.exists() {
         return Err(format!("path does not exist: {}", path));
     }
-    #[cfg(windows)]
     {
         opener::open(&p).map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        StdCommand::new("open")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        StdCommand::new("xdg-open")
-            .arg(&path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1173,7 +998,6 @@ fn clear_pty_session(state: &AppState) {
     *state.focused_pane_id.lock() = None;
 }
 
-#[cfg(windows)]
 fn cursor_physical_position() -> (i32, i32) {
     use windows_sys::Win32::Foundation::POINT;
     use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
@@ -1184,11 +1008,6 @@ fn cursor_physical_position() -> (i32, i32) {
         }
     }
     (pt.x, pt.y)
-}
-
-#[cfg(not(windows))]
-fn cursor_physical_position() -> (i32, i32) {
-    (200, 200)
 }
 
 fn position_window_near_cursor(win: &tauri::WebviewWindow, width: u32, height: u32) {
@@ -1896,7 +1715,6 @@ fn set_extension_enabled(id: String, enabled: bool) {
     save_extension_state(&state);
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let mut loaded = load_persisted();
     window_state::sanitize_window_state(&mut loaded.window);

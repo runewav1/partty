@@ -650,7 +650,6 @@ impl Drop for PtySession {
 }
 
 fn query_cwd_for_pid(pid: u32) -> Option<String> {
-    #[cfg(windows)]
     if let Some(cwd) = crate::peb_cwd_windows::cwd_from_pid(pid) {
         return Some(cwd);
     }
@@ -763,7 +762,6 @@ fn resolve_pwsh_executable() -> Option<PathBuf> {
     where_exe_first_line("pwsh.exe").filter(|p| p.is_file())
 }
 
-#[cfg(windows)]
 fn resolve_windows_bash_executable() -> Result<CommandBuilder, String> {
     if has_exe_on_path("bash.exe") {
         if let Some(p) = where_exe_first_line("bash.exe") {
@@ -945,86 +943,20 @@ fn apply_cwd(mut cmd: CommandBuilder, prefs: &Prefs) -> Result<CommandBuilder, S
     Ok(cmd)
 }
 
-/// UTF-16LE script bytes as base64 for `powershell.exe` / `pwsh -EncodedCommand` (non-Windows spawn path).
-#[cfg(not(windows))]
-fn encode_pwsh_encoded_command(source: &str) -> String {
-    let mut bytes = Vec::with_capacity(source.len() * 2);
-    for unit in source.encode_utf16() {
-        bytes.extend_from_slice(&unit.to_le_bytes());
-    }
-    base64::engine::general_purpose::STANDARD.encode(&bytes)
-}
 
-/// Injects OSC 7 cwd, then delegates to the shell's built-in prompt (pwsh vs Windows PowerShell stay distinct).
-#[cfg(not(windows))]
-const PWSH_OSC7_PROMPT_SCRIPT: &str = r#"$script:__partty_prev_prompt = (Get-Command prompt -CommandType Function).ScriptBlock; function global:prompt { $p=$PWD.Path; $u='file:///'+($p-replace [char]92,[char]47); [Console]::Out.Write([char]27+']7;'+$u+[char]7); & $script:__partty_prev_prompt }"#;
-
-#[cfg(not(windows))]
-fn pwsh_powershell_osc7_args() -> Vec<String> {
-    vec![
-        "-NoLogo".into(),
-        "-NoProfile".into(),
-        "-NoExit".into(),
-        "-EncodedCommand".into(),
-        encode_pwsh_encoded_command(PWSH_OSC7_PROMPT_SCRIPT),
-    ]
-}
-
-#[cfg(not(windows))]
-fn resolve_bash_or_fail(shell: &str) -> Result<CommandBuilder, String> {
-    if has_exe_on_path("bash.exe") {
-        if let Some(p) = where_exe_first_line("bash.exe") {
-            if p.is_file() {
-                return Ok(CommandBuilder::new(p));
-            }
-        }
-        return Ok(CommandBuilder::new("bash.exe"));
-    }
-    // Check Git for Windows bash
-    let git_bash_paths: Vec<PathBuf> = [
-        std::env::var("ProgramFiles")
-            .ok()
-            .map(|pf| PathBuf::from(pf).join("Git").join("bin").join("bash.exe")),
-        std::env::var("ProgramFiles(x86)")
-            .ok()
-            .map(|pf| PathBuf::from(pf).join("Git").join("bin").join("bash.exe")),
-        Some(PathBuf::from(r"C:\Git\bin\bash.exe")),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    for p in &git_bash_paths {
-        if p.is_file() {
-            return Ok(CommandBuilder::new(p));
-        }
-    }
-    Err(format!(
-        "Shell '{}' not found. Install Git for Windows (includes bash) or set prefs.shell to a full path.",
-        shell
-    ))
-}
 
 /// ConPTY session always starts the Windows host shell (`COMSPEC`, usually `cmd.exe`), then we
 /// launch the resolved interactive shell directly so integration is active on the first prompt.
 fn shell_command(prefs: &Prefs) -> Result<CommandBuilder, String> {
-    #[cfg(windows)]
-    {
-        return windows_shell_command(prefs);
-    }
-    #[cfg(not(windows))]
-    {
-        shell_command_interactive(prefs)
-    }
+    windows_shell_command(prefs)
 }
 
-#[cfg(windows)]
 fn windows_host_shell(prefs: &Prefs) -> Result<CommandBuilder, String> {
     let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into());
     let c = CommandBuilder::new(comspec);
     apply_cwd(c, prefs)
 }
 
-#[cfg(windows)]
 fn write_shell_integration_script(name: &str, contents: &str) -> Result<PathBuf, String> {
     use std::sync::Mutex;
     static CACHE: Mutex<Option<std::collections::HashMap<String, PathBuf>>> = Mutex::new(None);
@@ -1041,7 +973,6 @@ fn write_shell_integration_script(name: &str, contents: &str) -> Result<PathBuf,
     Ok(path)
 }
 
-#[cfg(windows)]
 fn windows_shell_command(prefs: &Prefs) -> Result<CommandBuilder, String> {
     let kind = detect_shell_kind(prefs);
     match kind {
@@ -1138,7 +1069,6 @@ source "{}"
     }
 }
 
-#[cfg(windows)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ShellKind {
     Pwsh,
@@ -1149,7 +1079,6 @@ enum ShellKind {
     Other,
 }
 
-#[cfg(windows)]
 fn detect_shell_kind(prefs: &Prefs) -> ShellKind {
     let trimmed = prefs.shell.trim().trim_matches(|c| c == '"' || c == '\'');
     if trimmed.is_empty() {
@@ -1183,112 +1112,4 @@ fn detect_shell_kind(prefs: &Prefs) -> ShellKind {
     }
 }
 
-#[cfg(not(windows))]
-fn shell_command_interactive(prefs: &Prefs) -> Result<CommandBuilder, String> {
-    let trimmed = prefs.shell.trim().trim_matches(|c| c == '"' || c == '\'');
-    let path_candidate = Path::new(trimmed);
 
-    // Explicit filesystem path (e.g. state.json copied from another machine)
-    if trimmed.contains('\\') || trimmed.contains('/') || trimmed.ends_with(".exe") {
-        if let Ok(canonical) = path_candidate.canonicalize() {
-            if canonical.is_file() {
-                let base = canonical
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .map(str::to_owned);
-                let mut c = CommandBuilder::new(canonical);
-                if base
-                    .as_deref()
-                    .is_some_and(|n| n.eq_ignore_ascii_case("pwsh.exe"))
-                {
-                    c.args(pwsh_powershell_osc7_args());
-                } else if base
-                    .as_deref()
-                    .is_some_and(|n| n.eq_ignore_ascii_case("powershell.exe"))
-                {
-                    c.args(pwsh_powershell_osc7_args());
-                }
-                return apply_cwd(c, prefs);
-            }
-        }
-        // Non-canonical but exists as given
-        if path_candidate.is_file() {
-            let mut c = CommandBuilder::new(path_candidate);
-            if path_candidate
-                .file_name()
-                .and_then(|s| s.to_str())
-                .is_some_and(|n| n.eq_ignore_ascii_case("pwsh.exe"))
-            {
-                c.args(pwsh_powershell_osc7_args());
-            } else if path_candidate
-                .file_name()
-                .and_then(|s| s.to_str())
-                .is_some_and(|n| n.eq_ignore_ascii_case("powershell.exe"))
-            {
-                c.args(pwsh_powershell_osc7_args());
-            }
-            return apply_cwd(c, prefs);
-        }
-    }
-
-    let mut shell = normalize_shell_token(trimmed);
-    strip_exe_suffix(&mut shell);
-
-    let cmd = if is_pwsh_alias(shell.as_str()) {
-        let exe = resolve_pwsh_executable().ok_or_else(|| {
-            "PowerShell 7 (pwsh) not found. Install from https://aka.ms/powershell or set prefs.shell to the full path to pwsh.exe.".to_string()
-        })?;
-        let mut c = CommandBuilder::new(exe);
-        c.args(pwsh_powershell_osc7_args());
-        c
-    } else {
-        match shell.as_str() {
-            "cmd" => {
-                let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into());
-                CommandBuilder::new(comspec)
-            }
-            "powershell" | "powershell_ise" | "windows powershell" | "windowspowershell" => {
-                let mut c = CommandBuilder::new("powershell.exe");
-                c.args(pwsh_powershell_osc7_args());
-                c
-            }
-            "bash" | "git-bash" | "gitbash" => resolve_bash_or_fail(&shell)?,
-            "wsl" | "wsl2" => CommandBuilder::new("wsl.exe"),
-            "zsh" | "fish" | "sh" | "dash" | "ash" => {
-                // Try to find on PATH (WSL, Git Bash, MSYS2)
-                let exe_name = format!("{}.exe", shell);
-                if has_exe_on_path(&exe_name) {
-                    CommandBuilder::new(exe_name)
-                } else if has_exe_on_path(&shell) {
-                    CommandBuilder::new(shell.as_str())
-                } else {
-                    return Err(format!(
-                        "Shell '{}' not found on PATH. Install it or set prefs.shell to a full path.",
-                        shell
-                    ));
-                }
-            }
-            other => {
-                let exe_with = format!("{}.exe", other);
-                if has_exe_on_path(&exe_with) {
-                    CommandBuilder::new(exe_with)
-                } else if has_exe_on_path(other) {
-                    CommandBuilder::new(other)
-                } else {
-                    // Fallback: try pwsh
-                    if let Some(p) = resolve_pwsh_executable() {
-                        let mut c = CommandBuilder::new(p);
-                        c.args(pwsh_powershell_osc7_args());
-                        c
-                    } else {
-                        let mut c = CommandBuilder::new("powershell.exe");
-                        c.args(pwsh_powershell_osc7_args());
-                        c
-                    }
-                }
-            }
-        }
-    };
-
-    apply_cwd(cmd, prefs)
-}
