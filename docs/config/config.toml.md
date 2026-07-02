@@ -53,7 +53,9 @@
 |-----|------|---------|-------|
 | `blur` | bool | `false` | unfocused pane blur |
 | `blur_radius` | float px | `1.6` | `0`–`10` |
-| `dim` | bool | `false` | dim unfocused panes |
+| `opacity_focused` | float | `1.0` | `0`–`1` — focused pane opacity |
+| `opacity_unfocused` | float | `1.0` | `0`–`1` — unfocused pane opacity |
+| `variable_opacity` | bool | `false` | enable per-pane opacity control |
 | `focus_scale` | bool | `true` | slight scale emphasis |
 | `focus_scale_intensity` | float | `0.45` | `0`–`1` |
 | `corner_radius` | float px | `6.0` | `0`–`32` |

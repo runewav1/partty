@@ -436,9 +436,17 @@ async function boot(): Promise<void> {
     "--pane-blur-radius",
     String((persisted.prefs as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6),
   );
+  document.documentElement.style.setProperty(
+    "--pane-opacity-focused",
+    String((persisted.prefs as Partial<ParttyPrefs>).pane_opacity_focused ?? 1.0),
+  );
+  document.documentElement.style.setProperty(
+    "--pane-opacity-unfocused",
+    String((persisted.prefs as Partial<ParttyPrefs>).pane_opacity_unfocused ?? 1.0),
+  );
   document.documentElement.classList.toggle(
-    "pane-dim-unfocused",
-    Boolean((persisted.prefs as Partial<ParttyPrefs>).dim_unfocused_panes),
+    "pane-variable-opacity",
+    Boolean((persisted.prefs as Partial<ParttyPrefs>).pane_variable_opacity),
   );
   applyPaneFocusScalePrefs(persisted.prefs as Partial<ParttyPrefs>);
 
@@ -4314,9 +4322,17 @@ async function boot(): Promise<void> {
             "--pane-blur-radius",
             String((saved as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6),
           );
+          document.documentElement.style.setProperty(
+            "--pane-opacity-focused",
+            String((saved as Partial<ParttyPrefs>).pane_opacity_focused ?? 1.0),
+          );
+          document.documentElement.style.setProperty(
+            "--pane-opacity-unfocused",
+            String((saved as Partial<ParttyPrefs>).pane_opacity_unfocused ?? 1.0),
+          );
           document.documentElement.classList.toggle(
-            "pane-dim-unfocused",
-            saved.dim_unfocused_panes,
+            "pane-variable-opacity",
+            Boolean((saved as Partial<ParttyPrefs>).pane_variable_opacity),
           );
           applyPaneFocusScalePrefs(saved);
           // Gap / sandbox padding changes resize each pane's content box but not the

@@ -233,7 +233,15 @@
                     <input name="pane_blur_radius" type="number" min="0" max="10" step="0.1" class="settings-input settings-input--narrow" />
                     <span class="settings-hint" style="margin-left:2px">px</span>
                   </div>
-                  <label class="settings-checkbox-label"><span>Dim inactive</span><input class="settings-checkbox-input" type="checkbox" name="dim_unfocused_panes" /></label>
+                  <label class="settings-checkbox-label"><span>Variable opacity</span><input class="settings-checkbox-input" type="checkbox" name="pane_variable_opacity" /></label>
+                  <div class="settings-row settings-row--compact" data-child-of="pane_variable_opacity">
+                    <span class="settings-row-label">Focused α</span>
+                    <input name="pane_opacity_focused" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
+                  </div>
+                  <div class="settings-row settings-row--compact" data-child-of="pane_variable_opacity">
+                    <span class="settings-row-label">Unfocused α</span>
+                    <input name="pane_opacity_unfocused" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
+                  </div>
                   <label class="settings-checkbox-label"><span>Focus scale</span><input class="settings-checkbox-input" type="checkbox" name="focus_pane_scale" checked /></label>
                   <div class="settings-row settings-row--compact">
                     <span class="settings-row-label">Scale intensity</span>

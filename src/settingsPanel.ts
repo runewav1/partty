@@ -19,7 +19,9 @@ export type ParttyPrefs = {
   blur_unfocused_panes: boolean;
   /** Blur radius in px for unfocused split panes (default 1.6). */
   pane_blur_radius?: number;
-  dim_unfocused_panes: boolean;
+  pane_opacity_focused?: number;
+  pane_opacity_unfocused?: number;
+  pane_variable_opacity?: boolean;
   /** Slight scale emphasis on the focused split pane. */
   focus_pane_scale?: boolean;
   /** Focus scale intensity 0–1 (default 0.45). */
@@ -183,7 +185,10 @@ export function createSettingsPanel(
       preload_pty_on_startup: gc("preload_pty_on_startup"), preload_webgl_on_startup: gc("preload_webgl_on_startup"),
       defer_window_show_until_prepared: gc("defer_window_show_until_prepared"),
       destroy_webview_on_hide: gc("destroy_webview_on_hide"), focus_follows_cursor: gc("focus_follows_cursor"),
-      blur_unfocused_panes: gc("blur_unfocused_panes"), pane_blur_radius: clampf(g("pane_blur_radius"), 1.6, 0, 10), dim_unfocused_panes: gc("dim_unfocused_panes"),
+      blur_unfocused_panes: gc("blur_unfocused_panes"), pane_blur_radius: clampf(g("pane_blur_radius"), 1.6, 0, 10),
+      pane_opacity_focused: clamp01(g("pane_opacity_focused"), 1.0),
+      pane_opacity_unfocused: clamp01(g("pane_opacity_unfocused"), 1.0),
+      pane_variable_opacity: gc("pane_variable_opacity"),
       focus_pane_scale: gc("focus_pane_scale"), pane_focus_scale_intensity: clampf(g("pane_focus_scale_intensity"), 0.45, 0, 1),
       auto_copy_selection: gc("auto_copy_selection"), shed_workspace_exit,
       always_summon_maximized: gc("always_summon_maximized"), summon_spawn_at_cursor: gc("summon_spawn_at_cursor"),
@@ -292,6 +297,14 @@ export function createSettingsPanel(
       const hidden = parentEl?.checked ?? false;
       const children = root.querySelectorAll('[data-child-of="file_tree_disable_search"]');
       children.forEach((r) => (r as HTMLElement).classList.toggle("settings-tree-hidden", hidden));
+    }
+    // Variable opacity: sub-options dimmed when toggle is off.
+    {
+      const toggleEl = form?.querySelector('[name="pane_variable_opacity"]') as HTMLInputElement | null;
+      const enabled = toggleEl?.checked ?? false;
+      root.querySelectorAll('[data-child-of="pane_variable_opacity"]').forEach((r) => {
+        (r as HTMLElement).classList.toggle("settings-tree-hidden", !enabled);
+      });
     }
   }
 
@@ -419,7 +432,9 @@ export function createSettingsPanel(
     setChk("focus_follows_cursor", p.focus_follows_cursor);
     setChk("blur_unfocused_panes", pr.blur_unfocused_panes ?? false);
     setVal("pane_blur_radius", String(pr.pane_blur_radius ?? 1.6));
-    setChk("dim_unfocused_panes", pr.dim_unfocused_panes ?? false);
+    setVal("pane_opacity_focused", String(pr.pane_opacity_focused ?? 1.0));
+    setVal("pane_opacity_unfocused", String(pr.pane_opacity_unfocused ?? 1.0));
+    setChk("pane_variable_opacity", pr.pane_variable_opacity ?? false);
     setChk("focus_pane_scale", pr.focus_pane_scale ?? true);
     setVal("pane_focus_scale_intensity", String(pr.pane_focus_scale_intensity ?? 0.45));
     setChk("auto_copy_selection", pr.auto_copy_selection ?? false);
@@ -468,6 +483,8 @@ export function createSettingsPanel(
     mouseIdleToggle?.addEventListener("change", () => applySettingsTree());
     const devPerfToggle = form?.querySelector('[name="dev_perf_enabled"]') as HTMLInputElement | null;
     devPerfToggle?.addEventListener("change", () => { applySettingsTree(); applySettingsSearch(); });
+    const varOpacityToggle = form?.querySelector('[name="pane_variable_opacity"]') as HTMLInputElement | null;
+    varOpacityToggle?.addEventListener("change", () => applySettingsTree());
 
     root.querySelector(".settings-panel-backdrop")?.addEventListener("click", (e) => {
       if (e.target === e.currentTarget) close();

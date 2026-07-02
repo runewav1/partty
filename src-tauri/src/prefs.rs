@@ -38,6 +38,12 @@ fn default_true() -> bool {
 fn default_pane_blur_radius() -> f64 {
     1.6
 }
+fn default_pane_opacity_focused() -> f64 {
+    1.0
+}
+fn default_pane_opacity_unfocused() -> f64 {
+    1.0
+}
 fn default_pane_focus_scale_intensity() -> f64 {
     0.45
 }
@@ -167,8 +173,12 @@ pub struct Prefs {
     pub blur_unfocused_panes: bool,
     #[serde(default = "default_pane_blur_radius")]
     pub pane_blur_radius: f64,
+    #[serde(default = "default_pane_opacity_focused")]
+    pub pane_opacity_focused: f64,
+    #[serde(default = "default_pane_opacity_unfocused")]
+    pub pane_opacity_unfocused: f64,
     #[serde(default)]
-    pub dim_unfocused_panes: bool,
+    pub pane_variable_opacity: bool,
     #[serde(default = "default_true")]
     pub focus_pane_scale: bool,
     #[serde(default = "default_pane_focus_scale_intensity")]
@@ -312,7 +322,9 @@ impl Default for Prefs {
             focus_follows_cursor: false,
             blur_unfocused_panes: false,
             pane_blur_radius: default_pane_blur_radius(),
-            dim_unfocused_panes: false,
+            pane_opacity_focused: default_pane_opacity_focused(),
+            pane_opacity_unfocused: default_pane_opacity_unfocused(),
+            pane_variable_opacity: false,
             focus_pane_scale: true,
             pane_focus_scale_intensity: default_pane_focus_scale_intensity(),
             auto_copy_selection: false,
@@ -553,8 +565,12 @@ pub struct PaneSection {
     pub blur: bool,
     #[serde(default = "default_pane_blur_radius")]
     pub blur_radius: f64,
+    #[serde(default = "default_pane_opacity_focused")]
+    pub opacity_focused: f64,
+    #[serde(default = "default_pane_opacity_unfocused")]
+    pub opacity_unfocused: f64,
     #[serde(default)]
-    pub dim: bool,
+    pub variable_opacity: bool,
     #[serde(default = "default_true")]
     pub focus_scale: bool,
     #[serde(default = "default_pane_focus_scale_intensity")]
@@ -578,7 +594,9 @@ impl Default for PaneSection {
         Self {
             blur: false,
             blur_radius: default_pane_blur_radius(),
-            dim: false,
+            opacity_focused: default_pane_opacity_focused(),
+            opacity_unfocused: default_pane_opacity_unfocused(),
+            variable_opacity: false,
             focus_scale: true,
             focus_scale_intensity: default_pane_focus_scale_intensity(),
             corner_radius: default_pane_corner_radius(),
@@ -901,7 +919,9 @@ impl From<ConfigToml> for Prefs {
             terminal_backspace_delete_selection: c.display.backspace_deletes_selection,
             blur_unfocused_panes: c.pane.blur,
             pane_blur_radius: c.pane.blur_radius,
-            dim_unfocused_panes: c.pane.dim,
+            pane_opacity_focused: c.pane.opacity_focused,
+            pane_opacity_unfocused: c.pane.opacity_unfocused,
+            pane_variable_opacity: c.pane.variable_opacity,
             focus_pane_scale: c.pane.focus_scale,
             pane_focus_scale_intensity: c.pane.focus_scale_intensity,
             pane_corner_radius: c.pane.corner_radius,
@@ -997,7 +1017,9 @@ impl From<&Prefs> for ConfigToml {
             pane: PaneSection {
                 blur: p.blur_unfocused_panes,
                 blur_radius: p.pane_blur_radius,
-                dim: p.dim_unfocused_panes,
+                opacity_focused: p.pane_opacity_focused,
+                opacity_unfocused: p.pane_opacity_unfocused,
+                variable_opacity: p.pane_variable_opacity,
                 focus_scale: p.focus_pane_scale,
                 focus_scale_intensity: p.pane_focus_scale_intensity,
                 corner_radius: p.pane_corner_radius,

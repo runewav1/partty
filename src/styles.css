@@ -1604,8 +1604,12 @@ html.terminal-no-pane-border .pane-host:has(.pane-split) .pane-leaf--focused {
   box-shadow: none;
 }
 
-html.pane-dim-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--focused) {
-  opacity: 0.62;
+html.pane-variable-opacity .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--focused) {
+  opacity: var(--pane-opacity-unfocused, 1);
+}
+
+html.pane-variable-opacity .pane-host:has(.pane-split) .pane-leaf.pane-leaf--focused {
+  opacity: var(--pane-opacity-focused, 1);
 }
 
 html.pane-blur-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--focused) {
