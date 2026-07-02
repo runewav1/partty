@@ -984,6 +984,7 @@ export class PaneHost {
   }
 
   private mountTree(): void {
+    this.syncRatiosFromDom();
     this.root.replaceChildren();
     const tiledTree = this.pruneFloatingLeaves(this.tree);
     if (tiledTree) {
@@ -1383,7 +1384,41 @@ export class PaneHost {
       (cells[0] as HTMLElement).style.flex = String(next);
       (cells[1] as HTMLElement).style.flex = String(1 - next);
     }
+    const path = splitEl.dataset.splitPath;
+    if (path !== undefined) {
+      this.persistSingleRatio(path, next);
+    }
     if (notify) this.opts.onPaneLayout?.();
+  }
+
+  private persistSingleRatio(path: string, ratio: number): void {
+    if (this.floating.size > 0) return;
+    const node = getNodeByPath(this.tree, path);
+    if (node.kind !== "split") return;
+    this.tree = setNodeByPath(this.tree, path, { ...node, ratio });
+  }
+
+  private syncRatiosFromDom(): void {
+    const tiled = this.pruneFloatingLeaves(this.tree);
+    if (!tiled) return;
+    const rootEl = this.root.firstElementChild as HTMLElement | null;
+    if (!rootEl) return;
+    this.tree = this.syncRatiosWalk(tiled, rootEl, this.tree);
+  }
+
+  private syncRatiosWalk(pruned: PaneNode, el: HTMLElement, orig: PaneNode): PaneNode {
+    if (pruned.kind !== "split" || orig.kind !== "split") return orig;
+    if (!el.classList.contains("pane-split")) return orig;
+    const ratio = Number(el.dataset.ratio ?? "0.5");
+    const cells = el.querySelectorAll<HTMLElement>(":scope > :not(.pane-gutter)");
+    const cellA = cells[0];
+    const cellB = cells[1];
+    return {
+      ...orig,
+      ratio,
+      a: cellA ? this.syncRatiosWalk(pruned.a, cellA, orig.a) : orig.a,
+      b: cellB ? this.syncRatiosWalk(pruned.b, cellB, orig.b) : orig.b,
+    };
   }
 
   private beginLayoutDrag(): void {
@@ -1402,7 +1437,7 @@ export class PaneHost {
     if (commitLayout) this.opts.onPaneLayout?.();
   }
 
-  private renderNode(node: PaneNode): HTMLElement {
+  private renderNode(node: PaneNode, path = ""): HTMLElement {
     if (node.kind === "leaf") {
       const wrap = document.createElement("div");
       wrap.className = "pane-leaf";
@@ -1517,20 +1552,21 @@ export class PaneHost {
     split.className = `pane-split pane-split--${node.dir}`;
     split.dataset.splitDir = node.dir;
     split.dataset.ratio = String(node.ratio);
+    split.dataset.splitPath = path;
     split.style.display = "flex";
     split.style.flex = "1";
     split.style.minHeight = "0";
     split.style.minWidth = "0";
     split.style.flexDirection = node.dir === "h" ? "row" : "column";
 
-    const a = this.renderNode(node.a);
+    const a = this.renderNode(node.a, `${path}a`);
     a.style.flex = String(node.ratio);
     a.style.minWidth = "0";
     a.style.minHeight = "0";
     const gutter = document.createElement("div");
     gutter.className = `pane-gutter pane-gutter--${node.dir}`;
     gutter.title = "Resize";
-    const b = this.renderNode(node.b);
+    const b = this.renderNode(node.b, `${path}b`);
     b.style.flex = String(1 - node.ratio);
     b.style.minWidth = "0";
     b.style.minHeight = "0";

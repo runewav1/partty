@@ -943,8 +943,6 @@ fn apply_cwd(mut cmd: CommandBuilder, prefs: &Prefs) -> Result<CommandBuilder, S
     Ok(cmd)
 }
 
-
-
 /// ConPTY session always starts the Windows host shell (`COMSPEC`, usually `cmd.exe`), then we
 /// launch the resolved interactive shell directly so integration is active on the first prompt.
 fn shell_command(prefs: &Prefs) -> Result<CommandBuilder, String> {
@@ -1111,5 +1109,3 @@ fn detect_shell_kind(prefs: &Prefs) -> ShellKind {
         _ => ShellKind::Other,
     }
 }
-
-

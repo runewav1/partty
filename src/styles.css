@@ -939,7 +939,8 @@ html.term-tabs-multiple .term-toolbar {
 }
 
 html.terminal-layout-suspended .file-tree-dock,
-.pane-host--layout-dragging .pane-leaf {
+.pane-host--layout-dragging .pane-leaf,
+.pane-host--layout-dragging .pane-split > :not(.pane-gutter) {
   transition: none !important;
 }
 
@@ -1824,6 +1825,10 @@ html.terminal-motion-off *::after {
 .pane-split {
   border: none;
   outline: none;
+}
+
+.pane-split > :not(.pane-gutter) {
+  transition: flex var(--motion-medium) var(--motion-ease-emphasized);
 }
 
 /* No outer frame on the embedded xterm grid */
