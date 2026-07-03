@@ -487,15 +487,6 @@ async function boot(): Promise<void> {
   const autoCopySelectionRef = {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).auto_copy_selection),
   };
-  const showDiffCountsRef = {
-    v: Boolean(
-      (persisted.prefs as Partial<ParttyPrefs>).file_tree_show_diff_counts,
-    ),
-  };
-  const showGitInfoRef = {
-    v:
-      (persisted.prefs as Partial<ParttyPrefs>).file_tree_show_git_info ?? true,
-  };
   const fileTreeSideRef = {
     v: normalizeFileTreeSide(
       (persisted.prefs as Partial<ParttyPrefs>).file_tree_side,
@@ -507,11 +498,6 @@ async function boot(): Promise<void> {
   const splitLayoutStyleRef = {
     v: normalizeSplitLayoutStyle(
       (persisted.prefs as Partial<ParttyPrefs>).split_layout_style,
-    ),
-  };
-  const disableSearchRef = {
-    v: Boolean(
-      (persisted.prefs as Partial<ParttyPrefs>).file_tree_disable_search,
     ),
   };
   const disableTooltipsRef = {
@@ -1846,12 +1832,8 @@ async function boot(): Promise<void> {
     if (!document.documentElement.classList.contains("file-tree-on")) {
       setFileTreeEnabled(true);
     }
-    if (fileTreePanel?.isFilterFocused()) {
-      // If already focused, clear filter and close
-      fileTreePanel?.focusFilter();
-      return true;
-    }
-    fileTreePanel?.focusFilter();
+    const scroll = document.getElementById("file-tree-scroll");
+    scroll?.focus();
     return true;
   }
 
@@ -1861,7 +1843,6 @@ async function boot(): Promise<void> {
       document.documentElement.classList.remove("file-tree-on");
       const dock = document.getElementById("file-tree-dock");
       if (dock) dock.setAttribute("aria-hidden", "true");
-      fileTreePanel?.setSearchEnabled(false);
       scheduleResizeImmediate();
     }
   }
@@ -4204,15 +4185,12 @@ async function boot(): Promise<void> {
           persisted.prefs = saved as unknown as Record<string, unknown>;
           Object.assign(lp, mergeLifecyclePrefs(persisted.prefs));
           autoCopySelectionRef.v = saved.auto_copy_selection;
-          showDiffCountsRef.v = saved.file_tree_show_diff_counts;
-          showGitInfoRef.v = saved.file_tree_show_git_info;
           fileTreeSideRef.v = normalizeFileTreeSide(saved.file_tree_side);
           applyFileTreeSide(fileTreeSideRef.v);
           fileTreeDisabledRef.v = saved.file_tree_disabled ?? false;
           splitLayoutStyleRef.v = normalizeSplitLayoutStyle(
             saved.split_layout_style,
           );
-          disableSearchRef.v = saved.file_tree_disable_search ?? false;
           confirmDeletePromptRef.v = saved.confirm_delete_prompt ?? true;
           disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
           altClickCursorRef.v = saved.terminal_alt_click_moves_cursor ?? true;
@@ -4304,9 +4282,6 @@ async function boot(): Promise<void> {
             (saved as Partial<ParttyPrefs>).quiet_pane_deferral,
           );
           syncFileTreeDisabledUi(fileTreeDisabledRef.v);
-          fileTreePanel?.setSearchEnabled(
-            !(saved.file_tree_disable_search ?? false),
-          );
           applyTerminalDisplayPrefs(saved);
           if (saved.scrollback_lines !== previous.scrollback_lines) {
             for (const host of tabPaneHosts.values()) {
@@ -5766,33 +5741,22 @@ async function boot(): Promise<void> {
             liveCwd = root;
             void fileTreePanel?.setRoot(root);
           },
-          onGitStatusChange: (statuses) => {
-            fileTreePanel?.updateGitStatuses(statuses);
-          },
-          onGitRepoInfoChange: (repoInfo) => {
-            fileTreePanel?.updateRepoInfo(repoInfo);
-          },
           onFileSystemChange: (paths) => {
             fileTreePanel?.handleFileSystemChange(paths);
           },
         });
         fileTreeBackend = fileTreeCoordinator.getFileTreeBackend();
-        fileTreePanel = new FileTreePanel(
-          fts,
-          fileTreeBackend,
-          () => showDiffCountsRef.v,
-          () => showGitInfoRef.v,
-          () => confirmDeletePromptRef.v,
-          (enabled) => {
+        fileTreePanel = new FileTreePanel(fts, fileTreeBackend, {
+          getConfirmDeletePrompt: () => confirmDeletePromptRef.v,
+          setConfirmDeletePrompt: (enabled) => {
             confirmDeletePromptRef.v = enabled;
             void setDeleteConfirmPrompt(enabled);
           },
-          () => fileTreeSideRef.v,
-          (side) => {
+          getPanelSide: () => fileTreeSideRef.v,
+          setPanelSide: (side) => {
             void setFileTreeSide(side);
           },
-        );
-        fileTreePanel.setSearchEnabled(!disableSearchRef.v);
+        });
         const focusedPaneId = paneHost?.getFocusedPaneId();
         if (focusedPaneId) {
           fileTreePanel.setActivePane(focusedPaneId);

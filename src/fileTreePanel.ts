@@ -1,21 +1,13 @@
-/**
- * VSCode-parity file tree with git tracking, drag/drop, context menu, and Material icons.
- * Features: expandable folders, drag-drop animations, right-click operations, keyboard nav.
- */
-
 import { invoke } from "@tauri-apps/api/core";
 import { isNativeAbsoluteFsPath, normalizeFsPathKey } from "./oscCwd";
 import { showAlert, showConfirm } from "./dialog";
-import { FileTreeBackend, type GitRepoInfo, type DetectedApp, type MatchDetail } from "./fileTreeBackend";
-import { EXTENSION_TO_ICON, FILENAME_TO_ICON, FOLDER_NAME_TO_ICON } from "./iconMappings";
-import { createLucideIcon } from "./lucideIcons";
+import { FileTreeBackend } from "./fileTreeBackend";
+import { glyphForFile } from "./fileTreeGlyphs";
 
 export type FsEntry = {
   name: string;
   path: string;
   isDir: boolean;
-  gitStatus?: string | null;
-  iconKey?: string | null;
 };
 
 type NodeState = {
@@ -34,41 +26,29 @@ type DragState = {
 
 type FileTreeSide = "left" | "right";
 
+type FlatEntry = { kind: "entry"; entry: FsEntry; depth: number };
+type FlatInline = {
+  kind: "inline";
+  depth: number;
+  mode: "newfile" | "newfolder";
+  parent: string;
+  initial: string;
+};
+type FlatItem = FlatEntry | FlatInline;
 
-const GIT_STATUS_LETTER: Map<string, string> = new Map([
-  ["untracked", "U"],
-  ["modified", "M"],
-  ["added", "A"],
-  ["deleted", "D"],
-  ["renamed", "R"],
-  ["conflict", "C"],
-  ["changed", "~"],
-]);
-
-const ICON_ALIASES: Record<string, string> = {
-  folder: "folder-base",
-  "folder-open": "folder-base-open",
-  file: "document",
+type PaneTreeState = {
+  viewRoot: string | null;
+  selected: string[];
+  scrollTop: number;
+  cacheEntries: Array<[string, NodeState]>;
 };
 
-const iconUrlByFile = import.meta.glob<string>("./assets/icons/*.svg", {
-  eager: true,
-  query: "?url",
-  import: "default",
-}) as Record<string, string>;
-
-function iconUrlForKey(iconName: string): string {
-  const base = ICON_ALIASES[iconName] ?? iconName;
-  const rel = `./assets/icons/${base}.svg`;
-  const fallback = `./assets/icons/document.svg`;
-  return iconUrlByFile[rel] ?? iconUrlByFile[fallback] ?? "";
-}
-
-function hasIconAsset(iconName: string): boolean {
-  const base = ICON_ALIASES[iconName] ?? iconName;
-  const rel = `./assets/icons/${base}.svg`;
-  return Boolean(iconUrlByFile[rel]);
-}
+export type FileTreePanelOptions = {
+  getConfirmDeletePrompt?: () => boolean;
+  setConfirmDeletePrompt?: (enabled: boolean) => void;
+  getPanelSide?: () => FileTreeSide;
+  setPanelSide?: (side: FileTreeSide) => void;
+};
 
 function joinWin(base: string, name: string): string {
   const b = base.replace(/[/\\]+$/, "");
@@ -88,192 +68,60 @@ function dirnamePath(path: string): string {
   return s.slice(0, i);
 }
 
-function isRunnableFile(path: string): boolean {
-  return /\.(exe|bat|cmd|ps1|msi|vbs|com|scr)$/i.test(path);
+class TreeView {
+  readonly cache = new Map<string, NodeState>();
+  viewRoot: string | null = null;
+  readonly selected = new Set<string>();
+  readonly pendingFsPaths = new Set<string>();
+  inlineRenamePath: string | null = null;
+  inlineNew: { parent: string; mode: "newfile" | "newfolder"; initial: string } | null = null;
+  keyboardNavIndex = -1;
+  selectionAnchorPath: string | null = null;
+  flatItems: FlatItem[] = [];
+  visibleRange = { start: 0, end: 0 };
+  renderedElements = new Map<string, HTMLLIElement>();
+  virtualContainer: HTMLElement | null = null;
+  fsRefreshTimer = 0;
+  fsSyncInFlight = false;
+
+  readonly itemHeight = 22;
+  readonly overscan = 10;
+
+  prefetchToken = 0;
+  readonly prefetchDepth = 2;
+  readonly prefetchDirBudget = 96;
+  readonly prefetchMaxEntriesPerDir = 300;
+  readonly prefetchMaxSubdirsPerDir = 140;
 }
-
-function getIconForEntry(entry: FsEntry): string {
-  if (entry.isDir) {
-    const folderName = entry.name.toLowerCase();
-    const specialIcon = FOLDER_NAME_TO_ICON.get(folderName);
-    if (specialIcon) return specialIcon;
-    if (folderName.startsWith(".")) return "folder-config";
-    return "folder";
-  }
-  
-  const filename = entry.name.toLowerCase();
-  const specialIcon = FILENAME_TO_ICON.get(filename);
-  if (specialIcon) return specialIcon;
-  
-  const ext = filename.split(".").pop() || "";
-  const extIcon = EXTENSION_TO_ICON.get(ext);
-  if (extIcon) return extIcon;
-  
-  return "file";
-}
-
-function createIconElement(iconName: string): HTMLElement {
-  const span = document.createElement("span");
-  span.className = "file-tree-icon";
-
-  const img = document.createElement("img");
-  img.src = iconUrlForKey(iconName);
-  img.alt = "";
-  img.loading = "lazy";
-  img.draggable = false;
-
-  img.onerror = () => {
-    // Try Lucide icon as fallback
-    const lucideIcon = createLucideIcon(iconName);
-    if (lucideIcon) {
-      img.replaceWith(lucideIcon);
-      return;
-    }
-    
-    // Fall back to folder/file icons
-    if (iconName === "folder-open" || iconName.includes("open")) {
-      img.src = iconUrlForKey("folder");
-    } else if (iconName !== "file" && iconName !== "folder") {
-      img.src = iconUrlForKey("file");
-    }
-  };
-
-  span.appendChild(img);
-  return span;
-}
-
-type FlatEntry = { kind: "entry"; entry: FsEntry; depth: number };
-type FlatSnippet = { kind: "snippet"; path: string; depth: number; detail: MatchDetail | null; index: number };
-type FlatInline = {
-  kind: "inline";
-  depth: number;
-  mode: "newfile" | "newfolder";
-  parent: string;
-  initial: string;
-};
-type FlatItem = FlatEntry | FlatSnippet | FlatInline;
-
-type SearchKind = "all" | "file" | "folder";
-
-type SearchSpec = {
-  mode: string;
-  kind: SearchKind;
-  pattern: string;
-  /** Optional path scope (relative to workspace root) to constrain the search under. */
-  scope?: string;
-};
-type SearchEntry = {
-  entry: FsEntry;
-  relPath: string;
-  depth: number;
-};
-
-type ContentSearchMeta = {
-  matches: number;
-  label: string;
-  details: MatchDetail[] | null;
-};
-
-type PaneTreeState = {
-  viewRoot: string | null;
-  selected: string[];
-  scrollTop: number;
-  cacheEntries: Array<[string, NodeState]>;
-};
 
 export class FileTreePanel {
-  private readonly cache = new Map<string, NodeState>();
-  private viewRoot: string | null = null;
-  private readonly selected = new Set<string>();
+  private readonly tree = new TreeView();
+  private readonly ownerCtx: { getConfirmDeletePrompt: () => boolean; setConfirmDeletePrompt: (enabled: boolean) => void; getPanelSide: () => FileTreeSide; setPanelSide: (side: FileTreeSide) => void };
   private ctxEl: HTMLElement | null = null;
-  private dragState: DragState = {
-    draggedPaths: null,
-    dragOverPath: null,
-    dropPosition: null,
-  };
+  private dragState: DragState = { draggedPaths: null, dragOverPath: null, dropPosition: null };
   private dragGhost: HTMLElement | null = null;
-  private keyboardNavIndex = -1;
-  private selectionAnchorPath: string | null = null;
-
-  /** Normalized absolute path → git status and diff counts (from backend). */
-  private gitPathMap = new Map<string, { status: string; added: number; removed: number }>();
-  private repoInfo: GitRepoInfo | null = null;
   private activePaneId: string | null = null;
   private readonly paneStates = new Map<string, PaneTreeState>();
-  private inlineRenamePath: string | null = null;
-  private inlineNew: { parent: string; mode: "newfile" | "newfolder"; initial: string } | null =
-    null;
-  
-  /** Cache for detected editors and terminals. */
-  private detectedApps: DetectedApp[] | null = null;
-
   private recoverTimer = 0;
-
-  // ── Search / filter state ──
-  private filterQuery = "";
-  private filterMode = "name";
-  private lastSearchedRoot = "";
-  private lastSearchedQuery = "";
-  private filterMatchCount = 0;
-  private searchInputEl: HTMLInputElement | null = null;
-  private searchCountEl: HTMLElement | null = null;
-  private searchClearEl: HTMLElement | null = null;
-  private searchWrapEl: HTMLElement | null = null;
-  private searchEnabled = true;
-  private backendSearchToken = 0;
-  private searchDebounceTimer = 0;
-  private readonly contentSearchMetaByPath = new Map<string, ContentSearchMeta>();
-  private readonly expandedContentSnippetPaths = new Set<string>();
-  private readonly loadingContentSnippetPaths = new Set<string>();
-
-  // Virtual scrolling state
-  private flatItems: FlatItem[] = [];
-  private visibleRange = { start: 0, end: 0 };
-  private readonly itemHeight = 22;
-  private readonly overscan = 10;
-  private renderedElements = new Map<string, HTMLLIElement>();
-  private virtualContainer: HTMLElement | null = null;
-  private summaryFooterEl: HTMLElement | null = null;
-  private fsRefreshTimer = 0;
-  private readonly pendingFsPaths = new Set<string>();
-  private fsSyncInFlight = false;
-  private prefetchToken = 0;
-  private readonly prefetchDepth = 2;
-  private readonly prefetchDirBudget = 96;
-  private readonly prefetchMaxEntriesPerDir = 300;
-  private readonly prefetchMaxSubdirsPerDir = 140;
 
   constructor(
     private readonly scrollEl: HTMLElement,
     private readonly backend: FileTreeBackend,
-    private readonly getShowDiffCounts: () => boolean,
-    private readonly getShowGitInfo: () => boolean = () => true,
-    private readonly getConfirmDeletePrompt: () => boolean = () => true,
-    private readonly setConfirmDeletePrompt: (enabled: boolean) => void = () => {},
-    private readonly getPanelSide: () => FileTreeSide = () => "left",
-    private readonly setPanelSide: (side: FileTreeSide) => void = () => {},
+    options?: FileTreePanelOptions,
   ) {
+    this.ownerCtx = {
+      getConfirmDeletePrompt: options?.getConfirmDeletePrompt ?? (() => true),
+      setConfirmDeletePrompt: options?.setConfirmDeletePrompt ?? (() => {}),
+      getPanelSide: options?.getPanelSide ?? (() => "left" as const),
+      setPanelSide: options?.setPanelSide ?? (() => {}),
+    };
     this.setupKeyboardNav();
     this.setupVirtualScroll();
-    this.setupSummaryFooter();
-    this.setupSearchToolbar();
-
-    // Set up git status change callback
-    this.backend.onGitStatusChange = (statuses) => {
-      this.gitPathMap = statuses;
-      this.updateSummaryFooter();
-      this.syncVisibleGitDecorations();
-    };
-    this.backend.onGitRepoInfoChange = (info) => {
-      this.repoInfo = info;
-      this.updateSummaryFooter();
-    };
-
     this.scrollEl.addEventListener("contextmenu", (e) => {
       const t = e.target as HTMLElement;
       if (t.closest(".file-tree-row")) return;
       e.preventDefault();
-      const root = this.viewRoot;
+      const root = this.tree.viewRoot;
       if (!root) return;
       this.showCtxEmptyArea(e.clientX, e.clientY, root);
     });
@@ -282,579 +130,35 @@ export class FileTreePanel {
     });
   }
 
-  // ── Search / filter ────────────────────────────────────────────────
+  // ── Public API (kept for main.ts compat) ──
 
-  /** Show or hide the search toolbar. */
-  setSearchEnabled(enabled: boolean): void {
-    this.searchEnabled = enabled;
-    if (this.searchWrapEl) {
-      this.searchWrapEl.style.display = enabled ? "" : "none";
-    }
-    if (!enabled && this.filterQuery) {
-      this.clearFilter();
-    }
-  }
-
-  /** Focus the filter input for keyboard shortcut support. */
-  focusFilter(): void {
-    if (!this.searchEnabled) return;
-    this.searchInputEl?.focus();
-  }
-
-  /** Whether the filter input currently has focus. */
+  setSearchEnabled(_enabled: boolean): void {}
+  focusFilter(): void {}
   isFilterFocused(): boolean {
-    return this.searchInputEl === document.activeElement;
-  }
-
-  /** Get the current filter query. */
-  getFilterQuery(): string {
-    return this.filterQuery;
-  }
-
-  private clearFilter(): void {
-    if (this.searchInputEl) {
-      this.searchInputEl.value = "";
-    }
-    this.filterQuery = "";
-    this.lastSearchedRoot = "";
-    this.lastSearchedQuery = "";
-    this.contentSearchMetaByPath.clear();
-    this.expandedContentSnippetPaths.clear();
-    this.loadingContentSnippetPaths.clear();
-    this.applyFilter("");
-  }
-
-  private setupSearchToolbar(): void {
-    const dock = this.scrollEl.parentElement;
-    if (!dock) return;
-
-    const wrap = document.createElement("div");
-    wrap.className = "file-tree-search-wrap";
-    this.searchWrapEl = wrap;
-
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "file-tree-search-input";
-    input.setAttribute("aria-label", "Search files: plain = name filter, name: = name, content: = grep");
-    input.spellcheck = false;
-    this.searchInputEl = input;
-
-    const count = document.createElement("span");
-    count.className = "file-tree-search-count";
-    count.setAttribute("aria-live", "polite");
-    this.searchCountEl = count;
-
-    const clear = document.createElement("button");
-    clear.className = "file-tree-search-clear";
-    clear.textContent = "\u2715";
-    clear.setAttribute("aria-label", "Clear search");
-    clear.title = "Clear (Escape)";
-    this.searchClearEl = clear;
-
-    wrap.appendChild(input);
-    wrap.appendChild(count);
-    wrap.appendChild(clear);
-    dock.insertBefore(wrap, this.scrollEl);
-
-    if (!this.searchEnabled) {
-      wrap.style.display = "none";
-    }
-
-  // Input handler — 150ms debounce, cancel on new keystrokes.
-  input.addEventListener("input", () => {
-    if (this.searchDebounceTimer) window.clearTimeout(this.searchDebounceTimer);
-    this.searchDebounceTimer = window.setTimeout(() => {
-      this.searchDebounceTimer = 0;
-      this.applyFilter(input.value.trim());
-    }, 150);
-  });
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") {
-        if (input.value) {
-          this.clearFilter();
-        } else {
-          input.blur();
-          const term = document.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
-          term?.focus();
-        }
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    });
-
-    // Clear button
-    clear.addEventListener("pointerdown", (e) => {
-      e.preventDefault();
-      this.clearFilter();
-      input.focus();
-    });
-  }
-
-  private parseSearchQuery(raw: string): SearchSpec {
-    const q = raw.trim();
-    // "&" separates path scope from content query:
-    //   "src/ & fn main" → scope="src/", content grep "fn main"
-    //   "main.rs"         → name search only
-    //   "& fn main"       → content grep across all files (empty scope)
-    const ampIdx = q.indexOf("&");
-    if (ampIdx === -1) {
-      return { mode: "name", kind: "all", pattern: q };
-    }
-    const scope = q.slice(0, ampIdx).trim();
-    const contentQuery = q.slice(ampIdx + 1).trim();
-    if (!contentQuery) {
-      // "src/ &" with no query → name search under scope
-      return { mode: "name", kind: "all", pattern: scope };
-    }
-    return { mode: "content", kind: "all", pattern: contentQuery, scope: scope || undefined };
-  }
-
-  private relativePathFor(absPath: string): string {
-    const root = this.viewRoot;
-    if (!root) return basename(absPath);
-    const absKey = normalizeFsPathKey(absPath);
-    const rootKey = normalizeFsPathKey(root);
-    if (absKey === rootKey) return "";
-    const prefix = `${rootKey}/`;
-    if (!absKey.startsWith(prefix)) return basename(absPath);
-    return absKey.slice(prefix.length);
-  }
-
-  private entryMatchesSpec(item: SearchEntry, spec: SearchSpec): boolean {
-    if (!spec.pattern) return true;
-    if (spec.kind === "file" && item.entry.isDir) return false;
-    if (spec.kind === "folder" && !item.entry.isDir) return false;
-    const pattern = spec.pattern.replace(/\\/g, "/");
-    if (pattern.includes("/")) return this.matchesPattern(item.relPath, pattern, false);
-    return this.matchesPattern(item.entry.name, pattern, true);
-  }
-
-  private matchesPattern(value: string, pattern: string, substringWhenPlain: boolean): boolean {
-    const v = value.replace(/\\/g, "/").toLowerCase();
-    const p = pattern.toLowerCase();
-    if (!/[?*]/.test(p)) return substringWhenPlain ? v.includes(p) : v.startsWith(p);
-    const source = p
-      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-      .replace(/\*/g, ".*")
-      .replace(/\?/g, ".");
-    try {
-      return new RegExp(`^${source}$`, "i").test(value.replace(/\\/g, "/"));
-    } catch {
-      return substringWhenPlain ? v.includes(p) : v.startsWith(p);
-    }
-  }
-
-  /**
-   * Apply a filter query to the file tree.
-   * Default: file/folder name fuzzy search. "%- " prefix: content grep.
-   */
-  private applyFilter(query: string): void {
-    const spec = this.parseSearchQuery(query);
-    this.filterQuery = query;
-    this.filterMode = spec.mode;
-
-    if (this.searchClearEl) {
-      this.searchClearEl.classList.toggle("file-tree-search-clear--visible", query.length > 0);
-    }
-
-    if (spec.pattern) {
-      void this.runBackendSearch(spec.pattern, spec.scope);
-      return;
-    }
-
-    // Empty query — clear search, show tree
-    this.contentSearchMetaByPath.clear();
-    this.expandedContentSnippetPaths.clear();
-    this.loadingContentSnippetPaths.clear();
-    this.renderedElements.forEach((el) => el.remove());
-    this.renderedElements.clear();
-    this.rebuildFilteredView(spec);
-  }
-
-  /**
-   * Rebuild the flat list using recursive cached entries + current filter.
-   */
-  private rebuildFilteredView(spec = this.parseSearchQuery(this.filterQuery)): void {
-    const cwd = this.viewRoot;
-    if (!cwd || !this.ensureState(cwd).children) {
-      if (this.virtualContainer) {
-        this.virtualContainer.remove();
-        this.virtualContainer = null;
-      }
-      this.flatItems = [];
-      this.renderedElements.clear();
-      this.filterMatchCount = 0;
-      this.updateSearchCount();
-      return;
-    }
-
-    if (spec.pattern) this.buildSearchFlatList(spec);
-    else this.buildFlatList();
-
-    this.presentFlatItems();
-  }
-
-  private presentFlatItems(): void {
-    const cwd = this.viewRoot;
-    if (!cwd) return;
-
-    if (!this.virtualContainer) {
-      this.virtualContainer = document.createElement("div");
-      this.virtualContainer.className = "file-tree-virtual-container";
-      this.virtualContainer.setAttribute("role", "tree");
-      this.scrollEl.appendChild(this.virtualContainer);
-    }
-
-    const totalHeight = this.flatItems.length * this.itemHeight;
-    this.virtualContainer.style.height = `${totalHeight}px`;
-    this.virtualContainer.style.position = "relative";
-
-    this.visibleRange = { start: -1, end: -1 };
-    this.updateVisibleRange();
-    this.updateSearchCount();
-  }
-
-  /** Run backend search via fff (git-aware, fuzzy, frecency-ranked). */
-  private async runBackendSearch(query: string, scope?: string): Promise<void> {
-    if (!this.viewRoot || !query) return;
-    this.backendSearchToken += 1;
-    const token = this.backendSearchToken;
-
-    this.flatItems = [];
-    if (this.searchCountEl) this.searchCountEl.textContent = "\u2026";
-    this.renderedElements.forEach((el) => el.remove());
-    this.renderedElements.clear();
-    this.presentFlatItems();
-
-    try {
-      const results = this.filterMode === "content"
-        ? await this.backend.searchFileContents(this.viewRoot, query)
-        : await this.backend.searchFilesRoot(this.viewRoot, query);
-      if (token !== this.backendSearchToken) return; // superseded
-      this.contentSearchMetaByPath.clear();
-      this.expandedContentSnippetPaths.clear();
-      this.loadingContentSnippetPaths.clear();
-      this.flatItems = [];
-      this.filterMatchCount = 0;
-      this.renderedElements.forEach((el) => el.remove());
-      this.renderedElements.clear();
-
-      for (const result of results) {
-        const absPath = this.absoluteSearchResultPath(result.path);
-        // Filter by scope if specified — results must live under the scope path.
-        if (scope) {
-          const rel = this.viewRoot
-            ? absPath.startsWith(this.viewRoot)
-              ? absPath.slice(this.viewRoot.length).replace(/^[/\\]+/, "").replace(/\\/g, "/")
-              : absPath.replace(/\\/g, "/")
-            : absPath.replace(/\\/g, "/");
-          const scopeNorm = scope.replace(/\\/g, "/").replace(/\/+$/, "");
-          if (!rel.startsWith(scopeNorm + "/") && rel !== scopeNorm) continue;
-        }
-        const relDisplay = this.viewRoot
-          ? absPath.startsWith(this.viewRoot)
-            ? absPath.slice(this.viewRoot.length).replace(/^[/\\]+/, "")
-            : basename(absPath)
-          : basename(absPath);
-        const entry: FsEntry = { name: basename(absPath), path: absPath, isDir: false, gitStatus: null, iconKey: null };
-        if (this.filterMode === "content") {
-          this.contentSearchMetaByPath.set(normalizeFsPathKey(absPath), {
-            matches: result.matches,
-            label: relDisplay,
-            details: result.matchDetails ?? null,
-          });
-        }
-        this.flatItems.push({ kind: "entry", entry, depth: 0 });
-        this.appendExpandedContentSnippets(entry, 1);
-        this.filterMatchCount++;
-      }
-      this.presentFlatItems();
-      this.updateSearchCount();
-    } catch (e) {
-      console.warn("File search failed:", e);
-      this.filterMatchCount = 0;
-      this.updateSearchCount();
-    }
-  }
-
-  private absoluteSearchResultPath(path: string): string {
-    if (!this.viewRoot) return path;
-    if (/^[a-zA-Z]:[\\/]/.test(path) || /^\\\\[^\\]+\\[^\\]+/.test(path) || /^\/\/[^/]+\/[^/]+/.test(path)) {
-      return path;
-    }
-    return joinWin(this.viewRoot, path.replace(/^[\\/]+/, ""));
-  }
-
-  private appendExpandedContentSnippets(entry: FsEntry, depth: number): void {
-    if (this.filterMode !== "content" || entry.isDir) return;
-    const key = normalizeFsPathKey(entry.path);
-    if (!this.expandedContentSnippetPaths.has(key)) return;
-    const meta = this.contentSearchMetaByPath.get(key);
-    if (!meta) return;
-    if (this.loadingContentSnippetPaths.has(key)) {
-      this.flatItems.push({ kind: "snippet", path: entry.path, depth, detail: null, index: 0 });
-      return;
-    }
-    const details = meta.details ?? [];
-    for (let i = 0; i < details.length; i++) {
-      this.flatItems.push({ kind: "snippet", path: entry.path, depth, detail: details[i]!, index: i });
-    }
-  }
-
-  private async toggleContentSnippets(path: string): Promise<void> {
-    const key = normalizeFsPathKey(path);
-    if (this.expandedContentSnippetPaths.has(key)) {
-      this.expandedContentSnippetPaths.delete(key);
-      this.rebuildContentSearchFlatItems();
-      return;
-    }
-
-    this.expandedContentSnippetPaths.add(key);
-    const meta = this.contentSearchMetaByPath.get(key);
-    if (meta && meta.details === null && !this.loadingContentSnippetPaths.has(key)) {
-      void this.loadContentSnippets(path);
-    }
-    this.rebuildContentSearchFlatItems();
-  }
-
-  private async loadContentSnippets(path: string): Promise<void> {
-    const root = this.viewRoot;
-    const spec = this.parseSearchQuery(this.filterQuery);
-    if (!root || this.filterMode !== "content" || !spec.pattern) return;
-    const key = normalizeFsPathKey(path);
-    const token = this.backendSearchToken;
-    this.loadingContentSnippetPaths.add(key);
-    this.rebuildContentSearchFlatItems();
-    try {
-      const details = await this.backend.searchFileContentDetails(root, path, spec.pattern);
-      if (token !== this.backendSearchToken) return;
-      const meta = this.contentSearchMetaByPath.get(key);
-      if (meta) meta.details = details;
-    } catch (e) {
-      console.warn("Content snippet search failed:", e);
-      const meta = this.contentSearchMetaByPath.get(key);
-      if (meta) meta.details = [];
-    } finally {
-      this.loadingContentSnippetPaths.delete(key);
-      if (token === this.backendSearchToken) this.rebuildContentSearchFlatItems();
-    }
-  }
-
-  private rebuildContentSearchFlatItems(): void {
-    if (this.filterMode !== "content") return;
-    const entries = this.flatItems
-      .filter((item): item is FlatEntry => item.kind === "entry")
-      .map((item) => item.entry);
-    this.flatItems = [];
-    for (const entry of entries) {
-      this.flatItems.push({ kind: "entry", entry, depth: 0 });
-      this.appendExpandedContentSnippets(entry, 1);
-    }
-    this.renderedElements.forEach((el) => el.remove());
-    this.renderedElements.clear();
-    this.presentFlatItems();
-  }
-
-  private updateSearchCount(): void {
-    if (!this.searchCountEl) return;
-    if (!this.filterQuery) {
-      this.searchCountEl.textContent = "";
-      return;
-    }
-    if (this.filterMode === "content") {
-      this.searchCountEl.textContent = `${this.filterMatchCount}`;
-      return;
-    }
-    this.searchCountEl.textContent = this.filterMatchCount > 0 ? `${this.filterMatchCount}` : "0";
-  }
-
-  // ── End search / filter ────────────────────────────────────────────
-  private setupVirtualScroll(): void {
-    this.scrollEl.addEventListener("scroll", () => {
-      this.updateVisibleRange();
-    }, { passive: true });
-    
-    // Add dragover to container to handle drops over empty space
-    this.scrollEl.addEventListener("dragover", (e) => {
-      const dragged = this.dragState.draggedPaths;
-      if (!dragged?.length) return;
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-    });
-    
-    this.scrollEl.addEventListener("drop", (e) => {
-      const dragged = this.dragState.draggedPaths;
-      if (!dragged?.length) return;
-      e.preventDefault();
-      // Drop at root - append to viewRoot
-      const root = this.viewRoot;
-      if (root) {
-        void this.executeMove(dragged, root, "inside", true);
-      }
-    });
-  }
-  
-  private setupKeyboardNav(): void {
-    this.scrollEl.setAttribute("tabindex", "0");
-    this.scrollEl.addEventListener("keydown", (e) => {
-      switch (e.key) {
-        case "ArrowDown": {
-          e.preventDefault();
-          this.navigateKeyboard(1);
-          break;
-        }
-        case "ArrowUp": {
-          e.preventDefault();
-          this.navigateKeyboard(-1);
-          break;
-        }
-        case "ArrowRight": {
-          e.preventDefault();
-          this.expandSelected();
-          break;
-        }
-        case "ArrowLeft": {
-          e.preventDefault();
-          this.collapseSelected();
-          break;
-        }
-        case "Enter": {
-          e.preventDefault();
-          void this.activateSelected();
-          break;
-        }
-        case "Delete": {
-          e.preventDefault();
-          void this.deleteSelected();
-          break;
-        }
-        case "F2": {
-          e.preventDefault();
-          void this.renameSelected();
-          break;
-        }
-        case "Escape": {
-          if (this.inlineNew || this.inlineRenamePath) {
-            e.preventDefault();
-            this.inlineNew = null;
-            this.inlineRenamePath = null;
-            this.render();
-          }
-          break;
-        }
-      }
-    });
-  }
-  
-  private navigateKeyboard(direction: 1 | -1): void {
-    if (this.flatItems.length === 0) return;
-
-    this.keyboardNavIndex = Math.max(0, Math.min(this.flatItems.length - 1, this.keyboardNavIndex + direction));
-    const flatItem = this.flatItems[this.keyboardNavIndex];
-    if (flatItem && flatItem.kind === "entry") {
-      this.select(flatItem.entry.path);
-      // Scroll into view if needed
-      const itemTop = this.keyboardNavIndex * this.itemHeight;
-      const itemBottom = itemTop + this.itemHeight;
-      const scrollTop = this.scrollEl.scrollTop;
-      const scrollBottom = scrollTop + this.scrollEl.clientHeight;
-      
-      if (itemTop < scrollTop) {
-        this.scrollEl.scrollTop = itemTop;
-      } else if (itemBottom > scrollBottom) {
-        this.scrollEl.scrollTop = itemBottom - this.scrollEl.clientHeight;
-      }
-    }
-  }
-  
-  private expandSelected(): void {
-    const path = this.getSelectedPath();
-    if (!path) return;
-    const st = this.ensureState(path);
-    if (st && !st.expanded) {
-      this.toggleDir(path);
-    }
-  }
-  
-  private collapseSelected(): void {
-    const path = this.getSelectedPath();
-    if (!path) return;
-    const st = this.ensureState(path);
-    if (st && st.expanded) {
-      this.toggleDir(path);
-    }
-  }
-  
-  private activateSelected(): void {
-    const path = this.getSelectedPath();
-    if (!path) return;
-    const entry = this.findEntry(path);
-    if (entry?.isDir) {
-      this.toggleDir(path);
-    } else if (entry) {
-      void this.doOpenInEditor(path);
-    }
-  }
-  
-  private async deleteSelected(): Promise<void> {
-    const path = this.getSelectedPath();
-    if (!path) return;
-    const entry = this.findEntry(path);
-    await this.doDelete([path], entry?.isDir ?? false);
-  }
-  
-  private renameSelected(): void {
-    const path = this.getSelectedPath();
-    if (!path) return;
-    this.doRename(path);
-  }
-  
-  private getSelectedPath(): string | null {
-    return this.selected.size > 0 ? [...this.selected][0]! : null;
-  }
-  
-  private findEntry(path: string): FsEntry | null {
-    for (const [, state] of this.cache) {
-      if (state.children) {
-        const entry = state.children.find((e) => e.path === path);
-        if (entry) return entry;
-      }
-    }
-    return null;
-  }
-  
-  private select(path: string): void {
-    this.selected.clear();
-    this.selected.add(path);
-    this.syncVisibleSelectionDecorations();
+    return false;
   }
 
   dispose(): void {
     this.persistActivePaneState();
-    this.cache.clear();
-    this.selected.clear();
-    this.renderedElements.clear();
+    this.tree.cache.clear();
+    this.tree.selected.clear();
+    this.tree.renderedElements.clear();
     this.hideCtx();
     if (this.recoverTimer) {
       window.clearTimeout(this.recoverTimer);
       this.recoverTimer = 0;
     }
-    if (this.fsRefreshTimer) {
-      window.clearTimeout(this.fsRefreshTimer);
-      this.fsRefreshTimer = 0;
+    if (this.tree.fsRefreshTimer) {
+      window.clearTimeout(this.tree.fsRefreshTimer);
+      this.tree.fsRefreshTimer = 0;
     }
-    this.summaryFooterEl?.remove();
-    this.summaryFooterEl = null;
   }
 
   async forceReload(): Promise<void> {
-    this.cache.clear();
-    this.selected.clear();
-    this.renderedElements.clear();
-    this.gitPathMap.clear();
-    this.repoInfo = null;
-    this.prefetchToken += 1;
-    this.updateSummaryFooter();
+    this.tree.cache.clear();
+    this.tree.selected.clear();
+    this.tree.renderedElements.clear();
+    this.tree.prefetchToken += 1;
     await this.refresh();
   }
 
@@ -870,122 +174,197 @@ export class FileTreePanel {
     this.paneStates.delete(paneId);
     if (this.activePaneId !== paneId) return;
     this.activePaneId = null;
-    this.viewRoot = null;
-    this.cache.clear();
-    this.selected.clear();
+    this.tree.viewRoot = null;
+    this.tree.cache.clear();
+    this.tree.selected.clear();
     this.render();
   }
 
-  updateRepoInfo(repoInfo: GitRepoInfo | null): void {
-    this.repoInfo = repoInfo;
-    this.updateSummaryFooter();
-  }
-
   handleFileSystemChange(paths: string[]): void {
-    const root = this.viewRoot;
+    const root = this.tree.viewRoot;
     if (!root) return;
     if (!paths.length) {
-      this.pendingFsPaths.add(root);
+      this.tree.pendingFsPaths.add(root);
     } else {
       const rootKey = normalizeFsPathKey(root);
       const prefix = `${rootKey}/`;
       for (const path of paths) {
         const key = normalizeFsPathKey(path);
         if (key === rootKey || key.startsWith(prefix)) {
-          this.pendingFsPaths.add(path);
+          this.tree.pendingFsPaths.add(path);
         }
       }
-      if (this.pendingFsPaths.size === 0) {
-        return;
-      }
+      if (this.tree.pendingFsPaths.size === 0) return;
     }
-    if (this.fsRefreshTimer) return;
-    this.fsRefreshTimer = window.setTimeout(() => {
-      this.fsRefreshTimer = 0;
-      const changed = [...this.pendingFsPaths];
-      this.pendingFsPaths.clear();
-      void this.applyFsChanges(changed);
+    if (this.tree.fsRefreshTimer) return;
+    this.tree.fsRefreshTimer = window.setTimeout(() => {
+      this.tree.fsRefreshTimer = 0;
+      const changed = [...this.tree.pendingFsPaths];
+      this.tree.pendingFsPaths.clear();
+      void this.applyFsChanges(this.tree, changed);
     }, 120);
   }
 
-  private async applyFsChanges(paths: string[]): Promise<void> {
-    if (this.fsSyncInFlight) {
-      for (const path of paths) this.pendingFsPaths.add(path);
+  async setRoot(root: string | null): Promise<void> {
+    if (!root?.trim()) {
+      this.tree.viewRoot = null;
+      this.tree.cache.clear();
+      this.tree.selected.clear();
+      this.showEmptyMessage("No working directory yet (cd into a directory).");
       return;
     }
-    this.fsSyncInFlight = true;
-    try {
-      const dirs = this.collectDirsForReload(paths);
-      let updated = false;
-      for (const dir of dirs) {
-        const st = this.cache.get(dir);
-        if (!st?.loaded) continue;
-        try {
-          st.children = await this.backend.readDirectory(dir);
-          st.loaded = true;
-          st.loading = false;
-          updated = true;
-        } catch {
-          st.loaded = false;
-          st.children = null;
-        }
+    if (!isNativeAbsoluteFsPath(root)) {
+      this.tree.viewRoot = null;
+      this.tree.cache.clear();
+      this.tree.selected.clear();
+      this.tree.prefetchToken += 1;
+      this.showEmptyMessage("File panel needs a native absolute directory.");
+      this.persistActivePaneState();
+      return;
+    }
+    const normalizedRoot = normalizeFsPathKey(root);
+    const normalizedCurrent = normalizeFsPathKey(this.tree.viewRoot ?? "");
+    if (normalizedRoot !== normalizedCurrent) {
+      this.tree.viewRoot = root;
+      this.tree.cache.clear();
+      this.tree.selected.clear();
+      this.tree.prefetchToken += 1;
+      await this.loadRoot();
+    }
+    this.persistActivePaneState();
+  }
+
+  async refresh(): Promise<void> {
+    const root = this.tree.viewRoot;
+    if (!isNativeAbsoluteFsPath(root)) return;
+    const st = this.tree.cache.get(root);
+    if (st?.loaded) return;
+    await this.loadRoot();
+  }
+
+  // ── Internal: setup ──
+
+  private setupVirtualScroll(): void {
+    this.scrollEl.addEventListener("scroll", () => {
+      this.updateVisibleRange(this.tree);
+    }, { passive: true });
+    this.scrollEl.addEventListener("dragover", (e) => {
+      const dragged = this.dragState.draggedPaths;
+      if (!dragged?.length) return;
+      e.preventDefault();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    });
+    this.scrollEl.addEventListener("drop", (e) => {
+      const dragged = this.dragState.draggedPaths;
+      if (!dragged?.length) return;
+      e.preventDefault();
+      const root = this.tree.viewRoot;
+      if (root) {
+        void this.executeMove(dragged, root, "inside", true);
       }
-      if (updated) {
-        this.render();
+    });
+  }
+
+  private setupKeyboardNav(): void {
+    this.scrollEl.setAttribute("tabindex", "0");
+    this.scrollEl.addEventListener("keydown", (e) => {
+      switch (e.key) {
+        case "ArrowDown": e.preventDefault(); this.navigateKeyboard(1); break;
+        case "ArrowUp": e.preventDefault(); this.navigateKeyboard(-1); break;
+        case "ArrowRight": e.preventDefault(); this.expandSelected(); break;
+        case "ArrowLeft": e.preventDefault(); this.collapseSelected(); break;
+        case "Enter": e.preventDefault(); void this.activateSelected(); break;
+        case "Delete": e.preventDefault(); void this.deleteSelected(); break;
+        case "F2": e.preventDefault(); void this.renameSelected(); break;
+        case "Escape":
+          if (this.tree.inlineNew || this.tree.inlineRenamePath) {
+            e.preventDefault();
+            this.tree.inlineNew = null;
+            this.tree.inlineRenamePath = null;
+            this.render();
+          }
+          break;
       }
-      if (this.viewRoot) {
-        this.queuePrefetch(this.viewRoot, this.prefetchDepth);
-      }
-    } finally {
-      this.fsSyncInFlight = false;
-      if (this.pendingFsPaths.size > 0 && !this.fsRefreshTimer) {
-        this.fsRefreshTimer = window.setTimeout(() => {
-          this.fsRefreshTimer = 0;
-          const changed = [...this.pendingFsPaths];
-          this.pendingFsPaths.clear();
-          void this.applyFsChanges(changed);
-        }, 140);
-      }
+    });
+  }
+
+  private navigateKeyboard(direction: 1 | -1): void {
+    const t = this.tree;
+    if (t.flatItems.length === 0) return;
+    t.keyboardNavIndex = Math.max(0, Math.min(t.flatItems.length - 1, t.keyboardNavIndex + direction));
+    const flatItem = t.flatItems[t.keyboardNavIndex];
+    if (flatItem?.kind === "entry") {
+      this.select(t, flatItem.entry.path);
+      const itemTop = t.keyboardNavIndex * t.itemHeight;
+      const itemBottom = itemTop + t.itemHeight;
+      const scrollTop = this.scrollEl.scrollTop;
+      const scrollBottom = scrollTop + this.scrollEl.clientHeight;
+      if (itemTop < scrollTop) this.scrollEl.scrollTop = itemTop;
+      else if (itemBottom > scrollBottom) this.scrollEl.scrollTop = itemBottom - this.scrollEl.clientHeight;
     }
   }
 
-  private collectDirsForReload(paths: string[]): string[] {
-    const root = this.viewRoot;
-    if (!root) return [];
-    const rootKey = normalizeFsPathKey(root);
-    const rootPrefix = `${rootKey}/`;
-    const out = new Set<string>();
-    if (!paths.length && this.cache.get(root)?.loaded) {
-      out.add(root);
-    }
-    for (const rawPath of paths) {
-      const key = normalizeFsPathKey(rawPath);
-      if (key !== rootKey && !key.startsWith(rootPrefix)) continue;
-      const parent = dirnamePath(rawPath);
-      if (this.cache.get(parent)?.loaded) out.add(parent);
-      if (this.cache.get(rawPath)?.loaded) out.add(rawPath);
-      let current = parent;
-      while (current && normalizeFsPathKey(current).startsWith(rootKey)) {
-        const state = this.cache.get(current);
-        if (state?.loaded) out.add(current);
-        const next = dirnamePath(current);
-        if (normalizeFsPathKey(next) === normalizeFsPathKey(current)) break;
-        current = next;
-      }
-    }
-    if (out.size === 0 && this.cache.get(root)?.loaded) {
-      out.add(root);
-    }
-    return [...out];
+  // ── Internal: tree operations ──
+
+  private expandSelected(): void {
+    const path = this.getSelectedPath();
+    if (!path) return;
+    const st = this.ensureState(path);
+    if (st && !st.expanded) this.toggleDir(path);
   }
 
-  private scheduleRecover(): void {
-    if (this.recoverTimer) return;
-    this.recoverTimer = window.setTimeout(() => {
-      this.recoverTimer = 0;
-      void this.forceReload();
-    }, 900);
+  private collapseSelected(): void {
+    const path = this.getSelectedPath();
+    if (!path) return;
+    const st = this.ensureState(path);
+    if (st && st.expanded) this.toggleDir(path);
   }
+
+  private activateSelected(): void {
+    const path = this.getSelectedPath();
+    if (!path) return;
+    const entry = this.findEntry(path);
+    if (entry?.isDir) {
+      this.toggleDir(path);
+    } else if (entry) {
+      void this.doOpenInEditor(path);
+    }
+  }
+
+  private async deleteSelected(): Promise<void> {
+    const path = this.getSelectedPath();
+    if (!path) return;
+    const entry = this.findEntry(path);
+    await this.doDelete([path], entry?.isDir ?? false);
+  }
+
+  private renameSelected(): void {
+    const path = this.getSelectedPath();
+    if (!path) return;
+    this.doRename(path);
+  }
+
+  private getSelectedPath(): string | null {
+    return this.tree.selected.size > 0 ? [...this.tree.selected][0]! : null;
+  }
+
+  private findEntry(path: string): FsEntry | null {
+    for (const [, state] of this.tree.cache) {
+      if (state.children) {
+        const entry = state.children.find((e) => e.path === path);
+        if (entry) return entry;
+      }
+    }
+    return null;
+  }
+
+  private select(t: TreeView, path: string): void {
+    t.selected.clear();
+    t.selected.add(path);
+    this.syncVisibleSelectionDecorations(t);
+  }
+
+  // ── Internal: context menu ──
 
   private hideCtx(): void {
     this.ctxEl?.remove();
@@ -1000,72 +379,10 @@ export class FileTreePanel {
     this.scrollEl.appendChild(p);
   }
 
-  /**
-   * Set the root directory for the file tree.
-   * Called by the coordinator when cwd changes.
-   */
-  async setRoot(root: string | null): Promise<void> {
-    if (!root?.trim()) {
-      this.viewRoot = null;
-      this.cache.clear();
-      this.selected.clear();
-      this.showEmptyMessage("No working directory yet (cd into a directory).");
-      this.repoInfo = null;
-      this.updateSummaryFooter();
-      return;
-    }
-
-    if (!isNativeAbsoluteFsPath(root)) {
-      this.viewRoot = null;
-      this.cache.clear();
-      this.selected.clear();
-      this.gitPathMap.clear();
-      this.repoInfo = null;
-      this.prefetchToken += 1;
-      this.showEmptyMessage("File panel needs a native absolute directory.");
-      this.persistActivePaneState();
-      this.updateSummaryFooter();
-      return;
-    }
-
-    const normalizedRoot = normalizeFsPathKey(root);
-    const normalizedCurrent = normalizeFsPathKey(this.viewRoot ?? "");
-
-    if (normalizedRoot !== normalizedCurrent) {
-      this.viewRoot = root;
-      this.cache.clear();
-      this.selected.clear();
-      this.prefetchToken += 1;
-      await this.loadRoot();
-    }
-    this.persistActivePaneState();
-    this.updateSummaryFooter();
-  }
-
-  /**
-   * Update git statuses from the backend.
-   * Called by the backend when git status changes.
-   */
-  updateGitStatuses(statuses: Map<string, { status: string; added: number; removed: number }>): void {
-    this.gitPathMap = statuses;
-    this.updateSummaryFooter();
-    this.syncVisibleGitDecorations();
-  }
-
-  /**
-   * Load the root directory.
-   */
   private async loadRoot(): Promise<void> {
-    const root = this.viewRoot;
+    const root = this.tree.viewRoot;
     if (!isNativeAbsoluteFsPath(root)) return;
-
     await this.backend.setRoot(root);
-
-    const statuses = this.backend.getAllGitStatuses();
-    this.gitPathMap = statuses;
-    this.repoInfo = this.backend.getGitRepoInfo();
-    this.updateSummaryFooter();
-
     const st = this.ensureState(root);
     st.expanded = true;
     if (!st.loaded) {
@@ -1087,69 +404,19 @@ export class FileTreePanel {
     this.render();
   }
 
-  async refresh(): Promise<void> {
-    const root = this.viewRoot;
-    if (!isNativeAbsoluteFsPath(root)) return;
-    const st = this.cache.get(root);
-    if (st?.loaded) {
-      this.gitPathMap = this.backend.getAllGitStatuses();
-      this.repoInfo = this.backend.getGitRepoInfo();
-      this.updateSummaryFooter();
-      this.syncVisibleGitDecorations();
-      return;
-    }
-    await this.loadRoot();
-  }
-
-  private cloneNodeState(st: NodeState): NodeState {
-    return {
-      loaded: st.loaded,
-      expanded: st.expanded,
-      children: st.children ? [...st.children] : null,
-      loading: st.loading,
-      operationInProgress: st.operationInProgress,
-    };
-  }
-
-  private persistActivePaneState(): void {
-    if (!this.activePaneId) return;
-    const cacheEntries: Array<[string, NodeState]> = [];
-    for (const [path, state] of this.cache.entries()) {
-      cacheEntries.push([path, this.cloneNodeState(state)]);
-    }
-    this.paneStates.set(this.activePaneId, {
-      viewRoot: this.viewRoot,
-      selected: [...this.selected],
-      scrollTop: this.scrollEl.scrollTop,
-      cacheEntries,
-    });
-  }
-
-  private restorePaneState(paneId: string): void {
-    const snap = this.paneStates.get(paneId);
-    this.cache.clear();
-    this.selected.clear();
-    if (!snap) {
-      this.viewRoot = null;
-      this.render();
-      return;
-    }
-    this.viewRoot = snap.viewRoot;
-    for (const [path, state] of snap.cacheEntries) {
-      this.cache.set(path, this.cloneNodeState(state));
-    }
-    for (const path of snap.selected) {
-      this.selected.add(path);
-    }
-    this.render();
-    this.scrollEl.scrollTop = snap.scrollTop;
+  private scheduleRecover(): void {
+    if (this.recoverTimer) return;
+    this.recoverTimer = window.setTimeout(() => {
+      this.recoverTimer = 0;
+      void this.forceReload();
+    }, 900);
   }
 
   private ensureState(path: string): NodeState {
-    let s = this.cache.get(path);
+    let s = this.tree.cache.get(path);
     if (!s) {
       s = { loaded: false, expanded: false, children: null };
-      this.cache.set(path, s);
+      this.tree.cache.set(path, s);
     }
     return s;
   }
@@ -1181,71 +448,64 @@ export class FileTreePanel {
   }
 
   private toggleSelect(path: string, ev: PointerEvent): void {
-    if (ev.shiftKey && (this.selectionAnchorPath || this.selected.size > 0)) {
-      const anchor = this.selectionAnchorPath ?? [...this.selected][0] ?? null;
+    const t = this.tree;
+    if (ev.shiftKey && (t.selectionAnchorPath || t.selected.size > 0)) {
+      const anchor = t.selectionAnchorPath ?? [...t.selected][0] ?? null;
       if (anchor) {
         const range = this.getRangeBetweenPaths(anchor, path);
-        this.selected.clear();
-        range.forEach((p) => this.selected.add(p));
+        t.selected.clear();
+        range.forEach((p) => t.selected.add(p));
       }
     } else if (!ev.ctrlKey && !ev.metaKey) {
-      this.selected.clear();
-      this.selected.add(path);
-      this.selectionAnchorPath = path;
+      t.selected.clear();
+      t.selected.add(path);
+      t.selectionAnchorPath = path;
     } else {
-      if (this.selected.has(path)) this.selected.delete(path);
-      else this.selected.add(path);
-      this.selectionAnchorPath = path;
+      if (t.selected.has(path)) t.selected.delete(path);
+      else t.selected.add(path);
+      t.selectionAnchorPath = path;
     }
-    this.syncVisibleSelectionDecorations();
+    this.syncVisibleSelectionDecorations(t);
   }
 
   private getRangeBetweenPaths(from: string, to: string): string[] {
-    const fromIndex = this.flatItems.findIndex(item => item.kind === "entry" && item.entry.path === from);
-    const toIndex = this.flatItems.findIndex(item => item.kind === "entry" && item.entry.path === to);
+    const t = this.tree;
+    const fromIndex = t.flatItems.findIndex(item => item.kind === "entry" && item.entry.path === from);
+    const toIndex = t.flatItems.findIndex(item => item.kind === "entry" && item.entry.path === to);
     if (fromIndex === -1 || toIndex === -1) return [to];
-    
     const start = Math.min(fromIndex, toIndex);
     const end = Math.max(fromIndex, toIndex);
     const result: string[] = [];
     for (let i = start; i <= end; i++) {
-      const item = this.flatItems[i];
-      if (item.kind === "entry") {
-        result.push(item.entry.path);
-      }
+      const item = t.flatItems[i];
+      if (item.kind === "entry") result.push(item.entry.path);
     }
     return result;
   }
 
+  // ── Internal: operations (rename, delete, duplicate, new file/folder) ──
+
   private doRename(path: string): void {
     const state = this.ensureState(path);
     if (state.operationInProgress) return;
-    this.inlineRenamePath = path;
+    this.tree.inlineRenamePath = path;
     this.render();
   }
 
   private async finishInlineRename(path: string, nextRaw: string): Promise<void> {
-    if (this.inlineRenamePath !== path) return;
-    this.inlineRenamePath = null;
+    if (this.tree.inlineRenamePath !== path) return;
+    this.tree.inlineRenamePath = null;
     const next = nextRaw.trim();
     const name = basename(path);
-    if (!next || next === name) {
-      this.render();
-      return;
-    }
-    const parent =
-      (await this.backend.getParentDirectory(path).catch(() => null))?.trim() ?? "";
-    if (!parent) {
-      void showAlert("Could not resolve parent folder.", "Rename");
-      this.render();
-      return;
-    }
+    if (!next || next === name) { this.render(); return; }
+    const parent = (await this.backend.getParentDirectory(path).catch(() => null))?.trim() ?? "";
+    if (!parent) { void showAlert("Could not resolve parent folder.", "Rename"); this.render(); return; }
     const to = joinWin(parent, next);
     try {
       await this.backend.rename(path, to);
       this.invalidatePath(parent);
       await this.refresh();
-      this.select(to);
+      this.select(this.tree, to);
     } catch (e) {
       void showAlert(String(e), "Rename failed");
       await this.refresh();
@@ -1253,22 +513,19 @@ export class FileTreePanel {
   }
 
   private invalidatePath(dir: string): void {
-    this.cache.delete(dir);
-    for (const k of [...this.cache.keys()]) {
-      if (k.startsWith(dir + "\\") || k.startsWith(dir + "/")) this.cache.delete(k);
+    this.tree.cache.delete(dir);
+    for (const k of [...this.tree.cache.keys()]) {
+      if (k.startsWith(dir + "\\") || k.startsWith(dir + "/")) this.tree.cache.delete(k);
     }
   }
 
   private async doDelete(paths: string[], isDir?: boolean): Promise<void> {
     if (!paths.length) return;
-    
-    // Check if any operation is in progress
     for (const p of paths) {
       const state = this.ensureState(p);
       if (state.operationInProgress) return;
     }
-    
-    if (this.getConfirmDeletePrompt()) {
+    if (this.ownerCtx.getConfirmDeletePrompt()) {
       const message = paths.length === 1
         ? isDir
           ? `Permanently delete folder "${basename(paths[0]!)}" and all its contents?`
@@ -1276,129 +533,80 @@ export class FileTreePanel {
         : `Permanently delete ${paths.length} items?`;
       const ok = await showConfirm(message, "Delete", "Delete", true);
       if (!ok) return;
-
       if (paths.length === 1) {
-        const dontAskAgain = await showConfirm(
-          "Stop showing delete confirmation dialogs?",
-          "Delete",
-          "Don't ask again",
-          false,
-        );
-        if (dontAskAgain) {
-          this.setConfirmDeletePrompt(false);
-        }
+        const dontAskAgain = await showConfirm("Stop showing delete confirmation dialogs?", "Delete", "Don't ask again", false);
+        if (dontAskAgain) this.ownerCtx.setConfirmDeletePrompt(false);
       }
     }
-    
-    // Mark operations in progress
     for (const p of paths) {
       const state = this.ensureState(p);
       state.operationInProgress = true;
     }
-    
     try {
       for (const p of paths) {
-        try {
-          await this.backend.remove(p, true);
-        } catch (e) {
-          void showAlert(String(e), "Delete failed");
-          break;
-        }
+        try { await this.backend.remove(p, true); } catch (e) { void showAlert(String(e), "Delete failed"); break; }
       }
-      this.selected.clear();
-      if (this.viewRoot) this.invalidatePath(this.viewRoot);
+      this.tree.selected.clear();
+      if (this.tree.viewRoot) this.invalidatePath(this.tree.viewRoot);
       await this.refresh();
     } finally {
-      // Clear operations in progress
       for (const p of paths) {
-        const state = this.cache.get(p);
-        if (state) {
-          state.operationInProgress = false;
-        }
+        const state = this.tree.cache.get(p);
+        if (state) state.operationInProgress = false;
       }
     }
   }
-  
+
   private async doDuplicate(path: string): Promise<void> {
     const name = basename(path);
-    const parent =
-      (await this.backend.getParentDirectory(path).catch(() => null))?.trim() ?? "";
-    if (!parent) {
-      void showAlert("Could not resolve parent folder.", "Duplicate");
-      return;
-    }
-
-    // Generate duplicate name with (Copy), (Copy2), etc. format
+    const parent = (await this.backend.getParentDirectory(path).catch(() => null))?.trim() ?? "";
+    if (!parent) { void showAlert("Could not resolve parent folder.", "Duplicate"); return; }
     const nameWithoutExt = name.replace(/\.[^.]+$/, "");
     const ext = name.match(/\.[^.]+$/)?.[0] || "";
     let duplicateName = `${nameWithoutExt} (Copy)${ext}`;
     let counter = 2;
-
-    // Check if name exists and find unique name by checking the cache
-    const parentState = this.cache.get(parent);
+    const parentState = this.tree.cache.get(parent);
     if (parentState?.children) {
       const existingNames = new Set(parentState.children.map((c) => c.name));
-      while (existingNames.has(duplicateName)) {
-        duplicateName = `${nameWithoutExt} (Copy${counter})${ext}`;
-        counter++;
-      }
+      while (existingNames.has(duplicateName)) { duplicateName = `${nameWithoutExt} (Copy${counter})${ext}`; counter++; }
     }
-
     const to = joinWin(parent, duplicateName);
     try {
       await this.backend.move(path, to);
       this.invalidatePath(parent);
       await this.refresh();
-      this.select(to);
-    } catch (e) {
-      void showAlert(String(e), "Duplicate failed");
-    }
+      this.select(this.tree, to);
+    } catch (e) { void showAlert(String(e), "Duplicate failed"); }
   }
-  
+
   private async doOpenInEditor(path: string): Promise<void> {
     try {
       await invoke("open_in_editor", { path });
     } catch {
-      // Fallback: emit event for main.ts to handle
-      const entry = this.findEntry(path);
-      if (!entry) return;
-      const event = new CustomEvent("file-tree-open", { detail: { path, isDir: entry.isDir } });
+      const event = new CustomEvent("file-tree-open", { detail: { path, isDir: !!this.findEntry(path)?.isDir } });
       document.dispatchEvent(event);
     }
   }
 
-  private async getDetectedApps(): Promise<DetectedApp[]> {
-    if (this.detectedApps && this.detectedApps.length > 0) return this.detectedApps;
-    try {
-      const apps = await this.backend.detectInstalledApps();
-      this.detectedApps = apps;
-      return apps;
-    } catch {
-      return [];
-    }
-  }
-
   private doNewFile(intoDir?: string): void {
-    const base = intoDir?.trim() || this.viewRoot;
+    const base = intoDir?.trim() || this.tree.viewRoot;
     if (!base) return;
     const st = this.ensureState(base);
-    if (!st.expanded) {
-      st.expanded = true;
-    }
-    this.inlineNew = { parent: base, mode: "newfile", initial: "untitled.txt" };
+    if (!st.expanded) st.expanded = true;
+    this.tree.inlineNew = { parent: base, mode: "newfile", initial: "untitled.txt" };
     this.render();
   }
 
   private doNewFolder(intoDir?: string): void {
-    const base = intoDir?.trim() || this.viewRoot;
+    const base = intoDir?.trim() || this.tree.viewRoot;
     if (!base) return;
     const st = this.ensureState(base);
-    if (!st.expanded) {
-      st.expanded = true;
-    }
-    this.inlineNew = { parent: base, mode: "newfolder", initial: "new-folder" };
+    if (!st.expanded) st.expanded = true;
+    this.tree.inlineNew = { parent: base, mode: "newfolder", initial: "new-folder" };
     this.render();
   }
+
+  // ── Internal: context menu rendering ──
 
   private showCtxEmptyArea(x: number, y: number, rootPath: string): void {
     this.hideCtx();
@@ -1409,145 +617,64 @@ export class FileTreePanel {
       b.type = "button";
       b.className = "file-tree-ctx-item";
       b.textContent = label;
-      b.addEventListener("click", () => {
-        this.hideCtx();
-        void fn();
-      });
+      b.addEventListener("click", () => { this.hideCtx(); void fn(); });
       menu.appendChild(b);
     };
-    add("New file…", () => this.doNewFile(rootPath));
-    add("New folder…", () => this.doNewFolder(rootPath));
+    add("New file\u2026", () => this.doNewFile(rootPath));
+    add("New folder\u2026", () => this.doNewFolder(rootPath));
     add("Open folder in external terminal", () => {
-      void invoke("open_external_terminal", { cwd: rootPath, terminal: "wt" }).catch((e) =>
-        void showAlert(String(e), "Terminal"),
-      );
+      void invoke("open_external_terminal", { cwd: rootPath, terminal: "wt" }).catch((e) => void showAlert(String(e), "Terminal"));
     });
-    add("Move panel " + (this.getPanelSide() === "right" ? "left" : "right"), () => {
-      this.setPanelSide(this.getPanelSide() === "right" ? "left" : "right");
+    add("Move panel " + (this.ownerCtx.getPanelSide() === "right" ? "left" : "right"), () => {
+      this.ownerCtx.setPanelSide(this.ownerCtx.getPanelSide() === "right" ? "left" : "right");
     });
     document.body.appendChild(menu);
     this.ctxEl = menu;
     this.positionCtxMenu(menu, x, y);
   }
 
-  private async showCtx(x: number, y: number, path: string, isDir: boolean): Promise<void> {
+  private showCtx(x: number, y: number, path: string, isDir: boolean): void {
     this.hideCtx();
     const menu = document.createElement("div");
     menu.className = "file-tree-ctx";
     const parentForNew = isDir ? path : dirnamePath(path);
-
-    const add = (
-      label: string,
-      fn: () => void,
-      iconData?: string | null,
-      iconMime?: string | null,
-      fallbackIconName?: string,
-    ) => {
+    const add = (label: string, fn: () => void) => {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "file-tree-ctx-item";
-      
-      if (iconData) {
-        const icon = document.createElement("img");
-        const mime = iconMime && iconMime.trim() ? iconMime : "image/png";
-        icon.src = `data:${mime};base64,${iconData}`;
-        icon.className = "file-tree-ctx-item-icon";
-        icon.alt = "";
-        icon.width = 16;
-        icon.height = 16;
-        icon.onerror = () => {
-          const fallback = fallbackIconName ? createLucideIcon(fallbackIconName) : null;
-          if (fallback) icon.replaceWith(fallback);
-        };
-        b.appendChild(icon);
-      } else if (fallbackIconName) {
-        const fallback = createLucideIcon(fallbackIconName);
-        if (fallback) b.appendChild(fallback);
-      }
-      
-      const text = document.createElement("span");
-      text.textContent = label;
-      b.appendChild(text);
-      
-      b.addEventListener("click", () => {
-        this.hideCtx();
-        void fn();
-      });
+      b.textContent = label;
+      b.addEventListener("click", () => { this.hideCtx(); void fn(); });
       menu.appendChild(b);
     };
-
     const addSeparator = () => {
       const sep = document.createElement("div");
       sep.className = "file-tree-ctx-separator";
       menu.appendChild(sep);
     };
-
-    add("New file…", () => this.doNewFile(parentForNew));
-    add("New folder…", () => this.doNewFolder(parentForNew));
+    add("New file\u2026", () => this.doNewFile(parentForNew));
+    add("New folder\u2026", () => this.doNewFolder(parentForNew));
     addSeparator();
-
     add("Open (system)", () => void this.doOpenInEditor(path));
     add("Reveal in Explorer", () => void invoke("reveal_in_explorer", { path }).catch((e) => void showAlert(String(e), "Explorer")));
-    
-    // Dynamically add detected editors and terminals
-    const apps = await this.getDetectedApps();
-    const editors = apps.filter(app => app.app_type === "editor");
-    const terminals = apps.filter(app => app.app_type === "terminal");
-    
-    if (editors.length > 0) {
-      addSeparator();
-      for (const editor of editors) {
-        add(`Open in ${editor.name}`, () => 
-          void invoke("open_with_editor", { path, editor: editor.command }).catch((e) => void showAlert(String(e), "Editor")),
-          editor.icon_data,
-          editor.icon_mime,
-          "code2"
-        );
-      }
-    }
-    
-    if (isDir && terminals.length > 0) {
-      addSeparator();
-      add("Open folder in external terminal", () => {
-        const cwd = isDir ? path : dirnamePath(path);
-        void invoke("open_external_terminal", { cwd, terminal: "wt" }).catch((e) => void showAlert(String(e), "Terminal"));
-      });
-      for (const terminal of terminals) {
-        add(`Open in ${terminal.name}`, () => {
-          const cwd = isDir ? path : dirnamePath(path);
-          void invoke("open_external_terminal", { cwd, terminal: terminal.command }).catch((e) => void showAlert(String(e), "Terminal"));
-        }, terminal.icon_data, terminal.icon_mime, "terminal");
-      }
-    } else if (isDir) {
-      // Fallback to default terminal option if none detected
-      add("Open folder in external terminal", () => {
-        const cwd = isDir ? path : dirnamePath(path);
-        void invoke("open_external_terminal", { cwd, terminal: "wt" }).catch((e) => void showAlert(String(e), "Terminal"));
-      });
-    }
-    
-    if (!isDir && isRunnableFile(path)) {
+    add("Open folder in external terminal", () => {
+      const cwd = isDir ? path : dirnamePath(path);
+      void invoke("open_external_terminal", { cwd, terminal: "wt" }).catch((e) => void showAlert(String(e), "Terminal"));
+    });
+    if (!isDir && /\.(exe|bat|cmd|ps1|msi|vbs|com|scr)$/i.test(path)) {
       add("Run", () => void invoke("run_file", { path }).catch((e) => void showAlert(String(e), "Run")));
     }
     addSeparator();
-    add("Move panel " + (this.getPanelSide() === "right" ? "left" : "right"), () => {
-      this.setPanelSide(this.getPanelSide() === "right" ? "left" : "right");
+    add("Move panel " + (this.ownerCtx.getPanelSide() === "right" ? "left" : "right"), () => {
+      this.ownerCtx.setPanelSide(this.ownerCtx.getPanelSide() === "right" ? "left" : "right");
     });
     addSeparator();
-
     add("Copy name", () => void this.copyText(basename(path), "Name"));
     add("Copy path", () => void this.copyText(path, "Path"));
     add("Copy relative path", () => void this.copyText(this.localPathFromRoot(path, isDir), "Relative path"));
     addSeparator();
-
-    add("Rename", () => {
-      void this.renameSelected();
-    });
+    add("Rename", () => { void this.renameSelected(); });
     add("Duplicate", () => void this.doDuplicate(path));
-    add("Delete", () =>
-      void this.doDelete(this.selected.size ? [...this.selected] : [path], isDir),
-    );
-
+    add("Delete", () => void this.doDelete(this.tree.selected.size ? [...this.tree.selected] : [path], isDir));
     document.body.appendChild(menu);
     this.ctxEl = menu;
     this.positionCtxMenu(menu, x, y);
@@ -1568,47 +695,37 @@ export class FileTreePanel {
     });
   }
 
+  // ── Internal: drag and drop ──
+
   private createDragGhost(_sourceRow: HTMLElement, ent: FsEntry): void {
     this.removeDragGhost();
     const ghost = document.createElement("div");
     ghost.className = "file-tree-drag-ghost";
-    ghost.style.cssText =
-      "position:absolute;top:-9999px;left:-9999px;pointer-events:none;z-index:9999;" +
-      "background:#3a3a40;border:1px solid rgba(255,255,255,0.2);border-radius:6px;" +
-      "padding:4px 10px;font-size:12px;color:#f4f4f5;display:flex;align-items:center;" +
-      "gap:6px;max-width:240px;white-space:nowrap;";
-    const icon = createIconElement(ent.isDir ? "folder" : getIconForEntry(ent));
-    ghost.appendChild(icon);
+    ghost.style.cssText = "position:absolute;top:-9999px;left:-9999px;pointer-events:none;z-index:9999;background:#3a3a40;border:1px solid rgba(255,255,255,0.2);border-radius:6px;padding:4px 10px;font-size:12px;color:#f4f4f5;display:flex;align-items:center;gap:6px;max-width:240px;white-space:nowrap;";
     const label = document.createElement("span");
     label.textContent = ent.name;
     label.style.overflow = "hidden";
     label.style.textOverflow = "ellipsis";
     ghost.appendChild(label);
-    const count = this.selected.size > 1 ? this.selected.size : 1;
+    const count = this.tree.selected.size > 1 ? this.tree.selected.size : 1;
     if (count > 1) {
       const badge = document.createElement("span");
       badge.textContent = String(count);
-      badge.style.cssText =
-        "background:#6366f1;color:#fff;border-radius:8px;padding:1px 5px;font-size:10px;font-weight:600;";
+      badge.style.cssText = "background:#6366f1;color:#fff;border-radius:8px;padding:1px 5px;font-size:10px;font-weight:600;";
       ghost.appendChild(badge);
     }
     document.body.appendChild(ghost);
     this.dragGhost = ghost;
   }
-  
+
   private removeDragGhost(): void {
     if (this.dragGhost && this.dragGhost.parentElement) {
       this.dragGhost.parentElement.removeChild(this.dragGhost);
     }
     this.dragGhost = null;
   }
-  
-  private async executeMove(
-    fromPaths: string | string[],
-    toPath: string,
-    position: "before" | "after" | "inside",
-    targetIsDir: boolean,
-  ): Promise<void> {
+
+  private async executeMove(fromPaths: string | string[], toPath: string, position: "before" | "after" | "inside", targetIsDir: boolean): Promise<void> {
     const raw = Array.isArray(fromPaths) ? fromPaths : [fromPaths];
     const norm = (p: string) => normalizeFsPathKey(p).replace(/[/\\]+$/, "");
     const unique = Array.from(new Set(raw));
@@ -1617,24 +734,20 @@ export class FileTreePanel {
         if (candidate === other) return false;
         const a = norm(candidate);
         const b = norm(other);
-        return a.startsWith(`${b}/`) || a.startsWith(`${b}\\`);
-      }),
+        return a.startsWith(`${b}\/`) || a.startsWith(`${b}\\`);
+      })
     );
-
     if (list.some((fromPath) => {
       const a = norm(toPath);
       const b = norm(fromPath);
-      return a === b || a.startsWith(`${b}/`) || a.startsWith(`${b}\\`);
+      return a === b || a.startsWith(`${b}\/`) || a.startsWith(`${b}\\`);
     })) {
       void showAlert("Cannot move a folder into itself or its own child.", "Move failed");
       return;
     }
-
     const outDest: string[] = [];
-
     for (const fromPath of list) {
       let destPath: string;
-
       if (position === "inside" && targetIsDir) {
         const fromName = basename(fromPath);
         destPath = joinWin(toPath, fromName);
@@ -1643,11 +756,7 @@ export class FileTreePanel {
         const fromName = basename(fromPath);
         destPath = joinWin(parentPath || toPath, fromName);
       }
-
-      if (normalizeFsPathKey(fromPath) === normalizeFsPathKey(destPath)) {
-        continue;
-      }
-
+      if (normalizeFsPathKey(fromPath) === normalizeFsPathKey(destPath)) continue;
       try {
         await invoke("fs_move_path", { from: fromPath, to: destPath });
         outDest.push(destPath);
@@ -1657,352 +766,188 @@ export class FileTreePanel {
         break;
       }
     }
-
     if (outDest.length === 0) return;
-
-    if (this.viewRoot) {
-      this.invalidatePath(this.viewRoot);
-    }
+    if (this.tree.viewRoot) this.invalidatePath(this.tree.viewRoot);
     await this.refresh();
-    this.select(outDest[outDest.length - 1]!);
+    this.select(this.tree, outDest[outDest.length - 1]!);
   }
 
-  private buildFlatList(): void {
-    const cwd = this.viewRoot;
-    if (!cwd || !this.ensureState(cwd).children) {
-      this.flatItems = [];
-      return;
-    }
+  // ── Internal: flat list building ──
 
-    this.flatItems = [];
-    this.filterMatchCount = 0;
-
+  private buildFlatList(t: TreeView): void {
+    const cwd = t.viewRoot;
+    if (!cwd || !t.cache.get(cwd)?.children) { t.flatItems = []; return; }
+    t.flatItems = [];
     const visit = (entries: FsEntry[], depth: number, parentPath: string): void => {
-      if (
-        this.inlineNew &&
-        normalizeFsPathKey(this.inlineNew.parent) === normalizeFsPathKey(parentPath)
-      ) {
-        this.flatItems.push({
-          kind: "inline",
-          depth,
-          mode: this.inlineNew.mode,
-          parent: this.inlineNew.parent,
-          initial: this.inlineNew.initial,
-        });
+      if (t.inlineNew && normalizeFsPathKey(t.inlineNew.parent) === normalizeFsPathKey(parentPath)) {
+        t.flatItems.push({ kind: "inline", depth, mode: t.inlineNew.mode, parent: t.inlineNew.parent, initial: t.inlineNew.initial });
       }
       for (const ent of entries) {
-        this.flatItems.push({ kind: "entry", entry: ent, depth });
+        t.flatItems.push({ kind: "entry", entry: ent, depth });
         if (ent.isDir) {
-          const st = this.ensureState(ent.path);
-          if (st.expanded && st.children) {
-            visit(st.children, depth + 1, ent.path);
-          }
+          const st = t.cache.get(ent.path);
+          if (st?.expanded && st.children) visit(st.children, depth + 1, ent.path);
         }
       }
     };
-
-    const rootChildren = this.ensureState(cwd).children;
-    if (rootChildren) {
-      visit(rootChildren, 0, cwd);
-    }
+    visit(t.cache.get(cwd)!.children!, 0, cwd);
   }
 
-  private buildSearchFlatList(spec: SearchSpec): void {
-    this.flatItems = [];
-    this.filterMatchCount = 0;
+  // ── Internal: pane state persistence ──
 
-    // Collect all cached directory entries (including un-expanded ones) plus
-    // expanded children so path-prefix searches work without pre-loading.
-    const allCached: SearchEntry[] = [];
-    const seen = new Set<string>();
-    const root = this.viewRoot;
-    const rootState = root ? this.cache.get(normalizeFsPathKey(root)) : null;
-    if (rootState?.children) {
-      for (const entry of rootState.children) {
-        const key = normalizeFsPathKey(entry.path);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        allCached.push({ entry, depth: 0, relPath: this.relativePathFor(entry.path) });
-        if (entry.isDir) {
-          const st = this.cache.get(key);
-          if (st?.children) {
-            for (const child of st.children) {
-              const ck = normalizeFsPathKey(child.path);
-              if (seen.has(ck)) continue;
-              seen.add(ck);
-              allCached.push({ entry: child, depth: 1, relPath: this.relativePathFor(child.path) });
-            }
-          }
-        }
+  private cloneNodeState(st: NodeState): NodeState {
+    return {
+      loaded: st.loaded,
+      expanded: st.expanded,
+      children: st.children ? [...st.children] : null,
+      loading: st.loading,
+      operationInProgress: st.operationInProgress,
+    };
+  }
+
+  private persistActivePaneState(): void {
+    if (!this.activePaneId) return;
+    const t = this.tree;
+    const cacheEntries: Array<[string, NodeState]> = [];
+    for (const [path, state] of t.cache.entries()) {
+      cacheEntries.push([path, this.cloneNodeState(state)]);
+    }
+    this.paneStates.set(this.activePaneId, {
+      viewRoot: t.viewRoot,
+      selected: [...t.selected],
+      scrollTop: this.scrollEl.scrollTop,
+      cacheEntries,
+    });
+  }
+
+  private restorePaneState(paneId: string): void {
+    const snap = this.paneStates.get(paneId);
+    const t = this.tree;
+    t.cache.clear();
+    t.selected.clear();
+    if (!snap) {
+      t.viewRoot = null;
+      this.render();
+      return;
+    }
+    t.viewRoot = snap.viewRoot;
+    for (const [path, state] of snap.cacheEntries) {
+      t.cache.set(path, this.cloneNodeState(state));
+    }
+    for (const path of snap.selected) t.selected.add(path);
+    this.render();
+    this.scrollEl.scrollTop = snap.scrollTop;
+  }
+
+  // ── Internal: FS watcher changes ──
+
+  private async applyFsChanges(t: TreeView, paths: string[]): Promise<void> {
+    if (t.fsSyncInFlight) {
+      for (const path of paths) t.pendingFsPaths.add(path);
+      return;
+    }
+    t.fsSyncInFlight = true;
+    try {
+      const dirs = this.collectDirsForReload(t, paths);
+      let updated = false;
+      for (const dir of dirs) {
+        const st = t.cache.get(dir);
+        if (!st?.loaded) continue;
+        try {
+          st.children = await this.backend.readDirectory(dir);
+          st.loaded = true;
+          st.loading = false;
+          updated = true;
+        } catch { st.loaded = false; st.children = null; }
+      }
+      if (updated) this.render();
+      if (t.viewRoot) this.queuePrefetch(t.viewRoot, this.prefetchDepth);
+    } finally {
+      t.fsSyncInFlight = false;
+      if (t.pendingFsPaths.size > 0 && !t.fsRefreshTimer) {
+        t.fsRefreshTimer = window.setTimeout(() => {
+          t.fsRefreshTimer = 0;
+          const changed = [...t.pendingFsPaths];
+          t.pendingFsPaths.clear();
+          void this.applyFsChanges(t, changed);
+        }, 140);
       }
     }
-
-    const entries = allCached
-      .filter((item) => this.entryMatchesSpec(item, spec))
-      .sort((a, b) => {
-        if (a.entry.isDir !== b.entry.isDir) return a.entry.isDir ? -1 : 1;
-        return a.relPath.localeCompare(b.relPath);
-      });
-
-    if (this.inlineNew) {
-      this.flatItems.push({
-        kind: "inline",
-        depth: 0,
-        mode: this.inlineNew.mode,
-        parent: this.inlineNew.parent,
-        initial: this.inlineNew.initial,
-      });
-    }
-
-    for (const { entry } of entries) {
-      this.flatItems.push({ kind: "entry", entry, depth: 0 });
-      this.filterMatchCount++;
-    }
   }
 
-  private dirPrefixKey(dirAbs: string): string {
-    return `${normalizeFsPathKey(dirAbs)}/`;
-  }
-
-  private setupSummaryFooter(): void {
-    const dock = this.scrollEl.parentElement;
-    if (!dock) return;
-    const footer = document.createElement("div");
-    footer.className = "file-tree-summary-footer file-tree-summary-footer--hidden";
-    footer.setAttribute("aria-hidden", "true");
-    footer.addEventListener("pointerdown", (e) => {
-      const t = e.target as HTMLElement;
-      if (t.closest("a")) return;
-      e.preventDefault();
-      e.stopPropagation();
-    });
-    footer.addEventListener("wheel", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    });
-    dock.appendChild(footer);
-    this.summaryFooterEl = footer;
-  }
-
-  private computeRepoDiffSummary(): { changedFiles: number; totalFiles: number; added: number; removed: number } | null {
-    if (this.repoInfo) {
-      const totalFiles = Math.max(0, this.repoInfo.totalFiles ?? 0);
-      const changedFiles = Math.max(0, this.repoInfo.changedFiles ?? 0);
-      const added = Math.max(0, this.repoInfo.addedLines ?? 0);
-      const removed = Math.max(0, this.repoInfo.removedLines ?? 0);
-      if (totalFiles === 0 && changedFiles === 0 && added === 0 && removed === 0) return null;
-      return { changedFiles, totalFiles, added, removed };
-    }
-
-    const root = this.viewRoot;
-    if (!root) return null;
+  private collectDirsForReload(t: TreeView, paths: string[]): string[] {
+    const root = t.viewRoot;
+    if (!root) return [];
     const rootKey = normalizeFsPathKey(root);
-    const prefix = `${rootKey}/`;
-    let changedFiles = 0;
-    let added = 0;
-    let removed = 0;
-    for (const [path, meta] of this.gitPathMap) {
-      if (path !== rootKey && !path.startsWith(prefix)) continue;
-      const a = Math.max(0, meta.added ?? 0);
-      const r = Math.max(0, meta.removed ?? 0);
-      if (a > 0 || r > 0) changedFiles += 1;
-      added += a;
-      removed += r;
+    const rootPrefix = `${rootKey}/`;
+    const out = new Set<string>();
+    if (!paths.length && t.cache.get(root)?.loaded) out.add(root);
+    for (const rawPath of paths) {
+      const key = normalizeFsPathKey(rawPath);
+      if (key !== rootKey && !key.startsWith(rootPrefix)) continue;
+      const parent = dirnamePath(rawPath);
+      if (t.cache.get(parent)?.loaded) out.add(parent);
+      if (t.cache.get(rawPath)?.loaded) out.add(rawPath);
+      let current = parent;
+      while (current && normalizeFsPathKey(current).startsWith(rootKey)) {
+        const state = t.cache.get(current);
+        if (state?.loaded) out.add(current);
+        const next = dirnamePath(current);
+        if (normalizeFsPathKey(next) === normalizeFsPathKey(current)) break;
+        current = next;
+      }
     }
-    const totalFiles = -1;
-    if (changedFiles === 0 && added === 0 && removed === 0) return null;
-    return { changedFiles, totalFiles, added, removed };
+    if (out.size === 0 && t.cache.get(root)?.loaded) out.add(root);
+    return [...out];
   }
 
-  private updateSummaryFooter(): void {
-    const footer = this.summaryFooterEl;
-    if (!footer) return;
-    
-    // Check if git info panel should be shown
-    if (!this.getShowGitInfo()) {
-      footer.classList.add("file-tree-summary-footer--hidden");
-      footer.setAttribute("aria-hidden", "true");
-      footer.replaceChildren();
-      return;
-    }
-    
-    const showCounts = this.getShowDiffCounts();
-    const summary = showCounts ? this.computeRepoDiffSummary() : null;
-    if (!summary) {
-      footer.classList.add("file-tree-summary-footer--hidden");
-      footer.setAttribute("aria-hidden", "true");
-      footer.replaceChildren();
-      return;
-    }
-
-    footer.classList.remove("file-tree-summary-footer--hidden");
-    footer.setAttribute("aria-hidden", "false");
-    footer.replaceChildren();
-
-    const root = this.viewRoot ?? this.repoInfo?.root ?? "";
-    const repoName = this.repoInfo?.name || basename(root || "repo");
-    const title = document.createElement("div");
-    title.className = "file-tree-summary-title";
-    title.textContent = repoName;
-
-    const top = document.createElement("div");
-    top.className = "file-tree-summary-top";
-
-    const metrics = document.createElement("div");
-    metrics.className = "file-tree-summary-metrics";
-
-    const add = document.createElement("span");
-    add.className = "file-tree-summary-metric file-tree-summary-metric--add";
-    add.textContent = `+${summary.added}`;
-
-    const remove = document.createElement("span");
-    remove.className = "file-tree-summary-metric file-tree-summary-metric--remove";
-    remove.textContent = `-${summary.removed}`;
-
-    const changedMetric = document.createElement("span");
-    changedMetric.className = "file-tree-summary-metric file-tree-summary-metric--changed";
-    changedMetric.textContent = `${summary.changedFiles} changed`;
-
-    metrics.append(add, remove, changedMetric);
-    top.append(title, metrics);
-
-    const remoteRow = document.createElement("div");
-    remoteRow.className = "file-tree-summary-bottom";
-    const remoteUrl = this.repoInfo?.remoteUrl?.trim();
-    if (remoteUrl) {
-      const link = document.createElement("a");
-      link.className = "file-tree-summary-link";
-      link.href = remoteUrl;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.textContent = "go to remote";
-      remoteRow.appendChild(link);
-    }
-
-    footer.append(top, remoteRow);
-  }
+  // ── Internal: prefetch ──
 
   private queuePrefetch(path: string, depth: number): void {
     if (depth <= 0) return;
-    const token = this.prefetchToken;
+    const token = this.tree.prefetchToken;
     const budget = { dirs: 0 };
     void this.prefetchDirectoryChildren(path, depth, token, budget);
   }
 
-  private async prefetchDirectoryChildren(
-    path: string,
-    depth: number,
-    token: number,
-    budget: { dirs: number },
-  ): Promise<void> {
-    if (depth <= 0 || token !== this.prefetchToken) return;
-    if (budget.dirs >= this.prefetchDirBudget) return;
-    const state = this.cache.get(path);
+  private async prefetchDirectoryChildren(path: string, depth: number, token: number, budget: { dirs: number }): Promise<void> {
+    if (depth <= 0 || token !== this.tree.prefetchToken) return;
+    if (budget.dirs >= this.tree.prefetchDirBudget) return;
+    const state = this.tree.cache.get(path);
     if (!state?.children) return;
-
     for (const ent of state.children) {
       if (!ent.isDir) continue;
-      if (token !== this.prefetchToken || budget.dirs >= this.prefetchDirBudget) return;
-
-      const childState = this.ensureState(ent.path);
-      if (childState.loaded || childState.loading || childState.operationInProgress) {
+      if (token !== this.tree.prefetchToken || budget.dirs >= this.tree.prefetchDirBudget) return;
+      const childState = this.tree.cache.get(ent.path);
+      if (childState?.loaded || childState?.loading || childState?.operationInProgress) {
         await this.prefetchDirectoryChildren(ent.path, depth - 1, token, budget);
         continue;
       }
-
       let summary: { entries: number; dirs: number } | null = null;
-      try {
-        summary = await this.backend.readDirectorySummary(ent.path);
-      } catch {
-        continue;
-      }
-
+      try { summary = await this.backend.readDirectorySummary(ent.path); } catch { continue; }
       if (!summary) continue;
-      if (
-        summary.entries > this.prefetchMaxEntriesPerDir ||
-        summary.dirs > this.prefetchMaxSubdirsPerDir
-      ) {
-        continue;
-      }
-
+      if (summary.entries > this.tree.prefetchMaxEntriesPerDir || summary.dirs > this.tree.prefetchMaxSubdirsPerDir) continue;
+      const ns = this.ensureState(ent.path);
       try {
-        childState.loading = true;
-        childState.children = await this.backend.readDirectory(ent.path);
-        childState.loaded = true;
-        childState.loading = false;
+        ns.loading = true;
+        ns.children = await this.backend.readDirectory(ent.path);
+        ns.loaded = true;
+        ns.loading = false;
         budget.dirs += 1;
-      } catch {
-        childState.loading = false;
-        continue;
-      }
-
+      } catch { ns.loading = false; continue; }
       await this.prefetchDirectoryChildren(ent.path, depth - 1, token, budget);
     }
   }
 
-  private applyGitDecorationToRow(row: HTMLElement, ent: FsEntry): void {
-    const key = normalizeFsPathKey(ent.path);
-    const gitMeta = this.gitPathMap.get(key);
-    const gitForEntry = ent.gitStatus ?? gitMeta?.status ?? null;
-    const showCounts = this.getShowDiffCounts();
-
-    const label = row.querySelector(".file-tree-label") as HTMLElement | null;
-    if (label) {
-      label.className =
-        `file-tree-label ${ent.isDir ? "file-tree-label--dir" : "file-tree-label--file"}` +
-        this.gitClass(gitForEntry);
-    }
-
-    row.querySelectorAll(".file-tree-git-badge").forEach((el) => el.remove());
-    if (ent.isDir) {
-      const rollup = this.rollupForDir(ent.path);
-      if (rollup) {
-        row.appendChild(this.makeGitBadge(rollup.status, { isDir: true, rollupCount: rollup.count, showCounts }));
-      } else if (gitForEntry) {
-        row.appendChild(this.makeGitBadge(gitForEntry, { isDir: true, showCounts }));
-      }
-      return;
-    }
-
-    if (gitForEntry) {
-      row.appendChild(this.makeGitBadge(gitForEntry, {
-        isDir: false,
-        added: gitMeta?.added,
-        removed: gitMeta?.removed,
-        showCounts,
-      }));
-    }
-  }
-
-  private syncVisibleGitDecorations(): void {
-    for (const [path, li] of this.renderedElements.entries()) {
-      if (path.startsWith("__inline__")) continue;
-      const ent = this.findEntry(path);
-      if (!ent) continue;
-      const row = li.querySelector(".file-tree-row") as HTMLElement | null;
-      if (!row) continue;
-      this.applyGitDecorationToRow(row, ent);
-    }
-  }
-
-  private syncVisibleSelectionDecorations(): void {
-    for (const [path, li] of this.renderedElements.entries()) {
-      if (path.startsWith("__inline__")) continue;
-      const row = li.querySelector(".file-tree-row") as HTMLElement | null;
-      if (!row) continue;
-      row.classList.toggle("file-tree-row--selected", this.selected.has(path));
-    }
-  }
+  // ── Internal: rendering ──
 
   private localPathFromRoot(path: string, isDir: boolean): string {
-    const root = this.viewRoot;
+    const root = this.tree.viewRoot;
     if (!root) return isDir ? `${basename(path)}/` : basename(path);
     const rootKey = normalizeFsPathKey(root);
     const pathKey = normalizeFsPathKey(path);
     if (pathKey === rootKey) return ".";
-    if (!pathKey.startsWith(`${rootKey}/`)) {
-      return isDir ? `${basename(path)}/` : basename(path);
-    }
+    if (!pathKey.startsWith(`${rootKey}/`)) return isDir ? `${basename(path)}/` : basename(path);
     const rel = path.slice(root.length).replace(/^[\\/]+/, "").replace(/\\/g, "/");
     if (!rel) return ".";
     if (isDir && !rel.endsWith("/")) return `${rel}/`;
@@ -2010,366 +955,165 @@ export class FileTreePanel {
   }
 
   private async copyText(text: string, label: string): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch (e) {
-      void showAlert(`Failed to copy ${label.toLowerCase()}: ${String(e)}`, "Copy");
+    try { await navigator.clipboard.writeText(text); } catch (e) { void showAlert(`Failed to copy ${label.toLowerCase()}: ${String(e)}`, "Copy"); }
+  }
+
+  private syncVisibleSelectionDecorations(t: TreeView): void {
+    for (const [path, li] of t.renderedElements.entries()) {
+      if (path.startsWith("__inline__")) continue;
+      const row = li.querySelector(".file-tree-row") as HTMLElement | null;
+      if (!row) continue;
+      row.classList.toggle("file-tree-row--selected", t.selected.has(path));
     }
   }
 
-  /** Dominant git status among all tracked files under this directory. */
-  private rollupForDir(dirAbs: string): { status: string; count: number } | null {
-    const prefix = this.dirPrefixKey(dirAbs);
-    const counts = new Map<string, number>();
-    for (const [p, meta] of this.gitPathMap) {
-      if (!p.startsWith(prefix)) continue;
-      counts.set(meta.status, (counts.get(meta.status) ?? 0) + 1);
-    }
-    if (counts.size === 0) return null;
-    const priority = ["conflict", "deleted", "modified", "added", "untracked", "renamed", "changed"];
-    let bestStatus = "";
-    let bestCount = -1;
-    let bestPri = 999;
-    for (const [st, c] of counts) {
-      const pri = priority.indexOf(st);
-      const p = pri === -1 ? 50 : pri;
-      if (c > bestCount || (c === bestCount && p < bestPri)) {
-        bestCount = c;
-        bestStatus = st;
-        bestPri = p;
-      }
-    }
-    return { status: bestStatus, count: bestCount };
-  }
-
-  private gitLetter(status: string): string {
-    return GIT_STATUS_LETTER.get(status) ?? "?";
-  }
-
-  private makeGitBadge(
-    status: string,
-    opts: { isDir: boolean; rollupCount?: number; added?: number; removed?: number; showCounts?: boolean },
-  ): HTMLElement {
-    const el = document.createElement("span");
-    el.className = "file-tree-git-badge";
-    if (opts.isDir) el.classList.add("file-tree-git-badge--folder");
-    el.classList.add(`file-tree-git--${status}`);
-    const letter = this.gitLetter(status);
-    const showCounts = opts.showCounts ?? false;
-    const added = opts.added ?? 0;
-    const removed = opts.removed ?? 0;
-
-    if (opts.isDir && opts.rollupCount != null && opts.rollupCount > 0) {
-      el.textContent =
-        opts.rollupCount > 1 ? `${opts.rollupCount}${letter}` : letter;
-      el.title = `${opts.rollupCount} ${status} (in subtree)`;
-    } else if (showCounts && (added > 0 || removed > 0)) {
-      const wrap = document.createElement("span");
-      wrap.className = "file-tree-git-badge-wrap";
-      const base = document.createElement("span");
-      base.className = "file-tree-git-badge-letter";
-      base.textContent = letter;
-      wrap.appendChild(base);
-      if (added > 0) {
-        const a = document.createElement("span");
-        a.className = "file-tree-git-badge-count file-tree-git-badge-count--add";
-        a.textContent = `+${added}`;
-        wrap.appendChild(a);
-      }
-      if (removed > 0) {
-        const r = document.createElement("span");
-        r.className = "file-tree-git-badge-count file-tree-git-badge-count--remove";
-        r.textContent = `-${removed}`;
-        wrap.appendChild(r);
-      }
-      el.appendChild(wrap);
-      el.title = `${status}${added > 0 || removed > 0 ? ` (+${added}|-${removed})` : ""}`;
-    } else {
-      el.textContent = letter;
-      el.title = status;
-    }
-    return el;
-  }
-
-  private updateVisibleRange(): void {
+  private updateVisibleRange(t: TreeView): void {
     const scrollTop = this.scrollEl.scrollTop;
     const containerHeight = this.scrollEl.clientHeight;
-    const start = Math.max(0, Math.floor(scrollTop / this.itemHeight) - this.overscan);
-    const end = Math.min(
-      this.flatItems.length,
-      Math.ceil((scrollTop + containerHeight) / this.itemHeight) + this.overscan
-    );
-    
-    if (this.visibleRange.start === start && this.visibleRange.end === end) return;
-    
-    this.visibleRange = { start, end };
-    this.renderVisibleItems();
+    const start = Math.max(0, Math.floor(scrollTop / t.itemHeight) - t.overscan);
+    const end = Math.min(t.flatItems.length, Math.ceil((scrollTop + containerHeight) / t.itemHeight) + t.overscan);
+    if (t.visibleRange.start === start && t.visibleRange.end === end) return;
+    t.visibleRange = { start, end };
+    this.renderVisibleItems(t);
   }
 
   private render(): void {
-    if (this.filterQuery) {
-      const rootKey = normalizeFsPathKey(this.viewRoot ?? "");
-      if (rootKey !== this.lastSearchedRoot || this.filterQuery !== this.lastSearchedQuery) {
-        this.lastSearchedRoot = rootKey;
-        this.lastSearchedQuery = this.filterQuery;
-        this.applyFilter(this.filterQuery);
-        return;
-      }
-      this.presentFlatItems();
+    const t = this.tree;
+    const cwd = t.viewRoot;
+    if (!cwd || !t.cache.get(cwd)?.children) {
+      this.scrollEl.replaceChildren();
+      t.flatItems = [];
+      t.renderedElements.clear();
+      t.virtualContainer = null;
       return;
     }
-    this.lastSearchedRoot = "";
-    this.lastSearchedQuery = "";
-    const cwd = this.viewRoot;
-    if (!cwd || !this.ensureState(cwd).children) {
+    this.buildFlatList(t);
+    if (!t.virtualContainer) {
       this.scrollEl.replaceChildren();
-      this.flatItems = [];
-      this.renderedElements.clear();
-      this.virtualContainer = null;
-      this.updateSummaryFooter();
-      return;
+      t.virtualContainer = document.createElement("div");
+      t.virtualContainer.className = "file-tree-virtual-container";
+      t.virtualContainer.setAttribute("role", "tree");
+      this.scrollEl.appendChild(t.virtualContainer);
     }
-
-    this.buildFlatList();
-
-    if (!this.virtualContainer) {
-      this.scrollEl.replaceChildren();
-      this.virtualContainer = document.createElement("div");
-      this.virtualContainer.className = "file-tree-virtual-container";
-      this.virtualContainer.setAttribute("role", "tree");
-      this.scrollEl.appendChild(this.virtualContainer);
-    }
-
-    const totalHeight = this.flatItems.length * this.itemHeight;
-    this.virtualContainer.style.height = `${totalHeight}px`;
-    this.virtualContainer.style.position = "relative";
-
-    this.visibleRange = { start: -1, end: -1 };
-    this.updateVisibleRange();
-    this.updateSummaryFooter();
+    const totalHeight = t.flatItems.length * t.itemHeight;
+    t.virtualContainer.style.height = `${totalHeight}px`;
+    t.virtualContainer.style.position = "relative";
+    t.visibleRange = { start: -1, end: -1 };
+    this.updateVisibleRange(t);
   }
 
-  private renderVisibleItems(): void {
-    if (!this.virtualContainer) return;
-
-    const { start, end } = this.visibleRange;
+  private renderVisibleItems(t: TreeView): void {
+    if (!t.virtualContainer) return;
+    const { start, end } = t.visibleRange;
     const currentKeys = new Set<string>();
-
     for (let i = start; i < end; i++) {
-      const flatItem = this.flatItems[i];
+      const flatItem = t.flatItems[i];
       if (!flatItem) continue;
-
       let key: string;
       let li: HTMLLIElement;
-
       if (flatItem.kind === "inline") {
         key = `__inline__${normalizeFsPathKey(flatItem.parent)}`;
         currentKeys.add(key);
-        li = this.renderedElements.get(key) ?? this.renderInlineNew(flatItem, i);
-        this.renderedElements.set(key, li);
-        if (!li.parentElement && this.virtualContainer) {
-          this.virtualContainer.appendChild(li);
-        }
-      } else if (flatItem.kind === "snippet") {
-        key = `__snippet__${normalizeFsPathKey(flatItem.path)}:${flatItem.index}`;
-        currentKeys.add(key);
-        li = this.renderedElements.get(key) ?? this.renderContentSnippet(flatItem);
-        this.renderedElements.set(key, li);
-        if (!li.parentElement && this.virtualContainer) {
-          this.virtualContainer.appendChild(li);
-        }
+        li = t.renderedElements.get(key) ?? this.renderInlineNew(t, flatItem);
+        t.renderedElements.set(key, li);
+        if (!li.parentElement && t.virtualContainer) t.virtualContainer.appendChild(li);
       } else {
         const { entry, depth } = flatItem;
         key = entry.path;
         currentKeys.add(key);
-        let el = this.renderedElements.get(key);
+        let el = t.renderedElements.get(key);
         if (!el) {
-          el = this.renderEntry(entry, depth);
-          this.renderedElements.set(key, el);
-          if (this.virtualContainer) {
-            this.virtualContainer.appendChild(el);
-          }
+          el = this.renderEntry(t, entry, depth);
+          t.renderedElements.set(key, el);
+          if (t.virtualContainer) t.virtualContainer.appendChild(el);
         } else {
           const row = el.querySelector(".file-tree-row") as HTMLElement | null;
           if (row) {
             row.style.setProperty("--ft-depth", String(depth));
-            row.classList.toggle("file-tree-row--selected", this.selected.has(entry.path));
+            row.classList.toggle("file-tree-row--selected", t.selected.has(entry.path));
           }
         }
         li = el;
       }
-
       li.style.position = "absolute";
-      li.style.top = `${i * this.itemHeight}px`;
+      li.style.top = `${i * t.itemHeight}px`;
       li.style.left = "0";
       li.style.right = "0";
-      li.style.height = `${this.itemHeight}px`;
+      li.style.height = `${t.itemHeight}px`;
     }
-
-    for (const [path, element] of this.renderedElements.entries()) {
-      if (!currentKeys.has(path)) {
-        element.remove();
-        this.renderedElements.delete(path);
-      }
+    for (const [path, element] of t.renderedElements.entries()) {
+      if (!currentKeys.has(path)) { element.remove(); t.renderedElements.delete(path); }
     }
   }
 
-  private renderInlineNew(item: FlatInline, _index: number): HTMLLIElement {
+  private renderInlineNew(t: TreeView, item: FlatInline): HTMLLIElement {
     const li = document.createElement("li");
     li.className = "file-tree-item";
     const row = document.createElement("div");
     row.className = "file-tree-row";
     row.style.setProperty("--ft-depth", String(item.depth));
-
-    const spacer = document.createElement("span");
-    spacer.className = "file-tree-chevron file-tree-chevron--spacer";
-    row.appendChild(spacer);
-
-    const icon = createIconElement(item.mode === "newfolder" ? "folder" : "document");
-    row.appendChild(icon);
-
+    const glyph = document.createElement("span");
+    glyph.className = "file-tree-glyph";
+    glyph.textContent = item.mode === "newfolder" ? "\uD83D\uDCC1" : "\uD83D\uDCC4";
+    row.appendChild(glyph);
     const wrap = document.createElement("div");
     wrap.className = "file-tree-name-wrap";
-
     const input = document.createElement("input");
     input.type = "text";
     input.className = "file-tree-inline-input";
     input.value = item.initial;
     input.dataset.inlineInput = "true";
     input.placeholder = item.mode === "newfolder" ? "Folder name" : "File name";
-
     const commit = async (): Promise<void> => {
       const name = input.value.trim();
-      if (!name) {
-        this.inlineNew = null;
-        this.render();
-        return;
-      }
+      if (!name) { t.inlineNew = null; this.render(); return; }
       const base = item.parent;
       const path = joinWin(base, name);
-      this.inlineNew = null;
+      t.inlineNew = null;
       try {
-        if (item.mode === "newfolder") {
-          await this.backend.createDirectory(path);
-        } else {
-          await this.backend.createFile(path);
-        }
+        if (item.mode === "newfolder") await this.backend.createDirectory(path);
+        else await this.backend.createFile(path);
         this.invalidatePath(base);
         await this.refresh();
-        // Select the newly created item but don't open it
-        this.select(path);
-      } catch (e) {
-        void showAlert(String(e), "Create failed");
-        await this.refresh();
-      }
+        this.select(t, path);
+      } catch (e) { void showAlert(String(e), "Create failed"); await this.refresh(); }
     };
-
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        void commit();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        this.inlineNew = null;
-        this.render();
-      }
+      if (e.key === "Enter") { e.preventDefault(); void commit(); }
+      else if (e.key === "Escape") { e.preventDefault(); t.inlineNew = null; this.render(); }
     });
     input.addEventListener("blur", () => {
       window.setTimeout(() => {
-        if (!this.inlineNew) return;
-        if (!input.value.trim()) {
-          this.inlineNew = null;
-          this.render();
-        }
+        if (!t.inlineNew) return;
+        if (!input.value.trim()) { t.inlineNew = null; this.render(); }
       }, 120);
     });
-
     wrap.appendChild(input);
     row.appendChild(wrap);
     li.appendChild(row);
-
-    requestAnimationFrame(() => {
-      input.focus();
-      input.select();
-    });
-
+    requestAnimationFrame(() => { input.focus(); input.select(); });
     return li;
   }
 
-  private renderContentSnippet(item: FlatSnippet): HTMLLIElement {
-    const li = document.createElement("li");
-    li.className = "file-tree-item file-tree-search-snippet-item";
-    const row = document.createElement("div");
-    row.className = "file-tree-search-snippet-row";
-    row.style.setProperty("--ft-depth", String(item.depth));
-
-    const line = document.createElement("span");
-    line.className = "file-tree-search-snippet-line";
-    const content = document.createElement("span");
-    content.className = "file-tree-search-snippet-text";
-
-    if (!item.detail) {
-      line.textContent = "";
-      content.textContent = "Loading snippets...";
-      row.classList.add("file-tree-search-snippet-row--loading");
-    } else {
-      line.textContent = String(item.detail.line);
-      this.appendHighlightedSnippet(content, item.detail);
-    }
-
-    row.append(line, content);
-    li.appendChild(row);
-    return li;
-  }
-
-  private appendHighlightedSnippet(target: HTMLElement, detail: MatchDetail): void {
-    const text = detail.lineContent;
-    const ranges = [...detail.matchRanges].sort((a, b) => a[0] - b[0]);
-    let offset = 0;
-    for (const [rawStart, rawEnd] of ranges) {
-      const start = Math.max(offset, Math.min(text.length, rawStart));
-      const end = Math.max(start, Math.min(text.length, rawEnd));
-      if (start > offset) target.appendChild(document.createTextNode(text.slice(offset, start)));
-      if (end > start) {
-        const mark = document.createElement("mark");
-        mark.textContent = text.slice(start, end);
-        target.appendChild(mark);
-      }
-      offset = end;
-    }
-    if (offset < text.length) target.appendChild(document.createTextNode(text.slice(offset)));
-  }
-
-  private gitClass(status: string | null | undefined): string {
-    if (!status) return "";
-    return ` file-tree-git--${status}`;
-  }
-
-  private renderEntry(ent: FsEntry, depth: number): HTMLLIElement {
+  private renderEntry(t: TreeView, ent: FsEntry, depth: number): HTMLLIElement {
     const li = document.createElement("li");
     li.className = "file-tree-item";
-
     const row = document.createElement("div");
     row.className = "file-tree-row";
-    if (this.selected.has(ent.path)) row.classList.add("file-tree-row--selected");
     row.style.setProperty("--ft-depth", String(depth));
-    if (ent.iconKey) row.dataset.iconKey = ent.iconKey;
+    if (t.selected.has(ent.path)) row.classList.add("file-tree-row--selected");
 
+    // Drag & drop
     row.draggable = true;
     row.addEventListener("dragstart", (e) => {
-      const paths =
-        this.selected.has(ent.path) && this.selected.size > 0
-          ? [...this.selected]
-          : [ent.path];
+      const paths = t.selected.has(ent.path) && t.selected.size > 0 ? [...t.selected] : [ent.path];
       this.dragState.draggedPaths = paths;
       if (e.dataTransfer) {
         e.dataTransfer.setData("termie/path", ent.path);
         e.dataTransfer.setData("termie/paths", JSON.stringify(paths));
         e.dataTransfer.effectAllowed = "move";
         this.createDragGhost(row, ent);
-        if (this.dragGhost) {
-          e.dataTransfer.setDragImage(this.dragGhost, 12, 12);
-        }
+        if (this.dragGhost) e.dataTransfer.setDragImage(this.dragGhost, 12, 12);
       }
       row.classList.add("file-tree-row--dragging");
     });
@@ -2391,8 +1135,7 @@ export class FileTreePanel {
       if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
       const rect = row.getBoundingClientRect();
       const fraction = (e.clientY - rect.top) / rect.height;
-      const position: "before" | "after" | "inside" =
-        fraction < 0.3 ? "before" : fraction > 0.7 || !ent.isDir ? "after" : "inside";
+      const position: "before" | "after" | "inside" = fraction < 0.3 ? "before" : fraction > 0.7 || !ent.isDir ? "after" : "inside";
       this.dragState.dragOverPath = ent.path;
       this.dragState.dropPosition = position;
       row.classList.add("file-tree-row--drop-target");
@@ -2414,188 +1157,96 @@ export class FileTreePanel {
 
     row.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;
-      const t = e.target as HTMLElement;
-      if (t.closest("input.file-tree-inline-input, .file-tree-chevron")) return;
-      if (
-        !e.ctrlKey &&
-        !e.metaKey &&
-        this.selected.has(ent.path) &&
-        this.selected.size > 1
-      ) {
-        return;
-      }
+      const t2 = e.target as HTMLElement;
+      if (t2.closest("input.file-tree-inline-input")) return;
+      if (!e.ctrlKey && !e.metaKey && t.selected.has(ent.path) && t.selected.size > 1) return;
       this.toggleSelect(ent.path, e);
     });
 
     row.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      if (!this.selected.has(ent.path)) {
-        this.selected.clear();
-        this.selected.add(ent.path);
-        this.syncVisibleSelectionDecorations();
-      }
-      void this.showCtx(e.clientX, e.clientY, ent.path, ent.isDir);
+      if (!t.selected.has(ent.path)) { t.selected.clear(); t.selected.add(ent.path); this.syncVisibleSelectionDecorations(t); }
+      this.showCtx(e.clientX, e.clientY, ent.path, ent.isDir);
     });
 
+    // Glyph + name
     if (ent.isDir) {
-      const st = this.ensureState(ent.path);
-      const toggle = document.createElement("button");
-      toggle.type = "button";
-      toggle.className = "file-tree-chevron";
-      toggle.setAttribute("aria-expanded", st.expanded ? "true" : "false");
-      toggle.textContent = st.expanded ? "▾" : "▸";
-      if (st.loading) {
-        toggle.classList.add("file-tree-chevron--loading");
-        toggle.textContent = "…";
-      }
-      toggle.addEventListener("pointerdown", (e) => {
-        e.stopPropagation();
-      });
-      toggle.addEventListener("click", (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        void this.toggleDir(ent.path);
-      });
-      row.appendChild(toggle);
-
-      const closedIcon = getIconForEntry(ent);
-      const openCandidate = `${closedIcon}-open`;
-      const iconName = st.expanded
-        ? hasIconAsset(openCandidate)
-          ? openCandidate
-          : hasIconAsset("folder-open")
-            ? "folder-open"
-            : closedIcon
-        : closedIcon;
-      const iconSpan = createIconElement(iconName);
-      iconSpan.classList.add("file-tree-icon--folder");
-      row.appendChild(iconSpan);
-
+      const glyph = document.createElement("span");
+      glyph.className = "file-tree-glyph file-tree-glyph--dir";
+      glyph.textContent = "";
+      row.appendChild(glyph);
       const nameWrap = document.createElement("div");
       nameWrap.className = "file-tree-name-wrap";
-
-      if (this.inlineRenamePath === ent.path) {
+      if (t.inlineRenamePath === ent.path) {
         const input = document.createElement("input");
         input.type = "text";
         input.className = "file-tree-inline-input";
         input.value = basename(ent.path);
         input.addEventListener("pointerdown", (e) => e.stopPropagation());
         input.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            void this.finishInlineRename(ent.path, input.value);
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            this.inlineRenamePath = null;
-            this.render();
-          }
+          if (e.key === "Enter") { e.preventDefault(); void this.finishInlineRename(ent.path, input.value); }
+          else if (e.key === "Escape") { e.preventDefault(); t.inlineRenamePath = null; this.render(); }
         });
         input.addEventListener("blur", () => {
           window.setTimeout(() => {
-            if (this.inlineRenamePath !== ent.path) return;
+            if (t.inlineRenamePath !== ent.path) return;
             if (document.activeElement === input) return;
-            this.inlineRenamePath = null;
-            this.render();
+            t.inlineRenamePath = null; this.render();
           }, 120);
         });
         nameWrap.appendChild(input);
-        requestAnimationFrame(() => {
-          input.focus();
-          input.select();
-        });
+        requestAnimationFrame(() => { input.focus(); input.select(); });
       } else {
         const label = document.createElement("span");
         label.className = "file-tree-label file-tree-label--dir";
-        label.textContent = ent.name;
+        label.textContent = `${ent.name}/`;
         label.title = ent.path;
         nameWrap.appendChild(label);
       }
       row.appendChild(nameWrap);
     } else {
-      const searchMeta = this.contentSearchMetaByPath.get(normalizeFsPathKey(ent.path));
-      if (searchMeta) {
-        const key = normalizeFsPathKey(ent.path);
-        const toggle = document.createElement("button");
-        toggle.type = "button";
-        toggle.className = "file-tree-chevron file-tree-search-snippet-toggle";
-        toggle.setAttribute("aria-expanded", this.expandedContentSnippetPaths.has(key) ? "true" : "false");
-        toggle.title = "Show content matches";
-        toggle.textContent = this.expandedContentSnippetPaths.has(key) ? "▾" : "▸";
-        toggle.addEventListener("pointerdown", (e) => {
-          e.stopPropagation();
-        });
-        toggle.addEventListener("click", (e) => {
-          e.stopPropagation();
-          e.preventDefault();
-          void this.toggleContentSnippets(ent.path);
-        });
-        row.appendChild(toggle);
-      } else {
-        const spacer = document.createElement("span");
-        spacer.className = "file-tree-chevron file-tree-chevron--spacer";
-        spacer.setAttribute("aria-hidden", "true");
-        row.appendChild(spacer);
-      }
-
-      const iconKey = getIconForEntry(ent);
-      const iconSpan = createIconElement(iconKey);
-      iconSpan.classList.add("file-tree-icon--file");
-      row.appendChild(iconSpan);
-
+      const glyph = glyphForFile(ent.name);
+      const glyphEl = document.createElement("span");
+      glyphEl.className = "file-tree-glyph file-tree-glyph--file";
+      glyphEl.textContent = glyph.glyph;
+      glyphEl.style.color = glyph.color;
+      row.appendChild(glyphEl);
       const nameWrap = document.createElement("div");
       nameWrap.className = "file-tree-name-wrap";
-
-      if (this.inlineRenamePath === ent.path) {
+      if (t.inlineRenamePath === ent.path) {
         const input = document.createElement("input");
         input.type = "text";
         input.className = "file-tree-inline-input";
         input.value = basename(ent.path);
         input.addEventListener("pointerdown", (e) => e.stopPropagation());
         input.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            void this.finishInlineRename(ent.path, input.value);
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            this.inlineRenamePath = null;
-            this.render();
-          }
+          if (e.key === "Enter") { e.preventDefault(); void this.finishInlineRename(ent.path, input.value); }
+          else if (e.key === "Escape") { e.preventDefault(); t.inlineRenamePath = null; this.render(); }
         });
         input.addEventListener("blur", () => {
           window.setTimeout(() => {
-            if (this.inlineRenamePath !== ent.path) return;
+            if (t.inlineRenamePath !== ent.path) return;
             if (document.activeElement === input) return;
-            this.inlineRenamePath = null;
-            this.render();
+            t.inlineRenamePath = null; this.render();
           }, 120);
         });
         nameWrap.appendChild(input);
-        requestAnimationFrame(() => {
-          input.focus();
-          input.select();
-        });
+        requestAnimationFrame(() => { input.focus(); input.select(); });
       } else {
         const label = document.createElement("span");
         label.className = "file-tree-label file-tree-label--file";
-        label.textContent = searchMeta?.label ?? ent.name;
+        label.textContent = ent.name;
         label.title = ent.path;
         nameWrap.appendChild(label);
-        if (searchMeta) {
-          const badge = document.createElement("span");
-          badge.className = "file-tree-search-match-badge";
-          badge.textContent = String(searchMeta.matches);
-          badge.title = `${searchMeta.matches} string match${searchMeta.matches === 1 ? "" : "es"}`;
-          nameWrap.appendChild(badge);
-        }
       }
       row.appendChild(nameWrap);
     }
-
-    this.applyGitDecorationToRow(row, ent);
-
     li.appendChild(row);
     li.dataset.path = ent.path;
-
     return li;
+  }
+
+  get prefetchDepth(): number {
+    return this.tree.prefetchDepth;
   }
 }
