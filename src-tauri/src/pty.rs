@@ -17,6 +17,12 @@ const SHELL_INTEGRATION_ZSH: &str = include_str!("../scripts/partty-shell-integr
 const PTY_OUTPUT_BATCH_BYTES: usize = 128 * 1024;
 const PTY_OUTPUT_BATCH_MS: u64 = 3;
 const PTY_REPLAY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
+/// While the main webview is torn down (hide→destroy→recreate on summon), the
+/// emitter thread holds accumulated PTY output instead of discarding it.  This
+/// caps that held buffer so a long-dismissed session can't grow unbounded; once
+/// exceeded we drop the oldest bytes (the on-screen xterm state is recovered
+/// from the replay snapshot on resummon anyway).
+const PTY_PENDING_HOLD_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, serde::Serialize)]
 pub struct PtyExitEvent {
@@ -451,9 +457,15 @@ impl PtySession {
         let replay_emitter = Arc::clone(&replay_buffer);
         let app_emit = app.clone();
         let pane_id_emitter = Arc::clone(&pane_id_arc);
-        let window_emit = app
-            .get_webview_window("main")
-            .expect("main window not available at PTY spawn");
+        // NOTE: do NOT capture a `WebviewWindow` here.  When
+        // `destroy_webview_on_hide` is enabled (the default), the main webview
+        // is torn down on hide and rebuilt on summon; a handle captured at PTY
+        // spawn time would point at the dead webview and silently lose every
+        // `eval` after the first dismiss.  Instead we re-resolve the live
+        // "main" window from the `AppHandle` on every batch and, while it is
+        // absent, retain `pending` so the live shell process simply back-
+        // pressures until the next webview is ready — letting the session
+        // transparently reattach on resummon.
         let _emitter = thread::spawn(move || {
             let batch_window = Duration::from_millis(PTY_OUTPUT_BATCH_MS);
             let mut pending = Vec::<u8>::with_capacity(16 * 1024);
@@ -485,6 +497,22 @@ impl PtySession {
 
                 if !pending.is_empty() {
                     let pane = pane_id_emitter.lock().clone();
+
+                    // If the main webview is currently torn down (during a
+                    // hide→destroy→recreate cycle), hold the batch and wait
+                    // for the next window rather than dropping it.  The reader
+                    // thread will back-pressure the PTY, pausing the shell
+                    // until the new webview is ready, at which point output
+                    // resumes seamlessly.  Cap the hold so a very long
+                    // dismissal can't exhaust memory.
+                    let Some(win) = app_emit.get_webview_window("main") else {
+                        if pending.len() > PTY_PENDING_HOLD_MAX_BYTES {
+                            let excess = pending.len() - PTY_PENDING_HOLD_MAX_BYTES;
+                            pending.drain(..excess);
+                        }
+                        thread::sleep(Duration::from_millis(20));
+                        continue;
+                    };
 
                     // Strip OSC 7 / 133 / 633 in Rust; emit side-channel events.
                     let (cleaned_bytes, osc_events) = stripper.process(&pending);
@@ -558,7 +586,7 @@ impl PtySession {
 
                     let pane_json = serde_json::to_string(&pane).unwrap();
                     let data_json = serde_json::to_string(&text).unwrap();
-                    let _ = window_emit
+                    let _ = win
                         .eval(&format!("window.__partty_out({},{})", pane_json, data_json));
                 }
 
