@@ -285,15 +285,34 @@ export function createSettingsPanel(
     }
   }
 
+  function switchSettingsTab(tab: string): void {
+    const sections = root.querySelectorAll<HTMLElement>(".settings-section");
+    for (const section of sections) {
+      section.hidden = (section.dataset.section ?? "") !== tab;
+    }
+    root.querySelectorAll(".settings-tab").forEach((t) => {
+      t.classList.toggle("settings-tab--active", (t as HTMLElement).dataset.section === tab);
+      t.setAttribute("aria-selected", (t as HTMLElement).dataset.section === tab ? "true" : "false");
+    });
+  }
+
   function applySettingsSearch(): void {
     const input = root.querySelector("#settings-search") as HTMLInputElement | null;
     const q = input?.value.trim().toLowerCase() ?? "";
     const sections = root.querySelectorAll<HTMLElement>(".settings-section");
+
+    if (q.length === 0) {
+      // Restore tab view
+      for (const section of sections) section.hidden = true;
+      const activeTab = root.querySelector(".settings-tab--active") as HTMLElement | null;
+      switchSettingsTab(activeTab?.dataset.section ?? "shell");
+      return;
+    }
+
+    // Search mode: show matching rows across all sections
     for (const section of sections) {
-      const title = section.querySelector(".settings-section-hd")?.textContent?.toLowerCase() ?? "";
-      const titleMatch = q.length > 0 && title.includes(q);
-      let anyVisible = q.length === 0;
-      const rows = section.querySelectorAll<HTMLElement>(".settings-row, .settings-checkbox-label");
+      let anyVisible = false;
+      const rows = section.querySelectorAll<HTMLElement>(".settings-row, .settings-checkbox-label, .settings-toggle-desc, .settings-subsection-hd");
       for (const row of rows) {
         if (row.closest(".settings-tree-hidden")) {
           (row as HTMLElement).hidden = true;
@@ -303,18 +322,20 @@ export function createSettingsPanel(
           .map((el) => `${el.name ?? ""} ${el.id ?? ""} ${"placeholder" in el ? (el as HTMLInputElement).placeholder : ""}`)
           .join(" ");
         const text = `${row.textContent ?? ""} ${controls}`.toLowerCase().replace(/[_-]/g, " ");
-        const visible = q.length === 0 || titleMatch || text.includes(q);
+        const visible = text.includes(q);
         (row as HTMLElement).hidden = !visible;
         if (visible) anyVisible = true;
       }
       section.hidden = !anyVisible;
-      // Auto-expand sections that have matching content or title when searching
-      if (q.length > 0 && anyVisible) {
-        section.classList.add("settings-section--open");
-      } else if (q.length === 0) {
-        section.classList.remove("settings-section--open");
-      }
     }
+
+    // Highlight tabs with matches
+    root.querySelectorAll(".settings-tab").forEach((tab) => {
+      const t = tab as HTMLElement;
+      const sec = t.dataset.section ?? "";
+      const hasMatches = root.querySelector(`.settings-section[data-section="${sec}"]:not([hidden])`);
+      t.classList.toggle("settings-tab--dim", !hasMatches);
+    });
   }
 
   async function loadAndRender(): Promise<void> {
@@ -456,11 +477,13 @@ export function createSettingsPanel(
     });
     root.querySelector("#settings-close")?.addEventListener("click", () => close());
     root.querySelector("#settings-search")?.addEventListener("input", () => applySettingsSearch());
-    // Click section headers to toggle fold
-    form?.addEventListener("click", (e) => {
-      const hd = (e.target as HTMLElement).closest(".settings-section-hd");
-      if (!hd) return;
-      hd.closest(".settings-section")?.classList.toggle("settings-section--open");
+    // Tab switching
+    root.querySelectorAll(".settings-tab").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const section = (tab as HTMLElement).dataset.section ?? "";
+        switchSettingsTab(section);
+        applySettingsSearch();
+      });
     });
     root.addEventListener("keydown", (e) => {
       if (e.key === "Escape") close();

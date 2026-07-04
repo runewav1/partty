@@ -14,38 +14,25 @@ export function createPaneRenamePanel(opts: {
   const { root, onCommit } = opts;
   let open = false;
   let activePaneId = "";
-  let activePaneName = "";
 
   root.className = "terminal-history pane-rename pane-rename--hidden";
   root.setAttribute("aria-hidden", "true");
   root.innerHTML = `
     <section class="terminal-history-panel pane-rename-panel" role="dialog" aria-label="Rename pane">
-      <header class="terminal-history-head pane-rename-head">
-        <div class="terminal-history-heading">
-          <h2 class="terminal-history-title pane-rename-title"></h2>
-        </div>
-      </header>
       <form class="pane-rename-form">
-        <input class="terminal-history-search pane-rename-input" type="text" spellcheck="false" autocomplete="off" />
+        <input class="terminal-history-search pane-rename-input" type="text" spellcheck="false" autocomplete="off" placeholder="Pane name" />
         <button class="terminal-history-clear pane-rename-save" type="submit">Save</button>
       </form>
     </section>
   `;
   const panel = root.querySelector(".pane-rename-panel") as HTMLElement;
-  const head = root.querySelector(".pane-rename-head") as HTMLElement;
-  const title = root.querySelector(".pane-rename-title") as HTMLElement;
   const input = root.querySelector(".pane-rename-input") as HTMLInputElement;
   const form = root.querySelector(".pane-rename-form") as HTMLFormElement;
 
-  function setTitle(): void {
-    title.textContent = activePaneName || activePaneId;
-    title.title = activePaneName || activePaneId;
-  }
-
   function positionForFirstOpen(): void {
     if (panel.style.left && panel.style.top) return;
-    const w = 420;
-    const h = 116;
+    const w = 300;
+    const h = 52;
     panel.style.width = `${w}px`;
     panel.style.height = `${h}px`;
     panel.style.left = `${Math.max(12, (window.innerWidth - w) / 2)}px`;
@@ -83,20 +70,15 @@ export function createPaneRenamePanel(opts: {
     onCommit(activePaneId, input.value);
     close();
   });
-  input.addEventListener("input", () => {
-    activePaneName = input.value;
-    setTitle();
-  });
-  head.addEventListener("pointerdown", beginDrag);
+  form.addEventListener("pointerdown", beginDrag);
   panel.addEventListener("keydown", (e) => {
     if (e.key === "Escape") close();
   });
 
   function setPane(paneId: string, currentName = ""): void {
     activePaneId = paneId;
-    activePaneName = currentName;
-    setTitle();
     input.value = currentName;
+    input.placeholder = currentName || paneId || "Pane name";
   }
 
   return {

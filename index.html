@@ -35,9 +35,7 @@
         aria-hidden="true"
       >
         <div class="command-palette-panel">
-          <div class="command-palette-toolbar" aria-hidden="true">
-            <span class="command-palette-toolbar-title">Commands</span>
-          </div>
+          <div class="command-palette-toolbar" aria-hidden="true"></div>
           <div id="command-palette-list-view" class="command-palette-list-view">
             <input
               id="command-palette-input"
@@ -96,7 +94,13 @@
         <div class="settings-panel-backdrop"></div>
         <div class="settings-panel-card">
           <div class="settings-panel-head">
-            <span class="settings-panel-title">Settings</span>
+            <div class="settings-panel-tabs" role="tablist">
+              <button class="settings-tab settings-tab--active" data-section="shell" type="button" role="tab" aria-selected="true">Shell</button>
+              <button class="settings-tab" data-section="terminal" type="button" role="tab">Terminal</button>
+              <button class="settings-tab" data-section="ui" type="button" role="tab">UI</button>
+              <button class="settings-tab" data-section="window" type="button" role="tab">Window</button>
+              <button class="settings-tab" data-section="session" type="button" role="tab">Session</button>
+            </div>
             <button id="settings-close" type="button" class="settings-panel-close" aria-label="Close"></button>
           </div>
           <div class="settings-panel-search-row">
@@ -106,7 +110,7 @@
             <datalist id="shell-suggestions"></datalist>
             <datalist id="font-suggestions"></datalist>
 
-            <div class="settings-section">
+            <div class="settings-section" data-section="shell">
               <div class="settings-section-hd">Shell</div>
               <div class="settings-section-bd">
                 <div class="settings-row">
@@ -120,7 +124,7 @@
               </div>
             </div>
 
-            <div class="settings-section">
+            <div class="settings-section" data-section="terminal">
               <div class="settings-section-hd">Fonts</div>
               <div class="settings-section-bd">
                 <div class="settings-row">
@@ -135,7 +139,7 @@
               </div>
             </div>
 
-            <div class="settings-section">
+            <div class="settings-section" data-section="terminal">
               <div class="settings-section-hd">Terminal</div>
               <div class="settings-section-bd">
                 <div class="settings-row settings-row--compact">
@@ -249,7 +253,7 @@
               </div>
             </div>
 
-            <div class="settings-section">
+            <div class="settings-section" data-section="terminal">
               <div class="settings-section-hd">Scroll</div>
               <div class="settings-section-bd">
                 <div class="settings-row settings-row--compact">
@@ -268,7 +272,7 @@
               </div>
             </div>
 
-            <div class="settings-section">
+            <div class="settings-section" data-section="terminal">
               <div class="settings-section-hd">Processes</div>
               <div class="settings-section-bd">
                 <div class="settings-row settings-row--compact">
@@ -286,7 +290,7 @@
               </div>
             </div>
 
-            <div class="settings-section">
+            <div class="settings-section" data-section="ui">
               <div class="settings-section-hd">Transparency</div>
               <div class="settings-section-bd">
                 <div class="settings-row settings-row--compact">
@@ -302,7 +306,7 @@
               </div>
             </div>
 
-            <div class="settings-section">
+            <div class="settings-section" data-section="window">
               <div class="settings-section-hd">Window</div>
               <div class="settings-section-bd">
                 <div class="settings-row settings-row--compact">
@@ -338,22 +342,29 @@
               </div>
             </div>
 
-            <div class="settings-section">
+            <div class="settings-section" data-section="session">
               <div class="settings-section-hd">Session</div>
               <div class="settings-section-bd">
                 <div class="settings-toggles">
                   <label class="settings-checkbox-label"><span>Preload PTY</span><input class="settings-checkbox-input" type="checkbox" name="preload_pty_on_startup" checked /></label>
+                  <div class="settings-toggle-desc">Pre-create a PTY session for instant pane spawning.</div>
                   <label class="settings-checkbox-label"><span>Preload WebGL</span><input class="settings-checkbox-input" type="checkbox" name="preload_webgl_on_startup" checked /></label>
+                  <div class="settings-toggle-desc">Pre-warm the WebGL renderer to avoid first-paint flash.</div>
                   <label class="settings-checkbox-label"><span>Defer show</span><input class="settings-checkbox-input" type="checkbox" name="defer_window_show_until_prepared" checked /></label>
+                  <div class="settings-toggle-desc">Hide the window until terminal layout completes on startup.</div>
                   <label class="settings-checkbox-label"><span>Destroy on hide</span><input class="settings-checkbox-input" type="checkbox" name="destroy_webview_on_hide" checked /></label>
+                  <div class="settings-toggle-desc">Destroy the webview when hiding the window; reduces memory.</div>
                   <label class="settings-checkbox-label"><span>Shed PTYs</span><input class="settings-checkbox-input" type="checkbox" name="shed_on_hide" /></label>
+                  <div class="settings-toggle-desc">Release PTY resources when the window is hidden.</div>
                   <label class="settings-checkbox-label"><span>Shed WebGL</span><input class="settings-checkbox-input" type="checkbox" name="webgl_shed_on_hide" checked /></label>
+                  <div class="settings-toggle-desc">Release the WebGL renderer when the window is hidden.</div>
                   <label class="settings-checkbox-label"><span>Drop buffers</span><input class="settings-checkbox-input" type="checkbox" name="discard_buffer_on_hide" /></label>
+                  <div class="settings-toggle-desc">Clear terminal scrollback buffer when hiding the window.</div>
                 </div>
               </div>
             </div>
 
-            <div class="settings-section">
+            <div class="settings-section" data-section="session">
               <div class="settings-section-hd">Dev</div>
               <div class="settings-section-bd">
                 <div class="settings-toggles">
@@ -408,7 +419,6 @@
       <div id="zen-rename-modal" class="zen-rename-modal zen-rename-modal--hidden" aria-hidden="true">
         <div class="zen-rename-backdrop" data-zen-rename-close></div>
         <div class="zen-rename-card">
-          <div class="zen-rename-head"><span class="zen-rename-title">Rename tab</span></div>
           <form class="zen-rename-form">
             <input id="zen-rename-input" type="text" class="zen-rename-input" spellcheck="false" autocomplete="off" />
             <div class="zen-rename-actions">

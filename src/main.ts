@@ -4526,22 +4526,22 @@ async function boot(): Promise<void> {
       return [
         {
           id: "pane-cmd-clear",
-          label: ">c — clear",
-          labelHtml: `<span class="cp-label-prefix">${escapeHtml(">c")}</span> — clear`,
+          label: ">c: clear",
+          labelHtml: `<span class="cp-label-prefix">${escapeHtml(">c")}</span> clear`,
           keywords: ">c >clear >cls clear screen reset terminal",
           run: () => void runPaneCmdClear(),
         },
         {
           id: "pane-cmd-exit",
-          label: ">e — exit (Ctrl+C)",
-          labelHtml: `<span class="cp-label-prefix">${escapeHtml(">e")}</span> — exit (Ctrl+C)`,
+          label: ">e: exit",
+          labelHtml: `<span class="cp-label-prefix">${escapeHtml(">e")}</span> exit`,
           keywords: ">e >exit ctrl c interrupt break cancel",
           run: () => runPaneCmdExit(),
         },
         {
           id: "pane-cmd-restart-shell",
-          label: ">r — restart shell",
-          labelHtml: `<span class="cp-label-prefix">${escapeHtml(">r")}</span> — restart shell`,
+          label: ">r: restart",
+          labelHtml: `<span class="cp-label-prefix">${escapeHtml(">r")}</span> restart`,
           keywords: ">r >restart shell respawn",
           run: () => void runPaneCmdRestartShell(),
         },
@@ -4596,7 +4596,7 @@ async function boot(): Promise<void> {
       },
       {
         id: "tab-rename",
-        label: "Rename tab…",
+        label: "Rename tab",
         keywords: "workspace title edit",
         run: () => beginTabRename(activeWorkspaceTabId),
       },
@@ -4609,7 +4609,7 @@ async function boot(): Promise<void> {
       // --- Panes ---
       {
         id: "pane-split-v",
-        label: "Split pane right",
+        label: "Split right",
         keywords: "split vertical columns side by side layout",
         hotkey: "Alt+V",
         run: () => {
@@ -4618,7 +4618,7 @@ async function boot(): Promise<void> {
       },
       {
         id: "pane-split-h",
-        label: "Split pane down",
+        label: "Split down",
         keywords: "split horizontal rows stacked layout",
         hotkey: "Alt+H",
         run: () => {
@@ -4636,7 +4636,7 @@ async function boot(): Promise<void> {
       },
       {
         id: "pane-toggle-floating",
-        label: "Float / tile pane",
+        label: "Float pane",
         keywords: "float pop out pop in tile hyprland layout",
         hotkey: "Ctrl+Shift+O",
         run: () => {
@@ -4645,13 +4645,13 @@ async function boot(): Promise<void> {
       },
       {
         id: "pane-rename",
-        label: "Rename pane…",
+        label: "Rename pane",
         keywords: "pane name title label friendly id",
         run: () => openFocusedPaneRename(),
       },
       {
         id: "pane-close-children",
-        label: "Reset pane layout",
+        label: "Reset layout",
         keywords: "reset layout keep main root initial close children",
         run: () => {
           void closeAllChildPanes();
@@ -4659,7 +4659,7 @@ async function boot(): Promise<void> {
       },
       {
         id: "open-pane-theme",
-        label: "Theme pane…",
+        label: "Theme pane",
         keywords: "theme appearance colors focused pane local override",
         run: () => openFocusedPaneTheme(),
       },
@@ -4667,8 +4667,8 @@ async function boot(): Promise<void> {
       {
         id: "toggle-zen-mode",
         label: document.documentElement.classList.contains("zen-mode")
-          ? "Exit zen mode"
-          : "Enter zen mode",
+          ? "Exit zen"
+          : "Enter zen",
         keywords: "focus session hide toolbar chrome distraction free",
         run: () => {
           setZenMode(!document.documentElement.classList.contains("zen-mode"));
@@ -4676,7 +4676,7 @@ async function boot(): Promise<void> {
       },
       {
         id: "toggle-mouse-hidden",
-        label: mouseHiddenRef.v ? "Show mouse cursor" : "Hide mouse cursor",
+        label: mouseHiddenRef.v ? "Show cursor" : "Hide cursor",
         keywords: "mouse pointer cursor hide show invisible os",
         run: () => {
           void toggleMouseHidden();
@@ -4684,7 +4684,7 @@ async function boot(): Promise<void> {
       },
       {
         id: "open-themes",
-        label: "Change theme…",
+        label: "Theme",
         keywords: "theme appearance colors ui palette app global",
         run: () => {
           themeTargetPaneId = null;
@@ -4707,7 +4707,7 @@ async function boot(): Promise<void> {
       // --- Terminal / session ---
       {
         id: "new-session",
-        label: "Restart terminal session",
+        label: "Restart session",
         keywords: "restart shell pty new terminal",
         run: () => void newTerminalSession(),
       },
@@ -4728,8 +4728,8 @@ async function boot(): Promise<void> {
       {
         id: "toggle-background-work",
         label: isBackgroundWorkMode()
-          ? "Shed PTYs when hidden"
-          : "Keep PTYs alive when hidden",
+          ? "Shed on hide"
+          : "Keep alive on hide",
         keywords:
           "background keep alive pty buffer webview shed hide memory agent logs tui session",
         run: () => void setBackgroundWorkMode(!isBackgroundWorkMode()),
@@ -4737,35 +4737,35 @@ async function boot(): Promise<void> {
       // --- Window ---
       {
         id: "window-maximize",
-        label: "Maximize window",
+        label: "Maximize",
         keywords: "window maximize fullscreen grow zoom",
         hotkey: "Alt+Shift+Up",
         run: () => void setWindowMaximized(true),
       },
       {
         id: "window-restore",
-        label: "Restore window",
+        label: "Restore",
         keywords: "window restore unmaximize shrink",
         hotkey: "Alt+Shift+Down",
         run: () => void setWindowMaximized(false),
       },
       {
         id: "window-next-monitor",
-        label: "Move to next monitor",
+        label: "Next monitor",
         keywords: "window monitor screen display move next",
         hotkey: "Alt+Shift+Right",
         run: () => void moveWindowToAdjacentMonitor(1),
       },
       {
         id: "window-prev-monitor",
-        label: "Move to previous monitor",
+        label: "Previous monitor",
         keywords: "window monitor screen display move previous prev",
         hotkey: "Alt+Shift+Left",
         run: () => void moveWindowToAdjacentMonitor(-1),
       },
       {
         id: "hide-overlay",
-        label: "Hide window",
+        label: "Hide",
         keywords: "close overlay tray background hotkey dismiss",
         hotkey: "Alt+Shift+T",
         run: () => void invoke("toggle_overlay").catch(() => {}),
@@ -4773,19 +4773,19 @@ async function boot(): Promise<void> {
       // --- Presets / saved commands ---
       {
         id: "presets-save",
-        label: "Save tab as preset…",
+        label: "Save as preset",
         keywords: "presets workspace layout snapshot save template reuse",
         run: () => presetsModal?.open(),
       },
       {
         id: "presets-open",
-        label: "Open preset…",
+        label: "Open preset",
         keywords: "presets workspace layout restore load template",
         run: () => presetsModal?.open(),
       },
       {
         id: "new-custom",
-        label: "New saved command…",
+        label: "New command",
         keywords: "create builder save custom",
         run: () => {
           showBuilder();
@@ -4807,14 +4807,14 @@ async function boot(): Promise<void> {
       },
       {
         id: "help-hotkeys",
-        label: "Keyboard shortcuts",
+        label: "Shortcuts",
         keywords: "hotkeys bindings reference help",
         hotkey: "Ctrl+Shift+/",
         run: () => openHelpPanel(),
       },
       {
         id: "quit-app",
-        label: "Quit Partty",
+        label: "Quit",
         keywords: "exit app quit close traffic light red",
         run: () => void appWindow.destroy().catch(() => {}),
       },
