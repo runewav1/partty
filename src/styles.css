@@ -1159,12 +1159,12 @@ html.terminal-no-round .term-tab-group {
 }
 
 .pane-leaf--floating-enter {
-  animation: pane-float-out var(--motion-medium) var(--motion-ease-emphasized) both;
+  animation: pane-float-out var(--motion-medium) var(--motion-ease-emphasized) backwards;
   will-change: transform, opacity;
 }
 
 .pane-leaf--floating-return {
-  animation: pane-float-return var(--motion-fast) var(--motion-ease-out) both;
+  animation: pane-float-return var(--motion-fast) var(--motion-ease-out) backwards;
   will-change: transform, opacity;
 }
 
@@ -1190,11 +1190,11 @@ html.terminal-no-pane-border .pane-host:has(.pane-split) .pane-leaf--focused {
   box-shadow: none;
 }
 
-html.pane-variable-opacity .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--focused) {
+html.pane-variable-opacity .pane-leaf:not(.pane-leaf--focused) {
   opacity: var(--pane-opacity-unfocused, 1);
 }
 
-html.pane-variable-opacity .pane-host:has(.pane-split) .pane-leaf.pane-leaf--focused {
+html.pane-variable-opacity .pane-leaf.pane-leaf--focused {
   opacity: var(--pane-opacity-focused, 1);
 }
 
@@ -1236,7 +1236,7 @@ html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf.pane-leaf--focused:
 }
 
 .pane-leaf--entering {
-  animation: pane-enter var(--motion-slow) var(--motion-ease-emphasized) both;
+  animation: pane-enter var(--motion-slow) var(--motion-ease-emphasized) backwards;
   will-change: transform, opacity;
 }
 
