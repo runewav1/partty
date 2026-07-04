@@ -900,7 +900,6 @@ impl From<ConfigToml> for Prefs {
             always_open_in_zen_mode: c.ui.zen_on_start,
             ui_theme: c.theme.active,
             ui_theme_variant: c.theme.variant,
-            font_terminal: c.font_terminal.family,
             font_ui: c.font_ui.family,
             dev_perf_enabled: c.dev.perf.enable,
             dev_perf_console: c.dev.perf.console,
@@ -988,7 +987,7 @@ impl From<&Prefs> for ConfigToml {
                 warp_to_pane: p.cursor_follow_pane_focus,
                 warp_with_window: p.cursor_follow_window_move,
             },
-            focus: FocusSection {
+            workspace: WorkspaceSection {
                 shed_on_exit: p.shed_workspace_exit.clone(),
                 auto_copy: p.auto_copy_selection,
             },
@@ -1018,6 +1017,7 @@ impl From<&Prefs> for ConfigToml {
                 family: p.font_ui.clone(),
             },
             dev: DevSection {
+                perf: DevPerfSection {
                     enable: p.dev_perf_enabled,
                     console: p.dev_perf_console,
                     console_interval_ms: p.dev_perf_console_interval_ms,
