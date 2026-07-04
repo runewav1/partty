@@ -111,17 +111,6 @@
 | `warp_to_pane` | bool | `true` |
 | `warp_with_window` | bool | `false` |
 
-## `[file_tree]`
-
-| Key | Type | Default | Values |
-|-----|------|---------|--------|
-| `disabled` | bool | `false` | |
-| `hide_search` | bool | `false` | remove filter bar |
-| `side` | string | `"left"` | `"left"` `"right"` |
-| `diff_counts` | bool | `false` | git +/- badges |
-| `git_info` | bool | `true` | git info footer |
-| `confirm_delete` | bool | `true` | |
-
 ## `[workspace]`
 
 | Key | Type | Default | Values |
@@ -167,12 +156,6 @@
 | `family` | string | `""` (system stack) |
 
 ## `[font_ui]`
-
-| Key | Type | Default |
-|-----|------|---------|
-| `family` | string | `""` (system stack) |
-
-## `[font_file_tree]`
 
 | Key | Type | Default |
 |-----|------|---------|
