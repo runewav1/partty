@@ -36,7 +36,7 @@ export function createThemeModal(
   let open = false;
   let initial: UiThemePrefs | null = null;
   let commitOverride: ThemeModalOpenOptions["onCommit"] | null = null;
-  let fontBase = { font_terminal: "", font_ui: "", font_file_tree: "" };
+  let fontBase = { font_terminal: "", font_ui: "" };
   let selectedFlat = 0;
   const builtinFlat: FlatThemeRow[] = [];
   for (const t of THEME_OPTIONS) {
@@ -247,7 +247,6 @@ export function createThemeModal(
       ui_theme_variant: row.variantId,
       font_terminal: fontBase.font_terminal,
       font_ui: fontBase.font_ui,
-      font_file_tree: fontBase.font_file_tree,
     });
   }
 
@@ -267,7 +266,6 @@ export function createThemeModal(
       ui_theme_variant: row.variantId,
       font_terminal: fontBase.font_terminal,
       font_ui: fontBase.font_ui,
-      font_file_tree: fontBase.font_file_tree,
     };
     try {
       if (commitOverride) {
@@ -379,7 +377,6 @@ export function createThemeModal(
           fontBase = {
             font_terminal: initial.font_terminal,
             font_ui: initial.font_ui,
-            font_file_tree: initial.font_file_tree,
           };
         } catch {
           initial = {
@@ -387,12 +384,10 @@ export function createThemeModal(
             ui_theme_variant: "default",
             font_terminal: "",
             font_ui: "",
-            font_file_tree: "",
           };
           fontBase = {
             font_terminal: initial.font_terminal,
             font_ui: initial.font_ui,
-            font_file_tree: initial.font_file_tree,
           };
         }
         if (!open) return;

@@ -31,7 +31,6 @@ export type ParttyPrefs = {
   ui_theme_variant: string;
   font_terminal: string;
   font_ui: string;
-  font_file_tree: string;
   shed_workspace_exit: string;
   always_summon_maximized: boolean;
   summon_spawn_at_cursor: boolean;
@@ -39,12 +38,6 @@ export type ParttyPrefs = {
   /** Warp OS cursor onto the focused pane when focus context changes. */
   cursor_follow_pane_focus?: boolean;
   hidden_from_taskbar: boolean;
-  file_tree_show_diff_counts: boolean;
-  file_tree_show_git_info: boolean;
-  file_tree_disabled: boolean;
-  file_tree_disable_search: boolean;
-  file_tree_side: string;
-  confirm_delete_prompt: boolean;
   ui_disable_tooltips: boolean;
   terminal_backspace_delete_selection: boolean;
   always_open_in_zen_mode: boolean;
@@ -196,12 +189,8 @@ export function createSettingsPanel(
       cursor_follow_pane_focus: gc("cursor_follow_pane_focus"),
       hidden_from_taskbar: gc("hidden_from_taskbar"),
       ui_theme: previous.ui_theme, ui_theme_variant: previous.ui_theme_variant,
-      font_terminal: g("font_terminal"), font_ui: g("font_ui"), font_file_tree: g("font_file_tree"),
-      file_tree_show_diff_counts: gc("file_tree_show_diff_counts"), file_tree_show_git_info: gc("file_tree_show_git_info"),
-      file_tree_disabled: gc("file_tree_disabled"),
-      file_tree_disable_search: gc("file_tree_disable_search"),
-      file_tree_side: gs("file_tree_side") === "right" ? "right" : "left",
-      confirm_delete_prompt: gc("confirm_delete_prompt"), ui_disable_tooltips: gc("ui_disable_tooltips"),
+      font_terminal: g("font_terminal"), font_ui: g("font_ui"),
+      ui_disable_tooltips: gc("ui_disable_tooltips"),
       terminal_alt_click_moves_cursor: gc("terminal_alt_click_moves_cursor"), terminal_backspace_delete_selection: gc("terminal_backspace_delete_selection"),
       always_open_in_zen_mode: gc("always_open_in_zen_mode"),
       terminal_no_gap: terminal_pane_gap <= 0, terminal_pane_gap, terminal_sandbox_padding,
@@ -286,18 +275,6 @@ export function createSettingsPanel(
         (r as HTMLElement).classList.toggle("settings-tree-hidden", !hideOnIdle || mouseHidden);
       });
     }
-    // File search tree: dim git-aware when search is hidden
-    {
-      const panelDisabledEl = form?.querySelector('[name="file_tree_disabled"]') as HTMLInputElement | null;
-      const panelDisabled = panelDisabledEl?.checked ?? false;
-      root.querySelectorAll('[data-child-of="file_tree_disabled"]').forEach((r) => {
-        (r as HTMLElement).classList.toggle("settings-tree-hidden", panelDisabled);
-      });
-      const parentEl = form?.querySelector('[name="file_tree_disable_search"]') as HTMLInputElement | null;
-      const hidden = parentEl?.checked ?? false;
-      const children = root.querySelectorAll('[data-child-of="file_tree_disable_search"]');
-      children.forEach((r) => (r as HTMLElement).classList.toggle("settings-tree-hidden", hidden));
-    }
     // Variable opacity: sub-options dimmed when toggle is off.
     {
       const toggleEl = form?.querySelector('[name="pane_variable_opacity"]') as HTMLInputElement | null;
@@ -377,7 +354,6 @@ export function createSettingsPanel(
     setVal("initial_cwd", p.initial_cwd ?? "");
     setVal("font_terminal", pr.font_terminal ?? "");
     setVal("font_ui", pr.font_ui ?? "");
-    setVal("font_file_tree", pr.font_file_tree ?? "");
     setVal("scrollback_lines", String(p.scrollback_lines));
     setVal("snapshot_max_lines", String(p.snapshot_max_lines));
     setVal("window_effect_opacity", String(pr.window_effect_opacity ?? 0));
@@ -391,8 +367,6 @@ export function createSettingsPanel(
     setSel("terminal_animation_style", ((v?: string) => { v = (v ?? "smooth").toLowerCase(); return v === "snappy" || v === "gentle" || v === "bouncy" ? v : "smooth"; })(pr.terminal_animation_style));
     setChk("terminal_window_motion", pr.terminal_window_motion ?? true);
     setSel("window_effect_mode", (pr.window_effect_mode ?? "off").toLowerCase() === "transparent" ? "transparent" : "off");
-    setSel("file_tree_side", pr.file_tree_side === "right" ? "right" : "left");
-
     setSel("terminal_cursor_style", ((v?: string) => v === "underline" || v === "bar" ? v : "block")(pr.terminal_cursor_style));
     setChk("terminal_cursor_blink", pr.terminal_cursor_blink ?? true);
     setSel("terminal_cursor_inactive_style", ((v?: string) => (v === "outline" || v === "block" || v === "bar" || v === "underline" || v === "none") ? v : "outline")(pr.terminal_cursor_inactive_style));
@@ -443,11 +417,6 @@ export function createSettingsPanel(
     setChk("cursor_follow_window_move", pr.cursor_follow_window_move ?? false);
     setChk("cursor_follow_pane_focus", pr.cursor_follow_pane_focus ?? true);
     setChk("hidden_from_taskbar", pr.hidden_from_taskbar ?? false);
-    setChk("file_tree_show_diff_counts", pr.file_tree_show_diff_counts ?? false);
-    setChk("file_tree_show_git_info", pr.file_tree_show_git_info ?? true);
-    setChk("file_tree_disabled", pr.file_tree_disabled ?? false);
-    setChk("file_tree_disable_search", pr.file_tree_disable_search ?? false);
-    setChk("confirm_delete_prompt", pr.confirm_delete_prompt ?? true);
     setChk("ui_disable_tooltips", pr.ui_disable_tooltips ?? false);
     setChk("terminal_backspace_delete_selection", pr.terminal_backspace_delete_selection ?? true);
     setChk("always_open_in_zen_mode", pr.always_open_in_zen_mode ?? false);
@@ -473,10 +442,6 @@ export function createSettingsPanel(
     if (listenersInstalled) return;
     listenersInstalled = true;
 
-    const searchToggle = form?.querySelector('[name="file_tree_disable_search"]') as HTMLInputElement | null;
-    searchToggle?.addEventListener("change", () => { applySettingsTree(); applySettingsSearch(); });
-    const filesToggle = form?.querySelector('[name="file_tree_disabled"]') as HTMLInputElement | null;
-    filesToggle?.addEventListener("change", () => { applySettingsTree(); applySettingsSearch(); });
     const mouseHiddenToggle = form?.querySelector('[name="mouse_hidden"]') as HTMLInputElement | null;
     mouseHiddenToggle?.addEventListener("change", () => applySettingsTree());
     const mouseIdleToggle = form?.querySelector('[name="mouse_hide_on_idle"]') as HTMLInputElement | null;

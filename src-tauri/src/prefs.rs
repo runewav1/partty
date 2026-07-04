@@ -47,15 +47,6 @@ fn default_pane_opacity_unfocused() -> f64 {
 fn default_pane_focus_scale_intensity() -> f64 {
     0.45
 }
-fn default_confirm_delete_prompt() -> bool {
-    true
-}
-fn default_file_tree_show_git_info() -> bool {
-    true
-}
-fn default_file_tree_side() -> String {
-    "left".to_string()
-}
 fn default_ui_disable_tooltips() -> bool {
     false
 }
@@ -197,19 +188,6 @@ pub struct Prefs {
     pub cursor_follow_pane_focus: bool,
     #[serde(default)]
     pub hidden_from_taskbar: bool,
-    #[serde(default)]
-    pub file_tree_show_diff_counts: bool,
-    #[serde(default = "default_file_tree_show_git_info")]
-    pub file_tree_show_git_info: bool,
-    #[serde(default)]
-    pub file_tree_disabled: bool,
-    #[serde(default)]
-    pub file_tree_disable_search: bool,
-    #[serde(default = "default_file_tree_side")]
-    pub file_tree_side: String,
-    #[serde(default = "default_confirm_delete_prompt")]
-    pub confirm_delete_prompt: bool,
-    #[serde(default = "default_ui_disable_tooltips")]
     pub ui_disable_tooltips: bool,
     #[serde(default = "default_terminal_backspace_delete_selection")]
     pub terminal_backspace_delete_selection: bool,
@@ -300,8 +278,6 @@ pub struct Prefs {
     pub font_terminal: String,
     #[serde(default)]
     pub font_ui: String,
-    #[serde(default)]
-    pub font_file_tree: String,
 }
 
 impl Default for Prefs {
@@ -338,13 +314,6 @@ impl Default for Prefs {
             ui_theme_variant: default_ui_theme_variant(),
             font_terminal: String::new(),
             font_ui: String::new(),
-            font_file_tree: String::new(),
-            file_tree_show_diff_counts: false,
-            file_tree_show_git_info: true,
-            file_tree_disabled: false,
-            file_tree_disable_search: false,
-            file_tree_side: default_file_tree_side(),
-            confirm_delete_prompt: true,
             ui_disable_tooltips: false,
             terminal_backspace_delete_selection: true,
             always_open_in_zen_mode: false,
@@ -419,9 +388,6 @@ pub struct ConfigToml {
     pub lifecycle: LifecycleSection,
     #[serde(default)]
     pub focus: FocusSection,
-    #[serde(default)]
-    pub file_tree: FileTreeSection,
-    #[serde(default)]
     pub workspace: WorkspaceSection,
     #[serde(default)]
     pub notifications: NotificationsSection,
@@ -435,9 +401,6 @@ pub struct ConfigToml {
     pub font_terminal: FontFamilySection,
     #[serde(default)]
     pub font_ui: FontFamilySection,
-    #[serde(default)]
-    pub font_file_tree: FontFamilySection,
-    #[serde(default)]
     pub dev: DevSection,
 }
 
@@ -728,35 +691,6 @@ impl Default for FocusSection {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FileTreeSection {
-    #[serde(default)]
-    pub disabled: bool,
-    #[serde(default)]
-    pub hide_search: bool,
-    #[serde(default = "default_file_tree_side")]
-    pub side: String,
-    #[serde(default)]
-    pub diff_counts: bool,
-    #[serde(default = "default_file_tree_show_git_info")]
-    pub git_info: bool,
-    #[serde(default = "default_confirm_delete_prompt")]
-    pub confirm_delete: bool,
-}
-
-impl Default for FileTreeSection {
-    fn default() -> Self {
-        Self {
-            disabled: false,
-            hide_search: false,
-            side: default_file_tree_side(),
-            diff_counts: false,
-            git_info: true,
-            confirm_delete: true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceSection {
     #[serde(default)]
     pub shed_on_exit: String,
@@ -952,12 +886,7 @@ impl From<ConfigToml> for Prefs {
             focus_follows_cursor: c.focus.follows_mouse,
             cursor_follow_pane_focus: c.focus.warp_to_pane,
             cursor_follow_window_move: c.focus.warp_with_window,
-            file_tree_disabled: c.file_tree.disabled,
-            file_tree_disable_search: c.file_tree.hide_search,
-            file_tree_side: c.file_tree.side,
-            file_tree_show_diff_counts: c.file_tree.diff_counts,
-            file_tree_show_git_info: c.file_tree.git_info,
-            confirm_delete_prompt: c.file_tree.confirm_delete,
+            font_terminal: c.font_terminal.family,
             shed_workspace_exit: c.workspace.shed_on_exit,
             auto_copy_selection: c.workspace.auto_copy,
             process_notification_threshold: c.notifications.command_threshold_secs,
@@ -973,7 +902,6 @@ impl From<ConfigToml> for Prefs {
             ui_theme_variant: c.theme.variant,
             font_terminal: c.font_terminal.family,
             font_ui: c.font_ui.family,
-            font_file_tree: c.font_file_tree.family,
             dev_perf_enabled: c.dev.perf.enable,
             dev_perf_console: c.dev.perf.console,
             dev_perf_console_interval_ms: c.dev.perf.console_interval_ms,
@@ -1060,15 +988,7 @@ impl From<&Prefs> for ConfigToml {
                 warp_to_pane: p.cursor_follow_pane_focus,
                 warp_with_window: p.cursor_follow_window_move,
             },
-            file_tree: FileTreeSection {
-                disabled: p.file_tree_disabled,
-                hide_search: p.file_tree_disable_search,
-                side: p.file_tree_side.clone(),
-                diff_counts: p.file_tree_show_diff_counts,
-                git_info: p.file_tree_show_git_info,
-                confirm_delete: p.confirm_delete_prompt,
-            },
-            workspace: WorkspaceSection {
+            focus: FocusSection {
                 shed_on_exit: p.shed_workspace_exit.clone(),
                 auto_copy: p.auto_copy_selection,
             },
@@ -1097,11 +1017,7 @@ impl From<&Prefs> for ConfigToml {
             font_ui: FontFamilySection {
                 family: p.font_ui.clone(),
             },
-            font_file_tree: FontFamilySection {
-                family: p.font_file_tree.clone(),
-            },
             dev: DevSection {
-                perf: DevPerfSection {
                     enable: p.dev_perf_enabled,
                     console: p.dev_perf_console,
                     console_interval_ms: p.dev_perf_console_interval_ms,

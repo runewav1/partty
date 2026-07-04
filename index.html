@@ -131,10 +131,7 @@
                   <span class="settings-row-label">UI</span>
                   <input id="setting-font-ui" name="font_ui" type="text" class="settings-input" list="font-suggestions" spellcheck="false" autocomplete="off" placeholder="default" />
                 </div>
-                <div class="settings-row">
-                  <span class="settings-row-label">File tree</span>
-                  <input id="setting-font-file-tree" name="font_file_tree" type="text" class="settings-input" list="font-suggestions" spellcheck="false" autocomplete="off" placeholder="default" />
-                </div>
+
               </div>
             </div>
 
@@ -371,33 +368,10 @@
               </div>
             </div>
 
-            <div class="settings-section">
-              <div class="settings-section-hd">Files</div>
-              <div class="settings-section-bd">
-                <div class="settings-row settings-row--compact" data-child-of="file_tree_disabled">
-                  <span class="settings-row-label">Side</span>
-                  <select id="setting-file-tree-side" name="file_tree_side" class="settings-input settings-input--narrow">
-                    <option value="left">Left</option><option value="right">Right</option>
-                  </select>
-                </div>
-                <div class="settings-toggles">
-                  <label class="settings-checkbox-label"><span>Disable file panel</span><input class="settings-checkbox-input" type="checkbox" name="file_tree_disabled" /></label>
-                  <label class="settings-checkbox-label" data-child-of="file_tree_disabled"><span>Diff counts</span><input class="settings-checkbox-input" type="checkbox" name="file_tree_show_diff_counts" /></label>
-                  <label class="settings-checkbox-label" data-child-of="file_tree_disabled"><span>Git panel</span><input class="settings-checkbox-input" type="checkbox" name="file_tree_show_git_info" /></label>
-                  <label class="settings-checkbox-label" data-child-of="file_tree_disabled"><span>Hide search</span><input class="settings-checkbox-input" type="checkbox" name="file_tree_disable_search" /></label>
-                  <label class="settings-checkbox-label" data-child-of="file_tree_disabled"><span>Confirm delete</span><input class="settings-checkbox-input" type="checkbox" name="confirm_delete_prompt" /></label>
-                </div>
-              </div>
-            </div>
+
           </form>
         </div>
       </div>
-
-      <!-- File tree -->
-      <aside id="file-tree-dock" class="file-tree-dock" aria-label="Workspace files" aria-hidden="true">
-        <div id="file-tree-scroll" class="file-tree-scroll termie-scroll-fade"></div>
-      </aside>
-      <div id="file-tree-resize-handle" class="file-tree-resize-handle" aria-hidden="true" title="Resize"></div>
 
       <!-- Extension Manager -->
       <div id="extension-manager" class="extension-manager extension-manager--hidden" aria-hidden="true">

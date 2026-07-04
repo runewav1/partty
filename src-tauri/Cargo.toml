@@ -24,8 +24,6 @@ dirs = "6"
 parking_lot = "0.12"
 tauri-plugin-clipboard-manager = "2"
 sysinfo = { version = "0.39", default-features = false, features = ["system"] }
-notify = { version = "8", default-features = false }
-notify-debouncer-mini = "0.7"
 opener = "0.8"
 
 [target.'cfg(windows)'.dependencies]

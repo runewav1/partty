@@ -97,9 +97,7 @@ import {
   type PresetEditorApi,
 } from "./presetEditorModal";
 import { writePresetJson, type Preset } from "./presets";
-import { FileTreePanel } from "./fileTreePanel";
-import { FileTreeCoordinator } from "./fileTreeCoordinator";
-import { FileTreeBackend } from "./fileTreeBackend";
+
 import {
   ptyAckExit,
   ptyEnsure,
@@ -141,8 +139,7 @@ const PTY_OUTPUT_FLUSH_MS = 4;
 const PTY_OUTPUT_BACKGROUND_FLUSH_MS = 33;
 const PTY_OUTPUT_MAX_BATCH_CHARS = 128 * 1024;
 
-const FILE_TREE_STORAGE_KEY = "partty.filetree.visible";
-const FILE_TREE_WIDTH_KEY = "partty.filetree.widthPx";
+
 const SERIALIZE_STORAGE_KEY = "partty.terminal.serialize";
 const ZEN_MODE_STORAGE_KEY = "partty.zen.enabled";
 const TOOLTIP_STASH_ATTR = "data-partty-tooltip-title";
@@ -153,8 +150,6 @@ const IDLE_WEBGL_MS = 400;
 type PersistedPayload = { prefs: Record<string, unknown> };
 
 const STORAGE_KEY_MIGRATIONS: [string, string][] = [
-  ["termie.filetree.visible", FILE_TREE_STORAGE_KEY],
-  ["termie.filetree.widthPx", FILE_TREE_WIDTH_KEY],
   ["termie.zen.enabled", ZEN_MODE_STORAGE_KEY],
   ["termie.defer_pty_reinit", DEFER_PTY_REINIT_KEY],
   ["termie.tabs.v1", "partty.tabs.v1"],
@@ -315,17 +310,6 @@ function applyPaneFocusScalePrefs(raw: Partial<ParttyPrefs>): void {
   );
 }
 
-function normalizeFileTreeSide(raw: unknown): "left" | "right" {
-  return raw === "right" ? "right" : "left";
-}
-
-function applyFileTreeSide(side: "left" | "right"): void {
-  document.documentElement.classList.toggle(
-    "file-tree-right",
-    side === "right",
-  );
-}
-
 function configureDevPerfPrefs(raw: Partial<ParttyPrefs>): void {
   parttyPerf.configure({
     enabled: Boolean(raw.dev_perf_enabled),
@@ -421,12 +405,7 @@ async function boot(): Promise<void> {
   const uiPrefs = pickUiPrefs(persisted.prefs);
   let currentUiPrefs = uiPrefs;
   applyUiTheme(uiPrefs);
-  applyTerminalDisplayPrefs(persisted.prefs as Partial<ParttyPrefs>);
-  applyFileTreeSide(
-    normalizeFileTreeSide(
-      (persisted.prefs as Partial<ParttyPrefs>).file_tree_side,
-    ),
-  );
+  applyTerminalDisplayPrefs(persisted.prefs as Partial<ParttyPrefs>  );
 
   document.documentElement.classList.toggle(
     "pane-blur-unfocused",
@@ -450,27 +429,12 @@ async function boot(): Promise<void> {
   );
   applyPaneFocusScalePrefs(persisted.prefs as Partial<ParttyPrefs>);
 
-  const fileTreeUserEnabled =
-    localStorage.getItem(FILE_TREE_STORAGE_KEY) === "1";
-  document.documentElement.classList.toggle(
-    "file-tree-on",
-    fileTreeUserEnabled,
-  );
   const prefAlwaysZen = Boolean(
     (persisted.prefs as Partial<ParttyPrefs>).always_open_in_zen_mode,
   );
   const zenModeEnabled =
     prefAlwaysZen || localStorage.getItem(ZEN_MODE_STORAGE_KEY) === "1";
   document.documentElement.classList.toggle("zen-mode", zenModeEnabled);
-  const ftW = localStorage.getItem(FILE_TREE_WIDTH_KEY);
-  if (ftW) {
-    const n = Math.max(160, Math.min(560, parseInt(ftW, 10) || 260));
-    document.documentElement.style.setProperty(
-      "--file-tree-user-width",
-      `${n}px`,
-    );
-  }
-
   const releaseBootSurface = (): void => {
     document.documentElement.classList.remove("partty-booting");
   };
@@ -486,14 +450,6 @@ async function boot(): Promise<void> {
   const focusFollowsRef = { v: lp.focus_follows_cursor };
   const autoCopySelectionRef = {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).auto_copy_selection),
-  };
-  const fileTreeSideRef = {
-    v: normalizeFileTreeSide(
-      (persisted.prefs as Partial<ParttyPrefs>).file_tree_side,
-    ),
-  };
-  const fileTreeDisabledRef = {
-    v: Boolean((persisted.prefs as Partial<ParttyPrefs>).file_tree_disabled),
   };
   const splitLayoutStyleRef = {
     v: normalizeSplitLayoutStyle(
@@ -572,9 +528,7 @@ async function boot(): Promise<void> {
       (persisted.prefs as Partial<ParttyPrefs>)
         .terminal_backspace_delete_selection ?? true,
   };
-  const confirmDeletePromptRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).confirm_delete_prompt ?? true,
-  };
+  
   const cursorStyleRef = {
     v:
       ((persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_style as
@@ -1183,31 +1137,22 @@ async function boot(): Promise<void> {
     void ptyFocusPane(id).catch(() => {});
   }
 
-  function focusFileTreePanel(): boolean {
-    if (!document.documentElement.classList.contains("file-tree-on"))
-      return false;
-    const dock = document.getElementById("file-tree-dock");
-    if (!dock || dock.getAttribute("aria-hidden") === "true") return false;
-    const scroll = document.getElementById(
-      "file-tree-scroll",
-    ) as HTMLElement | null;
-    if (!scroll) return false;
-    scroll.focus();
-    return true;
-  }
-
   function focusAdjacentPaneByArrow(
     key: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown",
   ): boolean {
     const host = paneHost;
-    if (!host) return false;
-    const currentId = host.getFocusedPaneId();
-    if (!currentId) return false;
-    const next = host.getDirectionalAdjacentLeafId(currentId, key);
-    if (!next) return false;
-    host.setFocusedPaneId(next);
-    scheduleCursorWarpToPane(next, { force: true });
-    return true;
+    if (host) {
+      const currentId = host.getFocusedPaneId();
+      if (currentId) {
+        const next = host.getDirectionalAdjacentLeafId(currentId, key);
+        if (next) {
+          host.setFocusedPaneId(next);
+          scheduleCursorWarpToPane(next, { force: true });
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   function swapFocusedPaneWithAdjacent(
@@ -1510,7 +1455,7 @@ async function boot(): Promise<void> {
         "pane.float_toggle",
         "pane.swap_left", "pane.swap_right", "pane.swap_up", "pane.swap_down",
         "pane.close",
-        "file_tree.toggle",
+
       );
 
       if (m) {
@@ -1569,10 +1514,6 @@ async function boot(): Promise<void> {
             e.preventDefault();
             void closeFocusedPane();
             return false;
-          case "file_tree.toggle":
-            e.preventDefault();
-            toggleFileTree();
-            return false;
         }
         return true;
       }
@@ -1629,11 +1570,6 @@ async function boot(): Promise<void> {
   const terminalContent = document.getElementById("terminal-content");
   const stage = document.getElementById("terminal-stage");
 
-  let fileTreePanel: FileTreePanel | null = null;
-  let fileTreeBackend: FileTreeBackend | null = null;
-  let fileTreeCoordinator: FileTreeCoordinator | null = null;
-  let fileTreeRefreshTimer = 0;
-  let cwdSyncTimer = 0;
 
   function refreshAllTerminalThemes(): void {
     // Refresh all tabs so theme changes don't drift on inactive tabs
@@ -1667,6 +1603,7 @@ async function boot(): Promise<void> {
 
   let debounceTimer = 0;
   let layoutRaf = 0;
+  let cwdSyncTimer = 0;
   let layoutForceRefresh = false;
   let terminalLayoutSuspended = false;
   let pendingSuspendedLayout = false;
@@ -1743,26 +1680,9 @@ async function boot(): Promise<void> {
     for (const id of ids) scheduleCreationReflow(id);
   }
 
-  function scheduleFileTreeRefresh(): void {
-    if (fileTreeRefreshTimer) window.clearTimeout(fileTreeRefreshTimer);
-    fileTreeRefreshTimer = window.setTimeout(() => {
-      fileTreeRefreshTimer = 0;
-      if (fileTreeCoordinator) {
-        void fileTreeCoordinator.refresh();
-      } else {
-        void fileTreePanel?.refresh();
-      }
-    }, 280);
-  }
-
   async function syncCwdFromBackend(): Promise<void> {
     try {
       if (Date.now() - lastLiveCwdSignalAt < 1500) return;
-      if (fileTreeCoordinator) {
-        await fileTreeCoordinator.syncCwdFromBackend();
-        await fileTreeCoordinator.refresh();
-        return;
-      }
       const paneId = paneHost?.getFocusedPaneId() ?? null;
       const p = await ptyShellCwd(paneId);
       if (p == null || !p.trim()) return;
@@ -1770,23 +1690,8 @@ async function boot(): Promise<void> {
       if (normalizeFsPathKey(next) === normalizeFsPathKey(liveCwd ?? ""))
         return;
       liveCwd = next;
-      scheduleFileTreeRefresh();
     } catch {
       /* ignore */
-    }
-  }
-
-  async function setDeleteConfirmPrompt(enabled: boolean): Promise<void> {
-    try {
-      const state = await invoke<{
-        window: Record<string, unknown>;
-        prefs: ParttyPrefs;
-      }>("get_persisted_state");
-      const next = { ...state.prefs, confirm_delete_prompt: enabled };
-      await invoke("set_prefs", { prefs: next });
-      confirmDeletePromptRef.v = enabled;
-    } catch (e) {
-      console.warn("set_prefs(confirm_delete_prompt)", e);
     }
   }
 
@@ -1794,12 +1699,7 @@ async function boot(): Promise<void> {
     document.documentElement.classList.toggle("zen-mode", next);
     localStorage.setItem(ZEN_MODE_STORAGE_KEY, next ? "1" : "0");
     applyTooltipPolicy(document);
-    if (next) setFileTreeEnabled(false);
     scheduleResizeImmediate();
-  }
-
-  async function reloadFileTree(): Promise<void> {
-    await fileTreePanel?.forceReload();
   }
 
   function scheduleCwdSync(): void {
@@ -1809,49 +1709,6 @@ async function boot(): Promise<void> {
       void syncCwdFromBackend();
     }, 120);
   }
-
-  function setFileTreeEnabled(on: boolean): void {
-    if (fileTreeDisabledRef.v) on = false;
-    localStorage.setItem(FILE_TREE_STORAGE_KEY, on ? "1" : "0");
-    document.documentElement.classList.toggle("file-tree-on", on);
-    const dock = document.getElementById("file-tree-dock");
-    if (dock) dock.setAttribute("aria-hidden", on ? "false" : "true");
-    scheduleResizeImmediate();
-    void fileTreePanel?.refresh();
-  }
-
-  function toggleFileTree(): void {
-    if (fileTreeDisabledRef.v) return;
-    setFileTreeEnabled(
-      !document.documentElement.classList.contains("file-tree-on"),
-    );
-  }
-
-  function focusFileTreeFilter(): boolean {
-    if (fileTreeDisabledRef.v) return false;
-    if (!document.documentElement.classList.contains("file-tree-on")) {
-      setFileTreeEnabled(true);
-    }
-    const scroll = document.getElementById("file-tree-scroll");
-    scroll?.focus();
-    return true;
-  }
-
-  function syncFileTreeDisabledUi(disabled: boolean): void {
-    if (disabled) {
-      localStorage.setItem(FILE_TREE_STORAGE_KEY, "0");
-      document.documentElement.classList.remove("file-tree-on");
-      const dock = document.getElementById("file-tree-dock");
-      if (dock) dock.setAttribute("aria-hidden", "true");
-      scheduleResizeImmediate();
-    }
-  }
-
-  // Apply the initial file-tree-disabled UI state. Must run after `fileTreePanel`
-  // (declared above with `let`) is initialized — calling `syncFileTreeDisabledUi`
-  // before that point throws a TDZ ReferenceError when the tree is disabled,
-  // which aborts boot() before the show pipeline is wired up.
-  syncFileTreeDisabledUi(fileTreeDisabledRef.v);
 
   function requestLayoutPass(forceRefresh = false): void {
     layoutForceRefresh ||= forceRefresh;
@@ -2140,16 +1997,9 @@ async function boot(): Promise<void> {
             pt.term.focus();
           }
           void ptyFocusPane(id).catch(() => {});
-          fileTreePanel?.setActivePane(id);
-          if (fileTreeCoordinator) {
-            fileTreeCoordinator.seedPaneCwd(id, paneCwdHints.get(id));
-            fileTreeCoordinator.handlePaneFocus(id);
-          } else {
-            const hint = paneCwdHints.get(id);
-            if (hint) {
-              liveCwd = hint;
-              scheduleFileTreeRefresh();
-            }
+          const hint = paneCwdHints.get(id);
+          if (hint) {
+            liveCwd = hint;
           }
           void syncCwdFromBackend();
           void remountAuxiliaryForFocus(id);
@@ -2370,8 +2220,6 @@ async function boot(): Promise<void> {
     paneThemes.delete(pid);
     cleanupPaneVisualState(pid);
     parttyPerf.resetPane(pid);
-    fileTreePanel?.clearPaneState(pid);
-    fileTreeCoordinator?.handlePaneDispose(pid);
           // Notify extension subscribers.
           if (extPaneClosedSubs.length > 0) {
             for (const fn of extPaneClosedSubs) {
@@ -2549,19 +2397,9 @@ async function boot(): Promise<void> {
       scheduleResizeImmediate(true);
     }
 
-    fileTreePanel?.setActivePane(lastFocusedPaneId);
-    if (fileTreeCoordinator) {
-      fileTreeCoordinator.seedPaneCwd(
-        lastFocusedPaneId,
-        paneCwdHints.get(lastFocusedPaneId),
-      );
-      fileTreeCoordinator.handlePaneFocus(lastFocusedPaneId);
-    } else {
-      const hint = paneCwdHints.get(lastFocusedPaneId);
-      if (hint) {
-        liveCwd = hint;
-        scheduleFileTreeRefresh();
-      }
+    const hint = paneCwdHints.get(lastFocusedPaneId);
+    if (hint) {
+      liveCwd = hint;
     }
     document.documentElement.classList.toggle(
       "term-tabs-multiple",
@@ -3234,7 +3072,6 @@ async function boot(): Promise<void> {
         "window.move_prev_monitor",
         "window.maximize",
         "window.restore",
-        "focus.file_tree",
         "focus.terminal",
         "focus.pane_up", "focus.pane_down",
       );
@@ -3264,22 +3101,7 @@ async function boot(): Promise<void> {
         return;
       }
 
-      if (m === "focus.file_tree" || m === "focus.pane_up" || m === "focus.terminal" || m === "focus.pane_down") {
-        const t = e.target as HTMLElement | null;
-        const inFileTree = Boolean(t?.closest("#file-tree-dock"));
-        if (inFileTree) {
-          if (m === "focus.terminal") {
-            e.preventDefault();
-            e.stopPropagation();
-            focusActiveTerminal();
-          }
-          return;
-        }
-        if (m === "focus.file_tree" && focusFileTreePanel()) {
-          e.preventDefault();
-          e.stopPropagation();
-          return;
-        }
+      if (m === "focus.pane_up" || m === "focus.terminal" || m === "focus.pane_down") {
         if (focusAdjacentPaneByArrow(e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown")) {
           e.preventDefault();
           e.stopPropagation();
@@ -3294,7 +3116,6 @@ async function boot(): Promise<void> {
     (e) => {
       const target = e.target as HTMLElement | null;
       if (!target) return;
-      if (target.closest("#file-tree-dock")) return;
       const terminalRoot = document.getElementById("terminal-pane-root");
       if (!terminalRoot || !terminalRoot.contains(target)) return;
       if (
@@ -3974,7 +3795,7 @@ async function boot(): Promise<void> {
   window.addEventListener(
     "keydown",
     (e) => {
-      const m = k.match(e, "pane.float_toggle", "file_tree.toggle", "settings.open");
+      const m = k.match(e, "pane.float_toggle", "settings.open");
       if (!m) return;
       const t = e.target as HTMLElement | null;
       if (
@@ -3988,9 +3809,6 @@ async function boot(): Promise<void> {
       switch (m) {
         case "pane.float_toggle":
           toggleFocusedPaneFloating();
-          break;
-        case "file_tree.toggle":
-          toggleFileTree();
           break;
         case "settings.open":
           settingsApi?.open();
@@ -4026,58 +3844,6 @@ async function boot(): Promise<void> {
     true,
   );
 
-  const fileTreeDockEl = document.getElementById("file-tree-dock");
-  const fileTreeResizeHandle = document.getElementById(
-    "file-tree-resize-handle",
-  );
-  async function setFileTreeSide(side: "left" | "right"): Promise<void> {
-    const normalized = normalizeFileTreeSide(side);
-    fileTreeSideRef.v = normalized;
-    applyFileTreeSide(normalized);
-    const current = persisted.prefs as Partial<ParttyPrefs>;
-    const next = { ...(current as ParttyPrefs), file_tree_side: normalized };
-    persisted.prefs = next as unknown as Record<string, unknown>;
-    await invoke("set_prefs", { prefs: next }).catch((e) =>
-      console.warn("set_prefs file_tree_side", e),
-    );
-    scheduleResizeImmediate();
-  }
-  if (fileTreeDockEl) {
-    fileTreeDockEl.setAttribute(
-      "aria-hidden",
-      fileTreeUserEnabled ? "false" : "true",
-    );
-  }
-
-  fileTreeResizeHandle?.addEventListener("pointerdown", (e) => {
-    if (!document.documentElement.classList.contains("file-tree-on")) return;
-    e.preventDefault();
-    setTerminalLayoutSuspended(true);
-    fileTreeResizeHandle.classList.add("file-tree-resize-active");
-    const startX = e.clientX;
-    const startW = fileTreeDockEl?.getBoundingClientRect().width ?? 260;
-    const onMove = (ev: PointerEvent): void => {
-      const delta =
-        fileTreeSideRef.v === "right"
-          ? startX - ev.clientX
-          : ev.clientX - startX;
-      const next = Math.round(Math.max(160, Math.min(560, startW + delta)));
-      document.documentElement.style.setProperty(
-        "--file-tree-user-width",
-        `${next}px`,
-      );
-    };
-    const onUp = (): void => {
-      fileTreeResizeHandle.classList.remove("file-tree-resize-active");
-      window.removeEventListener("pointermove", onMove);
-      const w = fileTreeDockEl?.getBoundingClientRect().width;
-      if (w) localStorage.setItem(FILE_TREE_WIDTH_KEY, String(Math.round(w)));
-      setTerminalLayoutSuspended(false);
-      scheduleResizeImmediate(true);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp, { once: true });
-  });
   async function newTerminalSession(): Promise<void> {
     const killIds = paneHost?.getLeafIdsInOrder() ?? [];
     for (const pid of killIds) {
@@ -4185,13 +3951,9 @@ async function boot(): Promise<void> {
           persisted.prefs = saved as unknown as Record<string, unknown>;
           Object.assign(lp, mergeLifecyclePrefs(persisted.prefs));
           autoCopySelectionRef.v = saved.auto_copy_selection;
-          fileTreeSideRef.v = normalizeFileTreeSide(saved.file_tree_side);
-          applyFileTreeSide(fileTreeSideRef.v);
-          fileTreeDisabledRef.v = saved.file_tree_disabled ?? false;
           splitLayoutStyleRef.v = normalizeSplitLayoutStyle(
             saved.split_layout_style,
           );
-          confirmDeletePromptRef.v = saved.confirm_delete_prompt ?? true;
           disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
           altClickCursorRef.v = saved.terminal_alt_click_moves_cursor ?? true;
           cursorBlinkRef.v = saved.terminal_cursor_blink ?? true;
@@ -4281,7 +4043,6 @@ async function boot(): Promise<void> {
           quietPaneDeferralRef.v = Boolean(
             (saved as Partial<ParttyPrefs>).quiet_pane_deferral,
           );
-          syncFileTreeDisabledUi(fileTreeDisabledRef.v);
           applyTerminalDisplayPrefs(saved);
           if (saved.scrollback_lines !== previous.scrollback_lines) {
             for (const host of tabPaneHosts.values()) {
@@ -4901,31 +4662,6 @@ async function boot(): Promise<void> {
         label: "Theme pane…",
         keywords: "theme appearance colors focused pane local override",
         run: () => openFocusedPaneTheme(),
-      },
-      // --- Files ---
-      {
-        id: "toggle-file-tree",
-        label: "Toggle file panel",
-        keywords: "files explorer sidebar workspace ctrl shift e",
-        hotkey: fileTreeDisabledRef.v ? undefined : "Ctrl+Shift+E",
-        run: () => {
-          if (fileTreeDisabledRef.v) return;
-          toggleFileTree();
-        },
-      },
-      {
-        id: "filter-file-tree",
-        label: "Search files",
-        keywords: "filter search grep rg find",
-        run: () => {
-          focusFileTreeFilter();
-        },
-      },
-      {
-        id: "reload-file-tree",
-        label: "Reload files",
-        keywords: "refresh explorer rescan restart watch cwd",
-        run: () => void reloadFileTree(),
       },
       // --- View / appearance ---
       {
@@ -5548,11 +5284,9 @@ async function boot(): Promise<void> {
       const { paneId, cwd } = event.payload;
       paneCwdHints.set(paneId, cwd);
       lastLiveCwdSignalAt = Date.now();
-      fileTreeCoordinator?.seedPaneCwd(paneId, cwd);
       if (paneId !== paneHost?.getFocusedPaneId()) return;
       if (normalizeFsPathKey(cwd) === normalizeFsPathKey(liveCwd ?? "")) return;
       liveCwd = cwd;
-      scheduleFileTreeRefresh();
     }),
 
     listen<{
@@ -5645,7 +5379,6 @@ async function boot(): Promise<void> {
       paneHost?.forEachPane((_id, p) => {
         p.term.reset();
       });
-      scheduleFileTreeRefresh();
       scheduleCwdSync();
     }),
     listen("partty-hide", () => {
@@ -5678,7 +5411,6 @@ async function boot(): Promise<void> {
       await mountWebglForFocused();
       getFocusedTerm()?.focus();
       scheduleResizeImmediate();
-      scheduleFileTreeRefresh();
       scheduleCwdSync();
       await new Promise((r) => requestAnimationFrame(r));
       await new Promise((r) => requestAnimationFrame(r));
@@ -5734,42 +5466,6 @@ async function boot(): Promise<void> {
 
   scheduleIdle(() => {
     void (async () => {
-      const fts = document.getElementById("file-tree-scroll");
-      if (fts && !fileTreePanel) {
-        fileTreeCoordinator = new FileTreeCoordinator({
-          onFileTreeRootChange: (root) => {
-            liveCwd = root;
-            void fileTreePanel?.setRoot(root);
-          },
-          onFileSystemChange: (paths) => {
-            fileTreePanel?.handleFileSystemChange(paths);
-          },
-        });
-        fileTreeBackend = fileTreeCoordinator.getFileTreeBackend();
-        fileTreePanel = new FileTreePanel(fts, fileTreeBackend, {
-          getConfirmDeletePrompt: () => confirmDeletePromptRef.v,
-          setConfirmDeletePrompt: (enabled) => {
-            confirmDeletePromptRef.v = enabled;
-            void setDeleteConfirmPrompt(enabled);
-          },
-          getPanelSide: () => fileTreeSideRef.v,
-          setPanelSide: (side) => {
-            void setFileTreeSide(side);
-          },
-        });
-        const focusedPaneId = paneHost?.getFocusedPaneId();
-        if (focusedPaneId) {
-          fileTreePanel.setActivePane(focusedPaneId);
-          fileTreeCoordinator.seedPaneCwd(
-            focusedPaneId,
-            paneCwdHints.get(focusedPaneId) ?? liveCwd,
-          );
-          fileTreeCoordinator.handlePaneFocus(focusedPaneId);
-        }
-        void fileTreeCoordinator
-          .syncCwdFromBackend()
-          .then(() => fileTreeCoordinator?.refresh());
-      }
       scheduleResizeImmediate();
     })();
   });
@@ -6029,9 +5725,6 @@ async function boot(): Promise<void> {
   window.addEventListener("beforeunload", () => {
     mouseCursorController?.dispose();
     bridgeScrollCleanup?.();
-    fileTreePanel?.dispose();
-    fileTreeCoordinator?.dispose();
-    fileTreeBackend?.dispose();
     paneHost = null;
     commandPalette?.dispose();
   });

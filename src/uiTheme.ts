@@ -1,6 +1,5 @@
 /**
  * App-wide UI + terminal theming. Presets set CSS variables on `document.documentElement`.
- * File-tree git status colors stay semantic (not overridden by theme ink).
  */
 
 import type { ITheme } from "@xterm/xterm";
@@ -11,7 +10,7 @@ export type UiThemePrefs = {
   ui_theme_variant: string;
   font_terminal: string;
   font_ui: string;
-  font_file_tree: string;
+
 };
 
 export type PaneThemePrefs = Pick<UiThemePrefs, "ui_theme" | "ui_theme_variant">;
@@ -711,7 +710,6 @@ const INHERITED_THEME_KEYS = new Set([
   "ui_theme_variant",
   "font_terminal",
   "font_ui",
-  "font_file_tree",
 ]);
 
 export function pickUiPrefs(prefs: Record<string, unknown>): UiThemePrefs {
@@ -721,7 +719,6 @@ export function pickUiPrefs(prefs: Record<string, unknown>): UiThemePrefs {
       typeof prefs.ui_theme_variant === "string" ? prefs.ui_theme_variant : "default",
     font_terminal: typeof prefs.font_terminal === "string" ? prefs.font_terminal : "",
     font_ui: typeof prefs.font_ui === "string" ? prefs.font_ui : "",
-    font_file_tree: typeof prefs.font_file_tree === "string" ? prefs.font_file_tree : "",
   };
 }
 
@@ -1037,10 +1034,6 @@ export function applyUiTheme(prefs: UiThemePrefs): void {
   const uiFont = prefs.font_ui.trim();
   if (uiFont) root.style.setProperty("--font-ui", uiFont);
   else root.style.removeProperty("--font-ui");
-
-  const ftFont = prefs.font_file_tree.trim();
-  if (ftFont) root.style.setProperty("--font-file-tree", ftFont);
-  else root.style.removeProperty("--font-file-tree");
 
   const clearThemeVars = (): void => {
     const toClear: string[] = [];

@@ -1,5 +1,3 @@
-mod fs_watcher;
-mod fs_workspace;
 mod keybinds;
 mod palette_commands;
 mod peb_cwd_windows;
@@ -16,7 +14,6 @@ use pty::PtySession;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command as StdCommand;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -47,8 +44,6 @@ pub struct AppState {
     /// Incremented whenever a delayed destroy should be invalidated (e.g. window was shown again).
     pub hide_destroy_generation: AtomicU64,
     pub app_session_id: String,
-    /// Filesystem watcher for file tree live-updating.
-    pub fs_watcher: fs_watcher::WatcherHandle,
     /// Pre-warmed PTY session ready for instant pane creation.
     pub warm_pty: Mutex<Option<WarmPty>>,
 }
@@ -67,59 +62,8 @@ fn get_app_session_id(state: State<'_, AppState>) -> String {
 }
 
 #[tauri::command]
-fn read_dir_entries(path: String) -> Result<Vec<fs_workspace::FsEntry>, String> {
-    fs_workspace::read_dir_entries_impl(path)
-}
-
-#[tauri::command]
-fn read_dir_summary(path: String) -> Result<fs_workspace::FsDirSummary, String> {
-    fs_workspace::read_dir_summary_impl(path)
-}
-
-#[tauri::command]
-fn fs_parent_dir(path: String) -> Result<Option<String>, String> {
-    fs_workspace::fs_parent_dir(path)
-}
-
-#[tauri::command]
-fn fs_rename(from: String, to: String) -> Result<(), String> {
-    fs_workspace::fs_rename(from, to)
-}
-
-#[tauri::command]
-fn fs_move_path(from: String, to: String) -> Result<(), String> {
-    fs_workspace::fs_move(from, to)
-}
-
-#[tauri::command]
-fn fs_remove(path: String, recursive: bool) -> Result<(), String> {
-    fs_workspace::fs_remove(path, recursive)
-}
-
-#[tauri::command]
-fn fs_create_file(path: String) -> Result<(), String> {
-    fs_workspace::fs_create_file(path)
-}
-
-#[tauri::command]
-fn fs_create_dir(path: String) -> Result<(), String> {
-    fs_workspace::fs_create_dir(path)
-}
-
-#[tauri::command]
 fn detect_shells() -> Vec<pty::DetectedShell> {
     pty::detect_available_shells()
-}
-
-#[tauri::command]
-fn fs_watch(app: AppHandle, state: State<'_, AppState>, path: String) -> Result<(), String> {
-    fs_watcher::start_watching(&state.fs_watcher, app, path)
-}
-
-#[tauri::command]
-fn fs_unwatch(state: State<'_, AppState>) -> Result<(), String> {
-    fs_watcher::stop_watching(&state.fs_watcher);
-    Ok(())
 }
 
 #[tauri::command]
@@ -129,200 +73,6 @@ fn open_external_url(url: String) -> Result<(), String> {
         return Err("only http/https links are allowed".to_string());
     }
     opener::open(trimmed).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-fn open_in_editor(path: String) -> Result<(), String> {
-    let p = std::path::PathBuf::from(&path);
-    if !p.exists() {
-        return Err(format!("path does not exist: {}", path));
-    }
-    {
-        use std::ffi::OsStr;
-        use std::os::windows::ffi::OsStrExt;
-        use std::ptr;
-        use windows_sys::Win32::UI::Shell::{
-            ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW,
-        };
-
-        let wide_path: Vec<u16> = OsStr::new(&path)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        let wide_verb: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
-
-        let mut sei: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
-        sei.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
-        sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
-        sei.hwnd = ptr::null_mut();
-        sei.lpVerb = wide_verb.as_ptr();
-        sei.lpFile = wide_path.as_ptr();
-        sei.nShow = 1; // SW_SHOWNORMAL
-
-        unsafe {
-            if ShellExecuteExW(&mut sei) == 0 {
-                return Err(format!("failed to open file with ShellExecuteExW"));
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Show a file in Explorer / Finder, or open a folder.
-#[tauri::command]
-fn reveal_in_explorer(path: String) -> Result<(), String> {
-    let p = PathBuf::from(&path);
-    if !p.exists() {
-        return Err(format!("path does not exist: {}", path));
-    }
-    // For files, open the parent folder instead of trying to select the file
-    let target = if p.is_file() {
-        p.parent().unwrap_or(&p)
-    } else {
-        &p
-    };
-    {
-        use std::ffi::OsStr;
-        use std::os::windows::ffi::OsStrExt;
-        use std::ptr;
-        use windows_sys::Win32::UI::Shell::{
-            ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW,
-        };
-        let wide_path: Vec<u16> = OsStr::new(target)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        let wide_verb: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
-
-        let mut sei: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
-        sei.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
-        sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
-        sei.hwnd = ptr::null_mut();
-        sei.lpVerb = wide_verb.as_ptr();
-        sei.lpFile = wide_path.as_ptr();
-        sei.nShow = 1; // SW_SHOWNORMAL
-
-        unsafe {
-            if ShellExecuteExW(&mut sei) == 0 {
-                // Fallback to explorer.exe
-                StdCommand::new("explorer.exe")
-                    .arg(target)
-                    .spawn()
-                    .map_err(|e| e.to_string())?;
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Open a new OS terminal window at `cwd` (Windows Terminal if available).
-#[tauri::command]
-fn open_external_terminal(cwd: String, terminal: Option<String>) -> Result<(), String> {
-    let cdir = PathBuf::from(&cwd);
-    if !cdir.is_dir() {
-        return Err(format!("not a directory: {}", cwd));
-    }
-    {
-        let requested = terminal.unwrap_or_else(|| "wt".to_string()).to_lowercase();
-
-        // Check if it's a full path or a simple token
-        let is_full_path = requested.contains('\\') || requested.contains('/');
-
-        if is_full_path {
-            // Full path - use ShellExecuteExW to open the terminal
-            use std::ffi::OsStr;
-            use std::os::windows::ffi::OsStrExt;
-            use std::ptr;
-            use windows_sys::Win32::UI::Shell::{
-                ShellExecuteExW, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOASYNC, SHELLEXECUTEINFOW,
-            };
-
-            let wide_terminal: Vec<u16> = OsStr::new(&requested)
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect();
-            // Quote the working directory path; terminals that accept a bare
-            // path argument will see it as a single argument even with spaces.
-            let quoted_cwd = format!("\"{}\"", cwd.replace('"', "\"\""));
-            let wide_cwd: Vec<u16> = OsStr::new(&quoted_cwd)
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect();
-            let wide_verb: Vec<u16> = "open".encode_utf16().chain(std::iter::once(0)).collect();
-
-            let mut sei: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
-            sei.cbSize = std::mem::size_of::<SHELLEXECUTEINFOW>() as u32;
-            sei.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI;
-            sei.hwnd = ptr::null_mut();
-            sei.lpVerb = wide_verb.as_ptr();
-            sei.lpFile = wide_terminal.as_ptr();
-            sei.lpParameters = wide_cwd.as_ptr();
-            sei.lpDirectory = ptr::null();
-            sei.nShow = 1;
-
-            unsafe {
-                if ShellExecuteExW(&mut sei) == 0 {
-                    // Fallback to StdCommand
-                    StdCommand::new(&requested)
-                        .arg(&cwd)
-                        .spawn()
-                        .map_err(|e| format!("Failed to open terminal: {}", e))?;
-                }
-            }
-        } else {
-            // Simple token - use the original logic
-            let launched = match requested.as_str() {
-                "wt" | "windows terminal" => {
-                    StdCommand::new("wt").args(["-d", &cwd]).spawn().is_ok()
-                }
-                "powershell" | "pwsh" => StdCommand::new("powershell")
-                    .args([
-                        "-NoExit",
-                        "-Command",
-                        &format!("Set-Location -LiteralPath '{}'", cwd.replace('\'', "''")),
-                    ])
-                    .spawn()
-                    .is_ok(),
-                "cmd" | "command prompt" => StdCommand::new("cmd")
-                    .args(["/c", "start", "cmd", "/k", "cd", "/d", &cwd])
-                    .spawn()
-                    .is_ok(),
-                "bash" | "git bash" | "git-bash" => StdCommand::new("cmd")
-                    .args([
-                        "/c",
-                        "start",
-                        "bash",
-                        "-lc",
-                        &format!("cd '{}' ; exec bash", cwd.replace('\'', "''")),
-                    ])
-                    .spawn()
-                    .is_ok(),
-                other => StdCommand::new(other).arg(&cwd).spawn().is_ok(),
-            };
-
-            if !launched {
-                // Fallback to cmd.exe for reliability.
-                StdCommand::new("cmd")
-                    .args(["/c", "start", "cmd", "/k", "cd", "/d", &cwd])
-                    .spawn()
-                    .map_err(|e| format!("Failed to open terminal: {}", e))?;
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Run a file with the OS shell / file association (exe, bat, cmd, vbs, etc.).
-#[tauri::command]
-fn run_file(path: String) -> Result<(), String> {
-    let p = PathBuf::from(&path);
-    if !p.exists() {
-        return Err(format!("path does not exist: {}", path));
-    }
-    {
-        opener::open(&p).map_err(|e| e.to_string())?;
-    }
     Ok(())
 }
 
@@ -1175,7 +925,6 @@ pub fn run() {
             defer_prepare_show_until_webview_ready: AtomicBool::new(false),
             hide_destroy_generation: AtomicU64::new(0),
             app_session_id: make_app_session_id(),
-            fs_watcher: fs_watcher::create_watcher_handle(),
             warm_pty: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
@@ -1215,22 +964,8 @@ pub fn run() {
             keybinds::get_keybinds,
             keybinds::set_keybind,
             keybinds::reset_keybinds,
-            read_dir_entries,
-            read_dir_summary,
-            fs_parent_dir,
-            fs_rename,
-            fs_move_path,
-            fs_remove,
-            fs_create_file,
-            fs_create_dir,
             detect_shells,
-            open_in_editor,
             open_external_url,
-            reveal_in_explorer,
-            open_external_terminal,
-            run_file,
-            fs_watch,
-            fs_unwatch,
         ])
         .setup(move |app| {
             let handle = app.handle().clone();

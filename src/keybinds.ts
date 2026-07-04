@@ -117,8 +117,6 @@ const DEFAULT_BINDS: Record<string, string> = {
   "palette.open": "Ctrl+Shift+P",
   "palette.chord": "Ctrl+Shift+P",
   "help.toggle": "Ctrl+Shift+/",
-  "file_tree.toggle": "Ctrl+Shift+E",
-  "focus.file_tree": "Alt+ArrowLeft",
   "focus.terminal": "Alt+ArrowRight",
   "focus.pane_up": "Alt+ArrowUp",
   "focus.pane_down": "Alt+ArrowDown",

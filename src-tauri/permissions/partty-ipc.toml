@@ -1,6 +1,6 @@
 [[permission]]
 identifier = "partty-ipc"
-description = "Partty PTY, window, palette, persistence IPC, and local directory listing."
+description = "Partty PTY, window, palette, persistence IPC."
 commands.allow = [
   "pty_ensure",
   "pty_spawn",
@@ -34,24 +34,6 @@ commands.allow = [
   "get_palette_context",
   "upsert_palette_command",
   "delete_palette_command",
-  "read_dir_entries",
-  "fs_parent_dir",
-  "fs_rename",
-  "fs_move_path",
-  "fs_remove",
-  "fs_create_file",
-  "fs_create_dir",
-  "fs_watch",
-  "fs_unwatch",
   "detect_shells",
-  "open_in_editor",
   "open_external_url",
-  "reveal_in_explorer",
-  "open_external_terminal",
-  "open_with_editor",
-  "run_file",
-  "git_workdir_status",
-  "search_file_contents",
-  "search_file_content_details",
-  "search_files_root",
 ]

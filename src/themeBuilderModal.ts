@@ -283,7 +283,6 @@ export function createThemeBuilderModal(
             ui_theme_variant: "default",
             font_terminal: "",
             font_ui: "",
-            font_file_tree: "",
           };
         }
         vars = options?.initialVars ? { ...options.initialVars } : collectCurrentThemeCssVars();

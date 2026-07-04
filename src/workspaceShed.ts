@@ -49,7 +49,7 @@ export function shouldShedWorkspaceOnExit(): boolean {
   return shouldShedWorkspaceOnExitSilent();
 }
 
-/** Clear workspace/session localStorage; keeps prefs (Rust), palette commands, file tree width, etc. */
+/** Clear workspace/session localStorage; keeps prefs (Rust), palette commands, etc. */
 export function shedWorkspaceLocalState(): void {
   try {
     localStorage.removeItem(TABS_STATE_KEY);
