@@ -4745,9 +4745,6 @@ async function boot(): Promise<void> {
     else closeHelpPanel();
   };
 
-  document
-    .getElementById("help-close")
-    ?.addEventListener("click", () => closeHelpPanel());
   helpPanelEl
     ?.querySelector("[data-close-help]")
     ?.addEventListener("click", () => closeHelpPanel());
@@ -4778,7 +4775,7 @@ async function boot(): Promise<void> {
     ? createExtensionManager(extManagerEl)
     : null;
   extManagerEl
-    ?.querySelector("[data-ext-close]")
+    ?.querySelector("#ext-close")
     ?.addEventListener("click", () => extManagerApi?.close());
   const appWindow = getCurrentWindow();
   async function syncMaximizeButtonTitle(): Promise<void> {

@@ -15,13 +15,13 @@ export function createPaneRenamePanel(opts: {
   let open = false;
   let activePaneId = "";
 
-  root.className = "terminal-history pane-rename pane-rename--hidden";
+  root.className = "pane-rename pane-rename--hidden";
   root.setAttribute("aria-hidden", "true");
   root.innerHTML = `
-    <section class="terminal-history-panel pane-rename-panel" role="dialog" aria-label="Rename pane">
+    <section class="pane-rename-panel" role="dialog" aria-label="Rename pane">
       <form class="pane-rename-form">
-        <input class="terminal-history-search pane-rename-input" type="text" spellcheck="false" autocomplete="off" placeholder="Pane name" />
-        <button class="terminal-history-clear pane-rename-save" type="submit">Save</button>
+        <input class="pane-rename-input" type="text" spellcheck="false" autocomplete="off" placeholder="Pane name" />
+        <button class="pane-rename-save" type="submit">Save</button>
       </form>
     </section>
   `;
