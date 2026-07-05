@@ -172,7 +172,7 @@ export function createThemeModal(
   searchInput.spellcheck = false;
 
   const list = document.createElement("ul");
-  list.className = "theme-modal-list termie-scroll-fade";
+  list.className = "theme-modal-list";
 
   rebuildListDom();
 

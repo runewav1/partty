@@ -1,5 +1,4 @@
 mod keybinds;
-mod palette_commands;
 mod peb_cwd_windows;
 mod prefs;
 mod pty;
@@ -957,10 +956,6 @@ pub fn run() {
             webview_boot_complete,
             commit_show_window,
             request_destroy_webview_for_hide,
-            palette_commands::get_palette_commands,
-            palette_commands::get_palette_context,
-            palette_commands::upsert_palette_command,
-            palette_commands::delete_palette_command,
             keybinds::get_keybinds,
             keybinds::set_keybind,
             keybinds::reset_keybinds,

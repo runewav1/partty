@@ -49,24 +49,10 @@
             />
             <ul
               id="command-palette-list"
-              class="command-palette-list termie-scroll-fade"
+              class="command-palette-list"
               role="listbox"
               aria-label="Commands"
             ></ul>
-          </div>
-          <div id="command-palette-builder" class="command-palette-builder command-palette-builder--hidden">
-            <div class="command-palette-builder-head">
-              <button type="button" id="command-palette-builder-back" class="cp-back">Back</button>
-              <span class="cp-title">New command</span>
-            </div>
-            <input id="palette-cmd-name" type="text" class="cp-field" spellcheck="false" autocomplete="off" placeholder="Name" />
-            <textarea id="palette-cmd-text" class="cp-field cp-field-multiline" spellcheck="false" rows="3" placeholder="Command text"></textarea>
-            <label class="cp-row">
-              <input type="checkbox" id="palette-cmd-global" checked />
-              <span>Global</span>
-            </label>
-            <input id="palette-cmd-cwd" type="text" class="cp-field cp-field-cwd" spellcheck="false" placeholder="Directory scope" />
-            <button type="button" id="palette-cmd-save" class="cp-save">Save</button>
           </div>
         </div>
       </div>
@@ -74,11 +60,8 @@
       <!-- Help Panel -->
       <div id="help-panel" class="help-panel help-panel--hidden" aria-hidden="true">
         <div class="help-panel-backdrop" data-close-help></div>
-        <div class="help-panel-card">
-          <div class="help-panel-head">
-            <span class="help-panel-title">Shortcuts</span>
-            <button id="help-close" type="button" class="help-panel-close" aria-label="Close"></button>
-          </div>
+          <div class="help-panel-card">
+            <div class="help-panel-head"></div>
           <div class="help-panel-body">
             <div class="help-shortcuts"></div>
           </div>

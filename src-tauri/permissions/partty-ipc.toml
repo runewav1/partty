@@ -30,10 +30,6 @@ commands.allow = [
   "webview_boot_complete",
   "commit_show_window",
   "request_destroy_webview_for_hide",
-  "get_palette_commands",
-  "get_palette_context",
-  "upsert_palette_command",
-  "delete_palette_command",
   "detect_shells",
   "open_external_url",
 ]

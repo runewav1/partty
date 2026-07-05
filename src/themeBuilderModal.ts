@@ -92,7 +92,7 @@ export function createThemeBuilderModal(
   nameRow.appendChild(nameInput);
 
   const scroll = document.createElement("div");
-  scroll.className = "theme-builder-scroll termie-scroll-fade";
+  scroll.className = "theme-builder-scroll";
 
   const customList = document.createElement("div");
   customList.className = "theme-builder-custom-list";

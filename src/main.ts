@@ -79,11 +79,6 @@ import {
 } from "./keybinds";
 import { showAlert } from "./dialog";
 import pkg from "../package.json";
-import {
-  type PaletteContext,
-  type SavedPaletteCommand,
-  savedCommandMatchesContext,
-} from "./paletteCommands";
 import { normalizeFsPathKey } from "./oscCwd";
 import { createSettingsPanel, type ParttyPrefs } from "./settingsPanel";
 import { createExtensionManager } from "./extensionManager";
@@ -107,7 +102,6 @@ import {
   ptyReplaySnapshot,
   ptyResize,
   ptyShellCwd,
-  ptyShellExeToken,
   ptyWrite,
 } from "./ptyIpc";
 import { createTabCloseIcon } from "./toolbarIcons";
@@ -157,7 +151,6 @@ const STORAGE_KEY_MIGRATIONS: [string, string][] = [
   ["termie.pane_layout.v1", "partty.pane_layout.v1"],
   ["termie.runtime.shed_workspace_exit", "partty.runtime.shed_workspace_exit"],
   ["termie.themeModal.pos", "partty.themeModal.pos"],
-  ["termie.searchModal.pos", "partty.searchModal.pos"],
   ["termie.settingsPanel.pos", "partty.settingsPanel.pos"],
   ["termie.helpPanel.pos", "partty.helpPanel.pos"],
   ["termie.commandPalette.pos", "partty.commandPalette.pos"],
@@ -3058,8 +3051,7 @@ async function boot(): Promise<void> {
         const t = e.target as HTMLElement | null;
         if (
           t?.closest("#command-palette") ||
-          t?.closest("#settings-panel") ||
-          t?.closest(".term-search")
+          t?.closest("#settings-panel")
         )
           return;
         e.preventDefault();
@@ -3810,8 +3802,7 @@ async function boot(): Promise<void> {
       const t = e.target as HTMLElement | null;
       if (
         t?.closest("#command-palette") ||
-        t?.closest("#settings-panel") ||
-        t?.closest(".term-search")
+        t?.closest("#settings-panel")
       )
         return;
       e.preventDefault();
@@ -3882,44 +3873,11 @@ async function boot(): Promise<void> {
     getFocusedTerm()?.writeln("\r\n\x1b[90m[new session]\x1b[0m\r\n");
   }
 
-  let savedPaletteCommands: SavedPaletteCommand[] = [];
-  let paletteContext: PaletteContext = { shell: "", cwd: null };
-  let builderMode = false;
-
-  async function refreshPaletteCommandsAndContext(): Promise<void> {
-    const [cmds, ctx] = await Promise.all([
-      invoke<SavedPaletteCommand[]>("get_palette_commands"),
-      invoke<PaletteContext>("get_palette_context"),
-    ]);
-    savedPaletteCommands = cmds;
-    paletteContext = {
-      shell: ctx.shell,
-      cwd: liveCwd ?? ctx.cwd ?? null,
-    };
-  }
-
   const cpRoot = document.getElementById("command-palette");
   const cpInput = document.getElementById(
     "command-palette-input",
   ) as HTMLInputElement | null;
   const cpList = document.getElementById("command-palette-list");
-  const cpListView = document.getElementById("command-palette-list-view");
-  const cpBuilder = document.getElementById("command-palette-builder");
-  const cpBuilderBack = document.getElementById("command-palette-builder-back");
-  const paletteCmdName = document.getElementById(
-    "palette-cmd-name",
-  ) as HTMLInputElement | null;
-  const paletteCmdText = document.getElementById(
-    "palette-cmd-text",
-  ) as HTMLTextAreaElement | null;
-  const paletteCmdGlobal = document.getElementById(
-    "palette-cmd-global",
-  ) as HTMLInputElement | null;
-  const paletteCmdCwd = document.getElementById(
-    "palette-cmd-cwd",
-  ) as HTMLInputElement | null;
-  const paletteCmdSave = document.getElementById("palette-cmd-save");
-
   const helpPanelEl = document.getElementById("help-panel");
   const settingsPanelEl = document.getElementById("settings-panel");
   function shellPrefKey(s: string): string {
@@ -4139,112 +4097,10 @@ async function boot(): Promise<void> {
   let closeHelpPanel: () => void = () => {};
   let toggleHelp: () => void = () => {};
 
-  function syncCwdScopeDisabled(): void {
-    const g = paletteCmdGlobal?.checked ?? true;
-    if (paletteCmdCwd) {
-      paletteCmdCwd.disabled = g;
-      paletteCmdCwd.classList.toggle("cp-field-cwd--off", g);
-    }
-  }
 
-  function hideBuilder(): void {
-    builderMode = false;
-    cpListView?.classList.remove("command-palette-list-view--hidden");
-    cpBuilder?.classList.add("command-palette-builder--hidden");
-  }
 
-  function showBuilder(): void {
-    builderMode = true;
-    cpListView?.classList.add("command-palette-list-view--hidden");
-    cpBuilder?.classList.remove("command-palette-builder--hidden");
-    if (paletteCmdName) paletteCmdName.value = "";
-    if (paletteCmdText) paletteCmdText.value = "";
-    if (paletteCmdGlobal) paletteCmdGlobal.checked = true;
-    syncCwdScopeDisabled();
-    const cwd = paletteContext.cwd?.trim() ?? "";
-    if (paletteCmdCwd) paletteCmdCwd.value = cwd;
-    requestAnimationFrame(() => paletteCmdName?.focus());
-  }
 
-  function clearLineForToken(token: string | null, prefsShell: string): string {
-    const t = (token ?? "").toLowerCase();
-    const p = prefsShell.toLowerCase();
-    if (t === "cmd" || t.includes("cmd")) return "cls\r";
-    if (
-      !t &&
-      p.includes("cmd") &&
-      !p.includes("pwsh") &&
-      !p.includes("powershell")
-    )
-      return "cls\r";
-    return "clear\r";
-  }
 
-  function restartLineForToken(
-    token: string | null,
-    prefsShell: string,
-  ): string {
-    const t = (token ?? "").toLowerCase();
-    const p = prefsShell.toLowerCase();
-    if (t.includes("pwsh")) return "pwsh\r";
-    if (t.includes("powershell")) return "powershell\r";
-    if (t === "bash" || t.endsWith("bash")) return "bash\r";
-    if (t === "zsh" || t.endsWith("zsh")) return "zsh\r";
-    if (t === "cmd") return "cmd\r";
-    if (t === "sh" || t === "dash") return "sh\r";
-    if (t.includes("wslhost") || t === "wsl") return "wsl\r";
-    if (t.includes("fish")) return "fish\r";
-    if (p.includes("pwsh")) return "pwsh\r";
-    if (p.includes("powershell")) return "powershell\r";
-    if (p.includes("bash")) return "bash\r";
-    if (p.includes("zsh")) return "zsh\r";
-    const trimmed = prefsShell.trim();
-    if (!trimmed) return "pwsh\r";
-    const base = trimmed.split(/[/\\]/).pop() ?? trimmed;
-    return `${base}\r`;
-  }
-
-  async function runPaneCmdClear(): Promise<void> {
-    const prefsShell = paletteContext.shell.trim() || "pwsh";
-    for (const host of tabPaneHosts.values()) {
-      for (const id of host.getLeafIdsInOrder()) {
-        let token: string | null = null;
-        try {
-          token = await ptyShellExeToken(id);
-        } catch {
-          token = null;
-        }
-        const line = clearLineForToken(token, prefsShell);
-        void ptyWrite(id, line).catch((e) => console.warn("> clear", e));
-      }
-    }
-  }
-
-  function runPaneCmdExit(): void {
-    for (const host of tabPaneHosts.values()) {
-      for (const id of host.getLeafIdsInOrder()) {
-        void ptyWrite(id, "\x03").catch((e) => console.warn("> exit", e));
-      }
-    }
-  }
-
-  async function runPaneCmdRestartShell(): Promise<void> {
-    const prefsShell = paletteContext.shell.trim() || "pwsh";
-    for (const host of tabPaneHosts.values()) {
-      for (const id of host.getLeafIdsInOrder()) {
-        let token: string | null = null;
-        try {
-          token = await ptyShellExeToken(id);
-        } catch {
-          token = null;
-        }
-        const line = restartLineForToken(token, prefsShell);
-        void ptyWrite(id, line).catch((e) =>
-          console.warn("> restart shell", e),
-        );
-      }
-    }
-  }
 
   function getTabPaletteCommands(): PaletteCommand[] {
     return visibleWorkspaceTabsInOrder().map((tab, index) => {
@@ -4532,31 +4388,6 @@ async function boot(): Promise<void> {
     if (q.startsWith(":")) {
       return getTabPaletteCommands();
     }
-    if (q.startsWith(">")) {
-      return [
-        {
-          id: "pane-cmd-clear",
-          label: ">c: clear",
-          labelHtml: `<span class="cp-label-prefix">${escapeHtml(">c")}</span> clear`,
-          keywords: ">c >clear >cls clear screen reset terminal",
-          run: () => void runPaneCmdClear(),
-        },
-        {
-          id: "pane-cmd-exit",
-          label: ">e: exit",
-          labelHtml: `<span class="cp-label-prefix">${escapeHtml(">e")}</span> exit`,
-          keywords: ">e >exit ctrl c interrupt break cancel",
-          run: () => runPaneCmdExit(),
-        },
-        {
-          id: "pane-cmd-restart-shell",
-          label: ">r: restart",
-          labelHtml: `<span class="cp-label-prefix">${escapeHtml(">r")}</span> restart`,
-          keywords: ">r >restart shell respawn",
-          run: () => void runPaneCmdRestartShell(),
-        },
-      ];
-    }
 
     if (q.startsWith("@pane:")) {
       return getPaneTargetCommands(q);
@@ -4565,30 +4396,6 @@ async function boot(): Promise<void> {
       return getProcCommands(q);
     }
 
-    const ctx = paletteContext;
-    const customRuns: PaletteCommand[] = [];
-    for (const c of savedPaletteCommands) {
-      if (!savedCommandMatchesContext(c, ctx)) continue;
-      const id = c.id;
-      const payload = c;
-      customRuns.push({
-        id: `saved-${id}`,
-        label: payload.name,
-        keywords: `${payload.command} ${payload.shell} ${payload.cwd_scope ?? ""}`,
-        run: () => {
-          const pid = paneHost?.getFocusedPaneId();
-          if (!pid) return;
-          void ptyWrite(pid, `${payload.command}\r`).catch((e) =>
-            console.warn("pty_write custom palette", e),
-          );
-        },
-        remove: async () => {
-          await invoke("delete_palette_command", { id: payload.id });
-          await refreshPaletteCommandsAndContext();
-        },
-        removeLabel: `Remove ${payload.name}`,
-      });
-    }
 
     const commands: PaletteCommand[] = [
       // --- Tabs ---
@@ -4793,14 +4600,6 @@ async function boot(): Promise<void> {
         keywords: "presets workspace layout restore load template",
         run: () => presetsModal?.open(),
       },
-      {
-        id: "new-custom",
-        label: "New command",
-        keywords: "create builder save custom",
-        run: () => {
-          showBuilder();
-        },
-      },
       // --- App ---
       {
         id: "open-settings",
@@ -4893,10 +4692,8 @@ async function boot(): Promise<void> {
           getCommands: () => getMergedPaletteCommands(cpInput?.value ?? ""),
           onBeforeOpen: async () => {
             closeHelpPanel();
-            await refreshPaletteCommandsAndContext();
           },
           onClosed: () => {
-            hideBuilder();
             getFocusedTerm()?.focus();
           },
           onTabComplete: (currentInput: string, selected) => {
@@ -4928,9 +4725,8 @@ async function boot(): Promise<void> {
       : null;
 
   openHelpPanel = () => {
-    if (!helpPanelEl || builderMode) return;
+    if (!helpPanelEl) return;
     commandPalette?.close();
-    hideBuilder();
     settingsApi?.close();
     renderHelpShortcuts();
     helpPanelEl.classList.remove("help-panel--hidden");
@@ -5157,38 +4953,6 @@ async function boot(): Promise<void> {
     true,
   );
 
-  paletteCmdGlobal?.addEventListener("change", () => syncCwdScopeDisabled());
-
-  cpBuilderBack?.addEventListener("click", () => {
-    hideBuilder();
-  });
-
-  paletteCmdSave?.addEventListener("click", () => {
-    const name = paletteCmdName?.value.trim() ?? "";
-    const cmdText = paletteCmdText?.value ?? "";
-    if (!name || !cmdText.trim()) return;
-    const global = paletteCmdGlobal?.checked ?? true;
-    const cwdScope = global ? null : paletteCmdCwd?.value.trim() || null;
-    const shell = paletteContext.shell.trim().toLowerCase() || "pwsh";
-    void (async () => {
-      try {
-        await invoke("upsert_palette_command", {
-          cmd: {
-            id: crypto.randomUUID(),
-            name,
-            command: cmdText,
-            shell,
-            cwd_scope: cwdScope,
-          },
-        });
-        await refreshPaletteCommandsAndContext();
-        hideBuilder();
-        commandPalette?.close();
-      } catch (e) {
-        console.error("upsert_palette_command", e);
-      }
-    })();
-  });
 
   if (commandPalette && cpRoot) {
     window.addEventListener(
@@ -5197,10 +4961,6 @@ async function boot(): Promise<void> {
         if (!k.match(e, "palette.open")) return;
         e.preventDefault();
         e.stopPropagation();
-        if (builderMode) {
-          hideBuilder();
-          return;
-        }
         if (commandPalette.isOpen()) {
           commandPalette.close();
           return;
@@ -5210,17 +4970,6 @@ async function boot(): Promise<void> {
       true,
     );
 
-    document.addEventListener(
-      "keydown",
-      (e) => {
-        if (e.key !== "Escape" || !commandPalette.isOpen() || !builderMode)
-          return;
-        e.preventDefault();
-        e.stopPropagation();
-        hideBuilder();
-      },
-      true,
-    );
   }
 
   document.addEventListener(
@@ -5757,7 +5506,7 @@ async function boot(): Promise<void> {
   window.addEventListener("keydown", (e) => {
     if (!k.match(e, "dev.toggle")) return;
     const t = e.target as HTMLElement | null;
-    if (t?.closest("#command-palette") || t?.closest("#settings-panel") || t?.closest(".term-search")) return;
+    if (t?.closest("#command-palette") || t?.closest("#settings-panel")) return;
     if (!parttyPerf.enabled) return;
     e.preventDefault();
     e.stopPropagation();

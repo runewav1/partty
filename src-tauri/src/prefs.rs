@@ -1185,12 +1185,6 @@ pub fn extension_state_path() -> Option<PathBuf> {
     Some(dir.join("extension_state.json"))
 }
 
-/// Palette commands path.
-pub fn palette_commands_path() -> Option<PathBuf> {
-    let dir = ensure_config_dir()?;
-    Some(dir.join("palette_commands.json"))
-}
-
 /// Extensions directory.
 pub fn extensions_dir() -> Option<PathBuf> {
     let dir = ensure_config_dir()?;

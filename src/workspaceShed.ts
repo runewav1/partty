@@ -8,7 +8,6 @@ const TAB_LAYOUT_PREFIX = "partty.tab.layout.v1.";
 const ZEN_MODE_STORAGE_KEY = "partty.zen.enabled";
 const DEFER_PTY_REINIT_KEY = "partty.defer_pty_reinit";
 const THEME_MODAL_POS = "partty.themeModal.pos";
-const SEARCH_MODAL_POS = "partty.searchModal.pos";
 const SETTINGS_PANEL_POS = "partty.settingsPanel.pos";
 const HELP_PANEL_POS = "partty.helpPanel.pos";
 const COMMAND_PALETTE_POS = "partty.commandPalette.pos";
@@ -61,7 +60,6 @@ export function shedWorkspaceLocalState(): void {
     localStorage.removeItem(ZEN_MODE_STORAGE_KEY);
     localStorage.removeItem(DEFER_PTY_REINIT_KEY);
     localStorage.removeItem(THEME_MODAL_POS);
-    localStorage.removeItem(SEARCH_MODAL_POS);
     localStorage.removeItem(SETTINGS_PANEL_POS);
     localStorage.removeItem(HELP_PANEL_POS);
     localStorage.removeItem(COMMAND_PALETTE_POS);

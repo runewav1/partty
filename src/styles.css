@@ -258,11 +258,6 @@ html.theme-builder-open #main-workspace {
   user-select: none;
 }
 
-html.term-search-open #terminal-wrap,
-html.term-search-open #main-workspace {
-  pointer-events: none;
-  user-select: none;
-}
 
 .terminal-history--hidden {
   display: none !important;
@@ -1606,100 +1601,6 @@ html.zen-mode #main-workspace {
   background: var(--hover-overlay);
 }
 
-.command-palette-builder {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px 14px 14px;
-  overflow-y: auto;
-  flex: 1;
-  min-height: 0;
-}
-
-.command-palette-builder--hidden {
-  display: none !important;
-}
-
-.command-palette-builder-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 2px;
-}
-
-.cp-back {
-  border: none;
-  background: transparent;
-  color: var(--ui-chrome-muted);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  padding: 2px 0;
-}
-
-.cp-back:hover {
-  color: var(--ui-chrome-fg);
-}
-
-.cp-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ui-chrome-fg);
-  letter-spacing: 0.02em;
-}
-
-.cp-field {
-  width: 100%;
-  margin: 0;
-  padding: 9px 11px;
-  border: 1px solid var(--input-border);
-  border-radius: 6px;
-  background: var(--input-bg);
-  color: var(--input-text);
-  font-size: 13px;
-  outline: none;
-  box-sizing: border-box;
-}
-
-.cp-field-multiline {
-  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.45;
-  resize: vertical;
-  min-height: 72px;
-}
-
-.cp-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--ui-chrome-muted);
-}
-
-.cp-field-cwd.cp-field-cwd--off {
-  opacity: 0.4;
-  pointer-events: none;
-}
-
-.cp-save {
-  align-self: flex-end;
-  margin-top: 4px;
-  border: none;
-  border-radius: 6px;
-  padding: 7px 16px;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  background: #52525b;
-  color: #fafafa;
-}
-
-.cp-save:hover {
-  background: #6366f1;
-}
-
 .command-palette-item {
   padding: 0;
 }
@@ -1866,44 +1767,21 @@ html.zen-mode #main-workspace {
 }
 .help-panel-head {
   display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
+  height: 6px;
+  padding: 0;
   background: var(--panel-header-bg);
   border-bottom: 1px solid var(--panel-divider);
   cursor: grab;
   user-select: none;
 }
 .help-panel-head:active { cursor: grabbing; }
-.help-panel-title {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ui-chrome-fg);
-  letter-spacing: -0.01em;
-}
 .help-panel-body {
   margin: 0;
   padding: 6px 0;
   overflow-y: auto;
+  scrollbar-width: none;
 }
-.help-panel-close {
-  flex: 0 0 auto;
-  border: none;
-  background: transparent;
-  color: var(--ui-chrome-muted);
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 5px;
-  transition: color var(--motion-fast) var(--motion-ease-out), background var(--motion-fast) var(--motion-ease-out);
-}
-.help-panel-close:hover {
-  color: var(--ui-chrome-fg);
-  background: var(--hover-overlay-light);
-}
+.help-panel-body::-webkit-scrollbar { display: none; }
 .help-shortcuts {
   display: flex;
   flex-direction: column;
@@ -2829,101 +2707,6 @@ html.zen-mode #main-workspace {
 .theme-modal-item--active {
   background: rgba(129, 140, 248, 0.18);
   outline: 1px solid rgba(129, 140, 248, 0.35);
-}
-
-/* Terminal search (Ctrl+F / Ctrl+Shift+F): floating, draggable */
-#search-modal-root {
-  position: fixed;
-  inset: 0;
-  z-index: 8400;
-  pointer-events: none;
-}
-
-.term-search {
-  position: absolute;
-  left: 24px;
-  top: 96px;
-  width: min(380px, 92vw);
-  pointer-events: auto;
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  box-shadow: 0 10px 36px var(--panel-shadow);
-}
-
-.term-search--hidden {
-  display: none !important;
-}
-
-.term-search-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
-  cursor: grab;
-  border-bottom: 1px solid var(--panel-border);
-  user-select: none;
-}
-
-.term-search-head:active {
-  cursor: grabbing;
-}
-
-.term-search-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ui-chrome-fg);
-}
-
-.term-search-close {
-  border: none;
-  background: transparent;
-  color: var(--ui-chrome-muted);
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 4px;
-}
-
-.term-search-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-}
-
-.term-search-input {
-  flex: 1;
-  min-width: 0;
-  padding: 6px 8px;
-  border-radius: 5px;
-  border: 1px solid var(--input-border);
-  background: var(--input-bg);
-  color: var(--input-text);
-  font: inherit;
-  font-size: 12px;
-}
-
-.term-search-nav {
-  flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  border-radius: 5px;
-  border: 1px solid var(--panel-border);
-  background: var(--button-bg);
-  color: var(--button-text);
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.term-search-nav:hover {
-  background: var(--button-bg-hover);
-}
-
-.term-search-meta {
-  padding: 0 10px 10px;
-  font-size: 11px;
-  color: var(--ui-chrome-muted);
 }
 
 /* Zen rename modal — minimal overlay for tab rename when tab bar hidden */
