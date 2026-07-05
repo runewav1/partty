@@ -975,11 +975,13 @@ html.term-tabs-multiple .term-toolbar {
 @keyframes tab-pane-enter {
   0% {
     opacity: 0;
-    transform: translateX(10px) scale(0.992);
+    transform: translateX(18px) scale(0.985);
+    filter: blur(2px);
   }
   100% {
     opacity: 1;
     transform: translateX(0) scale(1);
+    filter: blur(0);
   }
 }
 
@@ -987,22 +989,24 @@ html.term-tabs-multiple .term-toolbar {
   0% {
     opacity: 1;
     transform: translateX(0) scale(1);
+    filter: blur(0);
   }
   100% {
     opacity: 0;
-    transform: translateX(-10px) scale(0.992);
+    transform: translateX(-16px) scale(0.985);
+    filter: blur(2px);
   }
 }
 
 .term-tab-pane-shell--entering {
   z-index: 2;
-  animation: tab-pane-enter var(--motion-medium) var(--motion-ease-emphasized) both;
+  animation: tab-pane-enter var(--motion-medium) var(--motion-ease-emphasized) backwards;
 }
 
 .term-tab-pane-shell--leaving {
   z-index: 1;
   pointer-events: none;
-  animation: tab-pane-leave var(--motion-medium) var(--motion-ease-out) both;
+  animation: tab-pane-leave var(--motion-medium) var(--motion-ease-out) forwards;
 }
 
 .pane-host {
@@ -1079,8 +1083,11 @@ html.terminal-no-round .term-tab-group {
 
 .pane-leaf--swapping {
   z-index: 3;
-  will-change: transform;
+  will-change: transform, opacity;
   pointer-events: none;
+  transition:
+    transform var(--motion-medium) var(--motion-ease-emphasized),
+    opacity var(--motion-fast) var(--motion-ease-out);
 }
 
 .pane-leaf--floating {
@@ -1149,13 +1156,16 @@ html.terminal-no-round .term-tab-group {
 }
 
 @keyframes pane-float-out {
-  0% { transform: scale(0.988) translateY(3px); opacity: 0.78; }
-  100% { transform: scale(1); opacity: 1; }
+  0%   { transform: scale(0.96) translateY(6px); opacity: 0.7; filter: brightness(0.92); }
+  60%  { opacity: 0.95; }
+  100% { transform: scale(1) translateY(0); opacity: 1; filter: brightness(1); }
 }
 
 @keyframes pane-float-return {
-  0% { transform: scale(1.01) translateY(-2px); opacity: 0.82; }
-  100% { transform: scale(1); opacity: 1; }
+  0%   { transform: scale(1.03) translateY(-3px); opacity: 0.84; }
+  40%  { transform: scale(0.99); }
+  70%  { transform: scale(1.005); }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
 }
 
 .pane-leaf--floating-enter {
@@ -1231,8 +1241,9 @@ html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf.pane-leaf--focused:
 
 /* Panel creation animation */
 @keyframes pane-enter {
-  0%   { transform: scale(0.982) translateY(4px); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
+  0%   { transform: scale(0.94) translateY(8px); opacity: 0; filter: brightness(0.9); }
+  60%  { opacity: 1; filter: brightness(1); }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
 }
 
 .pane-leaf--entering {
@@ -1246,13 +1257,13 @@ html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf.pane-leaf--focused:
     opacity: 1;
   }
   100% {
-    transform: scale(0.94);
+    transform: scale(0.94) translateY(2px);
     opacity: 0;
   }
 }
 
 .pane-leaf--leaving {
-  animation: pane-leave var(--motion-fast) cubic-bezier(0.55, 0, 1, 0.45) forwards;
+  animation: pane-leave var(--motion-fast) var(--motion-ease-out) forwards;
   pointer-events: none;
   will-change: transform, opacity;
 }
@@ -1261,14 +1272,15 @@ html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf.pane-leaf--focused:
    is resized/restored/maximized or hops monitors (driven from playWindowMotion).
    Subtle scale + fade so the snap reads as intentional. Inherits the active Feel. */
 @keyframes window-motion-settle {
-  0%   { transform: scale(0.992); opacity: 0.86; }
-  100% { transform: scale(1); opacity: 1; }
+  0%   { transform: scale(0.98); opacity: 0.7; filter: brightness(0.92); }
+  50%  { opacity: 0.95; filter: brightness(0.98); }
+  100% { transform: scale(1); opacity: 1; filter: brightness(1); }
 }
 
 .window-motion-settle {
-  animation: window-motion-settle var(--motion-slow) var(--motion-ease-emphasized) both;
+  animation: window-motion-settle var(--motion-slow) var(--motion-ease-emphasized) backwards;
   transform-origin: center center;
-  will-change: transform, opacity;
+  will-change: transform, opacity, filter;
 }
 
 html.terminal-motion-off *,
