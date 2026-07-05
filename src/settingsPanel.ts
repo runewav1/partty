@@ -93,6 +93,8 @@ export type ParttyPrefs = {
   process_notification_show_ms?: boolean;
   /** Use translucent process completion toasts. */
   process_notification_transparent?: boolean;
+  /** Disable all process completion notifications. */
+  process_notification_enabled?: boolean;
   /** Always hide the OS mouse cursor (overrides idle hide). */
   mouse_hidden?: boolean;
   /** Hide the OS mouse cursor after pointer inactivity. */
@@ -227,6 +229,7 @@ export function createSettingsPanel(
       })(),
       process_notification_show_ms: gc("process_notification_show_ms"),
       process_notification_transparent: gc("process_notification_transparent"),
+      process_notification_enabled: gc("process_notification_enabled"),
       mouse_hidden: gc("mouse_hidden"),
       mouse_hide_on_idle: gc("mouse_hide_on_idle"),
       mouse_idle_seconds: clampf(g("mouse_idle_seconds"), 3, 0.5, 300),
@@ -280,6 +283,14 @@ export function createSettingsPanel(
       const toggleEl = form?.querySelector('[name="pane_variable_opacity"]') as HTMLInputElement | null;
       const enabled = toggleEl?.checked ?? false;
       root.querySelectorAll('[data-child-of="pane_variable_opacity"]').forEach((r) => {
+        (r as HTMLElement).classList.toggle("settings-tree-hidden", !enabled);
+      });
+    }
+    // Notifications: dim sub-options when disabled.
+    {
+      const toggleEl = form?.querySelector('[name="process_notification_enabled"]') as HTMLInputElement | null;
+      const enabled = toggleEl?.checked ?? false;
+      root.querySelectorAll('[data-child-of="process_notification_enabled"]').forEach((r) => {
         (r as HTMLElement).classList.toggle("settings-tree-hidden", !enabled);
       });
     }
@@ -407,6 +418,7 @@ export function createSettingsPanel(
     setVal("process_notification_show_for", String(pr.process_notification_show_for ?? 5000));
     setChk("process_notification_show_ms", pr.process_notification_show_ms ?? false);
     setChk("process_notification_transparent", pr.process_notification_transparent ?? false);
+    setChk("process_notification_enabled", pr.process_notification_enabled ?? false);
     setChk("mouse_hidden", pr.mouse_hidden ?? false);
     setChk("mouse_hide_on_idle", pr.mouse_hide_on_idle ?? false);
     setVal("mouse_idle_seconds", String(pr.mouse_idle_seconds ?? 3));
@@ -471,6 +483,8 @@ export function createSettingsPanel(
     devPerfToggle?.addEventListener("change", () => { applySettingsTree(); applySettingsSearch(); });
     const varOpacityToggle = form?.querySelector('[name="pane_variable_opacity"]') as HTMLInputElement | null;
     varOpacityToggle?.addEventListener("change", () => applySettingsTree());
+    const notifEnabledToggle = form?.querySelector('[name="process_notification_enabled"]') as HTMLInputElement | null;
+    notifEnabledToggle?.addEventListener("change", () => applySettingsTree());
 
     root.querySelector(".settings-panel-backdrop")?.addEventListener("click", (e) => {
       if (e.target === e.currentTarget) close();

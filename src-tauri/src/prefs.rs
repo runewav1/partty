@@ -259,6 +259,7 @@ pub struct Prefs {
     #[serde(default)]
     pub process_notification_transparent: bool,
     #[serde(default)]
+    pub process_notification_enabled: bool,
     pub mouse_hidden: bool,
     #[serde(default)]
     pub mouse_hide_on_idle: bool,
@@ -350,6 +351,7 @@ impl Default for Prefs {
             process_notification_show_for: default_process_notification_show_for(),
             process_notification_show_ms: false,
             process_notification_transparent: false,
+            process_notification_enabled: false,
             mouse_hidden: false,
             mouse_hide_on_idle: false,
             mouse_idle_seconds: default_mouse_idle_seconds(),
@@ -717,6 +719,8 @@ pub struct NotificationsSection {
     pub show_milliseconds: bool,
     #[serde(default)]
     pub translucent: bool,
+    #[serde(default)]
+    pub enabled: bool,
 }
 
 impl Default for NotificationsSection {
@@ -726,6 +730,7 @@ impl Default for NotificationsSection {
             toast_duration_ms: default_process_notification_show_for(),
             show_milliseconds: false,
             translucent: false,
+            enabled: false,
         }
     }
 }
@@ -893,6 +898,7 @@ impl From<ConfigToml> for Prefs {
             process_notification_show_for: c.notifications.toast_duration_ms,
             process_notification_show_ms: c.notifications.show_milliseconds,
             process_notification_transparent: c.notifications.translucent,
+            process_notification_enabled: c.notifications.enabled,
             mouse_hidden: c.mouse.always_hidden,
             mouse_hide_on_idle: c.mouse.hide_on_idle,
             mouse_idle_seconds: c.mouse.idle_timeout_secs,
@@ -996,6 +1002,7 @@ impl From<&Prefs> for ConfigToml {
                 toast_duration_ms: p.process_notification_show_for,
                 show_milliseconds: p.process_notification_show_ms,
                 translucent: p.process_notification_transparent,
+                enabled: p.process_notification_enabled,
             },
             mouse: MouseSection {
                 always_hidden: p.mouse_hidden,

@@ -120,8 +120,9 @@
 
 ## `[notifications]`
 
-| Key | Type | Default | Range |
-|-----|------|---------|-------|
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `enabled` | bool | `false` | enable process completion toasts |
 | `command_threshold_secs` | float | `5.0` | min command duration for toast |
 | `toast_duration_ms` | float | `5000.0` | `1000`–`30000` |
 | `show_milliseconds` | bool | `false` | |

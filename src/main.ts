@@ -554,6 +554,11 @@ async function boot(): Promise<void> {
       (persisted.prefs as Partial<ParttyPrefs>)
         .process_notification_transparent ?? false,
   };
+  const processNotificationEnabledRef = {
+    v:
+      (persisted.prefs as Partial<ParttyPrefs>)
+        .process_notification_enabled ?? false,
+  };
   const cursorFollowWindowMoveRef = {
     v: Boolean(
       (persisted.prefs as Partial<ParttyPrefs>).cursor_follow_window_move,
@@ -731,6 +736,10 @@ async function boot(): Promise<void> {
     const command = displayProcessCommand(entry.command);
     const durMs = processDurationMs(entry, endedAt);
     if (durMs / 1000 >= processNotificationThresholdRef.v) {
+      if (!processNotificationEnabledRef.v) {
+        activeProcesses.delete(paneId);
+        return;
+      }
       const paneName = paneNames.get(paneId) || paneId.slice(0, 8);
       showProcessNotification(
         command,
@@ -3987,6 +3996,9 @@ async function boot(): Promise<void> {
           processNotificationTransparentRef.v =
             (saved as Partial<ParttyPrefs>).process_notification_transparent ??
             false;
+          processNotificationEnabledRef.v =
+            (saved as Partial<ParttyPrefs>).process_notification_enabled ??
+            false;
           cursorFollowWindowMoveRef.v = Boolean(
             (saved as Partial<ParttyPrefs>).cursor_follow_window_move,
           );
@@ -5329,7 +5341,8 @@ async function boot(): Promise<void> {
           return ptyWrite(paneId, text);
         },
         showNotification(command: string, detail: string, paneId?: string) {
-          if (!processToast) return;
+    if (!processNotificationEnabledRef.v) return;
+    if (!processToast) return;
           processToast.dataset.paneId = paneId ?? "";
           const navArrow = paneId
             ? `<button class="proc-toast-nav" title="Go to pane">\u2192</button>`
