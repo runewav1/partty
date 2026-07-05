@@ -158,20 +158,12 @@ export function createThemeModal(
 
   const head = document.createElement("div");
   head.className = "theme-modal-head";
-  const title = document.createElement("h2");
-  title.className = "theme-modal-title";
-  title.textContent = "Themes";
   const closeBtn = document.createElement("button");
   closeBtn.type = "button";
   closeBtn.className = "theme-modal-close";
   closeBtn.setAttribute("aria-label", "Close");
   closeBtn.textContent = "×";
-  head.appendChild(title);
   head.appendChild(closeBtn);
-
-  const hint = document.createElement("p");
-  hint.className = "theme-modal-hint";
-  hint.textContent = "↑↓ preview · Enter save · Esc";
 
   const searchInput = document.createElement("input");
   searchInput.type = "search";
@@ -186,7 +178,6 @@ export function createThemeModal(
 
   panel.appendChild(head);
   panel.appendChild(searchInput);
-  panel.appendChild(hint);
   panel.appendChild(list);
 
   root.appendChild(backdrop);
@@ -353,7 +344,6 @@ export function createThemeModal(
     }
     initial = null;
     commitOverride = null;
-    title.textContent = "Themes";
     searchInput.value = "";
     onClosed?.();
   }
@@ -364,7 +354,6 @@ export function createThemeModal(
       open = true;
       mouseCursorForceVisible(true);
       commitOverride = options?.onCommit ?? null;
-      title.textContent = options?.title ?? "Themes";
       window.addEventListener("keydown", onKey, true);
       void (async () => {
         try {

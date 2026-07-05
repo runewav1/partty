@@ -75,29 +75,20 @@ export function createThemeBuilderModal(
 
   const head = document.createElement("div");
   head.className = "theme-builder-head";
-  const title = document.createElement("h2");
-  title.className = "theme-builder-title";
-  title.textContent = "Theme builder";
   const closeBtn = document.createElement("button");
   closeBtn.type = "button";
   closeBtn.className = "theme-builder-close";
   closeBtn.setAttribute("aria-label", "Close");
   closeBtn.textContent = "×";
-  head.appendChild(title);
   head.appendChild(closeBtn);
 
   const nameRow = document.createElement("div");
   nameRow.className = "theme-builder-name-row";
-  const nameLabel = document.createElement("label");
-  nameLabel.className = "theme-builder-label";
-  nameLabel.htmlFor = "theme-builder-name";
-  nameLabel.textContent = "Theme name";
   const nameInput = document.createElement("input");
   nameInput.id = "theme-builder-name";
   nameInput.className = "theme-builder-input";
   nameInput.type = "text";
-  nameInput.placeholder = "my-theme";
-  nameRow.appendChild(nameLabel);
+  nameInput.placeholder = "Theme name";
   nameRow.appendChild(nameInput);
 
   const scroll = document.createElement("div");
