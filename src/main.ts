@@ -78,6 +78,7 @@ import {
   createKeybinds,
 } from "./keybinds";
 import { showAlert } from "./dialog";
+import pkg from "../package.json";
 import {
   type PaletteContext,
   type SavedPaletteCommand,
@@ -656,6 +657,11 @@ async function boot(): Promise<void> {
     label: string;
     run: () => void;
   }> = [];
+  /** Extension tab lifecycle subscribers. */
+  const extTabSwitchSubs: Array<(tabId: string) => void> = [];
+  /** Extension window visibility subscribers. */
+  const extWindowShowSubs: Array<() => void> = [];
+  const extWindowHideSubs: Array<() => void> = [];
 
   const pendingPtyWriteByPane = new Map<string, string>();
   const pendingPtyOutputByPane = new Map<string, PendingPtyOutput>();
@@ -2340,6 +2346,10 @@ async function boot(): Promise<void> {
     activeWorkspaceTabId = tabId;
     tabsState = { ...tabsState, activeTabId: tabId };
     saveTabsState(tabsState);
+
+    for (const fn of extTabSwitchSubs) {
+      try { fn(tabId); } catch { /* ignore */ }
+    }
 
     for (const shell of tabPaneShells.values()) {
       shell.classList.remove(
@@ -5382,6 +5392,9 @@ async function boot(): Promise<void> {
       scheduleCwdSync();
     }),
     listen("partty-hide", () => {
+      for (const fn of extWindowHideSubs) {
+        try { fn(); } catch { /* ignore */ }
+      }
       if (paneHost && lp.destroy_webview_on_hide) {
         persistCurrentWorkspaceTabLayout();
       }
@@ -5407,6 +5420,9 @@ async function boot(): Promise<void> {
       });
     }),
     listen("partty-show", async () => {
+      for (const fn of extWindowShowSubs) {
+        try { fn(); } catch { /* ignore */ }
+      }
       restoreSerializedTerminals();
       await mountWebglForFocused();
       getFocusedTerm()?.focus();
@@ -5481,8 +5497,9 @@ async function boot(): Promise<void> {
 
   // ── Extensions ──────────────────────────────────────────────
   // Load extensions from %LOCALAPPDATA%/partty/extensions/<name>/index.js
-  // at runtime. Each extension is a self-contained folder with an index.js
-  // that exports an activate(api) function.
+  // at runtime. Each extension receives an `api` object with the full
+  // ExtensionApi surface. The code runs as the body of function(api) { ... }
+  // — no export or build step required.
   void (async () => {
     try {
       const allExts = await invoke<
@@ -5683,6 +5700,34 @@ async function boot(): Promise<void> {
             if (idx !== -1) extPaletteCommands.splice(idx, 1);
           };
         },
+
+        // ── Tab lifecycle ──
+        onTabSwitch(fn: (tabId: string) => void) {
+          extTabSwitchSubs.push(fn);
+          return () => {
+            const idx = extTabSwitchSubs.indexOf(fn);
+            if (idx !== -1) extTabSwitchSubs.splice(idx, 1);
+          };
+        },
+
+        // ── Window lifecycle ──
+        onWindowShow(fn: () => void) {
+          extWindowShowSubs.push(fn);
+          return () => {
+            const idx = extWindowShowSubs.indexOf(fn);
+            if (idx !== -1) extWindowShowSubs.splice(idx, 1);
+          };
+        },
+        onWindowHide(fn: () => void) {
+          extWindowHideSubs.push(fn);
+          return () => {
+            const idx = extWindowHideSubs.indexOf(fn);
+            if (idx !== -1) extWindowHideSubs.splice(idx, 1);
+          };
+        },
+
+        // ── Metadata ──
+        getAppVersion: () => pkg.version,
       };
 
       for (const ext of exts) {

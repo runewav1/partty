@@ -9,6 +9,9 @@
  * No imports or build step needed — just plain JS.
  */
 
+// ── Metadata
+console.log("[ext] App version:", api.getAppVersion());
+
 // ── PTY observation
 const unsub = api.onPtyOutput((paneId, data) => {
   if (data.includes("NEEDS PERMISSION")) {
@@ -24,6 +27,20 @@ api.onProcessStart((proc) => {
 api.onProcessEnd((proc) => {
   console.debug("[ext] Process ended:", proc.command,
     `(${(proc.durationMs / 1000).toFixed(1)}s)`);
+});
+
+// ── Tab lifecycle
+api.onTabSwitch((tabId) => {
+  console.debug("[ext] Switched to tab:", tabId);
+});
+
+// ── Window lifecycle
+api.onWindowShow(() => {
+  console.debug("[ext] Window shown");
+});
+
+api.onWindowHide(() => {
+  console.debug("[ext] Window hidden");
 });
 
 // ── Query active process in any pane

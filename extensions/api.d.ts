@@ -56,6 +56,9 @@ export type ExtensionApi = {
   onPaneCreated(fn: (paneId: string) => void): () => void;
   onPaneClosed(fn: (paneId: string) => void): () => void;
   onFocusChanged(fn: (paneId: string) => void): () => void;
+  onTabSwitch(fn: (tabId: string) => void): () => void;
+  onWindowShow(fn: () => void): () => void;
+  onWindowHide(fn: () => void): () => void;
 
   // ── Command palette ──
   registerCommand(id: string, label: string, run: () => void): () => void;
@@ -76,4 +79,7 @@ export type ExtensionApi = {
   getPaneIds(): string[];
   getPaneCwd(paneId: string): string | null;
   getPaneName(paneId: string): string | null;
+
+  // ── Metadata ──
+  getAppVersion(): string;
 };
