@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 /// A fully-spawned PTY session kept ready for instant adoption by the next
 /// `pty_spawn` / `pty_ensure` call with a matching shell identity.
@@ -430,8 +430,9 @@ fn webview_boot_complete(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
-    if st.persisted.lock().prefs.window_startup_visible {
-        if st.persisted.lock().prefs.defer_window_show_until_prepared {
+    let p = st.persisted.lock().prefs.clone();
+    if p.window_startup_visible {
+        if p.defer_window_show_until_prepared {
             st.defer_prepare_show_until_webview_ready
                 .store(true, Ordering::SeqCst);
             let Some(w) = app.get_webview_window("main") else {
@@ -898,6 +899,14 @@ pub fn run() {
     let mut loaded = load_persisted();
     window_state::sanitize_window_state(&mut loaded.window);
 
+    let kb = keybinds::load_keybinds();
+    let toggle_binding = kb
+        .bind
+        .get("window_toggle")
+        .cloned()
+        .unwrap_or_else(|| "Alt+Shift+T".to_string());
+    let (toggle_mods, toggle_code) = keybinds::parse_global_shortcut(&toggle_binding);
+
     tauri::Builder::default()
         // Single-instance must run before global shortcuts: otherwise a second process tries to
         // register the same hotkeys and the global-shortcut plugin fails to initialize (and the
@@ -920,17 +929,11 @@ pub fn run() {
         }))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, shortcut, event| {
+                .with_handler(|app, _shortcut, event| {
                     if event.state != ShortcutState::Pressed {
                         return;
                     }
-                    let mods = shortcut.mods;
-                    if shortcut.key == Code::KeyT
-                        && mods.contains(Modifiers::ALT)
-                        && mods.contains(Modifiers::SHIFT)
-                    {
-                        toggle_window(app);
-                    }
+                    toggle_window(app);
                 })
                 .build(),
         )
@@ -1003,10 +1006,10 @@ pub fn run() {
 
             register_main_window_events(&handle, &win);
 
-            // Register global shortcuts best-effort so one unavailable combo doesn't crash startup.
-            let toggle_main = Shortcut::new(Some(Modifiers::ALT | Modifiers::SHIFT), Code::KeyT);
-            if let Err(e) = app.global_shortcut().register(toggle_main) {
-                eprintln!("global shortcut register failed (Alt+Shift+T): {e}");
+            // Register the summon/dismiss global shortcut from keybinds config.
+            let toggle_sc = Shortcut::new(Some(toggle_mods), toggle_code);
+            if let Err(e) = app.global_shortcut().register(toggle_sc) {
+                eprintln!("[partty] global shortcut register failed for \"{toggle_binding}\": {e}");
             }
             Ok(())
         })

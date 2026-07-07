@@ -1457,53 +1457,53 @@ async function boot(): Promise<void> {
       if (e.type !== "keydown") return true;
 
       const m = k.match(e,
-        "terminal.newline",
-        "pane.focus_left", "pane.focus_right", "pane.focus_up", "pane.focus_down",
-        "terminal.copy",
-        "palette.chord",
-        "pane.split_right",
-        "pane.split_down",
-        "pane.move_to_tab",
-        "pane.float_toggle",
-        "pane.swap_left", "pane.swap_right", "pane.swap_up", "pane.swap_down",
-        "pane.close",
+        "terminal_newline",
+        "pane_focus_left", "pane_focus_right", "pane_focus_up", "pane_focus_down",
+        "terminal_copy",
+        "palette_chord",
+        "pane_split_right",
+        "pane_split_down",
+        "pane_move_to_tab",
+        "pane_float_toggle",
+        "pane_swap_left", "pane_swap_right", "pane_swap_up", "pane_swap_down",
+        "pane_close",
 
       );
 
       if (m) {
         switch (m) {
-          case "terminal.newline":
+          case "terminal_newline":
             e.preventDefault();
             queuePtyWrite(paneId, "\n", true);
             return false;
-          case "pane.focus_left":
-          case "pane.focus_right":
-          case "pane.focus_up":
-          case "pane.focus_down":
+          case "pane_focus_left":
+          case "pane_focus_right":
+          case "pane_focus_up":
+          case "pane_focus_down":
             if (focusAdjacentPaneByArrow(e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown")) {
               e.preventDefault();
               return false;
             }
             break;
-          case "terminal.copy":
+          case "terminal_copy":
             if (term.hasSelection()) {
               e.preventDefault();
               copyToClipboard(term.getSelection());
               return false;
             }
             break;
-          case "palette.chord":
+          case "palette_chord":
             e.preventDefault();
             return false;
-          case "pane.split_right":
+          case "pane_split_right":
             e.preventDefault();
             splitFocusedWithCwd("h");
             return false;
-          case "pane.split_down":
+          case "pane_split_down":
             e.preventDefault();
             splitFocusedWithCwd("v");
             return false;
-          case "pane.move_to_tab": {
+          case "pane_move_to_tab": {
             const idx = tabHotkeyIndexFromEvent(e);
             if (idx != null) {
               e.preventDefault();
@@ -1512,17 +1512,17 @@ async function boot(): Promise<void> {
             }
             break;
           }
-          case "pane.float_toggle":
+          case "pane_float_toggle":
             e.preventDefault();
             toggleFocusedPaneFloating();
             return false;
-          case "pane.swap_left":
-          case "pane.swap_right":
-          case "pane.swap_up":
-          case "pane.swap_down":
+          case "pane_swap_left":
+          case "pane_swap_right":
+          case "pane_swap_up":
+          case "pane_swap_down":
             e.preventDefault();
             return swapFocusedPaneWithAdjacent(e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown");
-          case "pane.close":
+          case "pane_close":
             e.preventDefault();
             void closeFocusedPane();
             return false;
@@ -3071,7 +3071,7 @@ async function boot(): Promise<void> {
   window.addEventListener(
     "keydown",
     (e) => {
-      const mMoveTab = k.matchParam(e, "pane.move_to_tab");
+      const mMoveTab = k.matchParam(e, "pane_move_to_tab");
       if (mMoveTab) {
         const t = e.target as HTMLElement | null;
         if (
@@ -3085,7 +3085,7 @@ async function boot(): Promise<void> {
         return;
       }
 
-      const mSwitchTab = k.matchParam(e, "tab.switch");
+      const mSwitchTab = k.matchParam(e, "tab_switch");
       if (mSwitchTab) {
         e.preventDefault();
         e.stopPropagation();
@@ -3095,40 +3095,47 @@ async function boot(): Promise<void> {
       }
 
       const m = k.match(e,
-        "window.move_next_monitor",
-        "window.move_prev_monitor",
-        "window.maximize",
-        "window.restore",
-        "focus.terminal",
-        "focus.pane_up", "focus.pane_down",
+        "window_toggle",
+        "window_move_next_monitor",
+        "window_move_prev_monitor",
+        "window_maximize",
+        "window_restore",
+        "focus_terminal",
+        "focus_pane_up", "focus_pane_down",
       );
 
-      if (m === "window.move_next_monitor") {
+      if (m === "window_toggle") {
+        e.preventDefault();
+        e.stopPropagation();
+        void invoke("toggle_overlay").catch(() => {});
+        return;
+      }
+      if (m === "window_move_next_monitor") {
         e.preventDefault();
         e.stopPropagation();
         void moveWindowToAdjacentMonitor(1);
         return;
       }
-      if (m === "window.move_prev_monitor") {
+      if (m === "window_move_prev_monitor") {
         e.preventDefault();
         e.stopPropagation();
         void moveWindowToAdjacentMonitor(-1);
         return;
       }
-      if (m === "window.maximize") {
+      if (m === "window_maximize") {
         e.preventDefault();
         e.stopPropagation();
         void setWindowMaximized(true);
         return;
       }
-      if (m === "window.restore") {
+      if (m === "window_restore") {
         e.preventDefault();
         e.stopPropagation();
         void setWindowMaximized(false);
         return;
       }
 
-      if (m === "focus.pane_up" || m === "focus.terminal" || m === "focus.pane_down") {
+      if (m === "focus_pane_up" || m === "focus_terminal" || m === "focus_pane_down") {
         if (focusAdjacentPaneByArrow(e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown")) {
           e.preventDefault();
           e.stopPropagation();
@@ -3828,7 +3835,7 @@ async function boot(): Promise<void> {
   window.addEventListener(
     "keydown",
     (e) => {
-      const m = k.match(e, "pane.float_toggle", "settings.open");
+      const m = k.match(e, "pane_float_toggle", "settings_open");
       if (!m) return;
       const t = e.target as HTMLElement | null;
       if (
@@ -3839,10 +3846,10 @@ async function boot(): Promise<void> {
       e.preventDefault();
       e.stopPropagation();
       switch (m) {
-        case "pane.float_toggle":
+        case "pane_float_toggle":
           toggleFocusedPaneFloating();
           break;
-        case "settings.open":
+        case "settings_open":
           settingsApi?.open();
           break;
       }
@@ -4959,7 +4966,7 @@ async function boot(): Promise<void> {
   window.addEventListener(
     "keydown",
     (e) => {
-      if (!k.match(e, "help.toggle")) return;
+      if (!k.match(e, "help_toggle")) return;
       const t = e.target as HTMLElement | null;
       if (
         t?.closest("#command-palette") &&
@@ -4990,7 +4997,7 @@ async function boot(): Promise<void> {
     window.addEventListener(
       "keydown",
       (e) => {
-        if (!k.match(e, "palette.open")) return;
+        if (!k.match(e, "palette_open")) return;
         e.preventDefault();
         e.stopPropagation();
         if (commandPalette.isOpen()) {
@@ -5537,7 +5544,7 @@ async function boot(): Promise<void> {
   }
 
   window.addEventListener("keydown", (e) => {
-    if (!k.match(e, "dev.toggle")) return;
+    if (!k.match(e, "dev_toggle")) return;
     const t = e.target as HTMLElement | null;
     if (t?.closest("#command-palette") || t?.closest("#settings-panel")) return;
     if (!parttyPerf.enabled) return;

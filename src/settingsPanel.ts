@@ -395,7 +395,6 @@ export function createSettingsPanel(
     setVal("scrollback_lines", String(p.scrollback_lines));
     setVal("snapshot_max_lines", String(p.snapshot_max_lines));
     setVal("window_effect_opacity", String(pr.window_effect_opacity ?? 0));
-    setVal("window_effect_opacity", String(pr.window_effect_opacity ?? 0));
     setVal("pane_corner_radius", String(pr.pane_corner_radius ?? 6));
     setVal("terminal_pane_gap", String(pr.terminal_pane_gap ?? (pr.terminal_no_gap ? 0 : 6)));
     setVal("terminal_sandbox_padding", String(pr.terminal_sandbox_padding ?? 0));

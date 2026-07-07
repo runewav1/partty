@@ -100,17 +100,6 @@ function walkEl(el: Element): PaneNode {
   throw new Error(`unexpected pane node: ${el.className}`);
 }
 
-export function savePaneLayout(root: HTMLElement, focusedId: string): void {
-  try {
-    const tree = snapshotTreeFromPaneHost(root);
-    if (!tree || !layoutContainsWorkspaceRoot(tree)) return;
-    const payload: PersistedPaneLayout = { v: 1, tree, focusedId };
-    localStorage.setItem(PANE_LAYOUT_STORAGE_KEY, JSON.stringify(payload));
-  } catch {
-    /* ignore */
-  }
-}
-
 export function clearPaneLayout(): void {
   try {
     localStorage.removeItem(PANE_LAYOUT_STORAGE_KEY);
