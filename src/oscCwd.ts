@@ -20,8 +20,8 @@ export function normalizeFsPathKey(p: string): string {
 
 /**
  * True only for paths the native Tauri filesystem backend can open directly.
- * Rejects WSL/POSIX cwd values so the file panel does not call Rust commands
- * with paths that Rust will reject as non-absolute.
+ * Rejects WSL/POSIX cwd values so we don't pass non-absolute paths
+ * to Rust commands that expect native Windows paths.
  */
 export function isNativeAbsoluteFsPath(path: string | null | undefined): path is string {
   const p = path?.trim();
