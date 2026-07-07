@@ -11,6 +11,7 @@ export type PersistedPaneLayout = {
   floating?: Record<string, FloatingPaneState>;
   paneThemes?: Record<string, PaneThemePrefs>;
   paneNames?: Record<string, string>;
+  paneCwds?: Record<string, string>;
 };
 
 function collectLeafIdsArr(node: PaneNode, out: string[]): void {
@@ -61,6 +62,7 @@ export function loadPaneLayout(): PersistedPaneLayout | null {
       floating: parsed.floating,
       paneThemes: parsed.paneThemes,
       paneNames: parsed.paneNames,
+      paneCwds: parsed.paneCwds,
     };
   } catch {
     return null;

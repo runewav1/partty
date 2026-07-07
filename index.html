@@ -302,6 +302,9 @@
                   <label class="settings-checkbox-label"><span>Always on top</span><input class="settings-checkbox-input" type="checkbox" name="always_on_top" /></label>
                   <label class="settings-checkbox-label"><span>Summon max</span><input class="settings-checkbox-input" type="checkbox" name="always_summon_maximized" /></label>
                 </div>
+                <div class="settings-toggles">
+                  <label class="settings-checkbox-label" title="Show the window immediately on launch; disable to require summon keybind"><span>Start visible</span><input class="settings-checkbox-input" type="checkbox" name="window_startup_visible" checked /></label>
+                </div>
                 <div class="settings-subsection-hd">Cursor</div>
                 <div class="settings-toggles">
                   <label class="settings-checkbox-label" title="Always hide the OS mouse cursor over the window"><span>Hide mouse</span><input class="settings-checkbox-input" type="checkbox" name="mouse_hidden" /></label>
@@ -329,6 +332,8 @@
               <div class="settings-section-hd">Session</div>
               <div class="settings-section-bd">
                 <div class="settings-toggles">
+                  <label class="settings-checkbox-label" title="Save pane layouts and working directories to restore on next launch"><span>Keep session</span><input class="settings-checkbox-input" type="checkbox" name="retain_session_state" checked /></label>
+                  <div class="settings-toggle-desc">Remember pane positions, directories, and tabs across restarts.</div>
                   <label class="settings-checkbox-label"><span>Preload PTY</span><input class="settings-checkbox-input" type="checkbox" name="preload_pty_on_startup" checked /></label>
                   <div class="settings-toggle-desc">Pre-create a PTY session for instant pane spawning.</div>
                   <label class="settings-checkbox-label"><span>Preload WebGL</span><input class="settings-checkbox-input" type="checkbox" name="preload_webgl_on_startup" checked /></label>

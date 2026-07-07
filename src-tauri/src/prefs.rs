@@ -176,6 +176,8 @@ pub struct Prefs {
     pub pane_focus_scale_intensity: f64,
     #[serde(default)]
     pub auto_copy_selection: bool,
+    #[serde(default = "default_true")]
+    pub retain_session_state: bool,
     #[serde(default)]
     pub shed_workspace_exit: String,
     #[serde(default)]
@@ -188,6 +190,8 @@ pub struct Prefs {
     pub cursor_follow_pane_focus: bool,
     #[serde(default)]
     pub hidden_from_taskbar: bool,
+    #[serde(default = "default_true")]
+    pub window_startup_visible: bool,
     pub ui_disable_tooltips: bool,
     #[serde(default = "default_terminal_backspace_delete_selection")]
     pub terminal_backspace_delete_selection: bool,
@@ -305,12 +309,14 @@ impl Default for Prefs {
             focus_pane_scale: true,
             pane_focus_scale_intensity: default_pane_focus_scale_intensity(),
             auto_copy_selection: false,
+            retain_session_state: true,
             shed_workspace_exit: "keep".to_string(),
             always_summon_maximized: false,
             summon_spawn_at_cursor: false,
             cursor_follow_window_move: false,
             cursor_follow_pane_focus: true,
             hidden_from_taskbar: false,
+            window_startup_visible: true,
             ui_theme: default_ui_theme(),
             ui_theme_variant: default_ui_theme_variant(),
             font_terminal: String::new(),
@@ -625,6 +631,8 @@ pub struct WindowSection {
     pub effect: String,
     #[serde(default = "default_window_effect_opacity")]
     pub effect_opacity: f64,
+    #[serde(default = "default_true")]
+    pub startup_visible: bool,
 }
 
 impl Default for WindowSection {
@@ -636,6 +644,7 @@ impl Default for WindowSection {
             hidden_from_taskbar: false,
             effect: default_window_effect_mode(),
             effect_opacity: default_window_effect_opacity(),
+            startup_visible: true,
         }
     }
 }
@@ -698,6 +707,8 @@ pub struct WorkspaceSection {
     pub shed_on_exit: String,
     #[serde(default)]
     pub auto_copy: bool,
+    #[serde(default = "default_true")]
+    pub retain_session_state: bool,
 }
 
 impl Default for WorkspaceSection {
@@ -705,6 +716,7 @@ impl Default for WorkspaceSection {
         Self {
             shed_on_exit: "keep".to_string(),
             auto_copy: false,
+            retain_session_state: true,
         }
     }
 }
@@ -881,6 +893,7 @@ impl From<ConfigToml> for Prefs {
             hidden_from_taskbar: c.window.hidden_from_taskbar,
             window_effect_mode: c.window.effect,
             window_effect_opacity: c.window.effect_opacity,
+            window_startup_visible: c.window.startup_visible,
             shed_on_hide: c.lifecycle.shed_on_hide,
             webgl_shed_on_hide: c.lifecycle.webgl_shed_on_hide,
             discard_buffer_on_hide: c.lifecycle.discard_buffer,
@@ -894,6 +907,7 @@ impl From<ConfigToml> for Prefs {
             font_terminal: c.font_terminal.family,
             shed_workspace_exit: c.workspace.shed_on_exit,
             auto_copy_selection: c.workspace.auto_copy,
+            retain_session_state: c.workspace.retain_session_state,
             process_notification_threshold: c.notifications.command_threshold_secs,
             process_notification_show_for: c.notifications.toast_duration_ms,
             process_notification_show_ms: c.notifications.show_milliseconds,
@@ -978,6 +992,7 @@ impl From<&Prefs> for ConfigToml {
                 hidden_from_taskbar: p.hidden_from_taskbar,
                 effect: p.window_effect_mode.clone(),
                 effect_opacity: p.window_effect_opacity,
+                startup_visible: p.window_startup_visible,
             },
             lifecycle: LifecycleSection {
                 shed_on_hide: p.shed_on_hide,
@@ -996,6 +1011,7 @@ impl From<&Prefs> for ConfigToml {
             workspace: WorkspaceSection {
                 shed_on_exit: p.shed_workspace_exit.clone(),
                 auto_copy: p.auto_copy_selection,
+                retain_session_state: p.retain_session_state,
             },
             notifications: NotificationsSection {
                 command_threshold_secs: p.process_notification_threshold,

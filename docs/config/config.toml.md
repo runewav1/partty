@@ -88,6 +88,7 @@
 | `summon_maximized` | bool | `false` | |
 | `summon_at_cursor` | bool | `false` | place window at OS cursor on show |
 | `hidden_from_taskbar` | bool | `false` | |
+| `startup_visible` | bool | `true` | show window immediately on launch; disable to require summon keybind |
 | `effect` | string | `"transparent"` | `"off"` `"transparent"` |
 | `effect_opacity` | float | `0.0` | `0`–`1` |
 
@@ -117,6 +118,7 @@
 |-----|------|---------|--------|
 | `shed_on_exit` | string | `"keep"` | `"keep"` `"shed"` `"ask"` |
 | `auto_copy` | bool | `false` | copy terminal selection on change |
+| `retain_session_state` | bool | `true` | keep pane layouts and working directories across restarts |
 
 ## `[notifications]`
 

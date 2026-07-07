@@ -27,6 +27,8 @@ export type ParttyPrefs = {
   /** Focus scale intensity 0–1 (default 0.45). */
   pane_focus_scale_intensity?: number;
   auto_copy_selection: boolean;
+  /** Retain pane layouts, working directories, and tab state when the window closes. */
+  retain_session_state?: boolean;
   ui_theme: string;
   ui_theme_variant: string;
   font_terminal: string;
@@ -38,6 +40,8 @@ export type ParttyPrefs = {
   /** Warp OS cursor onto the focused pane when focus context changes. */
   cursor_follow_pane_focus?: boolean;
   hidden_from_taskbar: boolean;
+  /** Show the window immediately on app launch instead of waiting for summon. */
+  window_startup_visible?: boolean;
   ui_disable_tooltips: boolean;
   terminal_backspace_delete_selection: boolean;
   always_open_in_zen_mode: boolean;
@@ -186,10 +190,12 @@ export function createSettingsPanel(
       pane_variable_opacity: gc("pane_variable_opacity"),
       focus_pane_scale: gc("focus_pane_scale"), pane_focus_scale_intensity: clampf(g("pane_focus_scale_intensity"), 0.45, 0, 1),
       auto_copy_selection: gc("auto_copy_selection"), shed_workspace_exit,
+      retain_session_state: gc("retain_session_state"),
       always_summon_maximized: gc("always_summon_maximized"), summon_spawn_at_cursor: gc("summon_spawn_at_cursor"),
       cursor_follow_window_move: gc("cursor_follow_window_move"),
       cursor_follow_pane_focus: gc("cursor_follow_pane_focus"),
       hidden_from_taskbar: gc("hidden_from_taskbar"),
+      window_startup_visible: gc("window_startup_visible"),
       ui_theme: previous.ui_theme, ui_theme_variant: previous.ui_theme_variant,
       font_terminal: g("font_terminal"), font_ui: g("font_ui"),
       ui_disable_tooltips: gc("ui_disable_tooltips"),
@@ -445,11 +451,13 @@ export function createSettingsPanel(
     setChk("focus_pane_scale", pr.focus_pane_scale ?? true);
     setVal("pane_focus_scale_intensity", String(pr.pane_focus_scale_intensity ?? 0.45));
     setChk("auto_copy_selection", pr.auto_copy_selection ?? false);
+    setChk("retain_session_state", pr.retain_session_state ?? true);
     setChk("always_summon_maximized", pr.always_summon_maximized ?? false);
     setChk("summon_spawn_at_cursor", pr.summon_spawn_at_cursor ?? false);
     setChk("cursor_follow_window_move", pr.cursor_follow_window_move ?? false);
     setChk("cursor_follow_pane_focus", pr.cursor_follow_pane_focus ?? true);
     setChk("hidden_from_taskbar", pr.hidden_from_taskbar ?? false);
+    setChk("window_startup_visible", pr.window_startup_visible ?? true);
     setChk("ui_disable_tooltips", pr.ui_disable_tooltips ?? false);
     setChk("terminal_backspace_delete_selection", pr.terminal_backspace_delete_selection ?? true);
     setChk("always_open_in_zen_mode", pr.always_open_in_zen_mode ?? false);

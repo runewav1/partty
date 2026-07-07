@@ -445,6 +445,10 @@ async function boot(): Promise<void> {
   const autoCopySelectionRef = {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).auto_copy_selection),
   };
+  const retainSessionStateRef = {
+    v:
+      (persisted.prefs as Partial<ParttyPrefs>).retain_session_state ?? true,
+  };
   const splitLayoutStyleRef = {
     v: normalizeSplitLayoutStyle(
       (persisted.prefs as Partial<ParttyPrefs>).split_layout_style,
@@ -2284,6 +2288,11 @@ async function boot(): Promise<void> {
       const cleaned = name.trim().replace(/\s+/g, "_");
       if (cleaned) paneNames.set(paneId, cleaned);
     }
+    if (retainSessionStateRef.v) {
+      for (const [paneId, cwd] of Object.entries(layout.paneCwds ?? {})) {
+        paneCwdHints.set(paneId, cwd);
+      }
+    }
     createTabPaneShellAndHost(
       tab.id,
       {
@@ -2329,6 +2338,13 @@ async function boot(): Promise<void> {
           .filter((pane) => paneNames.has(pane.id))
           .map((pane) => [pane.id, paneNames.get(pane.id)!]),
       ),
+      paneCwds: retainSessionStateRef.v
+        ? Object.fromEntries(
+            panes
+              .filter((pane) => paneCwdHints.has(pane.id))
+              .map((pane) => [pane.id, paneCwdHints.get(pane.id)!]),
+          )
+        : undefined,
     };
   }
 
@@ -3459,7 +3475,9 @@ async function boot(): Promise<void> {
   window.addEventListener("beforeunload", () => {
     try {
       persistCurrentWorkspaceTabLayout();
-      if (shouldShedWorkspaceOnExitSilent()) {
+      if (!retainSessionStateRef.v) {
+        shedWorkspaceLocalState();
+      } else if (shouldShedWorkspaceOnExitSilent()) {
         shedWorkspaceLocalState();
       }
     } catch {
@@ -3470,6 +3488,10 @@ async function boot(): Promise<void> {
   void (async () => {
     const appWin = getCurrentWindow();
     await appWin.onCloseRequested(async (event) => {
+      if (!retainSessionStateRef.v) {
+        shedWorkspaceLocalState();
+        return;
+      }
       const mode = getShedWorkspaceExitMode();
       if (mode === "keep") return;
       if (mode === "shed") {
@@ -3928,6 +3950,7 @@ async function boot(): Promise<void> {
           persisted.prefs = saved as unknown as Record<string, unknown>;
           Object.assign(lp, mergeLifecyclePrefs(persisted.prefs));
           autoCopySelectionRef.v = saved.auto_copy_selection;
+          retainSessionStateRef.v = saved.retain_session_state ?? true;
           splitLayoutStyleRef.v = normalizeSplitLayoutStyle(
             saved.split_layout_style,
           );

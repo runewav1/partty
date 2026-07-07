@@ -414,19 +414,40 @@ fn toggle_window(app: &AppHandle) {
 
 /// Call from the frontend after `partty-prepare-show` listeners are registered (e.g. end of `boot()`).
 /// If the main window was just recreated with deferred show, emits `partty-prepare-show` once.
+/// On first boot with `window_startup_visible`, auto-shows the window.
 #[tauri::command]
 fn webview_boot_complete(app: AppHandle) -> Result<(), String> {
     let st = app.state::<AppState>();
-    if !st
+    let was_deferred = st
         .defer_prepare_show_until_webview_ready
-        .swap(false, Ordering::SeqCst)
-    {
+        .swap(false, Ordering::SeqCst);
+
+    if was_deferred {
+        let Some(w) = app.get_webview_window("main") else {
+            return Ok(());
+        };
+        let _ = w.emit("partty-prepare-show", ());
         return Ok(());
     }
-    let Some(w) = app.get_webview_window("main") else {
-        return Ok(());
-    };
-    let _ = w.emit("partty-prepare-show", ());
+
+    if st.persisted.lock().prefs.window_startup_visible {
+        if st.persisted.lock().prefs.defer_window_show_until_prepared {
+            st.defer_prepare_show_until_webview_ready
+                .store(true, Ordering::SeqCst);
+            let Some(w) = app.get_webview_window("main") else {
+                return Ok(());
+            };
+            let _ = w.emit("partty-prepare-show", ());
+        } else {
+            let Some(w) = app.get_webview_window("main") else {
+                return Ok(());
+            };
+            let _ = w.show();
+            let _ = w.set_focus();
+            let _ = w.emit("partty-show", ());
+        }
+    }
+
     Ok(())
 }
 
