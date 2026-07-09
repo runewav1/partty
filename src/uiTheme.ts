@@ -15,8 +15,8 @@ export type UiThemePrefs = {
 
 export type PaneThemePrefs = Pick<UiThemePrefs, "ui_theme" | "ui_theme_variant">;
 
-/** Windows-default monospace stack; Consolas is guaranteed on all Win10+ machines. */
-export const DEFAULT_TERMINAL_FONT_STACK = String.raw`Consolas,"Cascadia Code","Courier New",monospace`;
+/** Cascadia Code (ligatures) ships with Windows 11 / modern Terminal; Consolas is the Win10+ fallback. */
+export const DEFAULT_TERMINAL_FONT_STACK = String.raw`"Cascadia Code",Consolas,"Courier New",monospace`;
 
 export const DEFAULT_UI_FONT = String.raw`"Segoe UI",system-ui,sans-serif`;
 

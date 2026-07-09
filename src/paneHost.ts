@@ -1,5 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { ImageAddon } from "@xterm/addon-image";
+import { LigaturesAddon } from "@xterm/addon-ligatures";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
@@ -23,6 +24,7 @@ export type PaneTerminal = {
   term: Terminal;
   fit: FitAddon;
   image: ImageAddon;
+  ligatures: LigaturesAddon;
   serialize: SerializeAddon;
   host: HTMLElement;
   /** Row wrapping the terminal host element. */
@@ -1525,10 +1527,22 @@ export class PaneHost {
         term.loadAddon(graphemes);
         const serializeAddon = new SerializeAddon();
         term.loadAddon(serializeAddon);
+        // LigaturesAddon must be loaded after open(); before open it does nothing.
+        // WebGL mounts later in ensureWebglOnPane — character joiners stay active across remounts.
         term.open(host);
+        const ligaturesAddon = new LigaturesAddon();
+        term.loadAddon(ligaturesAddon);
         parttyPerf.mark("pane.terminal.create");
         parttyPerf.time("pane.terminal.create.ms", performance.now() - createStarted);
-        pt = { term, fit, image: imageAddon, serialize: serializeAddon, host, row };
+        pt = {
+          term,
+          fit,
+          image: imageAddon,
+          ligatures: ligaturesAddon,
+          serialize: serializeAddon,
+          host,
+          row,
+        };
         this.terminals.set(node.id, pt);
         this.opts.onPaneCreated(node.id, pt);
       }

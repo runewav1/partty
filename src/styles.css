@@ -29,7 +29,7 @@
 
 :root {
   /* Font stacks (optional overrides from settings → inline --font-* on html) */
-  --font-terminal: Consolas, "Cascadia Code", "Courier New", monospace;
+  --font-terminal: "Cascadia Code", Consolas, "Courier New", monospace;
   --font-ui: "Segoe UI", system-ui, sans-serif;
 
 
@@ -1134,6 +1134,7 @@ html.terminal-motion-off *::after {
 
 .terminal-pane-root .xterm {
   font-family: var(--font-terminal) !important;
+  font-feature-settings: "calt" 1, "liga" 1;
 }
 
 /* Keep the grid-sized .xterm at its natural size inside the flex-centered host;
