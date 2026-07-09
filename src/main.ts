@@ -1692,6 +1692,19 @@ async function boot(): Promise<void> {
     for (const id of ids) scheduleCreationReflow(id);
   }
 
+  /**
+   * After a pane-tree remount (transfer take, tab close → reveal), bust cached
+   * PTY dims and run the staggered creation reflow so flex-centered `.xterm`
+   * grids re-quantize against the settled host. Only call while `host` is
+   * visible — fitting a `display:none` tab can write 0×0 metrics.
+   */
+  function scheduleHostGeometryRepair(host: PaneHost): void {
+    const ids: string[] = [];
+    collectLeafIds(host.getTree(), ids);
+    for (const id of ids) lastPtyDims.delete(id);
+    scheduleCreationReflowForHost(host);
+  }
+
   async function syncCwdFromBackend(): Promise<void> {
     try {
       if (Date.now() - lastLiveCwdSignalAt < 1500) return;
@@ -2582,6 +2595,14 @@ async function boot(): Promise<void> {
     const pt = takePaneForTransfer(sourceHost, paneId);
     if (!pt) return;
 
+    // Survivors expand (split → full) via mountTree; they need the same
+    // staggered reflow as new panes, but only while their tab stays visible.
+    const sourceSurvivorIds: string[] = [];
+    if (!closingSourceTab) {
+      collectLeafIds(sourceHost.getTree(), sourceSurvivorIds);
+      for (const id of sourceSurvivorIds) lastPtyDims.delete(id);
+    }
+
     const existing = tabForHotkeyIndex(index);
     if (existing?.id === sourceTabId) {
       sourceHost.restoreTakenPane(paneId, pt);
@@ -2628,6 +2649,11 @@ async function boot(): Promise<void> {
       switchWorkspaceTab(targetTabId);
     }
     scheduleCreationReflow(paneId);
+    // Quiet deferral keeps the source tab active — repair survivors now.
+    // If we switched away, do not fit a hidden host; close/switch-back repairs.
+    if (!closingSourceTab && paneHost === sourceHost) {
+      scheduleHostGeometryRepair(sourceHost);
+    }
   }
 
   const tabMenuEl = document.getElementById("tab-context-menu");
@@ -2724,7 +2750,10 @@ async function boot(): Promise<void> {
       tabsState.tabs.length > 1,
     );
     renderWorkspaceTabsBar();
-    scheduleResizeImmediate();
+    // Force refresh + staggered reflow: survivors may have expanded while this
+    // tab was hidden, leaving a flex-centered grid offset until a full repaint.
+    scheduleResizeImmediate(true);
+    if (paneHost) scheduleHostGeometryRepair(paneHost);
     getFocusedTerm()?.focus();
   }
 
