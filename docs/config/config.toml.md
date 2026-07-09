@@ -80,6 +80,16 @@
 | `layout` | string | `"balanced"` | `"balanced"` `"dwindle"` `"master"` |
 | `quiet_defer` | bool | `false` | Ctrl+Shift+N moves pane without switching tab |
 
+### Split layout styles
+
+Hyprland-inspired insert rules for new panes (existing trees are not rewritten when you change the style):
+
+| Value | Behavior |
+|-------|----------|
+| `balanced` | Manual splits. `Alt+V` / `Alt+H` (split right / down) are honored; new pane gets 50% of the focused leaf. |
+| `dwindle` | BSP-style. Direction is chosen from the focused pane’s aspect ratio (`W ≥ H` → side-by-side, else stacked). Hotkey direction is only a fallback when size is unknown. Ratio stays 50/50. |
+| `master` | Left master column is the tab root pane (~68% width). Further splits append vertically into the right-hand stack. If the tree is not already master-shaped (e.g. after using balanced), the next split falls back to a normal focused split until a clean master root can be formed. |
+
 ## `[window]`
 
 | Key | Type | Default | Values |

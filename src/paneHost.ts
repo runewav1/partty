@@ -52,6 +52,12 @@ export type PaneDescriptor = {
   fontSize?: number;
 };
 
+/** Hyprland-inspired tiled insert styles (see `insertPaneNearFocused`). */
+export type SplitLayoutStyle = "balanced" | "dwindle" | "master";
+
+/** Default master-area fraction (Hyprland-style mfact). */
+const MASTER_SPLIT_RATIO = 0.68;
+
 export type PaneHostOptions = {
   scrollbackLines: number;
   fontStack: string;
@@ -74,7 +80,7 @@ export type PaneHostOptions = {
   getTheme: (paneId: string) => ITheme;
   getPaneName?: (paneId: string) => string | undefined;
   getPaneCssVars?: (paneId: string) => Record<string, string> | null;
-  getSplitLayoutStyle?: () => "balanced" | "dwindle" | "master";
+  getSplitLayoutStyle?: () => SplitLayoutStyle;
   focusFollowsCursor: () => boolean;
   onPaneFocus: (paneId: string) => void;
   onPaneSwapAdjacent?: (paneId: string, dir: "h" | "v") => boolean;
@@ -450,6 +456,11 @@ export class PaneHost {
     });
   }
 
+  /**
+   * Split the focused pane. `dir` is honored for **balanced**; dwindle/master
+   * choose direction from layout rules (Hyprland-inspired). Explicit hotkeys
+   * still call this with h/v — those act as hints only outside balanced.
+   */
   splitFocused(dir: "h" | "v"): string | null {
     if (this.floating.has(this.focusedId)) return null;
     const newId = crypto.randomUUID();
@@ -610,26 +621,109 @@ export class PaneHost {
     return true;
   }
 
-  private splitRatioForFocused(): number {
-    const style = this.opts.getSplitLayoutStyle?.() ?? "balanced";
-    if (style === "dwindle") return 0.62;
-    if (style === "master" && this.focusedId === this.rootPaneId) return 0.68;
-    return 0.5;
+  private layoutStyle(): SplitLayoutStyle {
+    return this.opts.getSplitLayoutStyle?.() ?? "balanced";
   }
 
-  private splitRatioForRoot(): number {
-    const style = this.opts.getSplitLayoutStyle?.() ?? "balanced";
-    if (style === "dwindle") return 0.62;
-    if (style === "master") return 0.68;
-    return 0.5;
+  /** Host content box for a leaf; used by dwindle aspect picking. */
+  private leafHostSize(paneId: string): { w: number; h: number } | null {
+    const pt = this.terminals.get(paneId);
+    if (pt) {
+      const w = pt.host.clientWidth;
+      const h = pt.host.clientHeight;
+      if (w >= 2 && h >= 2) return { w, h };
+    }
+    const leaf = this.root.querySelector(
+      `.pane-leaf[data-pane-id="${CSS.escape(paneId)}"]`,
+    ) as HTMLElement | null;
+    if (!leaf) return null;
+    const r = leaf.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return null;
+    return { w: r.width, h: r.height };
+  }
+
+  /**
+   * Hyprland dwindle: split along the longer axis of the target pane
+   * (W > H → side-by-side `h`, else stacked `v`). Falls back to `hint`.
+   */
+  private dwindleDirForPane(paneId: string, hint: "h" | "v"): "h" | "v" {
+    const size = this.leafHostSize(paneId);
+    if (!size) return hint;
+    return size.w >= size.h ? "h" : "v";
+  }
+
+  /**
+   * Find the master/stack root split: horizontal split whose `a` subtree
+   * contains `rootPaneId` (master on the left).
+   */
+  private findMasterRootSplit(node: PaneNode): PaneSplit | null {
+    if (node.kind !== "split") return null;
+    if (node.dir === "h" && findPaneLeaf(node.a, this.rootPaneId)) {
+      return node;
+    }
+    return this.findMasterRootSplit(node.a) ?? this.findMasterRootSplit(node.b);
+  }
+
+  /**
+   * Append `paneId` into the master layout's stack (right of master), splitting
+   * the deepest stack leaf vertically. Creates the master/stack root if the
+   * tab is still a single leaf. Returns false if master structure can't be
+   * applied (caller should fall back to a normal focused split).
+   */
+  private insertIntoMasterStack(paneId: string): boolean {
+    const found = this.findMasterRootSplit(this.tree);
+    if (!found) {
+      if (this.tree.kind !== "leaf" || this.tree.id !== this.rootPaneId) {
+        return false;
+      }
+      // First split: master (root) | new stack leaf
+      this.tree = {
+        kind: "split",
+        dir: "h",
+        ratio: MASTER_SPLIT_RATIO,
+        a: { kind: "leaf", id: this.rootPaneId },
+        b: { kind: "leaf", id: paneId },
+      };
+      return true;
+    }
+
+    // Deepest leaf in stack (prefer `b` recursively — newest at bottom)
+    const deepestLeaf = (n: PaneNode): PaneLeaf => {
+      if (n.kind === "leaf") return n;
+      return deepestLeaf(n.b);
+    };
+    const targetId = deepestLeaf(found.b).id;
+    const rep: PaneSplit = {
+      kind: "split",
+      dir: "v",
+      ratio: 0.5,
+      a: { kind: "leaf", id: targetId },
+      b: { kind: "leaf", id: paneId },
+    };
+    const next = replaceLeaf(this.tree, targetId, rep);
+    if (!next) return false;
+    this.tree = next;
+    return true;
   }
 
   private insertPaneAtRoot(paneId: string, dir: "h" | "v"): boolean {
+    const style = this.layoutStyle();
+    if (style === "master") {
+      if (this.insertIntoMasterStack(paneId)) {
+        this.mountTree();
+        this.opts.onPaneLayout?.();
+        return true;
+      }
+      // Existing non-master tree: fall through to a normal root split.
+    }
+
     const from = this.rootPaneId;
+    const resolvedDir =
+      style === "dwindle" ? this.dwindleDirForPane(from, dir) : dir;
     const rep: PaneSplit = {
       kind: "split",
-      dir,
-      ratio: this.splitRatioForRoot(),
+      dir: resolvedDir,
+      ratio: 0.5,
       a: { kind: "leaf", id: from },
       b: { kind: "leaf", id: paneId },
     };
@@ -641,13 +735,29 @@ export class PaneHost {
     return true;
   }
 
-  private insertPaneNearFocused(paneId: string, dir: "h" | "v", createTerminal: boolean): string | null {
+  private insertPaneNearFocused(
+    paneId: string,
+    dir: "h" | "v",
+    createTerminal: boolean,
+  ): string | null {
     if (this.floating.has(this.focusedId)) return null;
+    const style = this.layoutStyle();
     const from = this.focusedId;
+
+    if (style === "master" && this.insertIntoMasterStack(paneId)) {
+      // New windows join the stack (Hyprland master default).
+      this.mountTree();
+      this.opts.onPaneLayout?.();
+      this.setFocusedPaneId(paneId);
+      return createTerminal || this.terminals.has(paneId) ? paneId : null;
+    }
+
+    const resolvedDir =
+      style === "dwindle" ? this.dwindleDirForPane(from, dir) : dir;
     const rep: PaneSplit = {
       kind: "split",
-      dir,
-      ratio: this.splitRatioForFocused(),
+      dir: resolvedDir,
+      ratio: 0.5,
       a: { kind: "leaf", id: from },
       b: { kind: "leaf", id: paneId },
     };

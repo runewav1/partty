@@ -24,6 +24,7 @@ import {
   collectLeafIds,
   type PaneHostInit,
   type PaneTerminal,
+  type SplitLayoutStyle,
   PaneHost,
 } from "./paneHost";
 import {
@@ -312,9 +313,7 @@ function configureDevPerfPrefs(raw: Partial<ParttyPrefs>): void {
   });
 }
 
-function normalizeSplitLayoutStyle(
-  raw: unknown,
-): "balanced" | "dwindle" | "master" {
+function normalizeSplitLayoutStyle(raw: unknown): SplitLayoutStyle {
   return raw === "dwindle" || raw === "master" ? raw : "balanced";
 }
 

@@ -602,6 +602,8 @@ impl Default for AnimationSection {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SplitSection {
+    /// `"balanced"` | `"dwindle"` | `"master"` — insert rules for new panes
+    /// (Hyprland-inspired; see docs/config/config.toml.md).
     #[serde(default = "default_split_layout_style")]
     pub layout: String,
     #[serde(default)]
