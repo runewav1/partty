@@ -208,12 +208,13 @@ fn resolve_spawn(
         }
         _ => spawn_prefs.shell.trim().to_lowercase(),
     };
+    // Identity is profile + backend only. Cwd is an initial-spawn parameter;
+    // including it here killed live TUIs on summon after the user `cd`'d
+    // (restored paneCwds ≠ spawn-time cwd → false mismatch → kill+respawn).
     let want = format!(
-        "{}\0{}\0{}",
+        "{}\0{}",
         profile.as_ref().map(|p| p.id.as_str()).unwrap_or(""),
         backend_key,
-        cwd.as_deref()
-            .unwrap_or(base.initial_cwd.as_deref().unwrap_or(""))
     );
 
     Ok((spawn_prefs, profile, want))
@@ -685,14 +686,20 @@ fn pty_ensure(
     let base = state.persisted.lock().prefs.clone();
     let (spawn_prefs, profile, want) =
         resolve_spawn(&base, profile_id.as_deref(), shell.as_deref(), initial_cwd)?;
-    {
+    let existing = {
         let panes = state.pty_panes.lock();
         let ids = state.pty_spawn_identity.lock();
         if panes.get(&pane_id).is_some()
             && ids.get(&pane_id).map(|x| x.as_str()) == Some(want.as_str())
         {
-            return Ok(());
+            panes.get(&pane_id).cloned()
+        } else {
+            None
         }
+    };
+    if let Some(session) = existing {
+        let _ = session.resize(cols, rows);
+        return Ok(());
     }
     if let Some(old) = state.pty_panes.lock().remove(&pane_id) {
         old.kill();

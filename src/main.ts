@@ -2564,9 +2564,13 @@ async function boot(): Promise<void> {
           );
           paneProfileIds.set(id, resolvedProfile);
 
-          queueMicrotask(() => {
-            void ensurePtyForPane(id, pt, inheritedCwd);
-          });
+          // During destroy→recreate boot, prepare-show owns ensure after scrollback
+          // restore — avoid a premature ensure that races rehydration.
+          if (!document.documentElement.classList.contains("partty-booting")) {
+            queueMicrotask(() => {
+              void ensurePtyForPane(id, pt, inheritedCwd);
+            });
+          }
           // Boot/rehydrate: prepare-show does one host repair; skip staggered bounce.
           if (!document.documentElement.classList.contains("partty-booting")) {
             scheduleCreationReflow(id);
@@ -6082,7 +6086,11 @@ async function boot(): Promise<void> {
 
   requestAnimationFrame(() => {
     scheduleResizeImmediate();
-    if (lp.preload_pty_on_startup) {
+    // prepare-show ensures PTYs after scrollback restore while booting.
+    if (
+      lp.preload_pty_on_startup &&
+      !document.documentElement.classList.contains("partty-booting")
+    ) {
       paneHost?.forEachPane((id) => {
         void ensurePtyForPane(id);
       });
