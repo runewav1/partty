@@ -68,6 +68,22 @@ export function capturePlainBuffer(term: Terminal, maxLines: number): string {
   return lines.join("\r\n");
 }
 
+/**
+ * First line index with visible content in the normal-buffer scrollback
+ * (lines above `baseY`). Leading blank rows are unused capacity, not history.
+ */
+export function firstContentScrollbackLine(term: Terminal): number {
+  const buf = term.buffer.normal;
+  const limit = Math.min(Math.max(0, buf.baseY), buf.length);
+  let y = 0;
+  while (y < limit) {
+    const text = buf.getLine(y)?.translateToString(true) ?? "";
+    if (text.trim().length > 0) return y;
+    y++;
+  }
+  return y;
+}
+
 export async function createWebglAddon(): Promise<WebglAddon> {
   const { WebglAddon } = await import("@xterm/addon-webgl");
   return new WebglAddon();

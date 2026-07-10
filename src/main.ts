@@ -16,6 +16,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import {
   createWebglAddon,
+  firstContentScrollbackLine,
   mergeLifecyclePrefs,
   type ParttyLifecyclePrefs,
 } from "./termLifecycle";
@@ -5697,11 +5698,14 @@ async function boot(): Promise<void> {
     for (const host of tabPaneHosts.values()) {
       host.forEachPane((id, pt) => {
         try {
-          // Omit scrollback cap — serialize the full normal buffer. Include
-          // cols/rows so restore can write into a matching geometry first
-          // (SerializeAddon recommendation).
+          // Full normal buffer, but skip leading blank scrollback rows
+          // (unused capacity above baseY — not real history).
+          const start = firstContentScrollbackLine(pt.term);
+          const end = Math.max(0, pt.term.buffer.normal.length - 1);
           const payload: StashedPaneBuffer = {
-            data: pt.serialize.serialize(),
+            data: pt.serialize.serialize({
+              range: { start, end },
+            }),
             cols: pt.term.cols,
             rows: pt.term.rows,
           };
