@@ -180,6 +180,8 @@ pub struct Prefs {
     #[serde(default)]
     pub auto_copy_selection: bool,
     #[serde(default = "default_true")]
+    pub right_click_paste: bool,
+    #[serde(default = "default_true")]
     pub retain_session_state: bool,
     #[serde(default)]
     pub shed_workspace_exit: String,
@@ -328,6 +330,7 @@ impl Default for Prefs {
             focus_pane_scale: true,
             pane_focus_scale_intensity: default_pane_focus_scale_intensity(),
             auto_copy_selection: false,
+            right_click_paste: true,
             retain_session_state: true,
             shed_workspace_exit: "keep".to_string(),
             always_summon_maximized: false,
@@ -824,6 +827,8 @@ pub struct WorkspaceSection {
     #[serde(default)]
     pub auto_copy: bool,
     #[serde(default = "default_true")]
+    pub right_click_paste: bool,
+    #[serde(default = "default_true")]
     pub retain_session_state: bool,
 }
 
@@ -832,6 +837,7 @@ impl Default for WorkspaceSection {
         Self {
             shed_on_exit: "keep".to_string(),
             auto_copy: false,
+            right_click_paste: true,
             retain_session_state: true,
         }
     }
@@ -1033,6 +1039,7 @@ impl From<ConfigToml> for Prefs {
             font_terminal: c.font_terminal.family,
             shed_workspace_exit: c.workspace.shed_on_exit,
             auto_copy_selection: c.workspace.auto_copy,
+            right_click_paste: c.workspace.right_click_paste,
             retain_session_state: c.workspace.retain_session_state,
             process_notification_threshold: c.notifications.command_threshold_secs,
             process_notification_show_for: c.notifications.toast_duration_ms,
@@ -1146,6 +1153,7 @@ impl From<&Prefs> for ConfigToml {
             workspace: WorkspaceSection {
                 shed_on_exit: p.shed_workspace_exit.clone(),
                 auto_copy: p.auto_copy_selection,
+                right_click_paste: p.right_click_paste,
                 retain_session_state: p.retain_session_state,
             },
             notifications: NotificationsSection {

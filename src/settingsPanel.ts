@@ -27,6 +27,8 @@ export type ParttyPrefs = {
   /** Focus scale intensity 0–1 (default 0.45). */
   pane_focus_scale_intensity?: number;
   auto_copy_selection: boolean;
+  /** Right-click in the terminal pastes from the clipboard. */
+  right_click_paste?: boolean;
   /** Retain pane layouts, working directories, and tab state when the window closes. */
   retain_session_state?: boolean;
   ui_theme: string;
@@ -202,7 +204,9 @@ export function createSettingsPanel(
       pane_opacity_unfocused: clamp01(g("pane_opacity_unfocused"), 1.0),
       pane_variable_opacity: gc("pane_variable_opacity"),
       focus_pane_scale: gc("focus_pane_scale"), pane_focus_scale_intensity: clampf(g("pane_focus_scale_intensity"), 0.45, 0, 1),
-      auto_copy_selection: gc("auto_copy_selection"), shed_workspace_exit,
+      auto_copy_selection: gc("auto_copy_selection"),
+      right_click_paste: gc("right_click_paste"),
+      shed_workspace_exit,
       retain_session_state: gc("retain_session_state"),
       always_summon_maximized: gc("always_summon_maximized"), summon_spawn_at_cursor: gc("summon_spawn_at_cursor"),
       cursor_follow_window_move: gc("cursor_follow_window_move"),
@@ -489,6 +493,7 @@ export function createSettingsPanel(
     setChk("focus_pane_scale", pr.focus_pane_scale ?? true);
     setVal("pane_focus_scale_intensity", String(pr.pane_focus_scale_intensity ?? 0.45));
     setChk("auto_copy_selection", pr.auto_copy_selection ?? false);
+    setChk("right_click_paste", pr.right_click_paste ?? true);
     setChk("retain_session_state", pr.retain_session_state ?? true);
     setChk("always_summon_maximized", pr.always_summon_maximized ?? false);
     setChk("summon_spawn_at_cursor", pr.summon_spawn_at_cursor ?? false);

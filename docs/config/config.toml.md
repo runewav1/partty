@@ -217,6 +217,7 @@ Hyprland-inspired insert rules for new panes (existing trees are not rewritten w
 |-----|------|---------|--------|
 | `shed_on_exit` | string | `"keep"` | `"keep"` `"shed"` `"ask"` |
 | `auto_copy` | bool | `false` | copy terminal selection on change |
+| `right_click_paste` | bool | `true` | right-click in a terminal pane pastes from the clipboard |
 | `retain_session_state` | bool | `true` | keep pane layouts and working directories across restarts |
 
 ## `[notifications]`

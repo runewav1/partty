@@ -462,6 +462,9 @@ async function boot(): Promise<void> {
   const autoCopySelectionRef = {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).auto_copy_selection),
   };
+  const rightClickPasteRef = {
+    v: (persisted.prefs as Partial<ParttyPrefs>).right_click_paste ?? true,
+  };
   const retainSessionStateRef = {
     v:
       (persisted.prefs as Partial<ParttyPrefs>).retain_session_state ?? true,
@@ -4202,12 +4205,15 @@ async function boot(): Promise<void> {
   document.addEventListener(
     "contextmenu",
     (e) => {
-      e.preventDefault();
       const target = e.target as Node | null;
-      if (target && terminalContent?.contains(target)) {
-        void pasteFromClipboard();
+      if (!target || !terminalContent?.contains(target)) return;
+      e.preventDefault();
+      if (!rightClickPasteRef.v) {
         getFocusedTerm()?.focus();
+        return;
       }
+      void pasteFromClipboard();
+      getFocusedTerm()?.focus();
     },
     true,
   );
@@ -4286,6 +4292,7 @@ async function boot(): Promise<void> {
           persisted.prefs = saved as unknown as Record<string, unknown>;
           Object.assign(lp, mergeLifecyclePrefs(persisted.prefs));
           autoCopySelectionRef.v = saved.auto_copy_selection;
+          rightClickPasteRef.v = saved.right_click_paste ?? true;
           retainSessionStateRef.v = saved.retain_session_state ?? true;
           splitLayoutStyleRef.v = normalizeSplitLayoutStyle(
             saved.split_layout_style,
