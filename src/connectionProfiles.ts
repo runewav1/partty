@@ -49,7 +49,7 @@ export type ProfileBehaviorPrefs = {
   new_tab_uses_default_profile: boolean;
   /** Show cached exe icons in the `@profile` palette. */
   palette_profile_icons: boolean;
-  /** Single-letter → profile id (`[profiles.selection_aliases]`). */
+  /** Case-sensitive single-char → profile id (`[profiles.selection_aliases]`). */
   profile_selection_aliases: Record<string, string>;
 };
 

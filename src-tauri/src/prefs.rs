@@ -241,7 +241,7 @@ pub struct Prefs {
     /// Show cached exe/distro icons in the `@profile` palette list.
     #[serde(default = "default_true")]
     pub palette_profile_icons: bool,
-    /// Config-only single-letter → profile id (`[profiles.selection_aliases]`).
+    /// Config-only single-character → profile id (`[profiles.selection_aliases]`; case-sensitive).
     #[serde(default)]
     pub profile_selection_aliases: HashMap<String, String>,
     #[serde(default = "default_window_effect_mode")]
@@ -681,7 +681,7 @@ pub struct ProfilesSection {
     /// Show icons next to profiles in the `@profile` palette.
     #[serde(default = "default_true")]
     pub palette_icons: bool,
-    /// Config-only letter → profile id for instant `@profile` pick.
+    /// Config-only character → profile id for instant profile pick (`a` ≠ `A`).
     #[serde(default)]
     pub selection_aliases: HashMap<String, String>,
 }
@@ -703,16 +703,16 @@ impl Default for ProfilesSection {
     }
 }
 
-/// Single-char lowercase keys only; first mapping wins on clash.
+/// Single Unicode scalar keys only; case preserved (`a` ≠ `A`); first mapping wins on clash.
 fn normalize_selection_aliases(raw: &HashMap<String, String>) -> HashMap<String, String> {
     let mut out = HashMap::new();
     for (k, v) in raw {
-        let key = k.trim().to_lowercase();
+        let key = k.trim();
         let id = v.trim();
         if key.chars().count() != 1 || id.is_empty() {
             continue;
         }
-        out.entry(key).or_insert_with(|| id.to_string());
+        out.entry(key.to_string()).or_insert_with(|| id.to_string());
     }
     out
 }

@@ -4947,7 +4947,7 @@ async function boot(): Promise<void> {
               ? ` <span class="cp-label-cwd">${escapeHtml(showDetail)}</span>`
               : ""),
           keywords: `@profile:${action} ${p.name} ${p.kind} ${p.id} ${sshDetail} ${p.shell ?? ""} ${p.wslDistro ?? ""} ${actionLabel}`,
-          hotkey: alias ? alias.toUpperCase() : undefined,
+          hotkey: alias ?? undefined,
           run: () => runWithProfile(action, p.id),
         };
       });
@@ -4989,8 +4989,7 @@ async function boot(): Promise<void> {
       action = parseProfilePickerQuery(currentInput)?.action ?? null;
     }
     if (!action) return null;
-    const profileId =
-      profileBehaviorRef.v.profile_selection_aliases[key.toLowerCase()];
+    const profileId = profileBehaviorRef.v.profile_selection_aliases[key];
     if (!profileId) return null;
     const profile = getProfileById(profileId, profilesList);
     if (!profile) return null;
@@ -5296,8 +5295,8 @@ async function boot(): Promise<void> {
       { hotkey: "Tab", label: "New tab / Split → pick profile" },
       { hotkey: "@profile", label: "New tab or split with a profile" },
       {
-        hotkey: "Letter",
-        label: "In profile picker: selection alias (config.toml)",
+        hotkey: "a / A",
+        label: "In profile picker: selection alias (case-sensitive; config.toml)",
       },
       { hotkey: "Ctrl+Arrows", label: "Focus adjacent pane" },
       { hotkey: "Ctrl+Shift+Arrows", label: "Swap pane with neighbor" },
