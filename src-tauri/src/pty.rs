@@ -13,7 +13,6 @@ use tauri::{AppHandle, Emitter, Manager};
 
 const SHELL_INTEGRATION_PWSH: &str = include_str!("../scripts/partty-shell-integration.ps1");
 const SHELL_INTEGRATION_BASH: &str = include_str!("../scripts/partty-shell-integration.bash");
-#[allow(dead_code)]
 const SHELL_INTEGRATION_ZSH: &str = include_str!("../scripts/partty-shell-integration.zsh");
 const PTY_OUTPUT_BATCH_BYTES: usize = 128 * 1024;
 const PTY_OUTPUT_BATCH_MS: u64 = 3;
@@ -303,7 +302,18 @@ fn percent_decode(s: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-/// Normalise a `Cwd=` value from OSC 633 P to a Windows absolute path.
+/// Common Unix absolute roots that must never be treated as MSYS `/x/...` drives.
+fn looks_like_unix_root(path: &str) -> bool {
+    const ROOTS: &[&str] = &[
+        "/home/", "/usr/", "/etc/", "/var/", "/tmp/", "/opt/", "/mnt/", "/root/", "/dev/",
+        "/proc/", "/sys/", "/bin/", "/lib/", "/sbin/", "/boot/", "/media/", "/run/", "/snap/",
+        "/home", "/usr", "/etc", "/var", "/tmp", "/opt", "/mnt", "/root", "/dev", "/proc",
+        "/sys", "/bin", "/lib", "/sbin", "/boot", "/media", "/run", "/snap",
+    ];
+    ROOTS.iter().any(|r| path == *r || path.starts_with(r))
+}
+
+/// Normalise a `Cwd=` value from OSC 633 P to a Windows absolute path when possible.
 fn osc633_normalize_cwd(value: &str, properties: &HashMap<String, String>) -> String {
     let raw = value.trim();
     if raw.is_empty() {
@@ -322,25 +332,15 @@ fn osc633_normalize_cwd(value: &str, properties: &HashMap<String, String>) -> St
     if raw.len() >= 2 && raw.as_bytes()[1] == b':' {
         return raw.replace('/', "\\");
     }
+    // UNC: \\server\share or //server/share (incl. \\wsl$\Distro\...)
+    if let Some(rest) = raw.strip_prefix("//").or_else(|| raw.strip_prefix("\\\\")) {
+        return format!("\\\\{}", rest.replace('/', "\\"));
+    }
     // /C:/ or /C:\ style (from some shells)
     if raw.starts_with('/') && raw.len() >= 4 && raw.as_bytes()[2] == b':' {
         return raw[1..].replace('/', "\\");
     }
-    // MSYS /x/path  →  X:\path
-    if raw.starts_with('/') {
-        let rest = &raw[1..];
-        let mut ch = rest.chars();
-        if let (Some(drive), Some('/')) = (ch.next(), ch.next()) {
-            if drive.is_ascii_alphabetic() {
-                return format!(
-                    "{}:\\{}",
-                    drive.to_ascii_uppercase(),
-                    &rest[2..].replace('/', "\\")
-                );
-            }
-        }
-    }
-    // WSL /mnt/x/... → X:\...
+    // WSL /mnt/x/... → X:\... (must run before MSYS single-letter conversion)
     if let Some(rest) = raw.strip_prefix("/mnt/") {
         let mut ch = rest.chars();
         if let Some(drive) = ch.next() {
@@ -350,6 +350,28 @@ fn osc633_normalize_cwd(value: &str, properties: &HashMap<String, String>) -> St
                     drive.to_ascii_uppercase(),
                     &rest[2..].replace('/', "\\")
                 );
+            }
+        }
+    }
+    // MSYS /x/path → X:\path (never rewrite /home, /usr, …)
+    if raw.starts_with('/') && !looks_like_unix_root(raw) {
+        let rest = &raw[1..];
+        let mut chars = rest.chars();
+        if let Some(drive) = chars.next() {
+            if drive.is_ascii_alphabetic() {
+                match chars.next() {
+                    Some('/') => {
+                        return format!(
+                            "{}:\\{}",
+                            drive.to_ascii_uppercase(),
+                            chars.as_str().replace('/', "\\")
+                        );
+                    }
+                    None => {
+                        return format!("{}:\\", drive.to_ascii_uppercase());
+                    }
+                    Some(_) => {}
+                }
             }
         }
     }
@@ -1034,20 +1056,192 @@ pub fn shell_command_for_profile(
     }
 }
 
-/// Launch an installed WSL distribution (`wsl.exe -d <name>`), matching Windows Terminal.
+/// Launch an installed WSL distribution (`wsl.exe -d <name>`), injecting bash/zsh
+/// shell integration when the distro's login shell supports it.
 fn wsl_distro_command(prefs: &Prefs, distro: &str) -> Result<CommandBuilder, String> {
     let mut c = CommandBuilder::new("wsl.exe");
     c.arg("-d");
     c.arg(distro);
-    if let Some(dir) = prefs.initial_cwd.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(dir) = prefs
+        .initial_cwd
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         // WSL accepts Windows or Linux paths via --cd (same as Windows Terminal).
         c.arg("--cd");
         c.arg(dir);
     }
+
+    let version = env!("CARGO_PKG_VERSION");
     c.env("TERM_PROGRAM", "partty");
-    c.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
-    c.env("PARTTY_SHELL_INTEGRATION", "0");
+    c.env("TERM_PROGRAM_VERSION", version);
+
+    match detect_wsl_login_shell(distro) {
+        WslLoginShell::Zsh => {
+            let script = write_shell_integration_script(
+                "partty-shell-integration.zsh",
+                SHELL_INTEGRATION_ZSH,
+            )?;
+            let script_wsl = windows_path_to_wsl_mnt(&script)?;
+            let zdot = ensure_zsh_zdot(&script_wsl)?;
+            let zdot_wsl = windows_path_to_wsl_mnt(&zdot)?;
+            // Pass ZDOTDIR inside Linux via `env` (Windows env is not forwarded by default).
+            c.arg("--exec");
+            c.arg("env");
+            c.arg(format!("ZDOTDIR={zdot_wsl}"));
+            c.arg("PARTTY_ORIGINAL_ZDOTDIR=");
+            c.arg("TERM_PROGRAM=partty");
+            c.arg(format!("TERM_PROGRAM_VERSION={version}"));
+            c.arg("PARTTY_SHELL_INTEGRATION=1");
+            c.arg("zsh");
+            c.arg("-i");
+            c.env("PARTTY_SHELL_INTEGRATION", "1");
+        }
+        WslLoginShell::Bash | WslLoginShell::Unknown => {
+            // Prefer bash injection; Unknown falls back to bash (default on most distros).
+            let script = write_shell_integration_script(
+                "partty-shell-integration.bash",
+                SHELL_INTEGRATION_BASH,
+            )?;
+            let script_wsl = windows_path_to_wsl_mnt(&script)?;
+            let init = write_shell_integration_script(
+                "partty-wsl-bash-init.sh",
+                &format!(
+                    r#"# Partty WSL bash init — login-style rc cascade, then integrate.
+if [[ -f ~/.bash_profile ]]; then
+  . ~/.bash_profile
+elif [[ -f ~/.bash_login ]]; then
+  . ~/.bash_login
+elif [[ -f ~/.profile ]]; then
+  . ~/.profile
+elif [[ -f ~/.bashrc ]]; then
+  . ~/.bashrc
+fi
+source "{script_wsl}"
+"#
+                ),
+            )?;
+            let init_wsl = windows_path_to_wsl_mnt(&init)?;
+            c.arg("--exec");
+            c.arg("bash");
+            c.arg("--init-file");
+            c.arg(init_wsl);
+            c.arg("-i");
+            c.env("PARTTY_SHELL_INTEGRATION", "1");
+        }
+        WslLoginShell::Other => {
+            // fish / csh / etc. — launch default shell without injection.
+            c.env("PARTTY_SHELL_INTEGRATION", "0");
+        }
+    }
+
     Ok(c)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WslLoginShell {
+    Bash,
+    Zsh,
+    Other,
+    Unknown,
+}
+
+/// Probe the distro's login shell (`getent passwd`). Cached for the process lifetime.
+fn detect_wsl_login_shell(distro: &str) -> WslLoginShell {
+    use std::sync::Mutex;
+    static CACHE: Mutex<Option<HashMap<String, WslLoginShell>>> = Mutex::new(None);
+
+    let key = distro.to_ascii_lowercase();
+    if let Ok(guard) = CACHE.lock() {
+        if let Some(map) = guard.as_ref() {
+            if let Some(kind) = map.get(&key) {
+                return *kind;
+            }
+        }
+    }
+
+    let kind = detect_wsl_login_shell_uncached(distro);
+    if let Ok(mut guard) = CACHE.lock() {
+        let map = guard.get_or_insert_with(HashMap::new);
+        map.insert(key, kind);
+    }
+    kind
+}
+
+fn detect_wsl_login_shell_uncached(distro: &str) -> WslLoginShell {
+    let mut cmd = std::process::Command::new("wsl.exe");
+    cmd.args([
+        "-d",
+        distro,
+        "-e",
+        "sh",
+        "-c",
+        "getent passwd \"$(id -u)\" 2>/dev/null | cut -d: -f7 || echo \"$SHELL\"",
+    ]);
+    crate::subprocess::hide_console_window(&mut cmd);
+    let Ok(out) = cmd.output() else {
+        return WslLoginShell::Unknown;
+    };
+    let text = String::from_utf8_lossy(&out.stdout);
+    let shell = text.lines().next().unwrap_or("").trim();
+    if shell.is_empty() {
+        return WslLoginShell::Unknown;
+    }
+    let base = Path::new(shell)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(shell)
+        .to_ascii_lowercase();
+    match base.as_str() {
+        "bash" => WslLoginShell::Bash,
+        "zsh" => WslLoginShell::Zsh,
+        "sh" | "dash" => WslLoginShell::Bash, // inject via bash
+        "fish" | "csh" | "tcsh" | "ksh" | "pwsh" => WslLoginShell::Other,
+        _ => WslLoginShell::Unknown,
+    }
+}
+
+/// Convert a Windows path to a WSL `/mnt/<drive>/...` path (no `wslpath` round-trip).
+fn windows_path_to_wsl_mnt(path: &Path) -> Result<String, String> {
+    let raw = path.to_string_lossy();
+    let normalized = raw
+        .strip_prefix(r"\\?\")
+        .unwrap_or(raw.as_ref())
+        .replace('\\', "/");
+    if normalized.len() >= 2 && normalized.as_bytes()[1] == b':' {
+        let drive = normalized.chars().next().unwrap().to_ascii_lowercase();
+        let rest = normalized[2..].trim_start_matches('/');
+        if rest.is_empty() {
+            return Ok(format!("/mnt/{drive}"));
+        }
+        return Ok(format!("/mnt/{drive}/{rest}"));
+    }
+    Err(format!(
+        "cannot map path to WSL /mnt form: {}",
+        path.display()
+    ))
+}
+
+/// ZDOTDIR wrapper so integration survives interactive zsh startup (user `.zshrc` still loads).
+fn ensure_zsh_zdot(integration_script_unix: &str) -> Result<PathBuf, String> {
+    let dir = std::env::temp_dir()
+        .join("partty-shell-integration")
+        .join("zdot");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let zshrc = dir.join(".zshrc");
+    let contents = format!(
+        r#"# Partty zsh ZDOTDIR wrapper — load user rc, then shell integration.
+if [[ -n "${{PARTTY_ORIGINAL_ZDOTDIR}}" && -f "${{PARTTY_ORIGINAL_ZDOTDIR}}/.zshrc" ]]; then
+  source "${{PARTTY_ORIGINAL_ZDOTDIR}}/.zshrc"
+elif [[ -f "$HOME/.zshrc" ]]; then
+  source "$HOME/.zshrc"
+fi
+source "{integration_script_unix}"
+"#
+    );
+    std::fs::write(&zshrc, contents).map_err(|e| e.to_string())?;
+    Ok(dir)
 }
 
 /// Split a Windows-style commandline into executable + args (basic quotes).
@@ -1168,12 +1362,10 @@ fn write_shell_integration_script(name: &str, contents: &str) -> Result<PathBuf,
     static CACHE: Mutex<Option<std::collections::HashMap<String, PathBuf>>> = Mutex::new(None);
     let mut cache = CACHE.lock().unwrap();
     let map = cache.get_or_insert_with(std::collections::HashMap::new);
-    if let Some(p) = map.get(name) {
-        return Ok(p.clone());
-    }
     let dir = std::env::temp_dir().join("partty-shell-integration");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(name);
+    // Always rewrite so rebuilt binaries refresh script contents in-process caches.
     std::fs::write(&path, contents).map_err(|e| e.to_string())?;
     map.insert(name.to_string(), path.clone());
     Ok(path)
@@ -1237,12 +1429,14 @@ source "{}"
                 "partty-shell-integration.zsh",
                 SHELL_INTEGRATION_ZSH,
             )?;
-            let command = format!(
-                "source \"{}\"; exec zsh -i",
-                script.to_string_lossy().replace('\\', "/")
-            );
+            // Use forward slashes so zsh (often MSYS-based) can source the script.
+            let script_unix = script.to_string_lossy().replace('\\', "/");
+            let zdot = ensure_zsh_zdot(&script_unix)?;
+            let original_zdot = std::env::var("ZDOTDIR").unwrap_or_default();
             let mut c = CommandBuilder::new("zsh.exe");
-            c.args(["-i".to_string(), "-c".to_string(), command]);
+            c.arg("-i");
+            c.env("ZDOTDIR", zdot.to_string_lossy().as_ref());
+            c.env("PARTTY_ORIGINAL_ZDOTDIR", original_zdot);
             c.env("TERM_PROGRAM", "partty");
             c.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
             c.env("PARTTY_SHELL_INTEGRATION", "1");
@@ -1320,7 +1514,9 @@ fn detect_shell_kind(prefs: &Prefs) -> ShellKind {
 
 #[cfg(test)]
 mod tests {
-    use super::split_commandline;
+    use super::{osc633_normalize_cwd, split_commandline, windows_path_to_wsl_mnt};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
 
     #[test]
     fn split_ssh_commandline() {
@@ -1335,5 +1531,47 @@ mod tests {
             split_commandline(r#"ssh -i "C:\Users\me\.ssh\id_rsa" host"#).unwrap();
         assert_eq!(exe, "ssh");
         assert_eq!(args, vec!["-i", r"C:\Users\me\.ssh\id_rsa", "host"]);
+    }
+
+    fn props_windows() -> HashMap<String, String> {
+        HashMap::from([("IsWindows".into(), "True".into())])
+    }
+
+    #[test]
+    fn osc633_cwd_drive_and_mnt() {
+        let p = props_windows();
+        assert_eq!(
+            osc633_normalize_cwd("C:/Users/me", &p),
+            r"C:\Users\me"
+        );
+        assert_eq!(
+            osc633_normalize_cwd("/mnt/c/Users/me", &p),
+            r"C:\Users\me"
+        );
+    }
+
+    #[test]
+    fn osc633_cwd_does_not_mangle_unix_home() {
+        let p = props_windows();
+        assert_eq!(osc633_normalize_cwd("/home/rune", &p), "/home/rune");
+        assert_eq!(osc633_normalize_cwd("/usr/local", &p), "/usr/local");
+    }
+
+    #[test]
+    fn osc633_cwd_unc_wsl() {
+        let p = props_windows();
+        assert_eq!(
+            osc633_normalize_cwd("//wsl$/Ubuntu/home/rune", &p),
+            r"\\wsl$\Ubuntu\home\rune"
+        );
+    }
+
+    #[test]
+    fn windows_to_wsl_mnt_path() {
+        let p = PathBuf::from(r"C:\Users\me\AppData\Local\Temp\partty-shell-integration\x.bash");
+        assert_eq!(
+            windows_path_to_wsl_mnt(&p).unwrap(),
+            "/mnt/c/Users/me/AppData/Local/Temp/partty-shell-integration/x.bash"
+        );
     }
 }

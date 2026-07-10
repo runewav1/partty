@@ -1,5 +1,6 @@
 #!/bin/zsh
-# Partty shell integration for zsh (improved).
+# Partty shell integration for zsh (OSC 633 / OSC 7).
+# Used for Windows zsh and WSL zsh (injected via ZDOTDIR wrapper).
 
 [[ -n "$__TERMIE_SHELL_INTEGRATION" ]] && return 0
 typeset -g __TERMIE_SHELL_INTEGRATION=1
@@ -24,6 +25,7 @@ __termie_escape_value() {
   local input="$1"
   local result=""
   local char byte
+  local i
   for ((i = 1; i <= ${#input}; i++)); do
     char="${input[i]}"
     byte=$(( #char ))
@@ -52,7 +54,9 @@ __termie_msys_to_win_path() {
 
 __termie_wsl_to_win_path() {
   local path="$1"
-  [[ "$path" =~ '^[A-Za-z]:' ]] && { print -rn -- "$path"; return; }
+  [[ "$path" =~ '^[A-Za-z]:' || "$path" == \\\\* || "$path" == //* ]] && {
+    print -rn -- "$path"; return
+  }
   if (( $+commands[wslpath] )); then
     local win_path
     win_path="$(wslpath -w "$path" 2>/dev/null)"
@@ -71,19 +75,18 @@ __termie_get_cwd() {
 }
 
 __termie_path_to_uri() {
-  local path="$1"
+  local path="${1//\\//}"
   local encoded=""
   local char
+  local i
   for ((i = 1; i <= ${#path}; i++)); do
     char="${path[i]}"
     case "$char" in
       [a-zA-Z0-9._~:/-]) encoded+="$char" ;;
       ' ') encoded+="%20" ;;
-      \\) encoded+="/" ;;
       *) encoded+=$(printf '%%%02X' "'$char") ;;
     esac
   done
-  encoded="${encoded//\\//}"
   if [[ "$encoded" == //* ]]; then
     print -rn -- "file:$encoded"
   elif [[ "$encoded" =~ '^[A-Za-z]:' ]]; then
@@ -112,6 +115,9 @@ __termie_emit_osc_batch() {
 typeset -g __TERMIE_HAS_RUN=0
 typeset -g __TERMIE_CURRENT_CMD=""
 typeset -g __TERMIE_IN_PROMPT=0
+typeset -g __TERMIE_SESSION_ID
+__TERMIE_SESSION_ID="$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+[[ -z "$__TERMIE_SESSION_ID" ]] && __TERMIE_SESSION_ID="$$"
 
 __termie_precmd() {
   local exit_code=$?
@@ -163,6 +169,16 @@ case "$__TERMIE_PLATFORM" in
   *) __termie_emit_osc "633" "P" "IsWindows=False" ;;
 esac
 __termie_emit_osc "633" "P" "ShellType=zsh"
+__termie_emit_osc "633" "P" "SessionId=$__TERMIE_SESSION_ID"
+__termie_emit_osc "633" "P" "HasRichCommandDetection=True"
+
+typeset -g __TERMIE_INITIAL_CWD
+__TERMIE_INITIAL_CWD="$(__termie_get_cwd)"
+if [[ -n "$__TERMIE_INITIAL_CWD" ]]; then
+  __termie_emit_osc "633" "P" "Cwd=$(__termie_escape_value "${__TERMIE_INITIAL_CWD//\\//}")"
+  __termie_emit_osc "7" "$(__termie_path_to_uri "$__TERMIE_INITIAL_CWD")"
+fi
+
 export PARTTY_SHELL_INTEGRATION=1
-export TERM_PROGRAM="partty"
-export TERM_PROGRAM_VERSION="0.1.0"
+export TERM_PROGRAM="${TERM_PROGRAM:-partty}"
+export TERM_PROGRAM_VERSION="${TERM_PROGRAM_VERSION:-0.1.0}"

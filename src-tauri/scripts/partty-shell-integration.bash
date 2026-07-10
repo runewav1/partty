@@ -1,5 +1,6 @@
 #!/bin/bash
-# Partty shell integration for bash (improved).
+# Partty shell integration for bash (OSC 633 / OSC 7).
+# Used for Windows Git Bash and WSL bash (injected via --init-file).
 
 [[ -n "$__TERMIE_SHELL_INTEGRATION" ]] && return 0
 export __TERMIE_SHELL_INTEGRATION=1
@@ -57,7 +58,7 @@ __termie_msys_to_win_path() {
 
 __termie_wsl_to_win_path() {
   local path="$1"
-  if [[ "$path" =~ ^[A-Za-z]: ]]; then
+  if [[ "$path" =~ ^[A-Za-z]: ]] || [[ "$path" == \\\\* ]] || [[ "$path" == //* ]]; then
     printf '%s' "$path"
     return
   fi
@@ -69,6 +70,7 @@ __termie_wsl_to_win_path() {
       return
     fi
   fi
+  # Fallback: keep POSIX path (Rust treats common Unix roots as non-MSYS).
   printf '%s' "$path"
 }
 
@@ -82,7 +84,7 @@ __termie_get_cwd() {
 }
 
 __termie_path_to_uri() {
-  local path="$1"
+  local path="${1//\\//}"
   local encoded=""
   local i char hex
   for ((i = 0; i < ${#path}; i++)); do
@@ -96,8 +98,8 @@ __termie_path_to_uri() {
       ;;
     esac
   done
-  encoded="${encoded//\\//}"
   if [[ "$encoded" == //* ]]; then
+    # UNC: //server/share → file://server/share
     printf 'file:%s' "$encoded"
   elif [[ "$encoded" =~ ^[A-Za-z]: ]]; then
     printf 'file:///%s' "$encoded"
@@ -126,6 +128,10 @@ __termie_emit_osc_batch() {
 __TERMIE_HAS_RUN=0
 __TERMIE_LAST_HIST_NUM=""
 __TERMIE_IN_PROMPT=0
+__TERMIE_SESSION_ID="$(
+  od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n'
+)"
+[[ -z "$__TERMIE_SESSION_ID" ]] && __TERMIE_SESSION_ID="$$"
 
 __termie_precmd() {
   local exit_code=$?
@@ -171,6 +177,11 @@ __termie_update_ps1() {
 if [[ -n "$BASH_VERSION" ]]; then
   if [[ -z "$PROMPT_COMMAND" ]]; then
     PROMPT_COMMAND="__termie_precmd; __termie_update_ps1"
+  elif [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
+    # bash 4.4+ array form
+    if [[ ! " ${PROMPT_COMMAND[*]} " =~ " __termie_precmd " ]]; then
+      PROMPT_COMMAND=("__termie_precmd" "__termie_update_ps1" "${PROMPT_COMMAND[@]}")
+    fi
   elif [[ "$PROMPT_COMMAND" != *"__termie_precmd"* ]]; then
     PROMPT_COMMAND="__termie_precmd; __termie_update_ps1; $PROMPT_COMMAND"
   fi
@@ -191,11 +202,22 @@ if [[ -n "$BASH_VERSION" ]]; then
   trap '__termie_debug_trap' DEBUG
 fi
 
+# ConPTY is a Windows backend even inside WSL — report IsWindows like VS Code.
 case "$__TERMIE_PLATFORM" in
 msys | wsl) __termie_emit_osc "633" "P" "IsWindows=True" ;;
 *) __termie_emit_osc "633" "P" "IsWindows=False" ;;
 esac
 __termie_emit_osc "633" "P" "ShellType=bash"
+__termie_emit_osc "633" "P" "SessionId=$__TERMIE_SESSION_ID"
+__termie_emit_osc "633" "P" "HasRichCommandDetection=True"
+
+# Emit initial CWD immediately (before first prompt).
+__TERMIE_INITIAL_CWD="$(__termie_get_cwd)"
+if [[ -n "$__TERMIE_INITIAL_CWD" ]]; then
+  __termie_emit_osc "633" "P" "Cwd=$(__termie_escape_value "${__TERMIE_INITIAL_CWD//\\//}")"
+  __termie_emit_osc "7" "$(__termie_path_to_uri "$__TERMIE_INITIAL_CWD")"
+fi
+
 export PARTTY_SHELL_INTEGRATION=1
-export TERM_PROGRAM="partty"
-export TERM_PROGRAM_VERSION="0.1.0"
+export TERM_PROGRAM="${TERM_PROGRAM:-partty}"
+export TERM_PROGRAM_VERSION="${TERM_PROGRAM_VERSION:-0.1.0}"
