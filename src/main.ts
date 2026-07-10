@@ -5815,7 +5815,7 @@ async function boot(): Promise<void> {
           }
           return result;
         },
-        writeToPane(paneId, text) {
+        writeToPane(paneId: string, text: string) {
           queuePtyWrite(paneId, text);
         },
         showNotification(command: string, detail: string, paneId?: string) {
