@@ -1516,12 +1516,6 @@ async function boot(): Promise<void> {
     updateWebglPerfGauges();
   }
 
-  async function mountWebglForFocused(): Promise<void> {
-    const id = paneHost?.getFocusedPaneId();
-    if (!id) return;
-    await ensureWebglOnPane(id);
-  }
-
   /** Remount WebGL on every live pane (e.g. after hide shed). */
   async function mountWebglForAllPanes(): Promise<void> {
     const ids: string[] = [];
@@ -5668,20 +5662,127 @@ async function boot(): Promise<void> {
     true,
   );
 
-  function restoreSerializedTerminals(): void {
-    const raw = localStorage.getItem(SERIALIZE_STORAGE_KEY);
-    if (!raw) return;
-    localStorage.removeItem(SERIALIZE_STORAGE_KEY);
-    try {
-      const map: Record<string, string> = JSON.parse(raw);
+  type StashedPaneBuffer = {
+    data: string;
+    cols: number;
+    rows: number;
+  };
+
+  async function persistTerminalBuffersForHide(): Promise<void> {
+    // Drop buffers: no serialize/stash payload — just ack so destroy can proceed.
+    if (lp.discard_buffer_on_hide) {
       for (const host of tabPaneHosts.values()) {
-        host.forEachPane((id, pt) => {
-          const data = map[id];
-          if (data) pt.term.write(data);
+        host.forEachPane((_id, pt) => {
+          try {
+            pt.term.reset();
+          } catch {
+            /* ignore */
+          }
         });
       }
+      try {
+        localStorage.removeItem(SERIALIZE_STORAGE_KEY);
+      } catch {
+        /* ignore */
+      }
+      await invoke("stash_terminal_buffers", { buffers: {} }).catch((e) =>
+        console.warn("stash_terminal_buffers", e),
+      );
+      return;
+    }
+
+    if (!lp.destroy_webview_on_hide) return;
+
+    const serialized: Record<string, string> = {};
+    for (const host of tabPaneHosts.values()) {
+      host.forEachPane((id, pt) => {
+        try {
+          // Omit scrollback cap — serialize the full normal buffer. Include
+          // cols/rows so restore can write into a matching geometry first
+          // (SerializeAddon recommendation).
+          const payload: StashedPaneBuffer = {
+            data: pt.serialize.serialize(),
+            cols: pt.term.cols,
+            rows: pt.term.rows,
+          };
+          serialized[id] = JSON.stringify(payload);
+        } catch {
+          /* skip pane */
+        }
+      });
+    }
+
+    // Await IPC so destroy (gated on hide_buffers_ready) cannot race the stash.
+    try {
+      await invoke("stash_terminal_buffers", { buffers: serialized });
+    } catch (e) {
+      console.warn("stash_terminal_buffers", e);
+      // Still release the destroy gate so hide cannot hang for 5s.
+      await invoke("stash_terminal_buffers", { buffers: {} }).catch(() => {});
+    }
+    try {
+      localStorage.removeItem(SERIALIZE_STORAGE_KEY);
     } catch {
-      /* corrupt serialized data */
+      /* ignore */
+    }
+  }
+
+  async function restoreSerializedTerminals(): Promise<void> {
+    if (lp.discard_buffer_on_hide) {
+      try {
+        localStorage.removeItem(SERIALIZE_STORAGE_KEY);
+      } catch {
+        /* ignore */
+      }
+      try {
+        await invoke("take_terminal_buffers");
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+
+    let map: Record<string, string> | null = null;
+    try {
+      map = await invoke<Record<string, string> | null>("take_terminal_buffers");
+    } catch {
+      /* ignore */
+    }
+    const raw = localStorage.getItem(SERIALIZE_STORAGE_KEY);
+    if (raw) localStorage.removeItem(SERIALIZE_STORAGE_KEY);
+    if (!map && raw) {
+      try {
+        map = JSON.parse(raw) as Record<string, string>;
+      } catch {
+        map = null;
+      }
+    }
+    if (!map || Object.keys(map).length === 0) return;
+
+    for (const host of tabPaneHosts.values()) {
+      host.forEachPane((id, pt) => {
+        const rawPane = map![id];
+        if (!rawPane) return;
+        try {
+          let data = rawPane;
+          let cols = 0;
+          let rows = 0;
+          if (rawPane.startsWith("{")) {
+            const parsed = JSON.parse(rawPane) as StashedPaneBuffer;
+            if (typeof parsed.data === "string") {
+              data = parsed.data;
+              cols = Number(parsed.cols) || 0;
+              rows = Number(parsed.rows) || 0;
+            }
+          }
+          if (cols >= 2 && rows >= 1) {
+            pt.term.resize(cols, rows);
+          }
+          pt.term.write(data);
+        } catch {
+          /* ignore */
+        }
+      });
     }
   }
 
@@ -5693,7 +5794,7 @@ async function boot(): Promise<void> {
     scheduleResizeImmediate();
     await new Promise((r) => requestAnimationFrame(r));
     await new Promise((r) => requestAnimationFrame(r));
-    restoreSerializedTerminals();
+    await restoreSerializedTerminals();
     paneHost?.forEachPane((id) => {
       void ensurePtyForPane(id);
     });
@@ -5815,24 +5916,23 @@ async function boot(): Promise<void> {
       scheduleCwdSync();
     }),
     listen("partty-hide", () => {
-      for (const fn of extWindowHideSubs) {
-        try { fn(); } catch { /* ignore */ }
-      }
-      if (paneHost && lp.destroy_webview_on_hide) {
-        persistCurrentWorkspaceTabLayout();
-      }
-      if (lp.discard_buffer_on_hide) {
-        const serialized: Record<string, string> = {};
-        paneHost?.forEachPane((id, pt) => {
-          try { serialized[id] = pt.serialize.serialize(); } catch { /* skip */ }
-          pt.term.reset();
-        });
-        try { localStorage.setItem(SERIALIZE_STORAGE_KEY, JSON.stringify(serialized)); } catch { /* ignore */ }
-      }
-      if (lp.webgl_shed_on_hide) {
-        shedWebgl();
-      }
-      // WebView teardown is scheduled from Rust after hide (see `schedule_destroy_webview_after_hide`).
+      void (async () => {
+        for (const fn of extWindowHideSubs) {
+          try {
+            fn();
+          } catch {
+            /* ignore */
+          }
+        }
+        if (paneHost && lp.destroy_webview_on_hide) {
+          persistCurrentWorkspaceTabLayout();
+        }
+        await persistTerminalBuffersForHide();
+        if (lp.webgl_shed_on_hide) {
+          shedWebgl();
+        }
+        // WebView teardown waits for stash (see schedule_destroy_webview_after_hide).
+      })();
     }),
     listen("partty-prepare-show", () => {
       void runPrepareShow().catch((e) => {
@@ -5846,7 +5946,7 @@ async function boot(): Promise<void> {
       for (const fn of extWindowShowSubs) {
         try { fn(); } catch { /* ignore */ }
       }
-      restoreSerializedTerminals();
+      await restoreSerializedTerminals();
       await mountWebglForAllPanes();
       getFocusedTerm()?.focus();
       scheduleResizeImmediate();

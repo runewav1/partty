@@ -211,15 +211,19 @@ Hyprland-inspired insert rules for new panes (existing trees are not rewritten w
 
 ## `[lifecycle]`
 
-| Key | Type | Default |
-|-----|------|---------|
-| `shed_on_hide` | bool | `false` |
-| `webgl_shed_on_hide` | bool | `true` |
-| `discard_buffer` | bool | `false` |
-| `prewarm_pty` | bool | `true` |
-| `prewarm_webgl` | bool | `true` |
-| `defer_show` | bool | `true` |
-| `destroy_webview` | bool | `true` |
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `shed_on_hide` | bool | `false` | Kill PTYs when the overlay hides |
+| `webgl_shed_on_hide` | bool | `true` | Dispose WebGL addons on hide |
+| `discard_buffer` | bool | `false` | Clear scrollback on hide and skip restore on summon |
+| `prewarm_pty` | bool | `true` | |
+| `prewarm_webgl` | bool | `true` | |
+| `defer_show` | bool | `true` | |
+| `destroy_webview` | bool | `true` | Tear down WebView2 on hide (saves RAM). With this on and `discard_buffer = false`, ParTTY serializes each pane’s xterm scrollback (SerializeAddon) before destroy and rehydrates on summon. |
+
+When `destroy_webview` is on and `discard_buffer` is off, hide takes a **point-in-time** SerializeAddon snapshot of each pane into **Rust process memory** only (cols/rows + ANSI payload). Destroy waits until that stash IPC completes (up to 5s). Cleared on restore. No `~/.partty` file. `discard_buffer = true` skips serialization and only acks the destroy gate.
+
+While the webview is destroyed, live PTY output is **held in the Rust emitter** (back-pressure, capped) and flushed into the new webview after summon — it is **not** appended into the hide-time serialize snapshot. Rehydration order is: restore snapshot → then live catch-up / PTY replay as applicable.
 
 ## `[focus]`
 

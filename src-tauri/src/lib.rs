@@ -47,6 +47,10 @@ pub struct AppState {
     pub app_session_id: String,
     /// Pre-warmed PTY session ready for instant pane creation.
     pub warm_pty: Mutex<Option<WarmPty>>,
+    /// xterm SerializeAddon payloads stashed across webview destroy-on-hide.
+    pub terminal_serialize_stash: Mutex<Option<HashMap<String, String>>>,
+    /// Set by `stash_terminal_buffers` so delayed destroy waits for JS serialize+IPC.
+    pub hide_buffers_ready: AtomicBool,
 }
 
 fn make_app_session_id() -> String {
@@ -60,6 +64,24 @@ fn make_app_session_id() -> String {
 #[tauri::command]
 fn get_app_session_id(state: State<'_, AppState>) -> String {
     state.app_session_id.clone()
+}
+
+/// Hold serialized terminal buffers in the Rust process so they survive webview destroy.
+/// Also marks hide-buffers ready so delayed destroy can proceed.
+#[tauri::command]
+fn stash_terminal_buffers(
+    state: State<'_, AppState>,
+    buffers: HashMap<String, String>,
+) -> Result<(), String> {
+    *state.terminal_serialize_stash.lock() = Some(buffers);
+    state.hide_buffers_ready.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+/// Take (and clear) any stashed terminal buffers from the last hide.
+#[tauri::command]
+fn take_terminal_buffers(state: State<'_, AppState>) -> Option<HashMap<String, String>> {
+    state.terminal_serialize_stash.lock().take()
 }
 
 #[tauri::command]
@@ -306,7 +328,7 @@ fn position_main_at_cursor_if_prefs(app: &AppHandle) {
     }
 }
 
-/// Let the `partty-hide` handler finish WebGL/buffer work on the JS thread, then destroy the
+/// Let the `partty-hide` handler finish serialize+stash IPC, then destroy the
 /// webview from Rust. Avoids `invoke(request_destroy_webview)` from JS, which can tear down the
 /// webview while the IPC promise is still pending (white window, broken show).
 fn schedule_destroy_webview_after_hide(app: &AppHandle) {
@@ -324,9 +346,33 @@ fn schedule_destroy_webview_after_hide(app: &AppHandle) {
         .hide_destroy_generation
         .fetch_add(1, Ordering::SeqCst)
         + 1;
+    // `hide_buffers_ready` was cleared in `toggle_window` before `partty-hide`.
     let app = app.clone();
     thread::spawn(move || {
-        thread::sleep(Duration::from_millis(160));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if app
+                .state::<AppState>()
+                .hide_destroy_generation
+                .load(Ordering::SeqCst)
+                != generation
+            {
+                return;
+            }
+            if app
+                .state::<AppState>()
+                .hide_buffers_ready
+                .load(Ordering::SeqCst)
+            {
+                break;
+            }
+            if Instant::now() >= deadline {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        // Brief settle after IPC marks ready.
+        thread::sleep(Duration::from_millis(20));
         let app2 = app.clone();
         let _ = app.run_on_main_thread(move || {
             if app2
@@ -480,6 +526,8 @@ fn toggle_window(app: &AppHandle) {
         // recreated from these dimensions on next summon, then maximized after show.
         if state.persisted.lock().prefs.destroy_webview_on_hide {
             let _ = win.unmaximize();
+            // JS must stash (or ack empty) before delayed destroy proceeds.
+            state.hide_buffers_ready.store(false, Ordering::SeqCst);
         }
         window_state::snapshot_and_save(app);
         let _ = win.emit("partty-hide", ());
@@ -1082,6 +1130,8 @@ pub fn run() {
             hide_destroy_generation: AtomicU64::new(0),
             app_session_id: make_app_session_id(),
             warm_pty: Mutex::new(None),
+            terminal_serialize_stash: Mutex::new(None),
+            hide_buffers_ready: AtomicBool::new(true),
         })
         .invoke_handler(tauri::generate_handler![
             pty_ensure,
@@ -1097,6 +1147,8 @@ pub fn run() {
             pty_shell_exe_token,
             get_persisted_state,
             get_app_session_id,
+            stash_terminal_buffers,
+            take_terminal_buffers,
             theme::list_themes,
             theme::read_theme,
             theme::write_theme,

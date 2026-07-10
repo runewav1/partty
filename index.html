@@ -347,13 +347,13 @@
                   <label class="settings-checkbox-label"><span>Defer show</span><input class="settings-checkbox-input" type="checkbox" name="defer_window_show_until_prepared" checked /></label>
                   <div class="settings-toggle-desc">Hide the window until terminal layout completes on startup.</div>
                   <label class="settings-checkbox-label"><span>Destroy on hide</span><input class="settings-checkbox-input" type="checkbox" name="destroy_webview_on_hide" checked /></label>
-                  <div class="settings-toggle-desc">Destroy the webview when hiding the window; reduces memory.</div>
+                  <div class="settings-toggle-desc">Destroy the webview when hiding (saves RAM). With Drop buffers off, scrollback is snapshotted into process memory and restored on summon — not written to disk.</div>
                   <label class="settings-checkbox-label"><span>Shed PTYs</span><input class="settings-checkbox-input" type="checkbox" name="shed_on_hide" /></label>
                   <div class="settings-toggle-desc">Release PTY resources when the window is hidden.</div>
                   <label class="settings-checkbox-label"><span>Shed WebGL</span><input class="settings-checkbox-input" type="checkbox" name="webgl_shed_on_hide" checked /></label>
                   <div class="settings-toggle-desc">Release the WebGL renderer when the window is hidden.</div>
                   <label class="settings-checkbox-label"><span>Drop buffers</span><input class="settings-checkbox-input" type="checkbox" name="discard_buffer_on_hide" /></label>
-                  <div class="settings-toggle-desc">Clear terminal scrollback buffer when hiding the window.</div>
+                  <div class="settings-toggle-desc">Skip scrollback snapshot/restore on hide (no serialize, no stash). Off = keep history across hide/summon.</div>
                 </div>
               </div>
             </div>
