@@ -229,7 +229,7 @@ html.partty-booting #terminal-wrap {
   background: var(--term-bg, #2e2e32) !important;
 }
 
-/* Hide xterm canvases until prepare finishes — prevents white flash through the boot veil. */
+/* Hide xterm until prepare finishes (avoids white flash through boot veil). */
 html.partty-booting .pane-terminal-host .xterm {
   visibility: hidden;
 }
@@ -1224,8 +1224,7 @@ html.terminal-motion-off *::after {
   height: 0;
 }
 
-/* Keep scrollbar nodes in layout (xterm 6 scrollable element); hide visually.
-   display:none can leave wheel/scroll dimensions in a bad state after remounts. */
+/* Keep scrollbar nodes in layout; display:none breaks wheel metrics after remount. */
 .pane-terminal-host .scrollbar.vertical,
 .pane-terminal-host .scrollbar.horizontal {
   opacity: 0 !important;

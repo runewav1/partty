@@ -47,12 +47,11 @@ pub struct AppState {
     pub app_session_id: String,
     /// Pre-warmed PTY session ready for instant pane creation.
     pub warm_pty: Mutex<Option<WarmPty>>,
-    /// xterm SerializeAddon payloads stashed across webview destroy-on-hide.
+    /// SerializeAddon payloads held across destroy-on-hide (process memory only).
     pub terminal_serialize_stash: Mutex<Option<HashMap<String, String>>>,
-    /// Set by `stash_terminal_buffers` so delayed destroy waits for JS serialize+IPC.
+    /// Cleared on hide; set when JS finishes stash so delayed destroy can proceed.
     pub hide_buffers_ready: AtomicBool,
-    /// When false, PTY emitter holds output (webview recreated but scrollback
-    /// not rehydrated yet). Avoids flooding empty terminals before restore.
+    /// False until scrollback restore finishes — PTY emitter holds output meanwhile.
     pub pty_output_unlocked: AtomicBool,
 }
 
@@ -69,8 +68,7 @@ fn get_app_session_id(state: State<'_, AppState>) -> String {
     state.app_session_id.clone()
 }
 
-/// Hold serialized terminal buffers in the Rust process so they survive webview destroy.
-/// Also marks hide-buffers ready so delayed destroy can proceed.
+/// Stash pane serialize payloads and release the destroy-on-hide gate.
 #[tauri::command]
 fn stash_terminal_buffers(
     state: State<'_, AppState>,
@@ -81,16 +79,13 @@ fn stash_terminal_buffers(
     Ok(())
 }
 
-/// Take (and clear) any stashed terminal buffers from the last hide.
 #[tauri::command]
 fn take_terminal_buffers(state: State<'_, AppState>) -> Option<HashMap<String, String>> {
     state.terminal_serialize_stash.lock().take()
 }
 
-/// True if the webview was destroyed for hide (needs scrollback restore). Clears the flag.
-///
-/// Note: `ExitRequested` must only *read* this flag (not clear it), or prepare-show
-/// never sees a destroy and skips SerializeAddon rehydration.
+/// Whether the webview was destroyed for hide (needs restore). Clears the flag.
+/// `ExitRequested` must only *load* this flag — clearing there skipped rehydration.
 #[tauri::command]
 fn take_webview_destroyed_for_hide(state: State<'_, AppState>) -> bool {
     state
@@ -98,32 +93,6 @@ fn take_webview_destroyed_for_hide(state: State<'_, AppState>) -> bool {
         .swap(false, Ordering::SeqCst)
 }
 
-/// Start a fresh in-memory stash map (does not release the destroy gate yet).
-#[tauri::command]
-fn begin_terminal_buffer_stash(state: State<'_, AppState>) {
-    *state.terminal_serialize_stash.lock() = Some(HashMap::new());
-}
-
-/// Stash one pane payload (avoids one giant IPC message for many panes).
-#[tauri::command]
-fn stash_terminal_buffer(
-    state: State<'_, AppState>,
-    pane_id: String,
-    payload: String,
-) -> Result<(), String> {
-    let mut guard = state.terminal_serialize_stash.lock();
-    let map = guard.get_or_insert_with(HashMap::new);
-    map.insert(pane_id, payload);
-    Ok(())
-}
-
-/// Mark hide-buffer stash complete so delayed destroy can proceed.
-#[tauri::command]
-fn finalize_terminal_buffer_stash(state: State<'_, AppState>) {
-    state.hide_buffers_ready.store(true, Ordering::SeqCst);
-}
-
-/// Allow or block PTY → webview delivery (see `pty_output_unlocked`).
 #[tauri::command]
 fn set_pty_output_unlocked(state: State<'_, AppState>, unlocked: bool) {
     state.pty_output_unlocked.store(unlocked, Ordering::SeqCst);
@@ -391,32 +360,20 @@ fn schedule_destroy_webview_after_hide(app: &AppHandle) {
         .hide_destroy_generation
         .fetch_add(1, Ordering::SeqCst)
         + 1;
-    // `hide_buffers_ready` was cleared in `toggle_window` before `partty-hide`.
     let app = app.clone();
     thread::spawn(move || {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            if app
-                .state::<AppState>()
-                .hide_destroy_generation
-                .load(Ordering::SeqCst)
-                != generation
-            {
+            let st = app.state::<AppState>();
+            if st.hide_destroy_generation.load(Ordering::SeqCst) != generation {
                 return;
             }
-            if app
-                .state::<AppState>()
-                .hide_buffers_ready
-                .load(Ordering::SeqCst)
-            {
+            if st.hide_buffers_ready.load(Ordering::SeqCst) || Instant::now() >= deadline {
                 break;
             }
-            if Instant::now() >= deadline {
-                break;
-            }
+            drop(st);
             thread::sleep(Duration::from_millis(5));
         }
-        // Brief settle after IPC marks ready.
         thread::sleep(Duration::from_millis(20));
         let app2 = app.clone();
         let _ = app.run_on_main_thread(move || {
@@ -571,9 +528,7 @@ fn toggle_window(app: &AppHandle) {
         // recreated from these dimensions on next summon, then maximized after show.
         if state.persisted.lock().prefs.destroy_webview_on_hide {
             let _ = win.unmaximize();
-            // JS must stash (or ack empty) before delayed destroy proceeds.
             state.hide_buffers_ready.store(false, Ordering::SeqCst);
-            // Hold PTY output until the next webview finishes scrollback restore.
             state.pty_output_unlocked.store(false, Ordering::SeqCst);
         }
         window_state::snapshot_and_save(app);
@@ -581,8 +536,7 @@ fn toggle_window(app: &AppHandle) {
         let _ = win.hide();
         schedule_destroy_webview_after_hide(app);
     } else {
-        // Cancel any pending destroy-on-hide. If the webview is still alive,
-        // unlock PTY immediately — scrollback is still in the live xterm.
+        // Cancel pending destroy; live xterm still has scrollback.
         state.hide_destroy_generation.fetch_add(1, Ordering::SeqCst);
         state.pty_output_unlocked.store(true, Ordering::SeqCst);
         let (defer, summon) = {
@@ -1199,9 +1153,6 @@ pub fn run() {
             get_persisted_state,
             get_app_session_id,
             stash_terminal_buffers,
-            begin_terminal_buffer_stash,
-            stash_terminal_buffer,
-            finalize_terminal_buffer_stash,
             take_terminal_buffers,
             take_webview_destroyed_for_hide,
             set_pty_output_unlocked,
@@ -1265,10 +1216,7 @@ pub fn run() {
                 apply_window_effects_to_all(app, &prefs);
             }
             if let RunEvent::ExitRequested { api, .. } = event {
-                // Destroy-on-hide tears down the last window and fires ExitRequested.
-                // Keep `webview_destroyed_for_hide` set — JS reads it on the next
-                // prepare-show to know scrollback must be restored. Clearing it here
-                // (via swap) skipped rehydration entirely.
+                // Destroy-on-hide: keep the flag set for JS restore (do not clear here).
                 if app
                     .state::<AppState>()
                     .webview_destroyed_for_hide

@@ -152,8 +152,6 @@ const PTY_OUTPUT_FLUSH_MS = 4;
 const PTY_OUTPUT_BACKGROUND_FLUSH_MS = 33;
 const PTY_OUTPUT_MAX_BATCH_CHARS = 128 * 1024;
 
-
-const SERIALIZE_STORAGE_KEY = "partty.terminal.serialize";
 const ZEN_MODE_STORAGE_KEY = "partty.zen.enabled";
 const TOOLTIP_STASH_ATTR = "data-partty-tooltip-title";
 /** Set when shell / initial cwd change; next `partty-prepare-show` runs a full PTY reinit. */
@@ -183,6 +181,9 @@ function migrateParttyLocalStorage(): void {
         localStorage.setItem(newKey, oldValue);
       }
     }
+    // Legacy hide serialize path — scrollback now lives in process memory only.
+    localStorage.removeItem("partty.terminal.serialize");
+    localStorage.removeItem("termie.terminal.serialize");
     for (const key of Object.keys(localStorage)) {
       if (!key.startsWith("termie.tab.layout.v1.")) continue;
       const nextKey = `partty.tab.layout.v1.${key.slice("termie.tab.layout.v1.".length)}`;
@@ -1034,17 +1035,9 @@ async function boot(): Promise<void> {
   }
 
   /**
-   * Direct-eval entry point for PTY output, called from the Rust emitter
-   * via {@code window.eval("window.__partty_out(...)")} — bypasses the
-   * Tauri event routing overhead.
-   *
-   * While scrollback rehydration is pending (destroy→recreate summon), hold
-   * chunks here so they cannot race or evict the SerializeAddon restore.
+   * Direct-eval PTY output from Rust (`window.__partty_out`). Rust holds
+   * output until `set_pty_output_unlocked` after scrollback restore.
    */
-  let ptyHydrationReady = !lp.destroy_webview_on_hide;
-  const heldDirectPtyOut: Array<{ paneId: string; data: string }> = [];
-  const HELD_DIRECT_PTY_MAX_CHARS = 8 * 1024 * 1024;
-
   function deliverDirectPtyOut(paneId: string, data: string): void {
     queuePtyOutput(paneId, data);
     if (extPtyOutputSubs.length > 0) {
@@ -1064,25 +1057,9 @@ async function boot(): Promise<void> {
     } catch (e) {
       console.warn("set_pty_output_unlocked", e);
     }
-    ptyHydrationReady = true;
-    if (heldDirectPtyOut.length === 0) return;
-    const held = heldDirectPtyOut.splice(0);
-    for (const { paneId, data } of held) {
-      deliverDirectPtyOut(paneId, data);
-    }
   }
 
   (window as any).__partty_out = (paneId: string, data: string) => {
-    if (!ptyHydrationReady) {
-      heldDirectPtyOut.push({ paneId, data });
-      let total = 0;
-      for (const chunk of heldDirectPtyOut) total += chunk.data.length;
-      while (total > HELD_DIRECT_PTY_MAX_CHARS && heldDirectPtyOut.length > 1) {
-        const dropped = heldDirectPtyOut.shift();
-        total -= dropped?.data.length ?? 0;
-      }
-      return;
-    }
     deliverDirectPtyOut(paneId, data);
   };
 
@@ -1690,19 +1667,13 @@ async function boot(): Promise<void> {
     if (!zoomRaf) zoomRaf = requestAnimationFrame(flushPendingPaneZoom);
   }
 
-  /**
-   * Convert a wheel event into xterm scrollLines, matching scrollSensitivity /
-   * fastScrollSensitivity (Alt = fast). Used when we reclaim wheel from a stuck
-   * mouse-tracking mode or forward host-padding dead-zone events.
-   */
+  /** Map wheel deltas to xterm scrollLines (Alt = fast). */
   function scrollTermByWheel(term: Terminal, ev: WheelEvent): void {
     if (ev.deltaY === 0 && ev.deltaX === 0) return;
     const sens = Math.max(0.1, Number(term.options.scrollSensitivity) || 1);
-    const fast =
-      ev.altKey
-        ? Math.max(1, Number(term.options.fastScrollSensitivity) || 5)
-        : 1;
-    // Prefer vertical; fall back to horizontal (shift+wheel on some devices).
+    const fast = ev.altKey
+      ? Math.max(1, Number(term.options.fastScrollSensitivity) || 5)
+      : 1;
     const delta = ev.deltaY !== 0 ? ev.deltaY : ev.deltaX;
     let lines: number;
     if (ev.deltaMode === WheelEvent.DOM_DELTA_LINE) {
@@ -1710,7 +1681,6 @@ async function boot(): Promise<void> {
     } else if (ev.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
       lines = delta * term.rows * sens;
     } else {
-      // DOM_DELTA_PIXEL — ~line-height pixels per notch on most mice.
       lines = (delta / 16) * sens;
     }
     lines *= fast;
@@ -1719,27 +1689,18 @@ async function boot(): Promise<void> {
     term.scrollLines(amount);
   }
 
-  /**
-   * Reclaim wheel for scrollback when xterm would otherwise swallow it:
-   * - Shift+wheel: standard terminal override of mouse-tracking apps
-   * - Mouse tracking left on while on the *normal* buffer: usually a TUI that
-   *   exited without DECRST (per-pane “scrollback exists but wheel does nothing”)
-   */
+  /** Reclaim wheel for scrollback when mouse-tracking would swallow it. */
   function attachTermWheelHandler(term: Terminal, paneId: string): void {
     term.attachCustomWheelEventHandler((ev) => {
-      // Ctrl+wheel is pane zoom (host listener may not see this if we cancel).
       if (ev.ctrlKey) {
         handlePaneZoomWheel(paneId, ev);
         return false;
       }
-
       const forceScrollback =
         ev.shiftKey ||
         (term.modes.mouseTrackingMode !== "none" &&
           term.buffer.active.type === "normal");
-
       if (!forceScrollback) return true;
-
       ev.preventDefault();
       ev.stopPropagation();
       scrollTermByWheel(term, ev);
@@ -1747,10 +1708,7 @@ async function boot(): Promise<void> {
     });
   }
 
-  /**
-   * Wheel over flex padding / host chrome never hits `.xterm-scrollable-element`,
-   * so xterm never scrolls. Forward those events to the pane terminal.
-   */
+  /** Forward wheel from host padding (misses xterm's scrollable element). */
   function handlePaneHostWheel(paneId: string, ev: WheelEvent): void {
     if (ev.ctrlKey) {
       handlePaneZoomWheel(paneId, ev);
@@ -2609,9 +2567,7 @@ async function boot(): Promise<void> {
           queueMicrotask(() => {
             void ensurePtyForPane(id, pt, inheritedCwd);
           });
-          // During boot/rehydrate, staggered creation reflows fire after the
-          // window is already visible and cause a second layout bounce.
-          // prepare-show / first paint does one host-level repair instead.
+          // Boot/rehydrate: prepare-show does one host repair; skip staggered bounce.
           if (!document.documentElement.classList.contains("partty-booting")) {
             scheduleCreationReflow(id);
           }
@@ -5717,8 +5673,27 @@ async function boot(): Promise<void> {
   };
 
   async function persistTerminalBuffersForHide(): Promise<void> {
-    // Drop buffers: no serialize/stash payload — just ack so destroy can proceed.
-    if (lp.discard_buffer_on_hide) {
+    if (!lp.destroy_webview_on_hide) return;
+
+    const buffers: Record<string, string> = {};
+    if (!lp.discard_buffer_on_hide) {
+      for (const host of tabPaneHosts.values()) {
+        host.forEachPane((id, pt) => {
+          try {
+            const start = firstContentScrollbackLine(pt.term);
+            const end = Math.max(0, pt.term.buffer.normal.length - 1);
+            const payload: StashedPaneBuffer = {
+              data: pt.serialize.serialize({ range: { start, end } }),
+              cols: pt.term.cols,
+              rows: pt.term.rows,
+            };
+            buffers[id] = JSON.stringify(payload);
+          } catch (e) {
+            console.warn("serialize pane", id, e);
+          }
+        });
+      }
+    } else {
       for (const host of tabPaneHosts.values()) {
         host.forEachPane((_id, pt) => {
           try {
@@ -5728,75 +5703,16 @@ async function boot(): Promise<void> {
           }
         });
       }
-      try {
-        localStorage.removeItem(SERIALIZE_STORAGE_KEY);
-      } catch {
-        /* ignore */
-      }
-      await invoke("begin_terminal_buffer_stash").catch(() => {});
-      await invoke("finalize_terminal_buffer_stash").catch((e) =>
-        console.warn("finalize_terminal_buffer_stash", e),
-      );
-      return;
     }
 
-    if (!lp.destroy_webview_on_hide) return;
-
     try {
-      await invoke("begin_terminal_buffer_stash");
+      await invoke("stash_terminal_buffers", { buffers });
     } catch (e) {
-      console.warn("begin_terminal_buffer_stash", e);
-    }
-
-    for (const host of tabPaneHosts.values()) {
-      const paneIds: string[] = [];
-      host.forEachPane((id) => paneIds.push(id));
-      for (const id of paneIds) {
-        const pt = host.getPaneTerminal(id);
-        if (!pt) continue;
-        try {
-          const start = firstContentScrollbackLine(pt.term);
-          const end = Math.max(0, pt.term.buffer.normal.length - 1);
-          const payload: StashedPaneBuffer = {
-            data: pt.serialize.serialize({
-              range: { start, end },
-            }),
-            cols: pt.term.cols,
-            rows: pt.term.rows,
-          };
-          await invoke("stash_terminal_buffer", {
-            paneId: id,
-            payload: JSON.stringify(payload),
-          });
-        } catch (e) {
-          console.warn("stash_terminal_buffer", id, e);
-          // Keep any panes already stashed — never replace with an empty map.
-        }
-      }
-    }
-
-    try {
-      await invoke("finalize_terminal_buffer_stash");
-    } catch (e) {
-      console.warn("finalize_terminal_buffer_stash", e);
-      // Release destroy gate only — do not wipe a partial per-pane stash.
-      try {
-        await invoke("finalize_terminal_buffer_stash");
-      } catch {
-        /* ignore */
-      }
-    }
-    try {
-      localStorage.removeItem(SERIALIZE_STORAGE_KEY);
-    } catch {
-      /* ignore */
+      console.warn("stash_terminal_buffers", e);
     }
   }
 
-  function writeTerminalSerialized(
-    term: Terminal,
-    data: string,
-  ): Promise<void> {
+  function writeTerminalSerialized(term: Terminal, data: string): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
         term.write(data, () => resolve());
@@ -5808,11 +5724,6 @@ async function boot(): Promise<void> {
 
   async function restoreSerializedTerminals(): Promise<void> {
     if (lp.discard_buffer_on_hide) {
-      try {
-        localStorage.removeItem(SERIALIZE_STORAGE_KEY);
-      } catch {
-        /* ignore */
-      }
       try {
         await invoke("take_terminal_buffers");
       } catch {
@@ -5826,15 +5737,6 @@ async function boot(): Promise<void> {
       map = await invoke<Record<string, string> | null>("take_terminal_buffers");
     } catch {
       /* ignore */
-    }
-    const raw = localStorage.getItem(SERIALIZE_STORAGE_KEY);
-    if (raw) localStorage.removeItem(SERIALIZE_STORAGE_KEY);
-    if (!map && raw) {
-      try {
-        map = JSON.parse(raw) as Record<string, string>;
-      } catch {
-        map = null;
-      }
     }
     if (!map || Object.keys(map).length === 0) return;
 
@@ -5860,8 +5762,6 @@ async function boot(): Promise<void> {
               if (cols >= 2 && rows >= 1) {
                 pt.term.resize(cols, rows);
               }
-              // write() is async — await the callback before PTY ensure/replay
-              // or replay races an empty buffer and truncates/strips color.
               await writeTerminalSerialized(pt.term, data);
               backendReplayRestoredPanes.add(id);
             } catch (e) {
@@ -5872,6 +5772,17 @@ async function boot(): Promise<void> {
       });
     }
     await Promise.all(writes);
+  }
+
+  async function takeNeedsScrollbackRestore(
+    fallback: boolean,
+  ): Promise<boolean> {
+    try {
+      return await invoke<boolean>("take_webview_destroyed_for_hide");
+    } catch (e) {
+      console.warn("take_webview_destroyed_for_hide", e);
+      return fallback;
+    }
   }
 
   async function runPrepareShow(): Promise<void> {
@@ -5886,18 +5797,7 @@ async function boot(): Promise<void> {
       await new Promise((r) => requestAnimationFrame(r));
       await new Promise((r) => requestAnimationFrame(r));
 
-      // Restore whenever the webview was destroyed for hide. If the destroyed
-      // flag invoke fails, still attempt restore when destroy-on-hide is on —
-      // an empty stash is a no-op.
-      let needsScrollbackRestore = lp.destroy_webview_on_hide;
-      try {
-        needsScrollbackRestore = await invoke<boolean>(
-          "take_webview_destroyed_for_hide",
-        );
-      } catch (e) {
-        console.warn("take_webview_destroyed_for_hide", e);
-      }
-      if (needsScrollbackRestore) {
+      if (await takeNeedsScrollbackRestore(lp.destroy_webview_on_hide)) {
         await restoreSerializedTerminals();
       }
 
@@ -5919,10 +5819,7 @@ async function boot(): Promise<void> {
       await new Promise((r) => requestAnimationFrame(r));
       await new Promise((r) => requestAnimationFrame(r));
 
-      // Restore first, then unlock PTY catch-up (held while hidden / gated).
       await releasePtyHydrationGate();
-
-      // Lift veil only after restore + WebGL + layout — then show the window.
       releaseBootSurface();
       summonPreparedByDefer = lp.defer_window_show_until_prepared;
 
@@ -6078,9 +5975,7 @@ async function boot(): Promise<void> {
         }
       }
 
-      // Deferred summon: prepare already restored, mounted WebGL, reflowed, and
-      // lifted the boot veil. Skip duplicate work + window-motion (stacked with
-      // pane-enter caused the double bounce / white flash).
+      // Deferred summon: prepare already did restore/WebGL/reflow — skip duplicates.
       if (summonPreparedByDefer) {
         summonPreparedByDefer = false;
         summonInProgress = false;
@@ -6091,15 +5986,7 @@ async function boot(): Promise<void> {
 
       summonInProgress = true;
       try {
-        let needsScrollbackRestore = false;
-        try {
-          needsScrollbackRestore = await invoke<boolean>(
-            "take_webview_destroyed_for_hide",
-          );
-        } catch {
-          needsScrollbackRestore = false;
-        }
-        if (needsScrollbackRestore) {
+        if (await takeNeedsScrollbackRestore(false)) {
           await restoreSerializedTerminals();
         }
         await mountWebglForAllPanes();
@@ -6122,7 +6009,6 @@ async function boot(): Promise<void> {
         const ft = getFocusedTerm();
         if (ft) ft.refresh(0, ft.rows - 1);
         getFocusedTerm()?.focus();
-        // Window motion is for resize/maximize/monitor hops — not rehydrate summon.
       } finally {
         summonInProgress = false;
       }
