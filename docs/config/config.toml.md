@@ -35,13 +35,16 @@ The hotkey/Tab picker opens with an empty field and a dimmed **Profile** placeho
 
 | Key | Type | Description |
 |-----|------|-------------|
-| *(character)* | string | Maps one character → profile `id`. Case preserved; only single characters are kept; first mapping wins on clash. |
+| *(character)* | string | Maps one character → profile `id`. Case-sensitive; only single characters are kept. If the same key is assigned to two different ids, that alias is **disabled** (other aliases still work; profiles stay available). |
 
 ```toml
 [profiles.selection_aliases]
 a = "wsl-archlinux"
 A = "local-pwsh"
 s = "ssh-prod"
+# Conflicting — both ignored for key "x"; profiles still appear in the picker:
+# x = "local-pwsh"
+# x = "wsl-archlinux"
 ```
 
 Example: `Alt+Shift+V` (split right) → `a` → Arch; `Shift+A` → pwsh. Typing `arch` in the filter still matches Arch.

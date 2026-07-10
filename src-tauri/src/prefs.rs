@@ -703,16 +703,102 @@ impl Default for ProfilesSection {
     }
 }
 
-/// Single Unicode scalar keys only; case preserved (`a` ≠ `A`); first mapping wins on clash.
-fn normalize_selection_aliases(raw: &HashMap<String, String>) -> HashMap<String, String> {
-    let mut out = HashMap::new();
-    for (k, v) in raw {
+/// Single Unicode scalar keys; case preserved (`a` ≠ `A`).
+/// If the same key maps to two different profile ids, that key is dropped
+/// (alias disabled); identical repeats are kept once. Other keys unaffected.
+fn resolve_selection_alias_pairs(pairs: &[(String, String)]) -> HashMap<String, String> {
+    use std::collections::HashSet;
+    let mut provisional: HashMap<String, String> = HashMap::new();
+    let mut contested: HashSet<String> = HashSet::new();
+    for (k, v) in pairs {
         let key = k.trim();
         let id = v.trim();
         if key.chars().count() != 1 || id.is_empty() {
             continue;
         }
-        out.entry(key.to_string()).or_insert_with(|| id.to_string());
+        if contested.contains(key) {
+            continue;
+        }
+        match provisional.get(key) {
+            None => {
+                provisional.insert(key.to_string(), id.to_string());
+            }
+            Some(existing) if existing == id => {}
+            Some(_) => {
+                contested.insert(key.to_string());
+                provisional.remove(key);
+            }
+        }
+    }
+    provisional
+}
+
+fn normalize_selection_aliases(raw: &HashMap<String, String>) -> HashMap<String, String> {
+    let pairs: Vec<(String, String)> = raw
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    resolve_selection_alias_pairs(&pairs)
+}
+
+fn unquote_toml_scalar(raw: &str) -> String {
+    let t = raw.trim();
+    if t.len() >= 2 {
+        let bytes = t.as_bytes();
+        if (bytes[0] == b'"' && bytes[t.len() - 1] == b'"')
+            || (bytes[0] == b'\'' && bytes[t.len() - 1] == b'\'')
+        {
+            return t[1..t.len() - 1].to_string();
+        }
+    }
+    t.to_string()
+}
+
+/// Line-scan `[profiles.selection_aliases]` so duplicate keys can be detected
+/// (serde `HashMap` cannot see them; TOML duplicate keys may also fail the whole file).
+fn parse_selection_alias_pairs_from_toml(text: &str) -> Vec<(String, String)> {
+    let mut pairs = Vec::new();
+    let mut in_section = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if trimmed.starts_with('[') {
+            in_section = trimmed == "[profiles.selection_aliases]";
+            continue;
+        }
+        if !in_section {
+            continue;
+        }
+        let Some((k, v)) = trimmed.split_once('=') else {
+            continue;
+        };
+        let key = unquote_toml_scalar(k);
+        let id = unquote_toml_scalar(v);
+        if !key.is_empty() {
+            pairs.push((key, id));
+        }
+    }
+    pairs
+}
+
+fn strip_selection_aliases_section(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut skipping = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            skipping = trimmed == "[profiles.selection_aliases]";
+            if skipping {
+                continue;
+            }
+        }
+        if skipping {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
     }
     out
 }
@@ -1252,7 +1338,17 @@ pub fn load_prefs() -> Prefs {
     let Ok(s) = fs::read_to_string(&path) else {
         return Prefs::default();
     };
-    let config: ConfigToml = toml::from_str(&s).unwrap_or_default();
+    // Conflict-aware alias parse (duplicate keys → drop that alias only).
+    let aliases = resolve_selection_alias_pairs(&parse_selection_alias_pairs_from_toml(&s));
+    let mut config: ConfigToml = match toml::from_str(&s) {
+        Ok(c) => c,
+        Err(_) => {
+            // Duplicate alias keys can fail the whole TOML parse — retry without
+            // that section so the rest of config (and profiles) still load.
+            toml::from_str(&strip_selection_aliases_section(&s)).unwrap_or_default()
+        }
+    };
+    config.profiles.selection_aliases = aliases;
     config.into()
 }
 
@@ -1336,4 +1432,52 @@ pub fn extension_state_path() -> Option<PathBuf> {
 pub fn extensions_dir() -> Option<PathBuf> {
     let dir = ensure_config_dir()?;
     Some(dir.join("extensions"))
+}
+
+#[cfg(test)]
+mod selection_alias_tests {
+    use super::*;
+
+    #[test]
+    fn drops_contested_alias_keeps_others() {
+        let pairs = vec![
+            ("a".into(), "p1".into()),
+            ("a".into(), "p2".into()),
+            ("b".into(), "p3".into()),
+            ("A".into(), "p4".into()),
+        ];
+        let map = resolve_selection_alias_pairs(&pairs);
+        assert!(!map.contains_key("a"));
+        assert_eq!(map.get("b").map(String::as_str), Some("p3"));
+        assert_eq!(map.get("A").map(String::as_str), Some("p4"));
+    }
+
+    #[test]
+    fn identical_repeats_keep_once() {
+        let pairs = vec![
+            ("a".into(), "p1".into()),
+            ("a".into(), "p1".into()),
+        ];
+        let map = resolve_selection_alias_pairs(&pairs);
+        assert_eq!(map.get("a").map(String::as_str), Some("p1"));
+    }
+
+    #[test]
+    fn line_scan_finds_duplicates() {
+        let text = r#"
+[profiles]
+shell = "pwsh"
+
+[profiles.selection_aliases]
+a = "one"
+a = "two"
+b = "ok"
+
+[window]
+"#;
+        let pairs = parse_selection_alias_pairs_from_toml(text);
+        let map = resolve_selection_alias_pairs(&pairs);
+        assert!(!map.contains_key("a"));
+        assert_eq!(map.get("b").map(String::as_str), Some("ok"));
+    }
 }

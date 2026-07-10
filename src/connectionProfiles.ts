@@ -199,12 +199,36 @@ export function isProfilePickerAliasContext(query: string): boolean {
   return parsed != null && parsed.filter.length === 0;
 }
 
+/** Resolve alias map: single-char keys, case preserved; conflicting keys dropped. */
+export function resolveSelectionAliases(
+  aliases: Record<string, string>,
+): Record<string, string> {
+  const provisional = new Map<string, string>();
+  const contested = new Set<string>();
+  for (const [rawKey, rawId] of Object.entries(aliases)) {
+    const key = rawKey.trim();
+    const id = rawId.trim();
+    if ([...key].length !== 1 || !id) continue;
+    if (contested.has(key)) continue;
+    const prev = provisional.get(key);
+    if (prev == null) {
+      provisional.set(key, id);
+    } else if (prev !== id) {
+      contested.add(key);
+      provisional.delete(key);
+    }
+  }
+  return Object.fromEntries(provisional);
+}
+
 /** profile id → single-letter alias (first alias wins if duplicates). */
 export function profileIdAliasMap(
   aliases: Record<string, string>,
 ): Map<string, string> {
   const out = new Map<string, string>();
-  for (const [alias, target] of Object.entries(aliases)) {
+  for (const [alias, target] of Object.entries(
+    resolveSelectionAliases(aliases),
+  )) {
     const id = target.trim();
     if (!id || out.has(id)) continue;
     out.set(id, alias);

@@ -24,6 +24,7 @@ import {
   LOCAL_DEFAULT_PROFILE_ID,
   DEFAULT_PROFILE_BEHAVIOR,
   profileIdAliasMap,
+  resolveSelectionAliases,
   fetchProfiles,
   getProfileById,
   isProfilePickerAliasContext,
@@ -502,9 +503,10 @@ async function boot(): Promise<void> {
       palette_profile_icons:
         (persisted.prefs as Partial<ParttyPrefs>).palette_profile_icons ??
         DEFAULT_PROFILE_BEHAVIOR.palette_profile_icons,
-      profile_selection_aliases:
+      profile_selection_aliases: resolveSelectionAliases(
         (persisted.prefs as Partial<ParttyPrefs>).profile_selection_aliases ??
-        DEFAULT_PROFILE_BEHAVIOR.profile_selection_aliases,
+          DEFAULT_PROFILE_BEHAVIOR.profile_selection_aliases,
+      ),
     } satisfies ProfileBehaviorPrefs,
   };
 
@@ -4406,10 +4408,11 @@ async function boot(): Promise<void> {
             new_tab_uses_default_profile:
               saved.new_tab_uses_default_profile ?? true,
             palette_profile_icons: saved.palette_profile_icons ?? true,
-            profile_selection_aliases:
+            profile_selection_aliases: resolveSelectionAliases(
               saved.profile_selection_aliases ??
-              previous.profile_selection_aliases ??
-              {},
+                previous.profile_selection_aliases ??
+                {},
+            ),
           };
           void refreshProfilesList();
           disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
