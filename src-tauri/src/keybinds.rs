@@ -54,6 +54,7 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("focus_pane_down", "Alt+ArrowDown"),
     ("terminal_newline", "Shift+Enter"),
     ("terminal_copy", "Ctrl+C"),
+    ("terminal_paste", "Ctrl+V"),
     ("dev_toggle", "Ctrl+Shift+D"),
 ];
 

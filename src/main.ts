@@ -739,24 +739,36 @@ async function boot(): Promise<void> {
   let tooltipObserver: MutationObserver | null = null;
   let bridgeScrollCleanup: (() => void) | null = null;
 
+  // ConPTY input buffers are small (~1–2KB). Fast shells drain fine; busy TUIs
+  // (OpenCode, etc.) don't — a single large write silently drops. Chunk + pace.
+  const PTY_BULK_CHARS = 512;
+  const PTY_CHUNK_CHARS = 256;
+  const PTY_CHUNK_DELAY_MS = 4;
+  /** Serializes bulk/chunked writes per pane so they don't race RAF keystrokes. */
+  const ptyBulkWriteTailByPane = new Map<string, Promise<void>>();
+  const ptyBulkActiveByPane = new Set<string>();
+
   const flushPendingPtyWrites = (): void => {
     pendingPtyWriteRaf = 0;
     if (pendingPtyWriteByPane.size === 0) return;
     for (const [paneId, data] of pendingPtyWriteByPane) {
+      // Don't interleave with an in-flight chunked paste.
+      if (ptyBulkActiveByPane.has(paneId)) continue;
       pendingPtyWriteByPane.delete(paneId);
       parttyPerf.mark("pty.input.flushes");
       parttyPerf.mark("pty.input.flush.chars", data.length);
-      void ptyWrite(paneId, data).catch((e) => console.error("pty_write", e));
+      void writePtyPayload(paneId, data);
     }
   };
 
   const flushPendingPtyWriteForPane = (paneId: string): void => {
+    if (ptyBulkActiveByPane.has(paneId)) return;
     const pending = pendingPtyWriteByPane.get(paneId);
     if (!pending) return;
     pendingPtyWriteByPane.delete(paneId);
     parttyPerf.mark("pty.input.flush_pane");
     parttyPerf.mark("pty.input.flush_pane.chars", pending.length);
-    void ptyWrite(paneId, pending).catch((e) => console.error("pty_write", e));
+    void writePtyPayload(paneId, pending);
   };
 
   const isLatencySensitiveInput = (data: string): boolean => {
@@ -764,6 +776,57 @@ async function boot(): Promise<void> {
     if (data.includes("\x1b")) return true;
     return data.length <= 2;
   };
+
+  const isBulkPtyInput = (data: string): boolean =>
+    data.length > PTY_BULK_CHARS || data.includes("\x1b[200~");
+
+  const sleepMs = (ms: number): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, ms));
+
+  /** Write to PTY, chunking large payloads so ConPTY doesn't drop bytes. */
+  function writePtyPayload(paneId: string, data: string): Promise<void> {
+    if (!data) return Promise.resolve();
+    if (!isBulkPtyInput(data)) {
+      return ptyWrite(paneId, data).catch((e) => {
+        console.error("pty_write", e);
+      });
+    }
+    const prev = ptyBulkWriteTailByPane.get(paneId) ?? Promise.resolve();
+    const next = prev
+      .catch(() => {})
+      .then(async () => {
+        ptyBulkActiveByPane.add(paneId);
+        try {
+          const queued = pendingPtyWriteByPane.get(paneId);
+          if (queued) {
+            pendingPtyWriteByPane.delete(paneId);
+            await ptyWrite(paneId, queued).catch((e) =>
+              console.error("pty_write", e),
+            );
+          }
+          for (let i = 0; i < data.length; i += PTY_CHUNK_CHARS) {
+            const chunk = data.slice(i, i + PTY_CHUNK_CHARS);
+            await ptyWrite(paneId, chunk).catch((e) =>
+              console.error("pty_write", e),
+            );
+            if (i + PTY_CHUNK_CHARS < data.length) {
+              await sleepMs(PTY_CHUNK_DELAY_MS);
+            }
+          }
+        } finally {
+          ptyBulkActiveByPane.delete(paneId);
+          const after = pendingPtyWriteByPane.get(paneId);
+          if (after) {
+            pendingPtyWriteByPane.delete(paneId);
+            await ptyWrite(paneId, after).catch((e) =>
+              console.error("pty_write", e),
+            );
+          }
+        }
+      });
+    ptyBulkWriteTailByPane.set(paneId, next);
+    return next;
+  }
 
   let lastKeydownTs = 0;
   document.addEventListener("keydown", () => {
@@ -781,11 +844,25 @@ async function boot(): Promise<void> {
       parttyPerf.time("input.keydown.to.onData.ms", performance.now() - lastKeydownTs);
       lastKeydownTs = 0;
     }
+    // Pastes / large bursts: don't RAF-coalesce into one oversized ConPTY write.
+    if (isBulkPtyInput(data)) {
+      flushPendingPtyWriteForPane(paneId);
+      parttyPerf.mark("pty.input.bulk.calls");
+      parttyPerf.mark("pty.input.bulk.chars", data.length);
+      void writePtyPayload(paneId, data);
+      return;
+    }
+    // During chunked paste, hold keystrokes until the paste finishes.
+    if (ptyBulkActiveByPane.has(paneId)) {
+      const held = pendingPtyWriteByPane.get(paneId);
+      pendingPtyWriteByPane.set(paneId, held ? `${held}${data}` : data);
+      return;
+    }
     if (immediate || isLatencySensitiveInput(data)) {
       flushPendingPtyWriteForPane(paneId);
       parttyPerf.mark("pty.input.immediate.calls");
       parttyPerf.mark("pty.input.immediate.chars", data.length);
-      void ptyWrite(paneId, data).catch((e) => console.error("pty_write", e));
+      void writePtyPayload(paneId, data);
       parttyPerf.mark("pty.input.immediate");
       return;
     }
@@ -1599,6 +1676,7 @@ async function boot(): Promise<void> {
         "terminal_newline",
         "pane_focus_left", "pane_focus_right", "pane_focus_up", "pane_focus_down",
         "terminal_copy",
+        "terminal_paste",
         "palette_chord",
         "pane_split_right",
         "pane_split_down",
@@ -1631,6 +1709,10 @@ async function boot(): Promise<void> {
               return false;
             }
             break;
+          case "terminal_paste":
+            e.preventDefault();
+            void pasteFromClipboard();
+            return false;
           case "palette_chord":
             e.preventDefault();
             return false;
@@ -4101,9 +4183,15 @@ async function boot(): Promise<void> {
   async function pasteFromClipboard(): Promise<void> {
     try {
       const text = await readText();
+      if (!text) return;
       const pid = paneHost?.getFocusedPaneId();
-      if (text && pid)
-        await ptyWrite(pid, text).catch((e) => console.warn("paste", e));
+      if (!pid) return;
+      const term = paneHost?.getPaneTerminal(pid)?.term;
+      if (!term) return;
+      // Go through xterm so newlines normalize and bracketed paste wraps when
+      // the app (TUI) enabled it — raw ptyWrite skipped both and broke OpenCode etc.
+      term.focus();
+      term.paste(text);
     } catch {
       /* empty clipboard or read failed */
     }
@@ -5045,6 +5133,7 @@ async function boot(): Promise<void> {
       { hotkey: "Ctrl+Wheel", label: "Zoom focused pane" },
       { hotkey: "Alt+Drag", label: "Move floating pane or swap tiled panes" },
       { hotkey: "Alt+Shift+Drag", label: "Move window from anywhere" },
+      { hotkey: "Ctrl+V", label: "Paste from clipboard" },
       { hotkey: "Right-click", label: "Paste from clipboard" },
     );
     list.replaceChildren(
@@ -5719,8 +5808,8 @@ async function boot(): Promise<void> {
           }
           return result;
         },
-        writeToPane(paneId: string, text: string) {
-          return ptyWrite(paneId, text);
+        writeToPane(paneId, text) {
+          queuePtyWrite(paneId, text);
         },
         showNotification(command: string, detail: string, paneId?: string) {
     if (!processNotificationEnabledRef.v) return;
