@@ -1633,6 +1633,8 @@ export class PaneHost {
         term.loadAddon(imageAddon);
         const unicode11 = new Unicode11Addon();
         term.loadAddon(unicode11);
+        // Addon only registers the version; activate it explicitly.
+        term.unicode.activeVersion = "11";
         const graphemes = new UnicodeGraphemesAddon();
         term.loadAddon(graphemes);
         const serializeAddon = new SerializeAddon();

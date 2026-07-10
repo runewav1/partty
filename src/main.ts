@@ -4989,6 +4989,8 @@ async function boot(): Promise<void> {
     }
     // Keyboard + mouse shortcuts that aren't palette commands.
     rows.push(
+      { hotkey: "Tab", label: "New tab / Split → pick profile" },
+      { hotkey: "@profile", label: "New tab or split with a profile" },
       { hotkey: "Ctrl+Arrows", label: "Focus adjacent pane" },
       { hotkey: "Ctrl+Shift+Arrows", label: "Swap pane with neighbor" },
       { hotkey: "Alt+1–9", label: "Switch to tab" },
