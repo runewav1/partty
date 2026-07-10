@@ -31,5 +31,7 @@ commands.allow = [
   "commit_show_window",
   "request_destroy_webview_for_hide",
   "detect_shells",
+  "list_profiles",
+  "get_profile",
   "open_external_url",
 ]

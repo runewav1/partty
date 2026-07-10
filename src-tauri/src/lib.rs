@@ -1,6 +1,8 @@
 mod keybinds;
 mod peb_cwd_windows;
 mod prefs;
+mod profile_icons;
+mod profiles;
 mod pty;
 mod subprocess;
 mod theme;
@@ -75,12 +77,110 @@ fn open_external_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
-fn pty_identity(prefs: &prefs::Prefs, pane_cwd: Option<&str>) -> String {
-    format!(
-        "{}\0{}",
-        prefs.shell.trim().to_lowercase(),
-        pane_cwd.unwrap_or(prefs.initial_cwd.as_deref().unwrap_or(""))
-    )
+fn prefs_for_spawn(
+    base: &prefs::Prefs,
+    shell_override: Option<&str>,
+    initial_cwd: Option<String>,
+) -> prefs::Prefs {
+    let mut prefs = base.clone();
+    if let Some(shell) = shell_override.map(str::trim).filter(|s| !s.is_empty()) {
+        prefs.shell = shell.to_string();
+    }
+    if let Some(cwd) = initial_cwd {
+        prefs.initial_cwd = Some(cwd);
+    }
+    prefs
+}
+
+/// Resolve prefs + optional profile for a PTY spawn.
+fn resolve_spawn(
+    base: &prefs::Prefs,
+    profile_id: Option<&str>,
+    shell: Option<&str>,
+    initial_cwd: Option<String>,
+) -> Result<(prefs::Prefs, Option<profiles::ConnectionProfile>, String), String> {
+    let profile = match profile_id.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(id) => match profiles::get_profile(id) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                eprintln!("partty: profile `{id}`: {e}; falling back to local shell");
+                None
+            }
+        },
+        None => None,
+    };
+
+    let mut cwd = initial_cwd;
+    if cwd
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_none()
+    {
+        if let Some(pc) = profile
+            .as_ref()
+            .and_then(|p| p.initial_cwd.as_deref())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            cwd = Some(pc.to_string());
+        }
+    }
+
+    let shell_from_profile = profile.as_ref().and_then(|p| match p.kind {
+        profiles::ProfileKind::Local => p
+            .shell
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        _ => None,
+    });
+    let shell_override = shell
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or(shell_from_profile);
+
+    let spawn_prefs = prefs_for_spawn(base, shell_override.as_deref(), cwd.clone());
+
+    let backend_key = match profile.as_ref() {
+        Some(p) if matches!(p.kind, profiles::ProfileKind::Wsl) => {
+            format!(
+                "wsl:{}",
+                p.wsl_distro
+                    .as_deref()
+                    .unwrap_or("")
+                    .trim()
+                    .to_lowercase()
+            )
+        }
+        Some(p) if matches!(p.kind, profiles::ProfileKind::Ssh) => {
+            let host = p
+                .ssh_host
+                .as_deref()
+                .or(p.commandline.as_deref())
+                .unwrap_or("")
+                .trim()
+                .to_lowercase();
+            format!(
+                "ssh:{}:{}:{}",
+                p.ssh_user.as_deref().unwrap_or("").trim().to_lowercase(),
+                p.ssh_port.map(|n| n.to_string()).unwrap_or_default(),
+                host
+            )
+        }
+        _ => spawn_prefs.shell.trim().to_lowercase(),
+    };
+    let want = format!(
+        "{}\0{}\0{}",
+        profile.as_ref().map(|p| p.id.as_str()).unwrap_or(""),
+        backend_key,
+        cwd.as_deref()
+            .unwrap_or(base.initial_cwd.as_deref().unwrap_or(""))
+    );
+
+    Ok((spawn_prefs, profile, want))
 }
 
 fn window_effect_config(prefs: &prefs::Prefs) -> Option<tauri::utils::config::WindowEffectsConfig> {
@@ -109,7 +209,12 @@ fn apply_window_effects_to_all(app: &AppHandle, prefs: &prefs::Prefs) {
 
 /// Spawn a background thread that pre-warms a PTY session so the NEXT split
 /// can be served instantly (no shell startup wait).
-fn refill_warm_pty(app: &AppHandle, prefs: &prefs::Prefs, identity: String) {
+fn refill_warm_pty(
+    app: &AppHandle,
+    prefs: &prefs::Prefs,
+    identity: String,
+    profile: Option<profiles::ConnectionProfile>,
+) {
     let app = app.clone();
     let prefs = prefs.clone();
     thread::spawn(move || {
@@ -119,7 +224,15 @@ fn refill_warm_pty(app: &AppHandle, prefs: &prefs::Prefs, identity: String) {
         // Give the warm session a well-known placeholder ID; it is updated to
         // the real pane_id atomically when the session is adopted.
         let warm_id = "__partty_warm__".to_string();
-        match PtySession::spawn(app.clone(), warm_id, 80, 24, &prefs, None) {
+        match PtySession::spawn_with_profile(
+            app.clone(),
+            warm_id,
+            80,
+            24,
+            &prefs,
+            None,
+            profile.as_ref(),
+        ) {
             Ok(session) => {
                 if let Some(state) = app.try_state::<AppState>() {
                     let mut g = state.warm_pty.lock();
@@ -514,9 +627,12 @@ fn pty_ensure(
     cols: u16,
     rows: u16,
     initial_cwd: Option<String>,
+    shell: Option<String>,
+    profile_id: Option<String>,
 ) -> Result<(), String> {
-    let prefs = state.persisted.lock().prefs.clone();
-    let want = pty_identity(&prefs, initial_cwd.as_deref());
+    let base = state.persisted.lock().prefs.clone();
+    let (spawn_prefs, profile, want) =
+        resolve_spawn(&base, profile_id.as_deref(), shell.as_deref(), initial_cwd)?;
     {
         let panes = state.pty_panes.lock();
         let ids = state.pty_spawn_identity.lock();
@@ -530,13 +646,14 @@ fn pty_ensure(
         old.kill();
     }
     state.pty_spawn_identity.lock().remove(&pane_id);
-    let session = Arc::new(PtySession::spawn(
+    let session = Arc::new(PtySession::spawn_with_profile(
         app.clone(),
         pane_id.clone(),
         cols,
         rows,
-        &prefs,
-        initial_cwd,
+        &spawn_prefs,
+        None,
+        profile.as_ref(),
     )?);
     state.pty_panes.lock().insert(pane_id.clone(), session);
     state
@@ -545,7 +662,7 @@ fn pty_ensure(
         .insert(pane_id, want.clone());
 
     // Prime the warm pool for the first pane split.
-    refill_warm_pty(&app, &prefs, want);
+    refill_warm_pty(&app, &spawn_prefs, want, profile);
     Ok(())
 }
 
@@ -557,13 +674,16 @@ fn pty_spawn(
     cols: u16,
     rows: u16,
     initial_cwd: Option<String>,
+    shell: Option<String>,
+    profile_id: Option<String>,
 ) -> Result<(), String> {
     if let Some(old) = state.pty_panes.lock().remove(&pane_id) {
         old.kill();
     }
     state.pty_spawn_identity.lock().remove(&pane_id);
-    let prefs = state.persisted.lock().prefs.clone();
-    let want = pty_identity(&prefs, initial_cwd.as_deref());
+    let base = state.persisted.lock().prefs.clone();
+    let (spawn_prefs, profile, want) =
+        resolve_spawn(&base, profile_id.as_deref(), shell.as_deref(), initial_cwd)?;
 
     // Try to adopt a pre-warmed session (identity must match; cwd ignored for warm
     // sessions since they start at the prefs default and the shell will cd via OSC).
@@ -583,13 +703,14 @@ fn pty_spawn(
             warm.session
         } else {
             // Cold spawn.
-            Arc::new(PtySession::spawn(
+            Arc::new(PtySession::spawn_with_profile(
                 app.clone(),
                 pane_id.clone(),
                 cols,
                 rows,
-                &prefs,
-                initial_cwd,
+                &spawn_prefs,
+                None,
+                profile.as_ref(),
             )?)
         }
     };
@@ -601,7 +722,7 @@ fn pty_spawn(
         .insert(pane_id, want.clone());
 
     // Refill the warm slot in the background for the next split.
-    refill_warm_pty(&app, &prefs, want);
+    refill_warm_pty(&app, &spawn_prefs, want, profile);
     Ok(())
 }
 
@@ -730,6 +851,18 @@ fn pty_shell_exe_token(
 #[tauri::command]
 fn get_persisted_state(state: State<'_, AppState>) -> PersistedState {
     state.persisted.lock().clone()
+}
+
+#[tauri::command]
+fn list_profiles(state: State<'_, AppState>) -> Result<Vec<profiles::ProfileDto>, String> {
+    let prefs = state.persisted.lock().prefs.clone();
+    profiles::list_profiles(&prefs)
+}
+
+#[tauri::command]
+fn get_profile(id: String) -> Result<profiles::ProfileDto, String> {
+    let p = profiles::get_profile(&id)?;
+    Ok(profiles::ProfileDto::from(&p))
 }
 
 #[tauri::command]
@@ -969,6 +1102,8 @@ pub fn run() {
             theme::write_theme,
             theme::delete_theme,
             theme::get_theme_effective_prefs,
+            list_profiles,
+            get_profile,
             list_preset_names,
             read_preset_json,
             write_preset_json,

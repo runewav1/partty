@@ -20,6 +20,20 @@ import {
   type ParttyLifecyclePrefs,
 } from "./termLifecycle";
 import {
+  LOCAL_DEFAULT_PROFILE_ID,
+  DEFAULT_PROFILE_BEHAVIOR,
+  fetchProfiles,
+  getProfileById,
+  parseProfilePickerQuery,
+  profileActionForPaletteCommandId,
+  profilePickerQuery,
+  resolveDefaultProfileId,
+  resolveProfileShell,
+  type ConnectionProfile,
+  type ProfileBehaviorPrefs,
+  type ProfilePaletteAction,
+} from "./connectionProfiles";
+import {
   findPaneLeaf,
   collectLeafIds,
   type PaneHostInit,
@@ -434,12 +448,16 @@ async function boot(): Promise<void> {
 
   let paneHost: PaneHost | null = null;
   const paneCwdHints = new Map<string, string>();
+  const paneProfileIds = new Map<string, string>();
   const paneShellState = new Map<string, ShellIntegrationState>();
   const paneNames = new Map<string, string>();
   const paneThemes = new Map<string, PaneThemePrefs>();
   const lastPtyDims = new Map<string, { cols: number; rows: number }>();
   const pendingNewPaneCwd = { v: null as string | null };
   const pendingPaneSpawnCwd = new Map<string, string>();
+  const pendingNewPaneProfile = { v: null as string | null };
+  const pendingPaneSpawnProfile = new Map<string, string>();
+  let profilesList: ConnectionProfile[] = [];
   const focusFollowsRef = { v: lp.focus_follows_cursor };
   const autoCopySelectionRef = {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).auto_copy_selection),
@@ -453,6 +471,52 @@ async function boot(): Promise<void> {
       (persisted.prefs as Partial<ParttyPrefs>).split_layout_style,
     ),
   };
+  const profileBehaviorRef = {
+    v: {
+      default_profile_id:
+        (persisted.prefs as Partial<ParttyPrefs>).default_profile_id ??
+        DEFAULT_PROFILE_BEHAVIOR.default_profile_id,
+      inherit_profile_on_split:
+        (persisted.prefs as Partial<ParttyPrefs>).inherit_profile_on_split ??
+        DEFAULT_PROFILE_BEHAVIOR.inherit_profile_on_split,
+      inherit_cwd_on_split:
+        (persisted.prefs as Partial<ParttyPrefs>).inherit_cwd_on_split ??
+        DEFAULT_PROFILE_BEHAVIOR.inherit_cwd_on_split,
+      palette_tab_profile_picker:
+        (persisted.prefs as Partial<ParttyPrefs>).palette_tab_profile_picker ??
+        DEFAULT_PROFILE_BEHAVIOR.palette_tab_profile_picker,
+      new_tab_uses_default_profile:
+        (persisted.prefs as Partial<ParttyPrefs>).new_tab_uses_default_profile ??
+        DEFAULT_PROFILE_BEHAVIOR.new_tab_uses_default_profile,
+      palette_profile_icons:
+        (persisted.prefs as Partial<ParttyPrefs>).palette_profile_icons ??
+        DEFAULT_PROFILE_BEHAVIOR.palette_profile_icons,
+    } satisfies ProfileBehaviorPrefs,
+  };
+
+  async function refreshProfilesList(): Promise<void> {
+    try {
+      profilesList = await fetchProfiles();
+      profileBehaviorRef.v.default_profile_id = resolveDefaultProfileId(
+        profileBehaviorRef.v.default_profile_id,
+        profilesList,
+      );
+    } catch (e) {
+      console.warn("list_profiles", e);
+      if (profilesList.length === 0) {
+        profilesList = [
+          {
+            version: 1,
+            id: LOCAL_DEFAULT_PROFILE_ID,
+            name: "Local",
+            kind: "local",
+            shell: null,
+            builtin: true,
+          },
+        ];
+      }
+    }
+  }
   const disableTooltipsRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).ui_disable_tooltips ?? false,
   };
@@ -1090,6 +1154,7 @@ async function boot(): Promise<void> {
     disposeWebglForPane(paneId);
     paneShellState.delete(paneId);
     paneCwdHints.delete(paneId);
+    paneProfileIds.delete(paneId);
     lastPtyDims.delete(paneId);
     pendingPtyWriteByPane.delete(paneId);
     pendingPtyOutputByPane.delete(paneId);
@@ -1379,13 +1444,47 @@ async function boot(): Promise<void> {
     return true;
   }
 
-  function splitFocusedWithCwd(dir: "h" | "v"): string | null {
+  function splitFocusedWithCwd(dir: "h" | "v", profileId?: string | null): string | null {
     const parentId = paneHost?.getFocusedPaneId();
     if (!parentId) return null;
-    pendingNewPaneCwd.v = paneCwdHints.get(parentId) ?? null;
+    if (profileBehaviorRef.v.inherit_cwd_on_split) {
+      pendingNewPaneCwd.v = paneCwdHints.get(parentId) ?? null;
+    } else {
+      pendingNewPaneCwd.v = null;
+    }
+    if (profileId) {
+      pendingNewPaneProfile.v = resolveDefaultProfileId(profileId, profilesList);
+    } else if (profileBehaviorRef.v.inherit_profile_on_split) {
+      pendingNewPaneProfile.v =
+        paneProfileIds.get(parentId) ??
+        resolveDefaultProfileId(profileBehaviorRef.v.default_profile_id, profilesList);
+    } else {
+      pendingNewPaneProfile.v = resolveDefaultProfileId(
+        profileBehaviorRef.v.default_profile_id,
+        profilesList,
+      );
+    }
     const newId = paneHost?.splitFocused(dir) ?? null;
-    if (!newId) pendingNewPaneCwd.v = null;
+    if (!newId) {
+      pendingNewPaneCwd.v = null;
+      pendingNewPaneProfile.v = null;
+    }
     return newId;
+  }
+
+  function resolveProfileForNewTab(explicit?: string | null): string {
+    if (explicit) return resolveDefaultProfileId(explicit, profilesList);
+    if (!profileBehaviorRef.v.new_tab_uses_default_profile) {
+      const focused = paneHost?.getFocusedPaneId();
+      if (focused) {
+        const inherited = paneProfileIds.get(focused);
+        if (inherited) return resolveDefaultProfileId(inherited, profilesList);
+      }
+    }
+    return resolveDefaultProfileId(
+      profileBehaviorRef.v.default_profile_id,
+      profilesList,
+    );
   }
 
   function zoomPaneTerminal(paneId: string, direction: number): void {
@@ -1791,6 +1890,14 @@ async function boot(): Promise<void> {
     const pt = ptIn ?? paneHost?.getPaneTerminal(paneId);
     if (!pt) return;
     const effectiveCwd = initialCwd ?? paneCwdHints.get(paneId) ?? null;
+    const profileId =
+      paneProfileIds.get(paneId) ??
+      resolveDefaultProfileId(profileBehaviorRef.v.default_profile_id, profilesList);
+    const profile = getProfileById(profileId, profilesList);
+    const globalShell =
+      ((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
+      "pwsh";
+    const shellOverride = resolveProfileShell(profile, globalShell);
     const ensureStarted = performance.now();
     pt.fit.fit();
     let d = ptyDims(pt.fit);
@@ -1817,7 +1924,14 @@ async function boot(): Promise<void> {
         safe = clampPtyColsRows(raw.cols, raw.rows);
       }
       try {
-        await ptyEnsure(paneId, safe.cols, safe.rows, effectiveCwd);
+        await ptyEnsure(
+          paneId,
+          safe.cols,
+          safe.rows,
+          effectiveCwd,
+          shellOverride,
+          profileId,
+        );
         await replayBackendSnapshotOnce(paneId, pt);
         lastPtyDims.set(paneId, safe);
         parttyPerf.mark("pty.ensure.success");
@@ -2210,6 +2324,19 @@ async function boot(): Promise<void> {
           pendingNewPaneCwd.v = null;
           const inheritedCwd = explicitCwd ?? paneCwdHints.get(id) ?? null;
           if (inheritedCwd) paneCwdHints.set(id, inheritedCwd);
+
+          const explicitProfile =
+            pendingPaneSpawnProfile.get(id) ?? pendingNewPaneProfile.v;
+          pendingPaneSpawnProfile.delete(id);
+          pendingNewPaneProfile.v = null;
+          const resolvedProfile = resolveDefaultProfileId(
+            explicitProfile ??
+              paneProfileIds.get(id) ??
+              profileBehaviorRef.v.default_profile_id,
+            profilesList,
+          );
+          paneProfileIds.set(id, resolvedProfile);
+
           queueMicrotask(() => {
             void ensurePtyForPane(id, pt, inheritedCwd);
           });
@@ -2287,6 +2414,8 @@ async function boot(): Promise<void> {
     return host;
   }
 
+  await refreshProfilesList();
+
   for (let i = 0; i < tabsState.tabs.length; i++) {
     const tab = tabsState.tabs[i]!;
     let layout = initialLayoutForTab(tab.id, i === 0);
@@ -2304,6 +2433,12 @@ async function boot(): Promise<void> {
       for (const [paneId, cwd] of Object.entries(layout.paneCwds ?? {})) {
         paneCwdHints.set(paneId, cwd);
       }
+    }
+    for (const [paneId, profileId] of Object.entries(layout.paneProfileIds ?? {})) {
+      paneProfileIds.set(
+        paneId,
+        resolveDefaultProfileId(profileId, profilesList),
+      );
     }
     createTabPaneShellAndHost(
       tab.id,
@@ -2357,6 +2492,11 @@ async function boot(): Promise<void> {
               .map((pane) => [pane.id, paneCwdHints.get(pane.id)!]),
           )
         : undefined,
+      paneProfileIds: Object.fromEntries(
+        panes
+          .filter((pane) => paneProfileIds.has(pane.id))
+          .map((pane) => [pane.id, paneProfileIds.get(pane.id)!]),
+      ),
     };
   }
 
@@ -2872,11 +3012,18 @@ async function boot(): Promise<void> {
     });
   }
 
-  function openNewWorkspaceTab(switchTo = true): string {
+  function openNewWorkspaceTab(
+    switchTo = true,
+    profileId?: string | null,
+  ): string {
     const id = crypto.randomUUID();
     const name = nextTabName(tabsState.tabs);
     const empty = emptyWorkspaceLayout(id);
     const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
+    const resolvedProfile = resolveProfileForNewTab(profileId);
+    const rootId = empty.focusedId;
+    paneProfileIds.set(rootId, resolvedProfile);
+    pendingPaneSpawnProfile.set(rootId, resolvedProfile);
     tabsState = {
       ...tabsState,
       tabs: [
@@ -2885,7 +3032,10 @@ async function boot(): Promise<void> {
       ],
     };
     saveTabsState(tabsState);
-    persistLayoutForTab(id, empty);
+    persistLayoutForTab(id, {
+      ...empty,
+      paneProfileIds: { [rootId]: resolvedProfile },
+    });
     createTabPaneShellAndHost(id, {
       initialTree: empty.tree,
       initialFocusedId: empty.focusedId,
@@ -3739,6 +3889,13 @@ async function boot(): Promise<void> {
                 .map((id) => [id, paneCwdHints.get(id)!]),
             ),
           ),
+          paneProfileIds: normMap(
+            Object.fromEntries(
+              pids
+                .filter((id) => paneProfileIds.has(id))
+                .map((id) => [id, paneProfileIds.get(id)!]),
+            ),
+          ),
           paneFontSizes: normMap(
             Object.fromEntries(
               pids
@@ -3830,6 +3987,16 @@ async function boot(): Promise<void> {
           if (nid && cwd) {
             paneCwdHints.set(nid, cwd);
             pendingPaneSpawnCwd.set(nid, cwd);
+          }
+        }
+        for (const [oid, profileId] of Object.entries(
+          preset.paneProfileIds ?? {},
+        )) {
+          const nid = idMap.get(oid);
+          if (nid && profileId) {
+            const resolved = resolveDefaultProfileId(profileId, profilesList);
+            paneProfileIds.set(nid, resolved);
+            pendingPaneSpawnProfile.set(nid, resolved);
           }
         }
         createTabPaneShellAndHost(
@@ -3989,6 +4156,20 @@ async function boot(): Promise<void> {
           splitLayoutStyleRef.v = normalizeSplitLayoutStyle(
             saved.split_layout_style,
           );
+          profileBehaviorRef.v = {
+            default_profile_id: resolveDefaultProfileId(
+              saved.default_profile_id,
+              profilesList,
+            ),
+            inherit_profile_on_split: saved.inherit_profile_on_split ?? true,
+            inherit_cwd_on_split: saved.inherit_cwd_on_split ?? true,
+            palette_tab_profile_picker:
+              saved.palette_tab_profile_picker ?? true,
+            new_tab_uses_default_profile:
+              saved.new_tab_uses_default_profile ?? true,
+            palette_profile_icons: saved.palette_profile_icons ?? true,
+          };
+          void refreshProfilesList();
           disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
           altClickCursorRef.v = saved.terminal_alt_click_moves_cursor ?? true;
           cursorBlinkRef.v = saved.terminal_cursor_blink ?? true;
@@ -4453,6 +4634,86 @@ async function boot(): Promise<void> {
     mouseCursorController?.sync();
   }
 
+  function runWithProfile(action: ProfilePaletteAction, profileId: string): void {
+    const id = resolveDefaultProfileId(profileId, profilesList);
+    switch (action) {
+      case "new-tab":
+        openNewWorkspaceTab(true, id);
+        return;
+      case "split-h":
+        splitFocusedWithCwd("h", id);
+        return;
+      case "split-v":
+        splitFocusedWithCwd("v", id);
+        return;
+      default: {
+        const _exhaustive: never = action;
+        void _exhaustive;
+      }
+    }
+  }
+
+  function getProfileActionCommands(query: string): PaletteCommand[] {
+    const parsed = parseProfilePickerQuery(query);
+    if (!parsed) {
+      return [
+        {
+          id: "profile-picker-hint",
+          label: "Select a profile",
+          labelHtml:
+            `<span class="cp-label-prefix">@profile:</span>` +
+            `<span class="cp-label-name">new-tab</span>` +
+            `<span class="cp-label-kind"> · split-h · split-v</span>`,
+          keywords: "@profile new-tab split-h split-v",
+          run: () => {},
+        },
+      ];
+    }
+    const { action, filter } = parsed;
+    const filterLower = filter.toLowerCase();
+    const actionLabel =
+      action === "new-tab"
+        ? "New tab"
+        : action === "split-h"
+          ? "Split right"
+          : "Split down";
+    return profilesList
+      .filter((p) => {
+        if (!filterLower) return true;
+        const hay =
+          `${p.name} ${p.kind} ${p.id} ${p.shell ?? ""} ${p.wslDistro ?? ""} ${p.sshHost ?? ""}`.toLowerCase();
+        return hay.includes(filterLower);
+      })
+      .map((p: ConnectionProfile) => {
+        // Kind (local/wsl) is implied; for SSH show host when it differs from the friendly name.
+        const sshDetail =
+          p.kind === "ssh"
+            ? (p.sshHost?.trim() || "")
+            : "";
+        const showDetail =
+          sshDetail && sshDetail.toLowerCase() !== p.name.toLowerCase()
+            ? sshDetail
+            : "";
+        const showIcon =
+          profileBehaviorRef.v.palette_profile_icons && !!p.iconDataUrl;
+        const iconHtml = showIcon
+          ? `<img class="cp-profile-icon" src="${escapeHtml(p.iconDataUrl!)}" alt="" width="16" height="16" />`
+          : "";
+        return {
+          id: `profile-run-${action}-${p.id}`,
+          label: p.name,
+          labelHtml:
+            iconHtml +
+            `<span class="cp-label-name">${escapeHtml(p.name)}</span>` +
+            (showDetail
+              ? ` <span class="cp-label-cwd">${escapeHtml(showDetail)}</span>`
+              : ""),
+          keywords: `@profile:${action} ${p.name} ${p.kind} ${p.id} ${sshDetail} ${p.shell ?? ""} ${p.wslDistro ?? ""} ${actionLabel}`,
+          run: () => runWithProfile(action, p.id),
+        };
+      });
+  }
+
   function getMergedPaletteCommands(query: string): PaletteCommand[] {
     const q = query.trimStart();
     if (q.startsWith(":")) {
@@ -4465,15 +4726,19 @@ async function boot(): Promise<void> {
     if (q.startsWith("@proc")) {
       return getProcCommands(q);
     }
-
+    if (q.startsWith("@profile")) {
+      return getProfileActionCommands(q);
+    }
 
     const commands: PaletteCommand[] = [
       // --- Tabs ---
       {
         id: "tab-new",
         label: "New tab",
-        keywords: "workspace create add",
-        run: () => openNewWorkspaceTab(),
+        keywords: "workspace create add profile",
+        run: () => {
+          openNewWorkspaceTab();
+        },
       },
       {
         id: "tab-duplicate",
@@ -4497,7 +4762,7 @@ async function boot(): Promise<void> {
       {
         id: "pane-split-v",
         label: "Split right",
-        keywords: "split vertical columns side by side layout",
+        keywords: "split vertical columns side by side layout profile",
         hotkey: "Alt+V",
         run: () => {
           splitFocusedWithCwd("h");
@@ -4506,7 +4771,7 @@ async function boot(): Promise<void> {
       {
         id: "pane-split-h",
         label: "Split down",
-        keywords: "split horizontal rows stacked layout",
+        keywords: "split horizontal rows stacked layout profile",
         hotkey: "Alt+H",
         run: () => {
           splitFocusedWithCwd("v");
@@ -4762,9 +5027,13 @@ async function boot(): Promise<void> {
           getCommands: () => getMergedPaletteCommands(cpInput?.value ?? ""),
           onBeforeOpen: async () => {
             closeHelpPanel();
+            // Don't block open on profile re-detection (shell/WSL probes).
+            // Cache from boot / settings save is enough; refresh in background.
+            void refreshProfilesList();
           },
           onClosed: () => {
             getFocusedTerm()?.focus();
+            if (cpInput) cpInput.placeholder = "Command or > …";
           },
           onTabComplete: (currentInput: string, selected) => {
             if (
@@ -4787,6 +5056,13 @@ async function boot(): Promise<void> {
               const leafId = selected.id.slice(5); // "proc-<leafId>"
               const proc = activeProcesses.get(leafId);
               if (proc) return `@proc:${displayProcessCommand(proc.command)} `;
+            }
+            if (profileBehaviorRef.v.palette_tab_profile_picker) {
+              const action = profileActionForPaletteCommandId(selected?.id);
+              if (action) {
+                if (cpInput) cpInput.placeholder = "Filter profiles…";
+                return profilePickerQuery(action);
+              }
             }
             return null;
           },
@@ -5470,8 +5746,8 @@ async function boot(): Promise<void> {
           if (typeof paneId !== "string" || !paneId) return null;
           const host = getPaneHostByPaneId(paneId);
           if (!host) return null;
-          pendingNewPaneCwd.v = paneCwdHints.get(paneId) ?? null;
-          return host.splitFocused(dir) ?? null;
+          host.setFocusedPaneId(paneId);
+          return splitFocusedWithCwd(dir) ?? null;
         },
         getTabs() {
           const tabs = visibleWorkspaceTabsInOrder();

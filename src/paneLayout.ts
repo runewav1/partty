@@ -12,6 +12,8 @@ export type PersistedPaneLayout = {
   paneThemes?: Record<string, PaneThemePrefs>;
   paneNames?: Record<string, string>;
   paneCwds?: Record<string, string>;
+  /** Per-pane connection profile ids (local / future WSL·SSH). */
+  paneProfileIds?: Record<string, string>;
 };
 
 function collectLeafIdsArr(node: PaneNode, out: string[]): void {
@@ -63,6 +65,7 @@ export function loadPaneLayout(): PersistedPaneLayout | null {
       paneThemes: parsed.paneThemes,
       paneNames: parsed.paneNames,
       paneCwds: parsed.paneCwds,
+      paneProfileIds: parsed.paneProfileIds,
     };
   } catch {
     return null;

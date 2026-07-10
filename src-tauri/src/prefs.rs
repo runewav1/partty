@@ -74,6 +74,9 @@ fn default_terminal_animation_style() -> String {
 fn default_split_layout_style() -> String {
     "balanced".to_string()
 }
+fn default_default_profile_id() -> String {
+    "local-default".to_string()
+}
 fn default_terminal_pane_gap() -> f64 {
     6.0
 }
@@ -219,6 +222,22 @@ pub struct Prefs {
     pub split_layout_style: String,
     #[serde(default)]
     pub quiet_pane_deferral: bool,
+    #[serde(default = "default_default_profile_id")]
+    pub default_profile_id: String,
+    #[serde(default = "default_true")]
+    pub inherit_profile_on_split: bool,
+    #[serde(default = "default_true")]
+    pub inherit_cwd_on_split: bool,
+    #[serde(default = "default_true")]
+    pub palette_tab_profile_picker: bool,
+    #[serde(default = "default_true")]
+    pub new_tab_uses_default_profile: bool,
+    /// Profile ids hidden from the picker / Settings list (files remain on disk).
+    #[serde(default)]
+    pub profile_omit: Vec<String>,
+    /// Show cached exe/distro icons in the `@profile` palette list.
+    #[serde(default = "default_true")]
+    pub palette_profile_icons: bool,
     #[serde(default = "default_window_effect_mode")]
     pub window_effect_mode: String,
     #[serde(default = "default_window_effect_opacity")]
@@ -335,6 +354,13 @@ impl Default for Prefs {
             terminal_window_motion: true,
             split_layout_style: default_split_layout_style(),
             quiet_pane_deferral: false,
+            default_profile_id: default_default_profile_id(),
+            inherit_profile_on_split: true,
+            inherit_cwd_on_split: true,
+            palette_tab_profile_picker: true,
+            new_tab_uses_default_profile: true,
+            profile_omit: Vec::new(),
+            palette_profile_icons: true,
             window_effect_mode: default_window_effect_mode(),
             window_effect_opacity: default_window_effect_opacity(),
             pane_corner_radius: default_pane_corner_radius(),
@@ -374,7 +400,9 @@ impl Default for Prefs {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConfigToml {
-    #[serde(default)]
+    /// Deprecated: migrated into `[profiles].shell` / `initial_dir` on load.
+    /// Still accepted when reading older config.toml files; not written back.
+    #[serde(default, skip_serializing)]
     pub shell: ShellSection,
     #[serde(default)]
     pub cursor: CursorSection,
@@ -390,6 +418,8 @@ pub struct ConfigToml {
     pub animation: AnimationSection,
     #[serde(default)]
     pub split: SplitSection,
+    #[serde(default)]
+    pub profiles: ProfilesSection,
     #[serde(default)]
     pub window: WindowSection,
     #[serde(default)]
@@ -412,6 +442,7 @@ pub struct ConfigToml {
     pub dev: DevSection,
 }
 
+/// Deprecated top-level `[shell]` — kept only for reading older configs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShellSection {
     #[serde(default = "default_shell_command")]
@@ -430,6 +461,45 @@ impl Default for ShellSection {
             initial_dir: None,
         }
     }
+}
+
+/// Resolve fallback shell: `[profiles].shell`, else legacy `[shell].command`.
+fn resolve_config_shell(profiles: &ProfilesSection, legacy: &ShellSection) -> String {
+    let p = profiles.shell.trim();
+    let l = legacy.command.trim();
+    let p_is_default = p.is_empty() || p == default_shell_command();
+    let l_is_custom = !l.is_empty() && l != default_shell_command();
+    if !p_is_default {
+        p.to_string()
+    } else if l_is_custom {
+        l.to_string()
+    } else if !p.is_empty() {
+        p.to_string()
+    } else if !l.is_empty() {
+        l.to_string()
+    } else {
+        default_shell_command()
+    }
+}
+
+fn resolve_config_initial_dir(
+    profiles: &ProfilesSection,
+    legacy: &ShellSection,
+) -> Option<String> {
+    profiles
+        .initial_dir
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            legacy
+                .initial_dir
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -615,6 +685,50 @@ impl Default for SplitSection {
         Self {
             layout: default_split_layout_style(),
             quiet_defer: false,
+        }
+    }
+}
+
+/// Connection-profile behavior + global spawn defaults.
+/// Profile definitions live in `~/.partty/profiles/*.toml`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfilesSection {
+    #[serde(default = "default_default_profile_id")]
+    pub default: String,
+    /// Fallback shell when a local profile omits `shell` (incl. `local-default`).
+    #[serde(default = "default_shell_command")]
+    pub shell: String,
+    /// Default start directory (Settings → Start in).
+    #[serde(default)]
+    pub initial_dir: Option<String>,
+    #[serde(default = "default_true")]
+    pub inherit_on_split: bool,
+    #[serde(default = "default_true")]
+    pub inherit_cwd_on_split: bool,
+    #[serde(default = "default_true")]
+    pub palette_tab_picker: bool,
+    #[serde(default = "default_true")]
+    pub new_tab_uses_default: bool,
+    /// Profile ids to hide from pickers (does not delete `~/.partty/profiles/*.toml`).
+    #[serde(default)]
+    pub omit: Vec<String>,
+    /// Show icons next to profiles in the `@profile` palette.
+    #[serde(default = "default_true")]
+    pub palette_icons: bool,
+}
+
+impl Default for ProfilesSection {
+    fn default() -> Self {
+        Self {
+            default: default_default_profile_id(),
+            shell: default_shell_command(),
+            initial_dir: None,
+            inherit_on_split: true,
+            inherit_cwd_on_split: true,
+            palette_tab_picker: true,
+            new_tab_uses_default: true,
+            omit: Vec::new(),
+            palette_icons: true,
         }
     }
 }
@@ -849,9 +963,12 @@ impl Default for DevPerfSection {
 
 impl From<ConfigToml> for Prefs {
     fn from(c: ConfigToml) -> Self {
+        let shell = resolve_config_shell(&c.profiles, &c.shell);
+        let initial_cwd = resolve_config_initial_dir(&c.profiles, &c.shell);
+
         Self {
-            shell: c.shell.command,
-            initial_cwd: c.shell.initial_dir,
+            shell,
+            initial_cwd,
             terminal_cursor_style: c.cursor.style,
             terminal_cursor_blink: c.cursor.blink,
             terminal_cursor_width: c.cursor.width,
@@ -889,6 +1006,13 @@ impl From<ConfigToml> for Prefs {
             terminal_window_motion: c.animation.window_motion,
             split_layout_style: c.split.layout,
             quiet_pane_deferral: c.split.quiet_defer,
+            default_profile_id: c.profiles.default,
+            inherit_profile_on_split: c.profiles.inherit_on_split,
+            inherit_cwd_on_split: c.profiles.inherit_cwd_on_split,
+            palette_tab_profile_picker: c.profiles.palette_tab_picker,
+            new_tab_uses_default_profile: c.profiles.new_tab_uses_default,
+            profile_omit: c.profiles.omit,
+            palette_profile_icons: c.profiles.palette_icons,
             always_on_top: c.window.always_on_top,
             always_summon_maximized: c.window.summon_maximized,
             summon_spawn_at_cursor: c.window.summon_at_cursor,
@@ -933,10 +1057,8 @@ impl From<ConfigToml> for Prefs {
 impl From<&Prefs> for ConfigToml {
     fn from(p: &Prefs) -> Self {
         Self {
-            shell: ShellSection {
-                command: p.shell.clone(),
-                initial_dir: p.initial_cwd.clone(),
-            },
+            // Legacy `[shell]` is not written; values live under `[profiles]`.
+            shell: ShellSection::default(),
             cursor: CursorSection {
                 style: p.terminal_cursor_style.clone(),
                 blink: p.terminal_cursor_blink,
@@ -986,6 +1108,17 @@ impl From<&Prefs> for ConfigToml {
             split: SplitSection {
                 layout: p.split_layout_style.clone(),
                 quiet_defer: p.quiet_pane_deferral,
+            },
+            profiles: ProfilesSection {
+                default: p.default_profile_id.clone(),
+                shell: p.shell.clone(),
+                initial_dir: p.initial_cwd.clone(),
+                inherit_on_split: p.inherit_profile_on_split,
+                inherit_cwd_on_split: p.inherit_cwd_on_split,
+                palette_tab_picker: p.palette_tab_profile_picker,
+                new_tab_uses_default: p.new_tab_uses_default_profile,
+                omit: p.profile_omit.clone(),
+                palette_icons: p.palette_profile_icons,
             },
             window: WindowSection {
                 always_on_top: p.always_on_top,

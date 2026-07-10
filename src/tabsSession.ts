@@ -68,7 +68,17 @@ export function duplicateTabLayout(layout: PersistedPaneLayout, fromTabId: strin
           .filter((entry): entry is [string, string] => entry !== null),
       )
     : undefined;
-  return { v: 1, tree: mapNode(layout.tree), focusedId: focused, floating, paneThemes, paneNames, paneCwds };
+  const paneProfileIds = layout.paneProfileIds
+    ? Object.fromEntries(
+        Object.entries(layout.paneProfileIds)
+          .map(([id, profileId]) => {
+            const nid = m.get(id);
+            return nid ? [nid, profileId] : null;
+          })
+          .filter((entry): entry is [string, string] => entry !== null),
+      )
+    : undefined;
+  return { v: 1, tree: mapNode(layout.tree), focusedId: focused, floating, paneThemes, paneNames, paneCwds, paneProfileIds };
 }
 
 const TABS_STATE_KEY = "partty.tabs.v1";
@@ -133,7 +143,15 @@ export function migrateLayoutFromLegacyMain(layout: PersistedPaneLayout, tabId: 
         Object.entries(layout.paneCwds).map(([id, cwd]) => [id === "main" ? rid : id, cwd]),
       )
     : undefined;
-  return { v: 1, tree: mapNode(layout.tree), focusedId, floating, paneThemes, paneNames, paneCwds };
+  const paneProfileIds = layout.paneProfileIds
+    ? Object.fromEntries(
+        Object.entries(layout.paneProfileIds).map(([id, profileId]) => [
+          id === "main" ? rid : id,
+          profileId,
+        ]),
+      )
+    : undefined;
+  return { v: 1, tree: mapNode(layout.tree), focusedId, floating, paneThemes, paneNames, paneCwds, paneProfileIds };
 }
 
 function loadRawTabs(): TabsStateV1 {
@@ -187,6 +205,7 @@ export function loadLayoutForTab(tabId: string): PersistedPaneLayout | null {
       paneThemes: p.paneThemes,
       paneNames: p.paneNames,
       paneCwds: p.paneCwds,
+      paneProfileIds: p.paneProfileIds,
     };
   } catch {
     return null;

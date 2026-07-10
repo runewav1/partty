@@ -12,6 +12,8 @@ export type Preset = {
   paneThemes: Record<string, PaneThemePrefs>;
   paneNames: Record<string, string>;
   paneCwds: Record<string, string>;
+  /** Optional for older presets; missing → default profile on load. */
+  paneProfileIds?: Record<string, string>;
   paneFontSizes: Record<string, number>;
   startupCommands: Record<string, string>;
 };

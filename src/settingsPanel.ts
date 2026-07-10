@@ -53,6 +53,20 @@ export type ParttyPrefs = {
   terminal_no_focus_border: boolean;
   split_layout_style: string;
   quiet_pane_deferral: boolean;
+  /** Default connection profile id for new tabs / non-inherited panes. */
+  default_profile_id: string;
+  /** New splits inherit the parent pane's profile. */
+  inherit_profile_on_split: boolean;
+  /** New splits inherit the parent pane's cwd (Windows-native path). */
+  inherit_cwd_on_split: boolean;
+  /** Tab on New tab / Split palette rows opens a profile picker. */
+  palette_tab_profile_picker: boolean;
+  /** New tabs use `default_profile_id` (vs inheriting focused pane). */
+  new_tab_uses_default_profile: boolean;
+  /** Profile ids hidden from pickers (`[profiles].omit`). */
+  profile_omit?: string[];
+  /** Show icons in the `@profile` palette (`[profiles].palette_icons`). */
+  palette_profile_icons?: boolean;
   terminal_animation_speed: string;
   terminal_animation_style: string;
   terminal_window_motion: boolean;
@@ -113,7 +127,6 @@ export type ParttyPrefs = {
   dev_perf_console_interval_ms?: number;
 };
 
-type DetectedShell = { name: string; path: string };
 type Persisted = { window: Record<string, unknown>; prefs: ParttyPrefs };
 type LocalFontDescriptor = { family: string; fullName?: string; postscriptName?: string };
 
@@ -177,7 +190,7 @@ export function createSettingsPanel(
     const terminal_sandbox_padding = clampG(g("terminal_sandbox_padding"), previous.terminal_sandbox_padding ?? 0);
 
     return {
-      shell: g("shell") || "pwsh", shed_on_hide: gc("shed_on_hide"), always_on_top: gc("always_on_top"),
+      shell: previous.shell || "pwsh", shed_on_hide: gc("shed_on_hide"), always_on_top: gc("always_on_top"),
       initial_cwd: cwd || null, webgl_shed_on_hide: gc("webgl_shed_on_hide"), discard_buffer_on_hide: gc("discard_buffer_on_hide"),
       scrollback_lines: Math.max(0, Math.min(50000, parseInt(g("scrollback_lines"), 10) || 0)),
       snapshot_max_lines: Math.max(50, Math.min(50000, parseInt(g("snapshot_max_lines"), 10) || 2500)),
@@ -204,7 +217,15 @@ export function createSettingsPanel(
       terminal_no_gap: terminal_pane_gap <= 0, terminal_pane_gap, terminal_sandbox_padding,
       terminal_no_round: gc("terminal_no_round"), terminal_no_pane_border: gc("terminal_no_pane_border"),
       terminal_no_focus_border: gc("terminal_no_focus_border"), split_layout_style,
-      quiet_pane_deferral: gc("quiet_pane_deferral"), terminal_animation_speed,
+      quiet_pane_deferral: gc("quiet_pane_deferral"),
+      default_profile_id: g("default_profile_id") || previous.default_profile_id || "local-default",
+      inherit_profile_on_split: gc("inherit_profile_on_split"),
+      inherit_cwd_on_split: gc("inherit_cwd_on_split"),
+      palette_tab_profile_picker: gc("palette_tab_profile_picker"),
+      new_tab_uses_default_profile: gc("new_tab_uses_default_profile"),
+      profile_omit: previous.profile_omit ?? [],
+      palette_profile_icons: previous.palette_profile_icons ?? true,
+      terminal_animation_speed,
       terminal_animation_style, terminal_window_motion: gc("terminal_window_motion"),
       window_effect_mode, window_effect_opacity: clamp01(g("window_effect_opacity"), 0),
       pane_corner_radius: clampR(g("pane_corner_radius"), 6),
@@ -361,21 +382,35 @@ export function createSettingsPanel(
     if (!form) return;
     const pr = p as Partial<ParttyPrefs>;
 
-    const shellInput = form.querySelector("#setting-shell") as HTMLInputElement;
-    const shellDatalist = form.querySelector("#shell-suggestions") as HTMLDataListElement;
-    shellDatalist.innerHTML = "";
-    try {
-      const shells = await invoke<DetectedShell[]>("detect_shells");
-      const seen = new Set<string>();
-      for (const s of shells) {
-        const key = s.name.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const opt = document.createElement("option"); opt.value = s.name; opt.label = s.path;
-        shellDatalist.appendChild(opt);
+    const profileSelect = form.querySelector(
+      "#setting-default-profile-id",
+    ) as HTMLSelectElement | null;
+    if (profileSelect) {
+      profileSelect.innerHTML = "";
+      let profiles: Array<{ id: string; name: string; kind?: string }> = [];
+      try {
+        profiles = await invoke("list_profiles");
+      } catch {
+        /* ok */
       }
-    } catch { /* ok */ }
-    shellInput.value = p.shell;
+      if (!profiles.length) {
+        profiles = [{ id: "local-default", name: "Local (default shell)", kind: "local" }];
+      }
+      const preferred = pr.default_profile_id ?? "local-default";
+      for (const prof of profiles) {
+        const opt = document.createElement("option");
+        opt.value = prof.id;
+        opt.textContent = prof.name;
+        profileSelect.appendChild(opt);
+      }
+      if (![...profileSelect.options].some((o) => o.value === preferred)) {
+        const opt = document.createElement("option");
+        opt.value = preferred;
+        opt.textContent = preferred;
+        profileSelect.appendChild(opt);
+      }
+      profileSelect.value = preferred;
+    }
 
     const fontDatalist = form.querySelector("#font-suggestions") as HTMLDataListElement | null;
     if (fontDatalist) {
@@ -432,6 +467,10 @@ export function createSettingsPanel(
     setVal("dev_perf_console_interval_ms", String(pr.dev_perf_console_interval_ms ?? 5000));
     setSel("split_layout_style", ((v?: string) => { v = (v ?? "balanced").toLowerCase(); return v === "dwindle" || v === "master" ? v : "balanced"; })(pr.split_layout_style));
     setChk("quiet_pane_deferral", pr.quiet_pane_deferral ?? false);
+    setChk("inherit_profile_on_split", pr.inherit_profile_on_split ?? true);
+    setChk("inherit_cwd_on_split", pr.inherit_cwd_on_split ?? true);
+    setChk("palette_tab_profile_picker", pr.palette_tab_profile_picker ?? true);
+    setChk("new_tab_uses_default_profile", pr.new_tab_uses_default_profile ?? true);
 
     setChk("shed_on_hide", p.shed_on_hide);
     setChk("always_on_top", p.always_on_top);

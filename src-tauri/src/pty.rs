@@ -1,4 +1,5 @@
 use crate::prefs::Prefs;
+use crate::profiles::{ConnectionProfile, ProfileKind};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -386,6 +387,18 @@ impl PtySession {
         prefs: &Prefs,
         initial_cwd: Option<String>,
     ) -> Result<Self, String> {
+        Self::spawn_with_profile(app, pane_id, cols, rows, prefs, initial_cwd, None)
+    }
+
+    pub fn spawn_with_profile(
+        app: AppHandle,
+        pane_id: String,
+        cols: u16,
+        rows: u16,
+        prefs: &Prefs,
+        initial_cwd: Option<String>,
+        profile: Option<&ConnectionProfile>,
+    ) -> Result<Self, String> {
         let mut prefs = prefs.clone();
         if let Some(cwd) = initial_cwd {
             prefs.initial_cwd = Some(cwd);
@@ -400,7 +413,7 @@ impl PtySession {
             })
             .map_err(|e| e.to_string())?;
 
-        let cmd = shell_command(&prefs)?;
+        let cmd = shell_command_for_profile(&prefs, profile)?;
         let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
         let shell_pid = child.process_id();
 
@@ -827,6 +840,28 @@ fn push_shell_unique(shells: &mut Vec<DetectedShell>, name: &str, path: String) 
 }
 
 pub fn detect_available_shells() -> Vec<DetectedShell> {
+    use std::sync::Mutex;
+    use std::time::{Duration, Instant};
+
+    const TTL: Duration = Duration::from_secs(45);
+    static CACHE: Mutex<Option<(Instant, Vec<DetectedShell>)>> = Mutex::new(None);
+
+    if let Ok(guard) = CACHE.lock() {
+        if let Some((at, shells)) = guard.as_ref() {
+            if at.elapsed() < TTL {
+                return shells.clone();
+            }
+        }
+    }
+
+    let shells = detect_available_shells_uncached();
+    if let Ok(mut guard) = CACHE.lock() {
+        *guard = Some((Instant::now(), shells.clone()));
+    }
+    shells
+}
+
+fn detect_available_shells_uncached() -> Vec<DetectedShell> {
     // Collect env vars before spawning threads (avoids repeated env lookups and
     // keeps thread closures free of env-access races on Windows).
     let sys_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
@@ -975,6 +1010,151 @@ fn apply_cwd(mut cmd: CommandBuilder, prefs: &Prefs) -> Result<CommandBuilder, S
 /// launch the resolved interactive shell directly so integration is active on the first prompt.
 fn shell_command(prefs: &Prefs) -> Result<CommandBuilder, String> {
     windows_shell_command(prefs)
+}
+
+/// Build a PTY command for a connection profile (local shell, WSL distro, SSH).
+pub fn shell_command_for_profile(
+    prefs: &Prefs,
+    profile: Option<&ConnectionProfile>,
+) -> Result<CommandBuilder, String> {
+    match profile.map(|p| &p.kind) {
+        Some(ProfileKind::Wsl) => {
+            let distro = profile
+                .and_then(|p| p.wsl_distro.as_deref())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| "WSL profile is missing wsl_distro".to_string())?;
+            wsl_distro_command(prefs, distro)
+        }
+        Some(ProfileKind::Ssh) => {
+            let p = profile.ok_or_else(|| "SSH profile missing".to_string())?;
+            ssh_profile_command(p)
+        }
+        Some(ProfileKind::Local) | None => shell_command(prefs),
+    }
+}
+
+/// Launch an installed WSL distribution (`wsl.exe -d <name>`), matching Windows Terminal.
+fn wsl_distro_command(prefs: &Prefs, distro: &str) -> Result<CommandBuilder, String> {
+    let mut c = CommandBuilder::new("wsl.exe");
+    c.arg("-d");
+    c.arg(distro);
+    if let Some(dir) = prefs.initial_cwd.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        // WSL accepts Windows or Linux paths via --cd (same as Windows Terminal).
+        c.arg("--cd");
+        c.arg(dir);
+    }
+    c.env("TERM_PROGRAM", "partty");
+    c.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
+    c.env("PARTTY_SHELL_INTEGRATION", "0");
+    Ok(c)
+}
+
+/// Split a Windows-style commandline into executable + args (basic quotes).
+fn split_commandline(raw: &str) -> Result<(String, Vec<String>), String> {
+    let mut tokens: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut in_quotes = false;
+    let mut chars = raw.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => in_quotes = !in_quotes,
+            c if c.is_whitespace() && !in_quotes => {
+                if !cur.is_empty() {
+                    tokens.push(std::mem::take(&mut cur));
+                }
+            }
+            _ => cur.push(c),
+        }
+    }
+    if !cur.is_empty() {
+        tokens.push(cur);
+    }
+    let mut iter = tokens.into_iter();
+    let exe = iter
+        .next()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "empty commandline".to_string())?;
+    Ok((exe, iter.collect()))
+}
+
+/// OpenSSH client spawn — Windows Terminal style (`ssh user@host` / structured fields).
+fn ssh_profile_command(profile: &ConnectionProfile) -> Result<CommandBuilder, String> {
+    if let Some(cl) = profile
+        .commandline
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let (exe, args) = split_commandline(cl)?;
+        let mut c = CommandBuilder::new(exe);
+        for a in args {
+            c.arg(a);
+        }
+        c.env("TERM_PROGRAM", "partty");
+        c.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
+        c.env("PARTTY_SHELL_INTEGRATION", "0");
+        return Ok(c);
+    }
+
+    let host = profile
+        .ssh_host
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            "SSH profile needs ssh_host or commandline (edit ~/.partty/profiles/*.toml)".to_string()
+        })?;
+
+    let mut c = CommandBuilder::new("ssh.exe");
+    if let Some(port) = profile.ssh_port {
+        c.arg("-p");
+        c.arg(port.to_string());
+    }
+    if let Some(id_file) = profile
+        .ssh_identity_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        c.arg("-i");
+        c.arg(id_file);
+    }
+    for a in &profile.ssh_args {
+        let t = a.trim();
+        if !t.is_empty() {
+            c.arg(t);
+        }
+    }
+
+    let target = match profile
+        .ssh_user
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        Some(user) if !host.contains('@') => format!("{user}@{host}"),
+        _ => host.to_string(),
+    };
+
+    if let Some(remote) = profile
+        .startup_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        // Force a TTY so interactive remotes / remote shells work (WT pattern).
+        c.arg("-t");
+        c.arg(target);
+        c.arg(remote);
+    } else {
+        c.arg(target);
+    }
+
+    c.env("TERM_PROGRAM", "partty");
+    c.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
+    c.env("PARTTY_SHELL_INTEGRATION", "0");
+    Ok(c)
 }
 
 fn windows_host_shell(prefs: &Prefs) -> Result<CommandBuilder, String> {
@@ -1135,5 +1315,25 @@ fn detect_shell_kind(prefs: &Prefs) -> ShellKind {
         _ if name.contains("powershell") => ShellKind::PowerShell,
         _ if name.contains("bash") => ShellKind::Bash,
         _ => ShellKind::Other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_commandline;
+
+    #[test]
+    fn split_ssh_commandline() {
+        let (exe, args) = split_commandline("ssh -J jump user@host").unwrap();
+        assert_eq!(exe, "ssh");
+        assert_eq!(args, vec!["-J", "jump", "user@host"]);
+    }
+
+    #[test]
+    fn split_quoted_commandline() {
+        let (exe, args) =
+            split_commandline(r#"ssh -i "C:\Users\me\.ssh\id_rsa" host"#).unwrap();
+        assert_eq!(exe, "ssh");
+        assert_eq!(args, vec!["-i", r"C:\Users\me\.ssh\id_rsa", "host"]);
     }
 }

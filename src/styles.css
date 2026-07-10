@@ -1397,6 +1397,16 @@ html.zen-mode #main-workspace {
   font-weight: 600;
 }
 
+.cp-profile-icon {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  vertical-align: -3px;
+  border-radius: 2px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
 .cp-label-cwd {
   color: var(--ui-chrome-muted);
   margin-left: 0.4em;
@@ -1406,6 +1416,15 @@ html.zen-mode #main-workspace {
   color: color-mix(in srgb, var(--accent-primary) 52%, var(--ui-chrome-muted));
   margin-left: 0.4em;
   font-size: 0.88em;
+}
+
+.cp-label-kind {
+  color: var(--ui-chrome-muted);
+  margin-left: 0.45em;
+  font-size: 0.88em;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 .command-palette-item-hk {

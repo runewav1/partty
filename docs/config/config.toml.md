@@ -2,12 +2,101 @@
 
 **Path:** `~/.partty/config.toml`
 
-## `[shell]`
+## `[profiles]`
+
+Connection profiles and spawn defaults. Profile definitions live in `~/.partty/profiles/*.toml`. On each list, ParTTY seeds missing files from detected local shells and installed WSL distros (`wsl.exe -l -q`, same discovery Windows Terminal uses).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `command` | string | `"pwsh"` | Shell executable name (e.g. `powershell`, `bash`, `cmd`) |
-| `initial_dir` | string or absent | absent | Starting directory. Omit for system default |
+| `default` | string | `"local-default"` | Profile id for new tabs (when `new_tab_uses_default`) and panes without inheritance |
+| `shell` | string | `"pwsh"` | Fallback shell when a local profile omits `shell` (incl. `local-default`) |
+| `initial_dir` | string or absent | absent | Default start directory (Settings → Start in) |
+| `inherit_on_split` | bool | `true` | Splits copy the parent pane's profile |
+| `inherit_cwd_on_split` | bool | `true` | Splits copy the parent pane's cwd (Windows-native paths) |
+| `palette_tab_picker` | bool | `true` | In the command palette, Tab on New tab / Split opens a profile list |
+| `new_tab_uses_default` | bool | `true` | New tabs use `default` instead of the focused pane's profile |
+| `omit` | string[] | `[]` | Profile ids hidden from pickers / Settings (files stay on disk) |
+| `palette_icons` | bool | `true` | Show cached exe icons next to profiles in the `@profile` palette |
+
+```toml
+[profiles]
+default = "local-pwsh"
+shell = "pwsh"
+# initial_dir = "C:\\Users\\you"
+omit = ["local-powershell", "wsl-docker-desktop"]
+palette_icons = true
+```
+
+> **Migration:** Older configs with a top-level `[shell]` section are still read (`command` → `profiles.shell`, `initial_dir` → `profiles.initial_dir`). New saves write only `[profiles]`.
+
+### Profile files (`~/.partty/profiles/`)
+
+Each `*.toml` file is one profile. Seeded examples:
+
+| File | Meaning |
+|------|---------|
+| `local-default.toml` | Follows `[profiles].shell` |
+| `local-pwsh.toml` | `pwsh` |
+| `local-powershell.toml` | `powershell` |
+| `local-cmd.toml` | `CMD` |
+| `local-bash.toml` | `bash` (when detected) |
+| `wsl-ubuntu.toml` | WSL distro (`kind = "wsl"`, `wsl_distro = "Ubuntu"`) |
+
+```toml
+version = 1
+id = "local-pwsh"
+name = "pwsh"           # friendly UI name (alias: display_name)
+kind = "local"
+shell = "pwsh"
+# initial_cwd = "C:\\Users\\you\\code"  # optional; overrides [profiles].initial_dir
+builtin = true
+```
+
+```toml
+version = 1
+id = "wsl-archlinux"
+name = "Arch Linux"     # rename freely; spawn still uses wsl_distro
+kind = "wsl"
+wsl_distro = "archlinux"
+builtin = true
+```
+
+SSH profiles are **manual only** (no in-app profile builder). Drop a TOML file under `~/.partty/profiles/`:
+
+```toml
+version = 1
+id = "ssh-prod"
+name = "Prod"                 # friendly UI name
+kind = "ssh"
+ssh_host = "prod.example.com" # or user@host, or an ~/.ssh/config Host alias
+ssh_user = "deploy"           # optional if not in ssh_host / config
+ssh_port = 22                 # optional
+ssh_identity_file = "C:\\Users\\you\\.ssh\\id_ed25519"  # optional
+ssh_args = ["-o", "ForwardAgent=yes"]                  # optional extra OpenSSH args
+# startup_command = "tmux attach -t main || tmux new -s main"  # optional remote cmd (-t)
+```
+
+Or a full Windows Terminal–style commandline (ignores structured `ssh_*` fields):
+
+```toml
+version = 1
+id = "ssh-bastion"
+name = "Bastion"
+kind = "ssh"
+commandline = "ssh -J jump.example.com deploy@10.0.0.5"
+```
+
+`kind` may be `local`, `wsl`, or `ssh`. Local empty / omitted `shell` uses `[profiles].shell`. Optional `initial_cwd` on a profile overrides `[profiles].initial_dir` for that profile only (pane/split cwd still wins when set). WSL spawns `wsl.exe -d <wsl_distro>` (optional `--cd` from Start in / pane cwd / profile `initial_cwd`). SSH spawns OpenSSH (`ssh.exe`) from structured fields or `commandline`. `name` / `display_name` is display-only.
+
+Optional per-profile `icon` overrides auto-extract (path to `.ico`, `.png`, or `.exe`):
+
+```toml
+icon = "C:\\Icons\\prod.ico"
+```
+
+Icons are cached under `~/.partty/cache/icons/` when `palette_icons = true`.
+
+The file name should be `{id}.toml` (letters, numbers, `-`, `_` only), e.g. `ssh-prod.toml`. The in-file `id` should match the stem.
 
 ## `[cursor]`
 
@@ -187,8 +276,9 @@ Hyprland-inspired insert rules for new panes (existing trees are not rewritten w
 ## Minimal Example
 
 ```toml
-[shell]
-command = "pwsh"
+[profiles]
+default = "local-pwsh"
+shell = "pwsh"
 
 [font]
 size = 13.0

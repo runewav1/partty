@@ -44,7 +44,7 @@
               spellcheck="false"
               autocomplete="off"
               autocorrect="off"
-              placeholder="Command or > …"
+              placeholder="Command"
               aria-label="Filter commands"
             />
             <ul
@@ -77,7 +77,7 @@
         <div class="settings-panel-card">
           <div class="settings-panel-head">
             <div class="settings-panel-tabs" role="tablist">
-              <button class="settings-tab settings-tab--active" data-section="shell" type="button" role="tab" aria-selected="true">Shell</button>
+              <button class="settings-tab settings-tab--active" data-section="shell" type="button" role="tab" aria-selected="true">Profiles</button>
               <button class="settings-tab" data-section="terminal" type="button" role="tab">Terminal</button>
               <button class="settings-tab" data-section="ui" type="button" role="tab">UI</button>
               <button class="settings-tab" data-section="window" type="button" role="tab">Window</button>
@@ -89,19 +89,24 @@
             <input id="settings-search" type="search" class="settings-input settings-search" placeholder="Search settings" spellcheck="false" autocomplete="off" />
           </div>
           <form id="settings-form" class="settings-panel-body termie-scroll-fade">
-            <datalist id="shell-suggestions"></datalist>
             <datalist id="font-suggestions"></datalist>
 
             <div class="settings-section" data-section="shell">
-              <div class="settings-section-hd">Shell</div>
+              <div class="settings-section-hd">Profiles</div>
               <div class="settings-section-bd">
                 <div class="settings-row">
-                  <span class="settings-row-label">Shell</span>
-                  <input id="setting-shell" name="shell" type="text" class="settings-input" list="shell-suggestions" spellcheck="false" autocomplete="off" placeholder="pwsh" />
+                  <span class="settings-row-label" title="Used for new tabs (when enabled) and panes without an inherited profile">Default profile</span>
+                  <select id="setting-default-profile-id" name="default_profile_id" class="settings-input settings-select"></select>
                 </div>
                 <div class="settings-row">
                   <span class="settings-row-label">Start in</span>
                   <input id="setting-initial-cwd" name="initial_cwd" type="text" class="settings-input" placeholder="default" />
+                </div>
+                <div class="settings-toggles">
+                  <label class="settings-checkbox-label" title="Splits copy the parent pane's connection profile"><span>Inherit profile on split</span><input class="settings-checkbox-input" type="checkbox" name="inherit_profile_on_split" /></label>
+                  <label class="settings-checkbox-label" title="Splits copy the parent pane's working directory (Windows-native paths)"><span>Inherit cwd on split</span><input class="settings-checkbox-input" type="checkbox" name="inherit_cwd_on_split" /></label>
+                  <label class="settings-checkbox-label" title="In the command palette, Tab on New tab / Split opens a profile list"><span>Palette Tab → profiles</span><input class="settings-checkbox-input" type="checkbox" name="palette_tab_profile_picker" /></label>
+                  <label class="settings-checkbox-label" title="New tabs use the default profile instead of the focused pane's profile"><span>New tab uses default profile</span><input class="settings-checkbox-input" type="checkbox" name="new_tab_uses_default_profile" /></label>
                 </div>
               </div>
             </div>
