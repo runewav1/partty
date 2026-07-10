@@ -17,11 +17,11 @@ const SHELL_INTEGRATION_ZSH: &str = include_str!("../scripts/partty-shell-integr
 const PTY_OUTPUT_BATCH_BYTES: usize = 128 * 1024;
 const PTY_OUTPUT_BATCH_MS: u64 = 3;
 const PTY_REPLAY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
-/// While the main webview is torn down (hide→destroy→recreate on summon), the
-/// emitter thread holds accumulated PTY output instead of discarding it.  This
-/// caps that held buffer so a long-dismissed session can't grow unbounded; once
-/// exceeded we drop the oldest bytes (the on-screen xterm state is recovered
-/// from the replay snapshot on resummon anyway).
+/// While the main webview is torn down — or recreated but not yet unlocked for
+/// output — the emitter holds accumulated PTY bytes. Cap so a long dismissal
+/// can't grow unbounded; oldest bytes are dropped first. On-screen history is
+/// recovered from the SerializeAddon stash on resummon; held bytes are only
+/// post-hide catch-up.
 const PTY_PENDING_HOLD_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, serde::Serialize)]
@@ -533,21 +533,25 @@ impl PtySession {
                 if !pending.is_empty() {
                     let pane = pane_id_emitter.lock().clone();
 
-                    // If the main webview is currently torn down (during a
-                    // hide→destroy→recreate cycle), hold the batch and wait
-                    // for the next window rather than dropping it.  The reader
-                    // thread will back-pressure the PTY, pausing the shell
-                    // until the new webview is ready, at which point output
-                    // resumes seamlessly.  Cap the hold so a very long
-                    // dismissal can't exhaust memory.
-                    let Some(win) = app_emit.get_webview_window("main") else {
+                    // If the main webview is torn down, or it exists but JS has
+                    // not finished scrollback rehydration yet, hold the batch.
+                    // Emitting early floods empty terminals and races/evicts the
+                    // SerializeAddon restore (worse after long hides with a large
+                    // pending backlog).
+                    let win = app_emit.get_webview_window("main");
+                    let unlocked = app_emit
+                        .state::<crate::AppState>()
+                        .pty_output_unlocked
+                        .load(Ordering::SeqCst);
+                    if win.is_none() || !unlocked {
                         if pending.len() > PTY_PENDING_HOLD_MAX_BYTES {
                             let excess = pending.len() - PTY_PENDING_HOLD_MAX_BYTES;
                             pending.drain(..excess);
                         }
                         thread::sleep(Duration::from_millis(20));
                         continue;
-                    };
+                    }
+                    let win = win.expect("checked above");
 
                     // Strip OSC 7 / 133 / 633 in Rust; emit side-channel events.
                     let (cleaned_bytes, osc_events) = stripper.process(&pending);

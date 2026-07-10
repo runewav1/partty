@@ -1037,8 +1037,15 @@ async function boot(): Promise<void> {
    * Direct-eval entry point for PTY output, called from the Rust emitter
    * via {@code window.eval("window.__partty_out(...)")} — bypasses the
    * Tauri event routing overhead.
+   *
+   * While scrollback rehydration is pending (destroy→recreate summon), hold
+   * chunks here so they cannot race or evict the SerializeAddon restore.
    */
-  (window as any).__partty_out = (paneId: string, data: string) => {
+  let ptyHydrationReady = !lp.destroy_webview_on_hide;
+  const heldDirectPtyOut: Array<{ paneId: string; data: string }> = [];
+  const HELD_DIRECT_PTY_MAX_CHARS = 8 * 1024 * 1024;
+
+  function deliverDirectPtyOut(paneId: string, data: string): void {
     queuePtyOutput(paneId, data);
     if (extPtyOutputSubs.length > 0) {
       for (const fn of extPtyOutputSubs) {
@@ -1049,6 +1056,34 @@ async function boot(): Promise<void> {
         }
       }
     }
+  }
+
+  async function releasePtyHydrationGate(): Promise<void> {
+    try {
+      await invoke("set_pty_output_unlocked", { unlocked: true });
+    } catch (e) {
+      console.warn("set_pty_output_unlocked", e);
+    }
+    ptyHydrationReady = true;
+    if (heldDirectPtyOut.length === 0) return;
+    const held = heldDirectPtyOut.splice(0);
+    for (const { paneId, data } of held) {
+      deliverDirectPtyOut(paneId, data);
+    }
+  }
+
+  (window as any).__partty_out = (paneId: string, data: string) => {
+    if (!ptyHydrationReady) {
+      heldDirectPtyOut.push({ paneId, data });
+      let total = 0;
+      for (const chunk of heldDirectPtyOut) total += chunk.data.length;
+      while (total > HELD_DIRECT_PTY_MAX_CHARS && heldDirectPtyOut.length > 1) {
+        const dropped = heldDirectPtyOut.shift();
+        total -= dropped?.data.length ?? 0;
+      }
+      return;
+    }
+    deliverDirectPtyOut(paneId, data);
   };
 
   const getTerminalClickCell = (
@@ -5698,20 +5733,28 @@ async function boot(): Promise<void> {
       } catch {
         /* ignore */
       }
-      await invoke("stash_terminal_buffers", { buffers: {} }).catch((e) =>
-        console.warn("stash_terminal_buffers", e),
+      await invoke("begin_terminal_buffer_stash").catch(() => {});
+      await invoke("finalize_terminal_buffer_stash").catch((e) =>
+        console.warn("finalize_terminal_buffer_stash", e),
       );
       return;
     }
 
     if (!lp.destroy_webview_on_hide) return;
 
-    const serialized: Record<string, string> = {};
+    try {
+      await invoke("begin_terminal_buffer_stash");
+    } catch (e) {
+      console.warn("begin_terminal_buffer_stash", e);
+    }
+
     for (const host of tabPaneHosts.values()) {
-      host.forEachPane((id, pt) => {
+      const paneIds: string[] = [];
+      host.forEachPane((id) => paneIds.push(id));
+      for (const id of paneIds) {
+        const pt = host.getPaneTerminal(id);
+        if (!pt) continue;
         try {
-          // Full normal buffer, but skip leading blank scrollback rows
-          // (unused capacity above baseY — not real history).
           const start = firstContentScrollbackLine(pt.term);
           const end = Math.max(0, pt.term.buffer.normal.length - 1);
           const payload: StashedPaneBuffer = {
@@ -5721,26 +5764,46 @@ async function boot(): Promise<void> {
             cols: pt.term.cols,
             rows: pt.term.rows,
           };
-          serialized[id] = JSON.stringify(payload);
-        } catch {
-          /* skip pane */
+          await invoke("stash_terminal_buffer", {
+            paneId: id,
+            payload: JSON.stringify(payload),
+          });
+        } catch (e) {
+          console.warn("stash_terminal_buffer", id, e);
+          // Keep any panes already stashed — never replace with an empty map.
         }
-      });
+      }
     }
 
-    // Await IPC so destroy (gated on hide_buffers_ready) cannot race the stash.
     try {
-      await invoke("stash_terminal_buffers", { buffers: serialized });
+      await invoke("finalize_terminal_buffer_stash");
     } catch (e) {
-      console.warn("stash_terminal_buffers", e);
-      // Still release the destroy gate so hide cannot hang for 5s.
-      await invoke("stash_terminal_buffers", { buffers: {} }).catch(() => {});
+      console.warn("finalize_terminal_buffer_stash", e);
+      // Release destroy gate only — do not wipe a partial per-pane stash.
+      try {
+        await invoke("finalize_terminal_buffer_stash");
+      } catch {
+        /* ignore */
+      }
     }
     try {
       localStorage.removeItem(SERIALIZE_STORAGE_KEY);
     } catch {
       /* ignore */
     }
+  }
+
+  function writeTerminalSerialized(
+    term: Terminal,
+    data: string,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        term.write(data, () => resolve());
+      } catch (e) {
+        reject(e);
+      }
+    });
   }
 
   async function restoreSerializedTerminals(): Promise<void> {
@@ -5775,31 +5838,40 @@ async function boot(): Promise<void> {
     }
     if (!map || Object.keys(map).length === 0) return;
 
+    const writes: Promise<void>[] = [];
     for (const host of tabPaneHosts.values()) {
       host.forEachPane((id, pt) => {
         const rawPane = map![id];
         if (!rawPane) return;
-        try {
-          let data = rawPane;
-          let cols = 0;
-          let rows = 0;
-          if (rawPane.startsWith("{")) {
-            const parsed = JSON.parse(rawPane) as StashedPaneBuffer;
-            if (typeof parsed.data === "string") {
-              data = parsed.data;
-              cols = Number(parsed.cols) || 0;
-              rows = Number(parsed.rows) || 0;
+        writes.push(
+          (async () => {
+            try {
+              let data = rawPane;
+              let cols = 0;
+              let rows = 0;
+              if (rawPane.startsWith("{")) {
+                const parsed = JSON.parse(rawPane) as StashedPaneBuffer;
+                if (typeof parsed.data === "string") {
+                  data = parsed.data;
+                  cols = Number(parsed.cols) || 0;
+                  rows = Number(parsed.rows) || 0;
+                }
+              }
+              if (cols >= 2 && rows >= 1) {
+                pt.term.resize(cols, rows);
+              }
+              // write() is async — await the callback before PTY ensure/replay
+              // or replay races an empty buffer and truncates/strips color.
+              await writeTerminalSerialized(pt.term, data);
+              backendReplayRestoredPanes.add(id);
+            } catch (e) {
+              console.warn("restoreSerializedTerminals", id, e);
             }
-          }
-          if (cols >= 2 && rows >= 1) {
-            pt.term.resize(cols, rows);
-          }
-          pt.term.write(data);
-        } catch {
-          /* ignore */
-        }
+          })(),
+        );
       });
     }
+    await Promise.all(writes);
   }
 
   async function runPrepareShow(): Promise<void> {
@@ -5813,7 +5885,21 @@ async function boot(): Promise<void> {
       scheduleResizeImmediate();
       await new Promise((r) => requestAnimationFrame(r));
       await new Promise((r) => requestAnimationFrame(r));
-      await restoreSerializedTerminals();
+
+      // Restore whenever the webview was destroyed for hide. If the destroyed
+      // flag invoke fails, still attempt restore when destroy-on-hide is on —
+      // an empty stash is a no-op.
+      let needsScrollbackRestore = lp.destroy_webview_on_hide;
+      try {
+        needsScrollbackRestore = await invoke<boolean>(
+          "take_webview_destroyed_for_hide",
+        );
+      } catch (e) {
+        console.warn("take_webview_destroyed_for_hide", e);
+      }
+      if (needsScrollbackRestore) {
+        await restoreSerializedTerminals();
+      }
 
       const ensureJobs: Promise<void>[] = [];
       for (const host of tabPaneHosts.values()) {
@@ -5833,6 +5919,9 @@ async function boot(): Promise<void> {
       await new Promise((r) => requestAnimationFrame(r));
       await new Promise((r) => requestAnimationFrame(r));
 
+      // Restore first, then unlock PTY catch-up (held while hidden / gated).
+      await releasePtyHydrationGate();
+
       // Lift veil only after restore + WebGL + layout — then show the window.
       releaseBootSurface();
       summonPreparedByDefer = lp.defer_window_show_until_prepared;
@@ -5845,6 +5934,7 @@ async function boot(): Promise<void> {
     } catch (e) {
       summonInProgress = false;
       summonPreparedByDefer = false;
+      await releasePtyHydrationGate().catch(() => {});
       releaseBootSurface();
       throw e;
     }
@@ -6001,13 +6091,24 @@ async function boot(): Promise<void> {
 
       summonInProgress = true;
       try {
-        await restoreSerializedTerminals();
+        let needsScrollbackRestore = false;
+        try {
+          needsScrollbackRestore = await invoke<boolean>(
+            "take_webview_destroyed_for_hide",
+          );
+        } catch {
+          needsScrollbackRestore = false;
+        }
+        if (needsScrollbackRestore) {
+          await restoreSerializedTerminals();
+        }
         await mountWebglForAllPanes();
         getFocusedTerm()?.focus();
         scheduleResizeImmediate();
         scheduleCwdSync();
         await new Promise((r) => requestAnimationFrame(r));
         await new Promise((r) => requestAnimationFrame(r));
+        await releasePtyHydrationGate();
         releaseBootSurface();
         mouseCursorController?.sync();
         if (!lp.defer_window_show_until_prepared) {

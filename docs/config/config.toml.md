@@ -223,7 +223,7 @@ Hyprland-inspired insert rules for new panes (existing trees are not rewritten w
 
 When `destroy_webview` is on and `discard_buffer` is off, hide takes a **point-in-time** SerializeAddon snapshot of each pane into **Rust process memory** only (cols/rows + ANSI payload). Destroy waits until that stash IPC completes (up to 5s). Cleared on restore. No `~/.partty` file. `discard_buffer = true` skips serialization and only acks the destroy gate.
 
-While the webview is destroyed, live PTY output is **held in the Rust emitter** (back-pressure, capped) and flushed into the new webview after summon — it is **not** appended into the hide-time serialize snapshot. Rehydration order is: restore snapshot → then live catch-up / PTY replay as applicable.
+While the webview is destroyed, live PTY output is **held** in the Rust emitter (back-pressure, ~8MB cap) until scrollback rehydration finishes, then flushed as catch-up. Emitting earlier raced the SerializeAddon restore — especially after long hides with a large backlog — and could drop colors or evict restored history. The hide-time snapshot itself stays in process memory for the life of the ParTTY process (including multi-hour dismissals).
 
 ## `[focus]`
 
