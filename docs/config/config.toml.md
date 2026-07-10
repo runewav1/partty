@@ -134,7 +134,7 @@ The file name should be `{id}.toml` (letters, numbers, `-`, `_` only), e.g. `ssh
 |-----|------|---------|
 | `bright_bold` | bool | `true` |
 | `custom_glyphs` | bool | `true` |
-| `backspace_deletes_selection` | bool | `true` |
+| `backspace_deletes_selection` | bool | `true` | Backspace deletes a single-line selection on the cursor line (sends arrow keys + DEL to the shell; no-op for multi-line / scrollback) |
 
 ## `[pane]`
 

@@ -1679,39 +1679,45 @@ async function boot(): Promise<void> {
         backspaceDeleteSelectionRef.v
       ) {
         e.preventDefault();
-        const selection = (term as any)._core._selectionService.selection;
-        if (selection) {
-          const start = selection.start;
-          const end = selection.end;
-          const buffer = term.buffer.active;
-          let backspaceCount = 0;
-          if (start && end) {
-            if (start.y === end.y) {
-              backspaceCount = end.x - start.x;
-            } else {
-              const cursorX = buffer.cursorX;
-              const cursorY = buffer.cursorY;
-              if (start.y === cursorY) {
-                backspaceCount = cursorX - start.x;
-              } else if (end.y === cursorY) {
-                backspaceCount = cursorX - end.x;
-              } else {
-                term.clearSelection();
-                return false;
-              }
-            }
-          }
-          if (backspaceCount > 0) {
-            term.clearSelection();
-            setTimeout(() => {
-              term.paste("\b".repeat(backspaceCount));
-            }, 10);
-          } else {
-            term.clearSelection();
-          }
-        } else {
-          term.clearSelection();
+        // Delete the selected region by moving to its end and sending N DELs.
+        // Only single-line selections on the cursor line — multi-line / scrollback
+        // is a no-op beyond clearing the selection (TUIs / history aren't editable).
+        const range = term.getSelectionPosition();
+        term.clearSelection();
+        if (!range) return false;
+
+        const buf = term.buffer.active;
+        const cursorX = buf.cursorX;
+        const cursorAbsY = buf.baseY + buf.cursorY;
+        // getSelectionPosition returns 0-based coords (typings incorrectly say 1-based).
+        let x0 = range.start.x;
+        let y0 = range.start.y;
+        let x1 = range.end.x;
+        let y1 = range.end.y;
+        if (y0 > y1 || (y0 === y1 && x0 > x1)) {
+          const tx = x0;
+          const ty = y0;
+          x0 = x1;
+          y0 = y1;
+          x1 = tx;
+          y1 = ty;
         }
+        if (y0 !== y1 || y0 !== cursorAbsY) return false;
+
+        const left = x0;
+        const right = x1; // exclusive end column
+        const cellCount = right - left;
+        if (cellCount <= 0) return false;
+
+        let payload = "";
+        if (cursorX < right) {
+          payload += "\x1b[C".repeat(right - cursorX);
+        } else if (cursorX > right) {
+          payload += "\x1b[D".repeat(cursorX - right);
+        }
+        // DEL — same as xterm's default Backspace on Windows hosts.
+        payload += "\x7f".repeat(cellCount);
+        queuePtyWrite(paneId, payload, true);
         return false;
       }
       return true;
