@@ -1216,9 +1216,15 @@ html.terminal-motion-off *::after {
   height: 0;
 }
 
+/* Keep scrollbar nodes in layout (xterm 6 scrollable element); hide visually.
+   display:none can leave wheel/scroll dimensions in a bad state after remounts. */
 .pane-terminal-host .scrollbar.vertical,
 .pane-terminal-host .scrollbar.horizontal {
-  display: none !important;
+  opacity: 0 !important;
+  width: 0 !important;
+  height: 0 !important;
+  pointer-events: none !important;
+  border: none !important;
 }
 
 .pane-terminal-host .xterm-scrollable-element {

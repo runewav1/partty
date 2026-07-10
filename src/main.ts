@@ -1522,6 +1522,13 @@ async function boot(): Promise<void> {
     await ensureWebglOnPane(id);
   }
 
+  /** Remount WebGL on every live pane (e.g. after hide shed). */
+  async function mountWebglForAllPanes(): Promise<void> {
+    const ids: string[] = [];
+    paneHost?.forEachPane((id) => ids.push(id));
+    await Promise.all(ids.map((id) => ensureWebglOnPane(id)));
+  }
+
   async function setBackgroundWorkMode(keepAlive: boolean): Promise<void> {
     const current = persisted.prefs as Partial<ParttyPrefs>;
     const next: ParttyPrefs = {
@@ -1646,6 +1653,87 @@ async function boot(): Promise<void> {
       (pendingZoomByPane.get(paneId) ?? 0) + direction,
     );
     if (!zoomRaf) zoomRaf = requestAnimationFrame(flushPendingPaneZoom);
+  }
+
+  /**
+   * Convert a wheel event into xterm scrollLines, matching scrollSensitivity /
+   * fastScrollSensitivity (Alt = fast). Used when we reclaim wheel from a stuck
+   * mouse-tracking mode or forward host-padding dead-zone events.
+   */
+  function scrollTermByWheel(term: Terminal, ev: WheelEvent): void {
+    if (ev.deltaY === 0 && ev.deltaX === 0) return;
+    const sens = Math.max(0.1, Number(term.options.scrollSensitivity) || 1);
+    const fast =
+      ev.altKey
+        ? Math.max(1, Number(term.options.fastScrollSensitivity) || 5)
+        : 1;
+    // Prefer vertical; fall back to horizontal (shift+wheel on some devices).
+    const delta = ev.deltaY !== 0 ? ev.deltaY : ev.deltaX;
+    let lines: number;
+    if (ev.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+      lines = delta * sens;
+    } else if (ev.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+      lines = delta * term.rows * sens;
+    } else {
+      // DOM_DELTA_PIXEL — ~line-height pixels per notch on most mice.
+      lines = (delta / 16) * sens;
+    }
+    lines *= fast;
+    let amount = Math.round(lines);
+    if (amount === 0) amount = delta < 0 ? -1 : 1;
+    term.scrollLines(amount);
+  }
+
+  /**
+   * Reclaim wheel for scrollback when xterm would otherwise swallow it:
+   * - Shift+wheel: standard terminal override of mouse-tracking apps
+   * - Mouse tracking left on while on the *normal* buffer: usually a TUI that
+   *   exited without DECRST (per-pane “scrollback exists but wheel does nothing”)
+   */
+  function attachTermWheelHandler(term: Terminal, paneId: string): void {
+    term.attachCustomWheelEventHandler((ev) => {
+      // Ctrl+wheel is pane zoom (host listener may not see this if we cancel).
+      if (ev.ctrlKey) {
+        handlePaneZoomWheel(paneId, ev);
+        return false;
+      }
+
+      const forceScrollback =
+        ev.shiftKey ||
+        (term.modes.mouseTrackingMode !== "none" &&
+          term.buffer.active.type === "normal");
+
+      if (!forceScrollback) return true;
+
+      ev.preventDefault();
+      ev.stopPropagation();
+      scrollTermByWheel(term, ev);
+      return false;
+    });
+  }
+
+  /**
+   * Wheel over flex padding / host chrome never hits `.xterm-scrollable-element`,
+   * so xterm never scrolls. Forward those events to the pane terminal.
+   */
+  function handlePaneHostWheel(paneId: string, ev: WheelEvent): void {
+    if (ev.ctrlKey) {
+      handlePaneZoomWheel(paneId, ev);
+      return;
+    }
+    const target = ev.target as HTMLElement | null;
+    if (
+      target?.closest(".xterm-scrollable-element") ||
+      target?.closest(".xterm-viewport") ||
+      target?.closest(".xterm-screen")
+    ) {
+      return;
+    }
+    const pt = getPaneHostByPaneId(paneId)?.getPaneTerminal(paneId);
+    if (!pt) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    scrollTermByWheel(pt.term, ev);
   }
 
   function openFocusedPaneRename(): void {
@@ -2303,6 +2391,7 @@ async function boot(): Promise<void> {
         },
         onPaneCreated: (id, pt) => {
           attachTermKeyHandler(pt.term, id);
+          attachTermWheelHandler(pt.term, id);
           pt.term.onData((data) => {
             parttyPerf.recordInputEvent();
             queuePtyWrite(id, data);
@@ -2436,7 +2525,7 @@ async function boot(): Promise<void> {
           const onHostClick = (ev: MouseEvent) => {
             if (handleCtrlClickToken(pt.term, pt.host, ev)) return;
           };
-          const onHostWheel = (ev: WheelEvent) => handlePaneZoomWheel(id, ev);
+          const onHostWheel = (ev: WheelEvent) => handlePaneHostWheel(id, ev);
           const onHostMouseMove = (ev: MouseEvent) => {
             updateCtrlLinkHover(pt.term, pt.host, ev);
           };
@@ -5609,7 +5698,7 @@ async function boot(): Promise<void> {
       void ensurePtyForPane(id);
     });
 
-    await mountWebglForFocused();
+    await mountWebglForAllPanes();
     const ft = getFocusedTerm();
     if (ft) ft.refresh(0, ft.rows - 1);
     scheduleResizeImmediate();
@@ -5758,7 +5847,7 @@ async function boot(): Promise<void> {
         try { fn(); } catch { /* ignore */ }
       }
       restoreSerializedTerminals();
-      await mountWebglForFocused();
+      await mountWebglForAllPanes();
       getFocusedTerm()?.focus();
       scheduleResizeImmediate();
       scheduleCwdSync();
