@@ -569,6 +569,7 @@ pub fn list_profiles(prefs: &Prefs) -> Result<Vec<ProfileDto>, String> {
                     p.shell.as_deref(),
                     p.icon.as_deref(),
                     p.commandline.as_deref(),
+                    p.wsl_distro.as_deref(),
                 ) {
                     dto.icon_data_url = crate::profile_icons::icon_data_url_for_path(&src);
                 }

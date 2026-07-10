@@ -25,7 +25,7 @@ fn cache_key_for_source(source: &Path) -> String {
     format!("{:016x}", h.finish())
 }
 
-/// Return a `data:image/bmp;base64,…` URL for the icon associated with `source`.
+/// Return a `data:image/…;base64,…` URL for an icon file or executable.
 /// Results are cached on disk under `~/.partty/cache/icons/`.
 pub fn icon_data_url_for_path(source: &Path) -> Option<String> {
     if !source.is_file() {
@@ -33,7 +33,44 @@ pub fn icon_data_url_for_path(source: &Path) -> Option<String> {
     }
     let cache = icons_cache_dir()?;
     fs::create_dir_all(&cache).ok()?;
-    let key = cache_key_for_source(source);
+    let key = format!("v3-{}", cache_key_for_source(source));
+
+    let ext = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    // Raster assets (WT ProfileIcons PNGs, WSL shortcut.ico): prefer as-is.
+    if ext == "png" {
+        let cached = cache.join(format!("{key}.png"));
+        if !cached.is_file() {
+            fs::copy(source, &cached).ok()?;
+        }
+        let bytes = fs::read(&cached).ok()?;
+        return Some(format!(
+            "data:image/png;base64,{}",
+            encode_base64(&bytes)
+        ));
+    }
+    // WSL shortcut.ico (and similar): WebView won't paint data:image/x-icon reliably.
+    // Rasterize via ExtractIconEx → BMP (same path as .exe icons).
+    if ext == "ico" {
+        let bmp_path = cache.join(format!("{key}.bmp"));
+        if !bmp_path.is_file() {
+            extract_associated_icon_bmp(source, &bmp_path)?;
+        }
+        let bytes = fs::read(&bmp_path).ok()?;
+        if bytes.is_empty() {
+            return None;
+        }
+        return Some(format!(
+            "data:image/bmp;base64,{}",
+            encode_base64(&bytes)
+        ));
+    }
+
+    // Executables / other: extract associated icon → BMP.
     let bmp_path = cache.join(format!("{key}.bmp"));
     if !bmp_path.is_file() {
         extract_associated_icon_bmp(source, &bmp_path)?;
@@ -141,7 +178,8 @@ fn extract_associated_icon_bmp(source: &Path, dest: &Path) -> Option<()> {
             return None;
         }
 
-        let size = 16i32;
+        // Prefer a larger draw size so WT/distro icons stay sharp in the palette.
+        let size = 32i32;
         let mem_dc = CreateCompatibleDC(screen);
         let dib = CreateCompatibleBitmap(screen, size, size);
         let old = SelectObject(mem_dc, dib);
@@ -240,11 +278,17 @@ unsafe fn cleanup_iconinfo(info: &windows_sys::Win32::UI::WindowsAndMessaging::I
 }
 
 /// Resolve a filesystem path to pull an icon from for a profile.
+///
+/// Matches Windows Terminal where possible:
+/// - Local shells → WT `ProfileIcons/*.png` (not the generic .exe glyph)
+/// - WSL → distro `shortcut.ico` under `%LOCALAPPDATA%\wsl\{guid}\` / Lxss BasePath
+/// - else fall back to extracting from the executable
 pub fn resolve_icon_source(
     kind: &str,
     shell: Option<&str>,
     icon_override: Option<&str>,
     commandline: Option<&str>,
+    wsl_distro: Option<&str>,
 ) -> Option<PathBuf> {
     if let Some(raw) = icon_override.map(str::trim).filter(|s| !s.is_empty()) {
         let p = PathBuf::from(raw);
@@ -254,7 +298,17 @@ pub fn resolve_icon_source(
     }
 
     match kind {
-        "wsl" => resolve_exe_on_path("wsl.exe").or_else(|| system32_join("wsl.exe")),
+        "wsl" => {
+            if let Some(distro) = wsl_distro.map(str::trim).filter(|s| !s.is_empty()) {
+                if let Some(ico) = find_wsl_distro_icon(distro) {
+                    return Some(ico);
+                }
+            }
+            // WT's default WSL/Tux asset, then wsl.exe as last resort.
+            wt_profile_icon_by_guid("9acb9455-ca41-5af7-950f-6bca1bc9722f")
+                .or_else(|| resolve_exe_on_path("wsl.exe"))
+                .or_else(|| system32_join("wsl.exe"))
+        }
         "ssh" => {
             if let Some(cl) = commandline.map(str::trim).filter(|s| !s.is_empty()) {
                 let exe = cl.split_whitespace().next().unwrap_or("ssh.exe");
@@ -270,27 +324,271 @@ pub fn resolve_icon_source(
             resolve_exe_on_path("ssh.exe").or_else(|| system32_join("OpenSSH\\ssh.exe"))
         }
         _ => {
-            let token = shell.map(str::trim).filter(|s| !s.is_empty())?;
-            let as_path = PathBuf::from(token);
-            if as_path.is_file() {
-                return Some(as_path);
-            }
-            for s in crate::pty::detect_available_shells() {
-                if s.name.eq_ignore_ascii_case(token) {
-                    let p = PathBuf::from(&s.path);
-                    if p.is_file() {
-                        return Some(p);
+            let token = shell.map(str::trim).filter(|s| !s.is_empty());
+            if let Some(token) = token {
+                if let Some(wt) = wt_profile_icon_for_shell(token) {
+                    return Some(wt);
+                }
+                let as_path = PathBuf::from(token);
+                if as_path.is_file() {
+                    return Some(as_path);
+                }
+                for s in crate::pty::detect_available_shells() {
+                    if s.name.eq_ignore_ascii_case(token) {
+                        let p = PathBuf::from(&s.path);
+                        if p.is_file() {
+                            return Some(p);
+                        }
                     }
                 }
+                let exe = if token.to_ascii_lowercase().ends_with(".exe") {
+                    token.to_string()
+                } else {
+                    format!("{token}.exe")
+                };
+                return resolve_exe_on_path(&exe);
             }
-            let exe = if token.to_ascii_lowercase().ends_with(".exe") {
-                token.to_string()
-            } else {
-                format!("{token}.exe")
-            };
-            resolve_exe_on_path(&exe)
+            // local-default with no shell token — use WT pwsh icon as a neutral default
+            wt_profile_icon_for_shell("pwsh")
         }
     }
+}
+
+/// Distro-specific icon: Lxss BasePath\shortcut.ico (same source WT fragments use).
+fn find_wsl_distro_icon(distro: &str) -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        use winreg::enums::HKEY_CURRENT_USER;
+        use winreg::RegKey;
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let lxss = hkcu
+            .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Lxss")
+            .ok()?;
+        for key_name in lxss.enum_keys().filter_map(Result::ok) {
+            let sub = match lxss.open_subkey(&key_name) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let name: String = match sub.get_value("DistributionName") {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+            if !name.eq_ignore_ascii_case(distro) {
+                continue;
+            }
+            if let Ok(base) = sub.get_value::<String, _>("BasePath") {
+                let base = base.trim_start_matches(r"\\?\");
+                let ico = PathBuf::from(base).join("shortcut.ico");
+                if ico.is_file() {
+                    return Some(ico);
+                }
+            }
+            if let Some(local) = dirs::data_local_dir() {
+                let ico = local.join("wsl").join(&key_name).join("shortcut.ico");
+                if ico.is_file() {
+                    return Some(ico);
+                }
+            }
+        }
+
+        // WT JSON fragments often already point at the right icon path.
+        if let Some(ico) = find_wsl_icon_in_wt_fragments(distro) {
+            return Some(ico);
+        }
+    }
+    let _ = distro;
+    None
+}
+
+fn find_wsl_icon_in_wt_fragments(distro: &str) -> Option<PathBuf> {
+    let local = dirs::data_local_dir()?;
+    let roots = [
+        local.join("Microsoft").join("Windows Terminal").join("Fragments"),
+        local
+            .join("Microsoft")
+            .join("Windows Terminal Preview")
+            .join("Fragments"),
+    ];
+    for root in roots {
+        if !root.is_dir() {
+            continue;
+        }
+        let Ok(walker) = fs::read_dir(&root) else {
+            continue;
+        };
+        for entry in walker.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Ok(inner) = fs::read_dir(&path) {
+                    for f in inner.flatten() {
+                        if f.path().extension().and_then(|e| e.to_str()) == Some("json") {
+                            if let Some(ico) = parse_wt_fragment_icon(&f.path(), distro) {
+                                return Some(ico);
+                            }
+                        }
+                    }
+                }
+            } else if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                if let Some(ico) = parse_wt_fragment_icon(&path, distro) {
+                    return Some(ico);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn parse_wt_fragment_icon(path: &Path, distro: &str) -> Option<PathBuf> {
+    let text = fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let profiles = v.get("profiles")?.as_array()?;
+    for p in profiles {
+        let name = p.get("name").and_then(|n| n.as_str()).unwrap_or("");
+        if !name.eq_ignore_ascii_case(distro) {
+            continue;
+        }
+        let icon = p.get("icon").and_then(|i| i.as_str())?;
+        let icon_path = PathBuf::from(icon.trim_start_matches(r"\\?\"));
+        if icon_path.is_file() {
+            return Some(icon_path);
+        }
+    }
+    None
+}
+
+/// Locate WT's ProfileIcons folder.
+///
+/// `WindowsApps` is not listable without elevation, but individual package paths
+/// from the AppModel registry *are* readable (same as Windows Terminal itself).
+fn find_windows_terminal_profile_icons_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        use winreg::enums::HKEY_CURRENT_USER;
+        use winreg::RegKey;
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let packages = hkcu
+            .open_subkey(
+                r"Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\Repository\Packages",
+            )
+            .ok()?;
+        let mut candidates: Vec<PathBuf> = Vec::new();
+        for key_name in packages.enum_keys().filter_map(Result::ok) {
+            // Prefer stable Terminal over Preview.
+            if !key_name.starts_with("Microsoft.WindowsTerminal_")
+                || key_name.contains("Preview")
+            {
+                continue;
+            }
+            let sub = match packages.open_subkey(&key_name) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let root: String = match sub.get_value("PackageRootFolder") {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            let pi = PathBuf::from(root).join("ProfileIcons");
+            // is_dir may fail on the parent; probe a known file instead.
+            if pi.join("pwsh.scale-100.png").is_file()
+                || pi
+                    .join("{574e775e-4f2a-5b96-ac1e-a2962a402336}.scale-100.png")
+                    .is_file()
+                || pi.is_dir()
+            {
+                candidates.push(pi);
+            }
+        }
+        candidates.sort_by(|a, b| {
+            a.to_string_lossy()
+                .to_lowercase()
+                .cmp(&b.to_string_lossy().to_lowercase())
+        });
+        if let Some(dir) = candidates.pop() {
+            return Some(dir);
+        }
+    }
+
+    // Fallback: try listing WindowsApps (usually Access Denied).
+    let pf = std::env::var_os("ProgramFiles")?;
+    let apps = PathBuf::from(pf).join("WindowsApps");
+    let Ok(entries) = fs::read_dir(&apps) else {
+        return None;
+    };
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let s = name.to_string_lossy();
+        if s.starts_with("Microsoft.WindowsTerminal_") && !s.contains("Preview") {
+            let pi = entry.path().join("ProfileIcons");
+            if pi.is_dir() {
+                candidates.push(pi);
+            }
+        }
+    }
+    candidates.sort();
+    candidates.pop()
+}
+
+fn wt_profile_icon_by_guid(guid: &str) -> Option<PathBuf> {
+    let dir = find_windows_terminal_profile_icons_dir()?;
+    for scale in ["200", "150", "125", "100"] {
+        let p = dir.join(format!("{{{guid}}}.scale-{scale}.png"));
+        if p.is_file() {
+            return Some(p);
+        }
+        let p = dir.join(format!("{guid}.scale-{scale}.png"));
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// Map shell tokens to Windows Terminal's bundled ProfileIcons (same assets WT uses).
+fn wt_profile_icon_for_shell(shell: &str) -> Option<PathBuf> {
+    let dir = find_windows_terminal_profile_icons_dir()?;
+    let lower = shell.to_ascii_lowercase();
+    let named: &[&str] = match lower.as_str() {
+        "pwsh" | "pwsh-preview" | "powershell-core" | "ps7" => &[
+            "pwsh.scale-200.png",
+            "pwsh.scale-100.png",
+            "vs-pwsh.scale-200.png",
+            "vs-pwsh.scale-100.png",
+        ],
+        "powershell" => &[
+            "vs-powershell.scale-200.png",
+            "vs-powershell.scale-100.png",
+        ],
+        "cmd" => &["vs-cmd.scale-200.png", "vs-cmd.scale-100.png"],
+        _ => &[],
+    };
+    for name in named {
+        let p = dir.join(name);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    // GUID fallbacks (WT dynamic profile icons).
+    let guid = match lower.as_str() {
+        "pwsh" | "pwsh-preview" | "powershell-core" | "ps7" => {
+            Some("574e775e-4f2a-5b96-ac1e-a2962a402336")
+        }
+        "powershell" => Some("61c54bbd-c2c6-5271-96e7-009a87ff44bf"),
+        "cmd" => Some("0caa0dad-35be-5f56-a8ff-afceeeaa6101"),
+        "bash" | "git-bash" | "gitbash" | "zsh" => {
+            Some("9acb9455-ca41-5af7-950f-6bca1bc9722f")
+        }
+        _ => None,
+    }?;
+    for scale in ["200", "150", "125", "100"] {
+        let p = dir.join(format!("{{{guid}}}.scale-{scale}.png"));
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
 }
 
 fn system32_join(rel: &str) -> Option<PathBuf> {

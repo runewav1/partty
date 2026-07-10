@@ -94,7 +94,7 @@ Optional per-profile `icon` overrides auto-extract (path to `.ico`, `.png`, or `
 icon = "C:\\Icons\\prod.ico"
 ```
 
-Icons are cached under `~/.partty/cache/icons/` when `palette_icons = true`.
+Icons are resolved like Windows Terminal when possible: local shells use WT’s bundled `ProfileIcons` PNGs; WSL uses each distro’s `shortcut.ico` (`%LOCALAPPDATA%\wsl\{guid}\` / Lxss `BasePath`). Optional per-profile `icon` overrides that. Extracting from `.exe` is only a fallback. Cached under `~/.partty/cache/icons/` when `palette_icons = true`.
 
 The file name should be `{id}.toml` (letters, numbers, `-`, `_` only), e.g. `ssh-prod.toml`. The in-file `id` should match the stem.
 
