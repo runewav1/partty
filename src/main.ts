@@ -1020,7 +1020,35 @@ async function boot(): Promise<void> {
     return null;
   };
 
-  const openLinkFromCtrlClick = (
+  /** Absolute / home-anchored paths only — avoids `foo/bar` false positives. */
+  const extractPathAtColumn = (line: string, column: number): string | null => {
+    const re =
+      /(?:"([^"\n]+)"|'([^'\n]+)'|(?:\\\\|\/\/)[^\s<>"'`]+|[A-Za-z]:[\\/][^\s<>"'`]+|~\/[^\s<>"'`]+|\/(?:home|Users|usr|etc|var|tmp|opt|mnt|root|dev|proc|sys|bin|lib|sbin|boot|media|run|snap)(?:\/[^\s<>"'`]*)?)/g;
+    let m: RegExpExecArray | null = null;
+    while ((m = re.exec(line)) !== null) {
+      const start = m.index;
+      const end = start + m[0].length;
+      if (column < start || column >= end) continue;
+      const quoted = m[1] ?? m[2];
+      let raw = (quoted ?? m[0]).replace(/[),.;:!?\]]+$/g, "");
+      if (!raw) continue;
+      // Quoted match must still look like a path.
+      if (quoted) {
+        const looksAbsolute =
+          /^[A-Za-z]:[\\/]/.test(raw) ||
+          /^\\\\|^\/\//.test(raw) ||
+          raw.startsWith("~/") ||
+          /^\/(?:home|Users|usr|etc|var|tmp|opt|mnt|root|dev|proc|sys|bin|lib|sbin|boot|media|run|snap)(?:\/|$)/.test(
+            raw,
+          );
+        if (!looksAbsolute) continue;
+      }
+      return raw;
+    }
+    return null;
+  };
+
+  const handleCtrlClickToken = (
     term: Terminal,
     host: HTMLElement,
     ev: MouseEvent,
@@ -1032,15 +1060,26 @@ async function boot(): Promise<void> {
     const clickAbsY = b.viewportY + cell.row;
     const line = b.getLine(clickAbsY)?.translateToString(false) ?? "";
     if (!line) return false;
-    const url = extractUrlAtColumn(line, cell.col);
-    if (!url) return false;
 
-    ev.preventDefault();
-    ev.stopPropagation();
-    void invoke("open_external_url", { url }).catch(
-      (e) => void showAlert(String(e), "Open link"),
-    );
-    return true;
+    // URLs win over paths when both could match.
+    const url = extractUrlAtColumn(line, cell.col);
+    if (url) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      void invoke("open_external_url", { url }).catch(
+        (e) => void showAlert(String(e), "Open link"),
+      );
+      return true;
+    }
+
+    const path = extractPathAtColumn(line, cell.col);
+    if (path) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      copyToClipboard(path);
+      return true;
+    }
+    return false;
   };
 
   const updateCtrlLinkHover = (
@@ -1048,28 +1087,30 @@ async function boot(): Promise<void> {
     host: HTMLElement,
     ev: MouseEvent,
   ): void => {
-    if (!(ev.ctrlKey || ev.metaKey)) {
+    const clear = () => {
       host.classList.remove("pane-terminal-host--ctrl-link-hover");
-      host.removeAttribute("title");
+    };
+    if (!(ev.ctrlKey || ev.metaKey)) {
+      clear();
       return;
     }
     const cell = getTerminalClickCell(term, host, ev);
     if (!cell) {
-      host.classList.remove("pane-terminal-host--ctrl-link-hover");
-      host.removeAttribute("title");
+      clear();
       return;
     }
     const b = term.buffer.active;
     const clickAbsY = b.viewportY + cell.row;
     const line = b.getLine(clickAbsY)?.translateToString(false) ?? "";
-    const url = line ? extractUrlAtColumn(line, cell.col) : null;
-    if (!url) {
-      host.classList.remove("pane-terminal-host--ctrl-link-hover");
-      host.removeAttribute("title");
+    const hit =
+      !!line &&
+      (!!extractUrlAtColumn(line, cell.col) ||
+        !!extractPathAtColumn(line, cell.col));
+    if (!hit) {
+      clear();
       return;
     }
     host.classList.add("pane-terminal-host--ctrl-link-hover");
-    host.setAttribute("title", `Ctrl+Click to open ${url}`);
   };
 
   const isTooltipSuppressed = (): boolean =>
@@ -2290,7 +2331,7 @@ async function boot(): Promise<void> {
             }
           });
           const onHostClick = (ev: MouseEvent) => {
-            if (openLinkFromCtrlClick(pt.term, pt.host, ev)) return;
+            if (handleCtrlClickToken(pt.term, pt.host, ev)) return;
           };
           const onHostWheel = (ev: WheelEvent) => handlePaneZoomWheel(id, ev);
           const onHostMouseMove = (ev: MouseEvent) => {
@@ -2298,7 +2339,6 @@ async function boot(): Promise<void> {
           };
           const onHostMouseLeave = () => {
             pt.host.classList.remove("pane-terminal-host--ctrl-link-hover");
-            pt.host.removeAttribute("title");
           };
           pt.host.addEventListener("click", onHostClick);
           pt.host.addEventListener("wheel", onHostWheel, { passive: false });
