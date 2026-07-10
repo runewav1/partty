@@ -241,7 +241,7 @@ pub struct Prefs {
     /// Show cached exe/distro icons in the `@profile` palette list.
     #[serde(default = "default_true")]
     pub palette_profile_icons: bool,
-    /// Single-letter → profile id aliases for the `@profile` picker (config-only).
+    /// Config-only single-letter → profile id (`[profiles.selection_aliases]`).
     #[serde(default)]
     pub profile_selection_aliases: HashMap<String, String>,
     #[serde(default = "default_window_effect_mode")]
@@ -681,8 +681,7 @@ pub struct ProfilesSection {
     /// Show icons next to profiles in the `@profile` palette.
     #[serde(default = "default_true")]
     pub palette_icons: bool,
-    /// Single-character aliases → profile id for instant pick in `@profile` views.
-    /// Config-only (`[profiles.selection_aliases]`); not exposed in Settings.
+    /// Config-only letter → profile id for instant `@profile` pick.
     #[serde(default)]
     pub selection_aliases: HashMap<String, String>,
 }
@@ -704,7 +703,7 @@ impl Default for ProfilesSection {
     }
 }
 
-/// Keep single-character aliases only; lowercase keys; first mapping wins on clash.
+/// Single-char lowercase keys only; first mapping wins on clash.
 fn normalize_selection_aliases(raw: &HashMap<String, String>) -> HashMap<String, String> {
     let mut out = HashMap::new();
     for (k, v) in raw {

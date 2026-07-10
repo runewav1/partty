@@ -95,4 +95,6 @@ profile_split_right = "Alt+Shift+V"
 profile_split_down = "Alt+Shift+H"
 ```
 
-Pair with `[profiles.selection_aliases]` in `config.toml` for one-key profile pick after the shortcut.
+Pair with `[profiles.selection_aliases]` in `config.toml` for one-key profile pick after the shortcut (empty **Profile** field; letter aliases work before you type a filter).
+
+`profile_split_right` / `pane_split_right` = new pane to the right. `profile_split_down` / `pane_split_down` = new pane below.

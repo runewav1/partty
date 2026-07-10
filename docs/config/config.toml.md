@@ -29,13 +29,13 @@ palette_icons = true
 
 ### `[profiles.selection_aliases]` (config-only)
 
-Single-character shortcuts for the `@profile` picker (opened via Tab on New tab / Split, `@profile:…`, or the profile-split keybinds). **Not** exposed in Settings — edit `config.toml` only. Settings saves preserve this table.
+Single-character shortcuts for the profile picker (Tab on New tab / Split, profile-split keybinds, or typing `@profile:…`). **Not** exposed in Settings — edit `config.toml` only. Settings saves preserve this table.
+
+The hotkey/Tab picker opens with an empty field and a dimmed **Profile** placeholder; type to filter. Aliases apply only while the filter is empty.
 
 | Key | Type | Description |
 |-----|------|-------------|
 | *(letter)* | string | Maps one character → profile `id`. Keys are lowercased; only single characters are kept; first mapping wins on clash. |
-
-Aliases apply only when the filter is empty (right after opening the picker). Pressing the letter immediately selects that profile.
 
 ```toml
 [profiles.selection_aliases]
@@ -44,7 +44,7 @@ p = "local-pwsh"
 s = "ssh-prod"
 ```
 
-Example flow: `Alt+Shift+V` → `a` → vertical split with Arch.
+Example: `Alt+Shift+V` (split right) → `a` → Arch in a right-hand pane. `Alt+Shift+H` splits down the same way.
 > **Removed:** The old top-level `[shell]` section is gone. Use `[profiles].shell` / `[profiles].initial_dir`.
 
 ### Profile files (`~/.partty/profiles/`)

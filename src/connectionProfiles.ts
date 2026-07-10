@@ -49,7 +49,7 @@ export type ProfileBehaviorPrefs = {
   new_tab_uses_default_profile: boolean;
   /** Show cached exe icons in the `@profile` palette. */
   palette_profile_icons: boolean;
-  /** Single-letter → profile id (from `[profiles.selection_aliases]`). */
+  /** Single-letter → profile id (`[profiles.selection_aliases]`). */
   profile_selection_aliases: Record<string, string>;
 };
 
@@ -182,10 +182,6 @@ export function profileActionForPaletteCommandId(
   return null;
 }
 
-export function profilePickerQuery(action: ProfilePaletteAction): string {
-  return `@profile:${action} `;
-}
-
 export function parseProfilePickerQuery(
   query: string,
 ): { action: ProfilePaletteAction; filter: string } | null {
@@ -197,21 +193,21 @@ export function parseProfilePickerQuery(
   return { action, filter: (m[2] ?? "").trim() };
 }
 
-/** True when the query is a profile picker with an empty filter (alias keys apply). */
+/** True when `@profile:…` filter is empty (alias keys apply). */
 export function isProfilePickerAliasContext(query: string): boolean {
   const parsed = parseProfilePickerQuery(query);
   return parsed != null && parsed.filter.length === 0;
 }
 
-/** Reverse lookup: profile id → single-letter alias (if any). */
-export function aliasForProfileId(
-  profileId: string,
+/** profile id → single-letter alias (first alias wins if duplicates). */
+export function profileIdAliasMap(
   aliases: Record<string, string>,
-): string | null {
-  const id = profileId.trim();
-  if (!id) return null;
+): Map<string, string> {
+  const out = new Map<string, string>();
   for (const [alias, target] of Object.entries(aliases)) {
-    if (target === id) return alias;
+    const id = target.trim();
+    if (!id || out.has(id)) continue;
+    out.set(id, alias);
   }
-  return null;
+  return out;
 }

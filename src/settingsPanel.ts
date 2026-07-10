@@ -69,7 +69,7 @@ export type ParttyPrefs = {
   profile_omit?: string[];
   /** Show icons in the `@profile` palette (`[profiles].palette_icons`). */
   palette_profile_icons?: boolean;
-  /** Config-only `[profiles.selection_aliases]` — preserved across Settings saves. */
+  /** Config-only `[profiles.selection_aliases]` — preserved on Settings save. */
   profile_selection_aliases?: Record<string, string>;
   terminal_animation_speed: string;
   terminal_animation_style: string;

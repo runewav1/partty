@@ -32,8 +32,7 @@ export type CommandPaletteMount = {
    *  returns the new input value or null to do nothing. */
   onTabComplete?: (currentInput: string, selectedCommand: PaletteCommand | null) => string | null;
   /**
-   * Single-key quick select (e.g. profile selection aliases). Return a command
-   * to run immediately, or null to let the key type into the filter.
+   * Single-key quick select (profile aliases). Return a command to run, or null.
    */
   onQuickSelectKey?: (
     key: string,
@@ -214,7 +213,6 @@ export function createCommandPalette(mount: CommandPaletteMount): {
         }
         requestAnimationFrame(() => {
           input.focus();
-          // Place caret at end so typed filter appends after `@profile:… `.
           const len = input.value.length;
           input.setSelectionRange(len, len);
         });
@@ -290,8 +288,8 @@ export function createCommandPalette(mount: CommandPaletteMount): {
       e.stopPropagation();
       const sel = filtered[selected] ?? null;
       const next = onTabComplete(input.value, sel);
-      if (next !== null && next !== input.value) {
-        input.value = next;
+      if (next !== null) {
+        if (next !== input.value) input.value = next;
         selected = 0;
         scheduleFilter();
       }

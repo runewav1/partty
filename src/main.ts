@@ -23,13 +23,12 @@ import {
 import {
   LOCAL_DEFAULT_PROFILE_ID,
   DEFAULT_PROFILE_BEHAVIOR,
-  aliasForProfileId,
+  profileIdAliasMap,
   fetchProfiles,
   getProfileById,
   isProfilePickerAliasContext,
   parseProfilePickerQuery,
   profileActionForPaletteCommandId,
-  profilePickerQuery,
   resolveDefaultProfileId,
   resolveProfileShell,
   type ConnectionProfile,
@@ -450,9 +449,9 @@ async function boot(): Promise<void> {
     document.documentElement.classList.remove("partty-booting");
   };
 
-  /** True from prepare-show start until partty-show finishes (suppress duplicate reflows). */
+  /** True from prepare-show until partty-show finishes (suppresses duplicate reflows). */
   let summonInProgress = false;
-  /** Set when runPrepareShow already restored/mounted/reflowed under defer-show. */
+  /** Prepare already restored/mounted under defer-show; partty-show should no-op. */
   let summonPreparedByDefer = false;
 
   let paneHost: PaneHost | null = null;
@@ -1534,8 +1533,8 @@ async function boot(): Promise<void> {
     updateWebglPerfGauges();
   }
 
-  /** Remount WebGL on every live pane (e.g. after hide shed). */
-  async function mountWebglForAllPanes(): Promise<void> {
+  /** Remount WebGL on panes in the active tab host (e.g. after hide shed). */
+  async function mountWebglForActivePanes(): Promise<void> {
     const ids: string[] = [];
     paneHost?.forEachPane((id) => ids.push(id));
     await Promise.all(ids.map((id) => ensureWebglOnPane(id)));
@@ -1817,7 +1816,6 @@ async function boot(): Promise<void> {
             return false;
           case "profile_split_right":
           case "profile_split_down":
-            // Window capture handler opens the picker; block PTY echo.
             e.preventDefault();
             return false;
           case "pane_move_to_tab": {
@@ -4897,30 +4895,29 @@ async function boot(): Promise<void> {
     }
   }
 
-  function getProfileActionCommands(query: string): PaletteCommand[] {
-    const parsed = parseProfilePickerQuery(query);
-    if (!parsed) {
-      return [
-        {
-          id: "profile-picker-hint",
-          label: "Select a profile",
-          labelHtml:
-            `<span class="cp-label-prefix">@profile:</span>` +
-            `<span class="cp-label-name">new-tab</span>` +
-            `<span class="cp-label-kind"> · split-h · split-v</span>`,
-          keywords: "@profile new-tab split-h split-v",
-          run: () => {},
-        },
-      ];
-    }
-    const { action, filter } = parsed;
+  const PROFILE_ACTION_LABEL: Record<ProfilePaletteAction, string> = {
+    "new-tab": "New tab",
+    "split-h": "Split right",
+    "split-v": "Split down",
+  };
+
+  /** Active profile-picker session (hotkey / Tab). Input is filter-only; no `@profile:` prefix. */
+  let profilePickerSession: ProfilePaletteAction | null = null;
+
+  function beginProfilePicker(action: ProfilePaletteAction): void {
+    profilePickerSession = action;
+    commandPalette?.open({ placeholder: "Profile" });
+  }
+
+  function listProfileCommands(
+    action: ProfilePaletteAction,
+    filter: string,
+  ): PaletteCommand[] {
     const filterLower = filter.toLowerCase();
-    const actionLabel =
-      action === "new-tab"
-        ? "New tab"
-        : action === "split-h"
-          ? "Split right"
-          : "Split down";
+    const actionLabel = PROFILE_ACTION_LABEL[action];
+    const idToAlias = !filterLower
+      ? profileIdAliasMap(profileBehaviorRef.v.profile_selection_aliases)
+      : null;
     return profilesList
       .filter((p) => {
         if (!filterLower) return true;
@@ -4929,11 +4926,7 @@ async function boot(): Promise<void> {
         return hay.includes(filterLower);
       })
       .map((p: ConnectionProfile) => {
-        // Kind (local/wsl) is implied; for SSH show host when it differs from the friendly name.
-        const sshDetail =
-          p.kind === "ssh"
-            ? (p.sshHost?.trim() || "")
-            : "";
+        const sshDetail = p.kind === "ssh" ? p.sshHost?.trim() || "" : "";
         const showDetail =
           sshDetail && sshDetail.toLowerCase() !== p.name.toLowerCase()
             ? sshDetail
@@ -4943,12 +4936,7 @@ async function boot(): Promise<void> {
         const iconHtml = showIcon
           ? `<img class="cp-profile-icon" src="${escapeHtml(p.iconDataUrl!)}" alt="" width="16" height="16" />`
           : "";
-        const alias = !filterLower
-          ? aliasForProfileId(
-              p.id,
-              profileBehaviorRef.v.profile_selection_aliases,
-            )
-          : null;
+        const alias = idToAlias?.get(p.id) ?? null;
         return {
           id: `profile-run-${action}-${p.id}`,
           label: p.name,
@@ -4965,15 +4953,58 @@ async function boot(): Promise<void> {
       });
   }
 
+  function getProfileActionCommands(query: string): PaletteCommand[] {
+    const parsed = parseProfilePickerQuery(query);
+    if (!parsed) {
+      return [
+        {
+          id: "profile-picker-hint",
+          label: "Select a profile",
+          labelHtml:
+            `<span class="cp-label-prefix">@profile:</span>` +
+            `<span class="cp-label-name">new-tab</span>` +
+            `<span class="cp-label-kind"> · split-h · split-v</span>`,
+          keywords: "@profile new-tab split-h split-v",
+          run: () => {},
+        },
+      ];
+    }
+    return listProfileCommands(parsed.action, parsed.filter);
+  }
+
   function openProfileSplitPicker(action: "split-h" | "split-v"): void {
-    if (!commandPalette) return;
-    commandPalette.open({
-      query: profilePickerQuery(action),
-      placeholder: "Filter profiles…",
-    });
+    beginProfilePicker(action);
+  }
+
+  function quickSelectProfileByAlias(
+    key: string,
+    currentInput: string,
+  ): PaletteCommand | null {
+    if (key.length !== 1) return null;
+    let action: ProfilePaletteAction | null = profilePickerSession;
+    if (action) {
+      if (currentInput.trim().length > 0) return null;
+    } else {
+      if (!isProfilePickerAliasContext(currentInput)) return null;
+      action = parseProfilePickerQuery(currentInput)?.action ?? null;
+    }
+    if (!action) return null;
+    const profileId =
+      profileBehaviorRef.v.profile_selection_aliases[key.toLowerCase()];
+    if (!profileId) return null;
+    const profile = getProfileById(profileId, profilesList);
+    if (!profile) return null;
+    return {
+      id: `profile-run-${action}-${profile.id}`,
+      label: profile.name,
+      run: () => runWithProfile(action!, profile.id),
+    };
   }
 
   function getMergedPaletteCommands(query: string): PaletteCommand[] {
+    if (profilePickerSession) {
+      return listProfileCommands(profilePickerSession, query.trim());
+    }
     const q = query.trimStart();
     if (q.startsWith(":")) {
       return getTabPaletteCommands();
@@ -5312,6 +5343,7 @@ async function boot(): Promise<void> {
             void refreshProfilesList();
           },
           onClosed: () => {
+            profilePickerSession = null;
             getFocusedTerm()?.focus();
             if (cpInput) cpInput.placeholder = "Command or > …";
           },
@@ -5332,37 +5364,22 @@ async function boot(): Promise<void> {
               selected &&
               selected.id.startsWith("proc-")
             ) {
-              // Find the process command from the activeProcesses map
-              const leafId = selected.id.slice(5); // "proc-<leafId>"
+              const leafId = selected.id.slice(5);
               const proc = activeProcesses.get(leafId);
               if (proc) return `@proc:${displayProcessCommand(proc.command)} `;
             }
             if (profileBehaviorRef.v.palette_tab_profile_picker) {
               const action = profileActionForPaletteCommandId(selected?.id);
               if (action) {
-                if (cpInput) cpInput.placeholder = "Filter profiles…";
-                return profilePickerQuery(action);
+                profilePickerSession = action;
+                if (cpInput) cpInput.placeholder = "Profile";
+                return "";
               }
             }
             return null;
           },
-          onQuickSelectKey: (key, currentInput) => {
-            if (!isProfilePickerAliasContext(currentInput)) return null;
-            const parsed = parseProfilePickerQuery(currentInput);
-            if (!parsed) return null;
-            const alias = key.toLowerCase();
-            if (alias.length !== 1) return null;
-            const profileId =
-              profileBehaviorRef.v.profile_selection_aliases[alias];
-            if (!profileId) return null;
-            const profile = getProfileById(profileId, profilesList);
-            if (!profile) return null;
-            return {
-              id: `profile-run-${parsed.action}-${profile.id}`,
-              label: profile.name,
-              run: () => runWithProfile(parsed.action, profile.id),
-            };
-          },
+          onQuickSelectKey: (key, currentInput) =>
+            quickSelectProfileByAlias(key, currentInput),
           refreshMs: 500,
         })
       : null;
@@ -5605,6 +5622,7 @@ async function boot(): Promise<void> {
           commandPalette.close();
           return;
         }
+        profilePickerSession = null;
         commandPalette.open();
       },
       true,
@@ -5785,6 +5803,37 @@ async function boot(): Promise<void> {
     }
   }
 
+  async function restoreScrollbackIfNeeded(fallback: boolean): Promise<void> {
+    if (await takeNeedsScrollbackRestore(fallback)) {
+      await restoreSerializedTerminals();
+    }
+  }
+
+  function waitAnimationFrames(count = 2): Promise<void> {
+    return new Promise((resolve) => {
+      const step = (left: number) => {
+        if (left <= 0) resolve();
+        else requestAnimationFrame(() => step(left - 1));
+      };
+      step(count);
+    });
+  }
+
+  async function ensurePtyForAllTabHosts(): Promise<void> {
+    const jobs: Promise<void>[] = [];
+    for (const host of tabPaneHosts.values()) {
+      host.forEachPane((id, pt) => {
+        jobs.push(ensurePtyForPane(id, pt));
+      });
+    }
+    await Promise.all(jobs);
+  }
+
+  async function unlockSummonSurface(): Promise<void> {
+    await releasePtyHydrationGate();
+    releaseBootSurface();
+  }
+
   async function runPrepareShow(): Promise<void> {
     summonInProgress = true;
     summonPreparedByDefer = false;
@@ -5794,35 +5843,22 @@ async function boot(): Promise<void> {
         await newTerminalSession();
       }
       scheduleResizeImmediate();
-      await new Promise((r) => requestAnimationFrame(r));
-      await new Promise((r) => requestAnimationFrame(r));
+      await waitAnimationFrames(2);
 
-      if (await takeNeedsScrollbackRestore(lp.destroy_webview_on_hide)) {
-        await restoreSerializedTerminals();
-      }
+      // Restore before PTY ensure/replay so catch-up cannot race an empty buffer.
+      await restoreScrollbackIfNeeded(lp.destroy_webview_on_hide);
+      await ensurePtyForAllTabHosts();
 
-      const ensureJobs: Promise<void>[] = [];
-      for (const host of tabPaneHosts.values()) {
-        host.forEachPane((id, pt) => {
-          ensureJobs.push(ensurePtyForPane(id, pt));
-        });
-      }
-      await Promise.all(ensureJobs);
-
-      await mountWebglForAllPanes();
+      await mountWebglForActivePanes();
       const ft = getFocusedTerm();
       if (ft) ft.refresh(0, ft.rows - 1);
-
       if (paneHost) scheduleHostGeometryRepair(paneHost);
       scheduleResizeImmediate(true);
       scheduleCwdSync();
-      await new Promise((r) => requestAnimationFrame(r));
-      await new Promise((r) => requestAnimationFrame(r));
+      await waitAnimationFrames(2);
 
-      await releasePtyHydrationGate();
-      releaseBootSurface();
+      await unlockSummonSurface();
       summonPreparedByDefer = lp.defer_window_show_until_prepared;
-
       if (lp.defer_window_show_until_prepared) {
         await invoke("commit_show_window").catch((e) =>
           console.error("commit_show_window", e),
@@ -5975,7 +6011,7 @@ async function boot(): Promise<void> {
         }
       }
 
-      // Deferred summon: prepare already did restore/WebGL/reflow — skip duplicates.
+      // Defer-show: prepare already restored/painted — avoid a second pass.
       if (summonPreparedByDefer) {
         summonPreparedByDefer = false;
         summonInProgress = false;
@@ -5984,26 +6020,23 @@ async function boot(): Promise<void> {
         return;
       }
 
+      // Non-defer summon (or prepare skipped): restore → paint → unlock, then PTY.
       summonInProgress = true;
       try {
-        if (await takeNeedsScrollbackRestore(false)) {
-          await restoreSerializedTerminals();
-        }
-        await mountWebglForAllPanes();
+        await restoreScrollbackIfNeeded(false);
+        await mountWebglForActivePanes();
         getFocusedTerm()?.focus();
         scheduleResizeImmediate();
         scheduleCwdSync();
-        await new Promise((r) => requestAnimationFrame(r));
-        await new Promise((r) => requestAnimationFrame(r));
-        await releasePtyHydrationGate();
-        releaseBootSurface();
+        await waitAnimationFrames(2);
+        await unlockSummonSurface();
         mouseCursorController?.sync();
         if (!lp.defer_window_show_until_prepared) {
-          const ensureJobs: Promise<void>[] = [];
+          const jobs: Promise<void>[] = [];
           paneHost?.forEachPane((id, pt) => {
-            ensureJobs.push(ensurePtyForPane(id, pt));
+            jobs.push(ensurePtyForPane(id, pt));
           });
-          await Promise.all(ensureJobs);
+          await Promise.all(jobs);
         }
         reflowAllPanes();
         const ft = getFocusedTerm();
