@@ -449,6 +449,11 @@ async function boot(): Promise<void> {
     document.documentElement.classList.remove("partty-booting");
   };
 
+  /** True from prepare-show start until partty-show finishes (suppress duplicate reflows). */
+  let summonInProgress = false;
+  /** Set when runPrepareShow already restored/mounted/reflowed under defer-show. */
+  let summonPreparedByDefer = false;
+
   let paneHost: PaneHost | null = null;
   const paneCwdHints = new Map<string, string>();
   const paneProfileIds = new Map<string, string>();
@@ -2114,7 +2119,7 @@ async function boot(): Promise<void> {
     ptIn?: PaneTerminal,
     initialCwd?: string | null,
   ): Promise<void> {
-    const pt = ptIn ?? paneHost?.getPaneTerminal(paneId);
+    const pt = ptIn ?? getPaneTerminalById(paneId);
     if (!pt) return;
     const effectiveCwd = initialCwd ?? paneCwdHints.get(paneId) ?? null;
     const profileId =
@@ -2348,6 +2353,8 @@ async function boot(): Promise<void> {
         getPaneCssVars: (paneId) => cssVarsForPane(paneId),
         getSplitLayoutStyle: () => splitLayoutStyleRef.v,
         focusFollowsCursor: () => focusFollowsRef.v,
+        suppressEnterAnimation: () =>
+          document.documentElement.classList.contains("partty-booting"),
         onPaneFocus: (id) => {
           lastFocusedPaneId = id;
           if (paneRenamePanel?.isOpen())
@@ -2567,7 +2574,12 @@ async function boot(): Promise<void> {
           queueMicrotask(() => {
             void ensurePtyForPane(id, pt, inheritedCwd);
           });
-          scheduleCreationReflow(id);
+          // During boot/rehydrate, staggered creation reflows fire after the
+          // window is already visible and cause a second layout bounce.
+          // prepare-show / first paint does one host-level repair instead.
+          if (!document.documentElement.classList.contains("partty-booting")) {
+            scheduleCreationReflow(id);
+          }
           const paneResizeObs = new ResizeObserver(() => {
             if (terminalLayoutSuspended) return;
             if (pt.host.clientWidth < 2 || pt.host.clientHeight < 2) return;
@@ -5791,29 +5803,50 @@ async function boot(): Promise<void> {
   }
 
   async function runPrepareShow(): Promise<void> {
-    if (localStorage.getItem(DEFER_PTY_REINIT_KEY) === "1") {
-      localStorage.removeItem(DEFER_PTY_REINIT_KEY);
-      await newTerminalSession();
-    }
-    scheduleResizeImmediate();
-    await new Promise((r) => requestAnimationFrame(r));
-    await new Promise((r) => requestAnimationFrame(r));
-    await restoreSerializedTerminals();
-    paneHost?.forEachPane((id) => {
-      void ensurePtyForPane(id);
-    });
+    summonInProgress = true;
+    summonPreparedByDefer = false;
+    try {
+      if (localStorage.getItem(DEFER_PTY_REINIT_KEY) === "1") {
+        localStorage.removeItem(DEFER_PTY_REINIT_KEY);
+        await newTerminalSession();
+      }
+      scheduleResizeImmediate();
+      await new Promise((r) => requestAnimationFrame(r));
+      await new Promise((r) => requestAnimationFrame(r));
+      await restoreSerializedTerminals();
 
-    await mountWebglForAllPanes();
-    const ft = getFocusedTerm();
-    if (ft) ft.refresh(0, ft.rows - 1);
-    scheduleResizeImmediate();
-    scheduleCwdSync();
-    reflowAllPanes();
+      const ensureJobs: Promise<void>[] = [];
+      for (const host of tabPaneHosts.values()) {
+        host.forEachPane((id, pt) => {
+          ensureJobs.push(ensurePtyForPane(id, pt));
+        });
+      }
+      await Promise.all(ensureJobs);
 
-    if (lp.defer_window_show_until_prepared) {
-      await invoke("commit_show_window").catch((e) =>
-        console.error("commit_show_window", e),
-      );
+      await mountWebglForAllPanes();
+      const ft = getFocusedTerm();
+      if (ft) ft.refresh(0, ft.rows - 1);
+
+      if (paneHost) scheduleHostGeometryRepair(paneHost);
+      scheduleResizeImmediate(true);
+      scheduleCwdSync();
+      await new Promise((r) => requestAnimationFrame(r));
+      await new Promise((r) => requestAnimationFrame(r));
+
+      // Lift veil only after restore + WebGL + layout — then show the window.
+      releaseBootSurface();
+      summonPreparedByDefer = lp.defer_window_show_until_prepared;
+
+      if (lp.defer_window_show_until_prepared) {
+        await invoke("commit_show_window").catch((e) =>
+          console.error("commit_show_window", e),
+        );
+      }
+    } catch (e) {
+      summonInProgress = false;
+      summonPreparedByDefer = false;
+      releaseBootSurface();
+      throw e;
     }
   }
 
@@ -5948,27 +5981,50 @@ async function boot(): Promise<void> {
     }),
     listen("partty-show", async () => {
       for (const fn of extWindowShowSubs) {
-        try { fn(); } catch { /* ignore */ }
+        try {
+          fn();
+        } catch {
+          /* ignore */
+        }
       }
-      await restoreSerializedTerminals();
-      await mountWebglForAllPanes();
-      getFocusedTerm()?.focus();
-      scheduleResizeImmediate();
-      scheduleCwdSync();
-      await new Promise((r) => requestAnimationFrame(r));
-      await new Promise((r) => requestAnimationFrame(r));
-      releaseBootSurface();
-      mouseCursorController?.sync();
-      if (!lp.defer_window_show_until_prepared) {
-        paneHost?.forEachPane((id) => {
-          void ensurePtyForPane(id);
-        });
+
+      // Deferred summon: prepare already restored, mounted WebGL, reflowed, and
+      // lifted the boot veil. Skip duplicate work + window-motion (stacked with
+      // pane-enter caused the double bounce / white flash).
+      if (summonPreparedByDefer) {
+        summonPreparedByDefer = false;
+        summonInProgress = false;
+        getFocusedTerm()?.focus();
+        mouseCursorController?.sync();
+        return;
       }
-      reflowAllPanes();
-      const ft = getFocusedTerm();
-      if (ft) ft.refresh(0, ft.rows - 1);
-      getFocusedTerm()?.focus();
-      playWindowMotion();
+
+      summonInProgress = true;
+      try {
+        await restoreSerializedTerminals();
+        await mountWebglForAllPanes();
+        getFocusedTerm()?.focus();
+        scheduleResizeImmediate();
+        scheduleCwdSync();
+        await new Promise((r) => requestAnimationFrame(r));
+        await new Promise((r) => requestAnimationFrame(r));
+        releaseBootSurface();
+        mouseCursorController?.sync();
+        if (!lp.defer_window_show_until_prepared) {
+          const ensureJobs: Promise<void>[] = [];
+          paneHost?.forEachPane((id, pt) => {
+            ensureJobs.push(ensurePtyForPane(id, pt));
+          });
+          await Promise.all(ensureJobs);
+        }
+        reflowAllPanes();
+        const ft = getFocusedTerm();
+        if (ft) ft.refresh(0, ft.rows - 1);
+        getFocusedTerm()?.focus();
+        // Window motion is for resize/maximize/monitor hops — not rehydrate summon.
+      } finally {
+        summonInProgress = false;
+      }
     }),
   ]);
 
@@ -5988,8 +6044,14 @@ async function boot(): Promise<void> {
   // xterm measures cell width with a fallback font and computes the wrong cols/rows
   // (mis-sized canvas). Re-fit once fonts are ready, and again on any late font load.
   if (document.fonts) {
-    void document.fonts.ready.then(() => reflowAllPanes());
-    document.fonts.addEventListener("loadingdone", () => reflowAllPanes());
+    void document.fonts.ready.then(() => {
+      if (summonInProgress || summonPreparedByDefer) return;
+      reflowAllPanes();
+    });
+    document.fonts.addEventListener("loadingdone", () => {
+      if (summonInProgress || summonPreparedByDefer) return;
+      reflowAllPanes();
+    });
   }
 
   stage?.addEventListener("mousedown", () => {
@@ -6015,6 +6077,9 @@ async function boot(): Promise<void> {
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
+      // prepare-show already reflowed; a second pass here (from commit_show)
+      // causes a post-reveal layout bounce.
+      if (summonInProgress || summonPreparedByDefer) return;
       scheduleResizeDebounced();
       scheduleCwdSync();
       reflowAllPanes();

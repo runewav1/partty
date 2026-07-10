@@ -86,6 +86,8 @@ export type PaneHostOptions = {
   onPaneSwapAdjacent?: (paneId: string, dir: "h" | "v") => boolean;
   onPaneCreated: (paneId: string, pt: PaneTerminal) => void;
   onPaneDisposed: (paneId: string) => void;
+  /** When true, skip the pane-enter scale/fade (e.g. webview rehydrate boot). */
+  suppressEnterAnimation?: () => boolean;
   /** Called after internal layout changes (split, gutter drag, mount) so PTY cols/rows stay in sync. */
   onPaneLayout?: () => void;
   /** Called while resize interactions preview DOM geometry so terminal fitting can be deferred. */
@@ -1665,7 +1667,7 @@ export class PaneHost {
           wrap.classList.remove("pane-leaf--floating-return");
         }, { once: true });
       }
-      if (isNew) {
+      if (isNew && !this.opts.suppressEnterAnimation?.()) {
         wrap.classList.add("pane-leaf--entering");
         wrap.addEventListener("animationend", () => {
           wrap.classList.remove("pane-leaf--entering");

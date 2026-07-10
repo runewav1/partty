@@ -229,6 +229,14 @@ html.partty-booting #terminal-wrap {
   background: var(--term-bg, #2e2e32) !important;
 }
 
+/* Hide xterm canvases until prepare finishes — prevents white flash through the boot veil. */
+html.partty-booting .pane-terminal-host .xterm {
+  visibility: hidden;
+}
+html.partty-booting .pane-terminal-host {
+  background: var(--term-bg, #2e2e32);
+}
+
 /* OS mouse hide — CSS is reliable on Windows WebView2; Tauri setCursorVisible is flaky there. */
 html.mouse-cursor-hidden,
 html.mouse-cursor-hidden * {
