@@ -22,8 +22,10 @@ import {
 import {
   LOCAL_DEFAULT_PROFILE_ID,
   DEFAULT_PROFILE_BEHAVIOR,
+  aliasForProfileId,
   fetchProfiles,
   getProfileById,
+  isProfilePickerAliasContext,
   parseProfilePickerQuery,
   profileActionForPaletteCommandId,
   profilePickerQuery,
@@ -494,6 +496,9 @@ async function boot(): Promise<void> {
       palette_profile_icons:
         (persisted.prefs as Partial<ParttyPrefs>).palette_profile_icons ??
         DEFAULT_PROFILE_BEHAVIOR.palette_profile_icons,
+      profile_selection_aliases:
+        (persisted.prefs as Partial<ParttyPrefs>).profile_selection_aliases ??
+        DEFAULT_PROFILE_BEHAVIOR.profile_selection_aliases,
     } satisfies ProfileBehaviorPrefs,
   };
 
@@ -1683,6 +1688,8 @@ async function boot(): Promise<void> {
         "palette_chord",
         "pane_split_right",
         "pane_split_down",
+        "profile_split_right",
+        "profile_split_down",
         "pane_move_to_tab",
         "pane_float_toggle",
         "pane_swap_left", "pane_swap_right", "pane_swap_up", "pane_swap_down",
@@ -1726,6 +1733,11 @@ async function boot(): Promise<void> {
           case "pane_split_down":
             e.preventDefault();
             splitFocusedWithCwd("v");
+            return false;
+          case "profile_split_right":
+          case "profile_split_down":
+            // Window capture handler opens the picker; block PTY echo.
+            e.preventDefault();
             return false;
           case "pane_move_to_tab": {
             const idx = tabHotkeyIndexFromEvent(e);
@@ -4309,6 +4321,10 @@ async function boot(): Promise<void> {
             new_tab_uses_default_profile:
               saved.new_tab_uses_default_profile ?? true,
             palette_profile_icons: saved.palette_profile_icons ?? true,
+            profile_selection_aliases:
+              saved.profile_selection_aliases ??
+              previous.profile_selection_aliases ??
+              {},
           };
           void refreshProfilesList();
           disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
@@ -4840,6 +4856,12 @@ async function boot(): Promise<void> {
         const iconHtml = showIcon
           ? `<img class="cp-profile-icon" src="${escapeHtml(p.iconDataUrl!)}" alt="" width="16" height="16" />`
           : "";
+        const alias = !filterLower
+          ? aliasForProfileId(
+              p.id,
+              profileBehaviorRef.v.profile_selection_aliases,
+            )
+          : null;
         return {
           id: `profile-run-${action}-${p.id}`,
           label: p.name,
@@ -4850,9 +4872,18 @@ async function boot(): Promise<void> {
               ? ` <span class="cp-label-cwd">${escapeHtml(showDetail)}</span>`
               : ""),
           keywords: `@profile:${action} ${p.name} ${p.kind} ${p.id} ${sshDetail} ${p.shell ?? ""} ${p.wslDistro ?? ""} ${actionLabel}`,
+          hotkey: alias ? alias.toUpperCase() : undefined,
           run: () => runWithProfile(action, p.id),
         };
       });
+  }
+
+  function openProfileSplitPicker(action: "split-h" | "split-v"): void {
+    if (!commandPalette) return;
+    commandPalette.open({
+      query: profilePickerQuery(action),
+      placeholder: "Filter profiles…",
+    });
   }
 
   function getMergedPaletteCommands(query: string): PaletteCommand[] {
@@ -4904,7 +4935,7 @@ async function boot(): Promise<void> {
         id: "pane-split-v",
         label: "Split right",
         keywords: "split vertical columns side by side layout profile",
-        hotkey: "Alt+V",
+        hotkey: k.label("pane_split_right"),
         run: () => {
           splitFocusedWithCwd("h");
         },
@@ -4913,10 +4944,24 @@ async function boot(): Promise<void> {
         id: "pane-split-h",
         label: "Split down",
         keywords: "split horizontal rows stacked layout profile",
-        hotkey: "Alt+H",
+        hotkey: k.label("pane_split_down"),
         run: () => {
           splitFocusedWithCwd("v");
         },
+      },
+      {
+        id: "pane-profile-split-v",
+        label: "Split right with profile…",
+        keywords: "split vertical profile picker alias",
+        hotkey: k.label("profile_split_right"),
+        run: () => openProfileSplitPicker("split-h"),
+      },
+      {
+        id: "pane-profile-split-h",
+        label: "Split down with profile…",
+        keywords: "split horizontal profile picker alias",
+        hotkey: k.label("profile_split_down"),
+        run: () => openProfileSplitPicker("split-v"),
       },
       {
         id: "pane-close",
@@ -5132,6 +5177,10 @@ async function boot(): Promise<void> {
     rows.push(
       { hotkey: "Tab", label: "New tab / Split → pick profile" },
       { hotkey: "@profile", label: "New tab or split with a profile" },
+      {
+        hotkey: "Letter",
+        label: "In profile picker: selection alias (config.toml)",
+      },
       { hotkey: "Ctrl+Arrows", label: "Focus adjacent pane" },
       { hotkey: "Ctrl+Shift+Arrows", label: "Swap pane with neighbor" },
       { hotkey: "Alt+1–9", label: "Switch to tab" },
@@ -5209,6 +5258,23 @@ async function boot(): Promise<void> {
               }
             }
             return null;
+          },
+          onQuickSelectKey: (key, currentInput) => {
+            if (!isProfilePickerAliasContext(currentInput)) return null;
+            const parsed = parseProfilePickerQuery(currentInput);
+            if (!parsed) return null;
+            const alias = key.toLowerCase();
+            if (alias.length !== 1) return null;
+            const profileId =
+              profileBehaviorRef.v.profile_selection_aliases[alias];
+            if (!profileId) return null;
+            const profile = getProfileById(profileId, profilesList);
+            if (!profile) return null;
+            return {
+              id: `profile-run-${parsed.action}-${profile.id}`,
+              label: profile.name,
+              run: () => runWithProfile(parsed.action, profile.id),
+            };
           },
           refreshMs: 500,
         })
@@ -5453,6 +5519,38 @@ async function boot(): Promise<void> {
           return;
         }
         commandPalette.open();
+      },
+      true,
+    );
+
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        const m = k.match(e, "profile_split_right", "profile_split_down");
+        if (!m) return;
+        const t = e.target as HTMLElement | null;
+        if (
+          t?.closest("#command-palette") &&
+          (t.tagName === "INPUT" || t.tagName === "TEXTAREA")
+        )
+          return;
+        if (
+          t?.closest("#settings-panel") &&
+          (t.tagName === "INPUT" ||
+            t.tagName === "TEXTAREA" ||
+            t.tagName === "SELECT")
+        )
+          return;
+        if (
+          t?.closest(".termie-dialog-input") ||
+          t?.closest(".termie-dialog-panel")
+        )
+          return;
+        e.preventDefault();
+        e.stopPropagation();
+        openProfileSplitPicker(
+          m === "profile_split_right" ? "split-h" : "split-v",
+        );
       },
       true,
     );

@@ -69,6 +69,8 @@ export type ParttyPrefs = {
   profile_omit?: string[];
   /** Show icons in the `@profile` palette (`[profiles].palette_icons`). */
   palette_profile_icons?: boolean;
+  /** Config-only `[profiles.selection_aliases]` — preserved across Settings saves. */
+  profile_selection_aliases?: Record<string, string>;
   terminal_animation_speed: string;
   terminal_animation_style: string;
   terminal_window_motion: boolean;
@@ -229,6 +231,7 @@ export function createSettingsPanel(
       new_tab_uses_default_profile: gc("new_tab_uses_default_profile"),
       profile_omit: previous.profile_omit ?? [],
       palette_profile_icons: previous.palette_profile_icons ?? true,
+      profile_selection_aliases: previous.profile_selection_aliases ?? {},
       terminal_animation_speed,
       terminal_animation_style, terminal_window_motion: gc("terminal_window_motion"),
       window_effect_mode, window_effect_opacity: clamp01(g("window_effect_opacity"), 0),

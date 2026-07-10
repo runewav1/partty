@@ -49,6 +49,8 @@ export type ProfileBehaviorPrefs = {
   new_tab_uses_default_profile: boolean;
   /** Show cached exe icons in the `@profile` palette. */
   palette_profile_icons: boolean;
+  /** Single-letter → profile id (from `[profiles.selection_aliases]`). */
+  profile_selection_aliases: Record<string, string>;
 };
 
 export const DEFAULT_PROFILE_BEHAVIOR: ProfileBehaviorPrefs = {
@@ -58,6 +60,7 @@ export const DEFAULT_PROFILE_BEHAVIOR: ProfileBehaviorPrefs = {
   palette_tab_profile_picker: true,
   new_tab_uses_default_profile: true,
   palette_profile_icons: true,
+  profile_selection_aliases: {},
 };
 
 function normalizeKind(v: unknown): ProfileKind {
@@ -172,8 +175,10 @@ export function profileActionForPaletteCommandId(
 ): ProfilePaletteAction | null {
   if (!commandId) return null;
   if (commandId === "tab-new") return "new-tab";
-  if (commandId === "pane-split-v") return "split-h";
-  if (commandId === "pane-split-h") return "split-v";
+  if (commandId === "pane-split-v" || commandId === "pane-profile-split-v")
+    return "split-h";
+  if (commandId === "pane-split-h" || commandId === "pane-profile-split-h")
+    return "split-v";
   return null;
 }
 
@@ -190,4 +195,23 @@ export function parseProfilePickerQuery(
   if (!m) return null;
   const action = m[1]!.toLowerCase() as ProfilePaletteAction;
   return { action, filter: (m[2] ?? "").trim() };
+}
+
+/** True when the query is a profile picker with an empty filter (alias keys apply). */
+export function isProfilePickerAliasContext(query: string): boolean {
+  const parsed = parseProfilePickerQuery(query);
+  return parsed != null && parsed.filter.length === 0;
+}
+
+/** Reverse lookup: profile id → single-letter alias (if any). */
+export function aliasForProfileId(
+  profileId: string,
+  aliases: Record<string, string>,
+): string | null {
+  const id = profileId.trim();
+  if (!id) return null;
+  for (const [alias, target] of Object.entries(aliases)) {
+    if (target === id) return alias;
+  }
+  return null;
 }

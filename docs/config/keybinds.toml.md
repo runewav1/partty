@@ -23,6 +23,8 @@ All configurable actions and their defaults:
 |--------|---------|
 | `pane_split_down` | `Alt+H` |
 | `pane_split_right` | `Alt+V` |
+| `profile_split_down` | `Alt+Shift+H` |
+| `profile_split_right` | `Alt+Shift+V` |
 | `pane_close` | `Ctrl+Shift+W` |
 | `pane_float_toggle` | `Ctrl+Shift+O` |
 | `pane_focus_left` | `Ctrl+ArrowLeft` |
@@ -83,9 +85,14 @@ pane_focus_up = "Ctrl+K"
 pane_focus_right = "Ctrl+L"
 ```
 
-**Disable close shortcut:**
+**Open profile picker for a split:**
 
 ```toml
 version = 1
-unbind = ["pane_close"]
+
+[bind]
+profile_split_right = "Alt+Shift+V"
+profile_split_down = "Alt+Shift+H"
 ```
+
+Pair with `[profiles.selection_aliases]` in `config.toml` for one-key profile pick after the shortcut.

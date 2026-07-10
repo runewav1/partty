@@ -96,6 +96,8 @@ export interface KeybindsApi {
 const DEFAULT_BINDS: Record<string, string> = {
   "pane_split_down": "Alt+H",
   "pane_split_right": "Alt+V",
+  "profile_split_down": "Alt+Shift+H",
+  "profile_split_right": "Alt+Shift+V",
   "pane_close": "Ctrl+Shift+W",
   "pane_float_toggle": "Ctrl+Shift+O",
   "pane_focus_left": "Ctrl+ArrowLeft",

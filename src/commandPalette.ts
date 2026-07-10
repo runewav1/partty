@@ -31,8 +31,21 @@ export type CommandPaletteMount = {
    *  Receives the current input value and the currently selected command;
    *  returns the new input value or null to do nothing. */
   onTabComplete?: (currentInput: string, selectedCommand: PaletteCommand | null) => string | null;
+  /**
+   * Single-key quick select (e.g. profile selection aliases). Return a command
+   * to run immediately, or null to let the key type into the filter.
+   */
+  onQuickSelectKey?: (
+    key: string,
+    currentInput: string,
+  ) => PaletteCommand | null;
   /** If set, re‑renders the list every N ms while open (for live-updating labels). */
   refreshMs?: number;
+};
+
+export type CommandPaletteOpenOptions = {
+  query?: string;
+  placeholder?: string;
 };
 
 function normalizeQuery(raw: string): string[] {
@@ -50,18 +63,30 @@ function matchesFilter(cmd: PaletteCommand, parts: string[]): boolean {
 }
 
 export function createCommandPalette(mount: CommandPaletteMount): {
-  open(): void;
+  open(opts?: CommandPaletteOpenOptions): void;
   close(): void;
   isOpen(): boolean;
   dispose(): void;
 } {
-  const { root, input, list, getCommands, onBeforeOpen, onClosed, onTabComplete, refreshMs } = mount;
+  const {
+    root,
+    input,
+    list,
+    getCommands,
+    onBeforeOpen,
+    onClosed,
+    onTabComplete,
+    onQuickSelectKey,
+    refreshMs,
+  } = mount;
   let open = false;
   let opening = false;
   let selected = 0;
   let filtered: readonly PaletteCommand[] = [];
   let filterRaf = 0;
   let refreshTimer = 0;
+  let pendingOpen: CommandPaletteOpenOptions | null = null;
+  const defaultPlaceholder = input.placeholder || "Command or > …";
 
   function applyFilter(): void {
     const parts = normalizeQuery(input.value);
@@ -145,9 +170,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
     el?.scrollIntoView({ block: "nearest" });
   }
 
-  async function runSelected(): Promise<void> {
-    const cmd = filtered[selected];
-    if (!cmd) return;
+  async function runCommand(cmd: PaletteCommand): Promise<void> {
     // Keep palette shell open; host switches to builder UI.
     if (cmd.id === "new-custom") {
       await Promise.resolve(cmd.run());
@@ -161,9 +184,16 @@ export function createCommandPalette(mount: CommandPaletteMount): {
     }
   }
 
-  function openPalette(): void {
+  async function runSelected(): Promise<void> {
+    const cmd = filtered[selected];
+    if (!cmd) return;
+    await runCommand(cmd);
+  }
+
+  function openPalette(opts?: CommandPaletteOpenOptions): void {
     if (open || opening) return;
     opening = true;
+    pendingOpen = opts ?? null;
     void (async () => {
       try {
         await onBeforeOpen?.();
@@ -172,7 +202,11 @@ export function createCommandPalette(mount: CommandPaletteMount): {
         mouseCursorForceVisible(true);
         root.classList.remove("command-palette--hidden");
         root.setAttribute("aria-hidden", "false");
-        input.value = "";
+        const q = pendingOpen?.query ?? "";
+        const ph = pendingOpen?.placeholder;
+        pendingOpen = null;
+        input.value = q;
+        input.placeholder = ph?.trim() ? ph : defaultPlaceholder;
         selected = 0;
         applyFilter();
         if (refreshMs) {
@@ -180,7 +214,9 @@ export function createCommandPalette(mount: CommandPaletteMount): {
         }
         requestAnimationFrame(() => {
           input.focus();
-          input.select();
+          // Place caret at end so typed filter appends after `@profile:… `.
+          const len = input.value.length;
+          input.setSelectionRange(len, len);
         });
       } finally {
         opening = false;
@@ -195,6 +231,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
     root.classList.add("command-palette--hidden");
     root.setAttribute("aria-hidden", "true");
     list.replaceChildren();
+    input.placeholder = defaultPlaceholder;
     if (refreshTimer) { window.clearInterval(refreshTimer); refreshTimer = 0; }
     if (!skipFocus) onClosed?.();
   }
@@ -260,6 +297,21 @@ export function createCommandPalette(mount: CommandPaletteMount): {
       }
       return;
     }
+    if (
+      onQuickSelectKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.metaKey &&
+      e.key.length === 1 &&
+      !e.isComposing
+    ) {
+      const cmd = onQuickSelectKey(e.key, input.value);
+      if (cmd) {
+        e.preventDefault();
+        e.stopPropagation();
+        void runCommand(cmd);
+      }
+    }
   }
 
   input.addEventListener("input", onInput);
@@ -277,24 +329,8 @@ export function createCommandPalette(mount: CommandPaletteMount): {
       root.removeEventListener("pointerdown", onRootPointerDown);
       list.removeEventListener("click", onListClick);
       if (filterRaf) cancelAnimationFrame(filterRaf);
-      if (refreshTimer) { window.clearInterval(refreshTimer); refreshTimer = 0; }
+      if (refreshTimer) window.clearInterval(refreshTimer);
+      closePalette(true);
     },
   };
-}
-
-export function isCommandPaletteChord(e: KeyboardEvent): boolean {
-  return (
-    e.type === "keydown" &&
-    e.ctrlKey &&
-    e.shiftKey &&
-    !e.altKey &&
-    !e.metaKey &&
-    (e.key === "p" || e.key === "P")
-  );
-}
-
-/** Ctrl+Shift+/ (physical) — same chord as Ctrl+? when / requires Shift. */
-export function isHelpHotkeysChord(e: KeyboardEvent): boolean {
-  if (e.type !== "keydown" || !e.ctrlKey || !e.shiftKey || e.altKey || e.metaKey) return false;
-  return e.key === "?" || (e.code === "Slash" && e.shiftKey);
 }

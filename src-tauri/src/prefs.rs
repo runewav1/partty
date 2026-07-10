@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -240,6 +241,9 @@ pub struct Prefs {
     /// Show cached exe/distro icons in the `@profile` palette list.
     #[serde(default = "default_true")]
     pub palette_profile_icons: bool,
+    /// Single-letter → profile id aliases for the `@profile` picker (config-only).
+    #[serde(default)]
+    pub profile_selection_aliases: HashMap<String, String>,
     #[serde(default = "default_window_effect_mode")]
     pub window_effect_mode: String,
     #[serde(default = "default_window_effect_opacity")]
@@ -364,6 +368,7 @@ impl Default for Prefs {
             new_tab_uses_default_profile: true,
             profile_omit: Vec::new(),
             palette_profile_icons: true,
+            profile_selection_aliases: HashMap::new(),
             window_effect_mode: default_window_effect_mode(),
             window_effect_opacity: default_window_effect_opacity(),
             pane_corner_radius: default_pane_corner_radius(),
@@ -676,6 +681,10 @@ pub struct ProfilesSection {
     /// Show icons next to profiles in the `@profile` palette.
     #[serde(default = "default_true")]
     pub palette_icons: bool,
+    /// Single-character aliases → profile id for instant pick in `@profile` views.
+    /// Config-only (`[profiles.selection_aliases]`); not exposed in Settings.
+    #[serde(default)]
+    pub selection_aliases: HashMap<String, String>,
 }
 
 impl Default for ProfilesSection {
@@ -690,8 +699,23 @@ impl Default for ProfilesSection {
             new_tab_uses_default: true,
             omit: Vec::new(),
             palette_icons: true,
+            selection_aliases: HashMap::new(),
         }
     }
+}
+
+/// Keep single-character aliases only; lowercase keys; first mapping wins on clash.
+fn normalize_selection_aliases(raw: &HashMap<String, String>) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for (k, v) in raw {
+        let key = k.trim().to_lowercase();
+        let id = v.trim();
+        if key.chars().count() != 1 || id.is_empty() {
+            continue;
+        }
+        out.entry(key).or_insert_with(|| id.to_string());
+    }
+    out
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -977,6 +1001,7 @@ impl From<ConfigToml> for Prefs {
             new_tab_uses_default_profile: c.profiles.new_tab_uses_default,
             profile_omit: c.profiles.omit,
             palette_profile_icons: c.profiles.palette_icons,
+            profile_selection_aliases: normalize_selection_aliases(&c.profiles.selection_aliases),
             always_on_top: c.window.always_on_top,
             always_summon_maximized: c.window.summon_maximized,
             summon_spawn_at_cursor: c.window.summon_at_cursor,
@@ -1082,6 +1107,7 @@ impl From<&Prefs> for ConfigToml {
                 new_tab_uses_default: p.new_tab_uses_default_profile,
                 omit: p.profile_omit.clone(),
                 palette_icons: p.palette_profile_icons,
+                selection_aliases: p.profile_selection_aliases.clone(),
             },
             window: WindowSection {
                 always_on_top: p.always_on_top,
