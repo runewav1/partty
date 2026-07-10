@@ -27,7 +27,7 @@ omit = ["local-powershell", "wsl-docker-desktop"]
 palette_icons = true
 ```
 
-> **Migration:** Older configs with a top-level `[shell]` section are still read (`command` → `profiles.shell`, `initial_dir` → `profiles.initial_dir`). New saves write only `[profiles]`.
+> **Removed:** The old top-level `[shell]` section is gone. Use `[profiles].shell` / `[profiles].initial_dir`.
 
 ### Profile files (`~/.partty/profiles/`)
 

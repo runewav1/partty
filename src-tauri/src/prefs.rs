@@ -403,10 +403,6 @@ impl Default for Prefs {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConfigToml {
-    /// Deprecated: migrated into `[profiles].shell` / `initial_dir` on load.
-    /// Still accepted when reading older config.toml files; not written back.
-    #[serde(default, skip_serializing)]
-    pub shell: ShellSection,
     #[serde(default)]
     pub cursor: CursorSection,
     #[serde(default)]
@@ -445,64 +441,26 @@ pub struct ConfigToml {
     pub dev: DevSection,
 }
 
-/// Deprecated top-level `[shell]` — kept only for reading older configs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ShellSection {
-    #[serde(default = "default_shell_command")]
-    pub command: String,
-    pub initial_dir: Option<String>,
-}
-
 fn default_shell_command() -> String {
     "pwsh".to_string()
 }
 
-impl Default for ShellSection {
-    fn default() -> Self {
-        Self {
-            command: default_shell_command(),
-            initial_dir: None,
-        }
-    }
-}
-
-/// Resolve fallback shell: `[profiles].shell`, else legacy `[shell].command`.
-fn resolve_config_shell(profiles: &ProfilesSection, legacy: &ShellSection) -> String {
+fn resolve_config_shell(profiles: &ProfilesSection) -> String {
     let p = profiles.shell.trim();
-    let l = legacy.command.trim();
-    let p_is_default = p.is_empty() || p == default_shell_command();
-    let l_is_custom = !l.is_empty() && l != default_shell_command();
-    if !p_is_default {
-        p.to_string()
-    } else if l_is_custom {
-        l.to_string()
-    } else if !p.is_empty() {
-        p.to_string()
-    } else if !l.is_empty() {
-        l.to_string()
-    } else {
+    if p.is_empty() {
         default_shell_command()
+    } else {
+        p.to_string()
     }
 }
 
-fn resolve_config_initial_dir(
-    profiles: &ProfilesSection,
-    legacy: &ShellSection,
-) -> Option<String> {
+fn resolve_config_initial_dir(profiles: &ProfilesSection) -> Option<String> {
     profiles
         .initial_dir
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
-        .or_else(|| {
-            legacy
-                .initial_dir
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-        })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -969,8 +927,8 @@ impl Default for DevPerfSection {
 
 impl From<ConfigToml> for Prefs {
     fn from(c: ConfigToml) -> Self {
-        let shell = resolve_config_shell(&c.profiles, &c.shell);
-        let initial_cwd = resolve_config_initial_dir(&c.profiles, &c.shell);
+        let shell = resolve_config_shell(&c.profiles);
+        let initial_cwd = resolve_config_initial_dir(&c.profiles);
 
         Self {
             shell,
@@ -1064,8 +1022,6 @@ impl From<ConfigToml> for Prefs {
 impl From<&Prefs> for ConfigToml {
     fn from(p: &Prefs) -> Self {
         Self {
-            // Legacy `[shell]` is not written; values live under `[profiles]`.
-            shell: ShellSection::default(),
             cursor: CursorSection {
                 style: p.terminal_cursor_style.clone(),
                 blink: p.terminal_cursor_blink,
