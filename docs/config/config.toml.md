@@ -4,120 +4,32 @@
 
 ## `[profiles]`
 
-Connection profiles and spawn defaults. Profile definitions live in `~/.partty/profiles/*.toml`. On each list, ParTTY seeds missing files from detected local shells and installed WSL distros (`wsl.exe -l -q`, same discovery Windows Terminal uses).
+Spawn defaults and picker behavior. **Profile definitions, SSH, WSL, and aliases:** [`profiles.md`](../profiles.md).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `default` | string | `"local-default"` | Profile id for new tabs (when `new_tab_uses_default`) and panes without inheritance |
-| `shell` | string | `"pwsh"` | Fallback shell when a local profile omits `shell` (incl. `local-default`) |
-| `initial_dir` | string or absent | absent | Default start directory (Settings → Start in) |
-| `inherit_on_split` | bool | `true` | Splits copy the parent pane's profile |
-| `inherit_cwd_on_split` | bool | `true` | Splits copy the parent pane's cwd (Windows-native paths) |
-| `palette_tab_picker` | bool | `true` | In the command palette, Tab on New tab / Split opens a profile list |
-| `new_tab_uses_default` | bool | `true` | New tabs use `default` instead of the focused pane's profile |
-| `omit` | string[] | `[]` | Profile ids hidden from pickers / Settings (files stay on disk) |
-| `palette_icons` | bool | `true` | Show cached exe icons next to profiles in the `@profile` palette |
+| `default` | string | `"local-default"` | Profile id for new tabs (when `new_tab_uses_default`) |
+| `shell` | string | `"pwsh"` | Fallback shell for local profiles with no `shell` |
+| `initial_dir` | string or absent | absent | Default start directory |
+| `inherit_on_split` | bool | `true` | Splits copy parent profile |
+| `inherit_cwd_on_split` | bool | `true` | Splits copy parent cwd |
+| `palette_tab_picker` | bool | `true` | Tab on New tab / Split → profile picker |
+| `new_tab_uses_default` | bool | `true` | New tabs use `default` |
+| `omit` | string[] | `[]` | Hide profile ids from pickers |
+| `palette_icons` | bool | `true` | Icons in profile picker |
 
 ```toml
 [profiles]
 default = "local-pwsh"
 shell = "pwsh"
-# initial_dir = "C:\\Users\\you"
 omit = ["local-powershell", "wsl-docker-desktop"]
-palette_icons = true
 ```
-
-### `[profiles.selection_aliases]` (config-only)
-
-Single-character shortcuts for the profile picker (Tab on New tab / Split, profile-split keybinds, or typing `@profile:…`). **Not** exposed in Settings — edit `config.toml` only. Settings saves preserve this table.
-
-The hotkey/Tab picker opens with an empty field and a dimmed **Profile** placeholder; type to filter (case-insensitive). Aliases apply only while the filter is empty and are **case-sensitive** (`a` and `A` are distinct).
-
-| Key | Type | Description |
-|-----|------|-------------|
-| *(character)* | string | Maps one character → profile `id`. Case-sensitive; only single characters are kept. If the same key is assigned to two different ids, that alias is **disabled** (other aliases still work; profiles stay available). |
 
 ```toml
 [profiles.selection_aliases]
-a = "wsl-archlinux"
-A = "local-pwsh"
+a = "wsl-ubuntu"
 s = "ssh-prod"
-# Conflicting — both ignored for key "x"; profiles still appear in the picker:
-# x = "local-pwsh"
-# x = "wsl-archlinux"
 ```
-
-Example: `Alt+Shift+V` (split right) → `a` → Arch; `Shift+A` → pwsh. Typing `arch` in the filter still matches Arch.
-> **Removed:** The old top-level `[shell]` section is gone. Use `[profiles].shell` / `[profiles].initial_dir`.
-
-### Profile files (`~/.partty/profiles/`)
-
-Each `*.toml` file is one profile. Seeded examples:
-
-| File | Meaning |
-|------|---------|
-| `local-default.toml` | Follows `[profiles].shell` |
-| `local-pwsh.toml` | `pwsh` |
-| `local-powershell.toml` | `powershell` |
-| `local-cmd.toml` | `CMD` |
-| `local-bash.toml` | `bash` (when detected) |
-| `wsl-ubuntu.toml` | WSL distro (`kind = "wsl"`, `wsl_distro = "Ubuntu"`) |
-
-```toml
-version = 1
-id = "local-pwsh"
-name = "pwsh"           # friendly UI name (alias: display_name)
-kind = "local"
-shell = "pwsh"
-# initial_cwd = "C:\\Users\\you\\code"  # optional; overrides [profiles].initial_dir
-builtin = true
-```
-
-```toml
-version = 1
-id = "wsl-archlinux"
-name = "Arch Linux"     # rename freely; spawn still uses wsl_distro
-kind = "wsl"
-wsl_distro = "archlinux"
-builtin = true
-```
-
-SSH profiles are **manual only** (no in-app profile builder). Drop a TOML file under `~/.partty/profiles/`:
-
-```toml
-version = 1
-id = "ssh-prod"
-name = "Prod"                 # friendly UI name
-kind = "ssh"
-ssh_host = "prod.example.com" # or user@host, or an ~/.ssh/config Host alias
-ssh_user = "deploy"           # optional if not in ssh_host / config
-ssh_port = 22                 # optional
-ssh_identity_file = "C:\\Users\\you\\.ssh\\id_ed25519"  # optional
-ssh_args = ["-o", "ForwardAgent=yes"]                  # optional extra OpenSSH args
-# startup_command = "tmux attach -t main || tmux new -s main"  # optional remote cmd (-t)
-```
-
-Or a full Windows Terminal–style commandline (ignores structured `ssh_*` fields):
-
-```toml
-version = 1
-id = "ssh-bastion"
-name = "Bastion"
-kind = "ssh"
-commandline = "ssh -J jump.example.com deploy@10.0.0.5"
-```
-
-`kind` may be `local`, `wsl`, or `ssh`. Local empty / omitted `shell` uses `[profiles].shell`. Optional `initial_cwd` on a profile overrides `[profiles].initial_dir` for that profile only (pane/split cwd still wins when set). WSL spawns `wsl.exe -d <wsl_distro>` (optional `--cd` from Start in / pane cwd / profile `initial_cwd`). SSH spawns OpenSSH (`ssh.exe`) from structured fields or `commandline`. `name` / `display_name` is display-only.
-
-Optional per-profile `icon` overrides auto-extract (path to `.ico`, `.png`, or `.exe`):
-
-```toml
-icon = "C:\\Icons\\prod.ico"
-```
-
-Icons are resolved like Windows Terminal when possible: local shells use WT’s bundled `ProfileIcons` PNGs; WSL uses each distro’s `shortcut.ico` (`%LOCALAPPDATA%\wsl\{guid}\` / Lxss `BasePath`). Optional per-profile `icon` overrides that. Extracting from `.exe` is only a fallback. Cached under `~/.partty/cache/icons/` when `palette_icons = true`.
-
-The file name should be `{id}.toml` (letters, numbers, `-`, `_` only), e.g. `ssh-prod.toml`. The in-file `id` should match the stem.
 
 ## `[cursor]`
 
@@ -192,13 +104,13 @@ The file name should be `{id}.toml` (letters, numbers, `-`, `_` only), e.g. `ssh
 
 ### Split layout styles
 
-Hyprland-inspired insert rules for new panes (existing trees are not rewritten when you change the style):
-
 | Value | Behavior |
 |-------|----------|
-| `balanced` | Manual splits. `Alt+V` / `Alt+H` (split right / down) are honored; new pane gets 50% of the focused leaf. |
-| `dwindle` | BSP-style. Direction is chosen from the focused pane’s aspect ratio (`W ≥ H` → side-by-side, else stacked). Hotkey direction is only a fallback when size is unknown. Ratio stays 50/50. |
-| `master` | Left master column is the tab root pane (~68% width). Further splits append vertically into the right-hand stack. If the tree is not already master-shaped (e.g. after using balanced), the next split falls back to a normal focused split until a clean master root can be formed. |
+| `balanced` | Manual splits; hotkey direction honored; 50/50 |
+| `dwindle` | Direction from focused pane aspect ratio; 50/50 |
+| `master` | Left master (~68%); further splits stack on the right |
+
+Changing style does not rewrite existing trees.
 
 ## `[window]`
 
@@ -216,17 +128,13 @@ Hyprland-inspired insert rules for new panes (existing trees are not rewritten w
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `shed_on_hide` | bool | `false` | Kill PTYs when the overlay hides |
-| `webgl_shed_on_hide` | bool | `true` | Dispose WebGL addons on hide |
-| `discard_buffer` | bool | `false` | Clear scrollback on hide and skip restore on summon |
+| `shed_on_hide` | bool | `false` | Kill PTYs on hide |
+| `webgl_shed_on_hide` | bool | `true` | Dispose WebGL on hide |
+| `discard_buffer` | bool | `false` | Skip scrollback snapshot/restore on hide |
 | `prewarm_pty` | bool | `true` | |
 | `prewarm_webgl` | bool | `true` | |
-| `defer_show` | bool | `true` | |
-| `destroy_webview` | bool | `true` | Tear down WebView2 on hide (saves RAM). With this on and `discard_buffer = false`, ParTTY serializes each pane’s xterm scrollback (SerializeAddon) before destroy and rehydrates on summon. |
-
-When `destroy_webview` is on and `discard_buffer` is off, hide takes a **point-in-time** SerializeAddon snapshot of each pane into **Rust process memory** only (cols/rows + ANSI payload). Destroy waits until that stash IPC completes (up to 5s). Cleared on restore. No `~/.partty` file. `discard_buffer = true` skips serialization and only acks the destroy gate.
-
-While the webview is destroyed, live PTY output is **held** in the Rust emitter (back-pressure, ~8MB cap) until scrollback rehydration finishes, then flushed as catch-up. Emitting earlier raced the SerializeAddon restore — especially after long hides with a large backlog — and could drop colors or evict restored history. The hide-time snapshot itself stays in process memory for the life of the ParTTY process (including multi-hour dismissals).
+| `defer_show` | bool | `true` | Hold window until layout is ready |
+| `destroy_webview` | bool | `true` | Tear down WebView2 on hide. With `discard_buffer = false`, scrollback is snapshotted into process memory and restored on summon |
 
 ## `[focus]`
 

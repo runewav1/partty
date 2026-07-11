@@ -7,7 +7,7 @@ Defaults apply unless overridden. The file need only contain changed bindings.
 ## Format
 
 ```
-Modifier+Key
+modifier+Key
 ```
 
 - **Modifiers:** `Ctrl` `Alt` `Shift` `Meta` — order irrelevant, case-insensitive
@@ -95,6 +95,4 @@ profile_split_right = "Alt+Shift+V"
 profile_split_down = "Alt+Shift+H"
 ```
 
-Pair with `[profiles.selection_aliases]` in `config.toml` for one-key profile pick after the shortcut (empty **Profile** field; case-sensitive letter aliases work before you type a filter).
-
-`profile_split_right` / `pane_split_right` = new pane to the right. `profile_split_down` / `pane_split_down` = new pane below.
+Right / down respectively. Aliases and profile files: [`profiles.md`](../profiles.md).
