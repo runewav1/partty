@@ -99,6 +99,9 @@ import {
   createKeybinds,
 } from "./keybinds";
 import { showAlert } from "./dialog";
+import { pushOverlay, type OverlayHandle } from "./overlayStack";
+import { motionDisabled, animateClass } from "./motion";
+import { filterAndRankLexical, normalizeQuery } from "./lexicalSearch";
 import pkg from "../package.json";
 import { normalizeFsPathKey } from "./oscCwd";
 import { createSettingsPanel, type ParttyPrefs } from "./settingsPanel";
@@ -2837,9 +2840,7 @@ async function boot(): Promise<void> {
     const prevTabId = activeWorkspaceTabId;
     const prevShell = tabPaneShells.get(prevTabId);
     const nextShell = tabPaneShells.get(tabId);
-    const motionOn =
-      !document.documentElement.classList.contains("terminal-motion-off") &&
-      !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const motionOn = !motionDisabled();
 
     activeWorkspaceTabId = tabId;
     tabsState = { ...tabsState, activeTabId: tabId };
@@ -2861,21 +2862,17 @@ async function boot(): Promise<void> {
 
     if (nextShell) {
       nextShell.classList.remove("term-tab-pane-shell--hidden");
-      if (motionOn) nextShell.classList.add("term-tab-pane-shell--entering");
     }
 
     if (prevShell && prevShell !== nextShell && motionOn) {
       prevShell.classList.remove("term-tab-pane-shell--hidden");
-      prevShell.classList.add("term-tab-pane-shell--leaving");
       const capturedPrev = prevTabId;
-      const onLeave = (): void => {
-        prevShell.removeEventListener("animationend", onLeave);
-        if (activeWorkspaceTabId === capturedPrev) return;
-        prevShell.classList.remove("term-tab-pane-shell--leaving");
-        prevShell.classList.add("term-tab-pane-shell--hidden");
-      };
-      prevShell.addEventListener("animationend", onLeave);
-      window.setTimeout(onLeave, 420);
+      void animateClass(prevShell, "term-tab-pane-shell--leaving", 420).then(
+        () => {
+          if (activeWorkspaceTabId === capturedPrev) return;
+          prevShell.classList.add("term-tab-pane-shell--hidden");
+        },
+      );
     } else {
       for (const [id, shell] of tabPaneShells) {
         shell.classList.toggle("term-tab-pane-shell--hidden", id !== tabId);
@@ -2884,19 +2881,17 @@ async function boot(): Promise<void> {
 
     if (nextShell && motionOn) {
       const capturedTabId = tabId;
-      const onEnter = (): void => {
-        nextShell.removeEventListener("animationend", onEnter);
-        if (activeWorkspaceTabId !== capturedTabId) return;
-        nextShell.classList.remove("term-tab-pane-shell--entering");
-        for (const [id, shell] of tabPaneShells) {
-          if (id !== capturedTabId)
-            shell.classList.add("term-tab-pane-shell--hidden");
-        }
-        scheduleCreationReflowForHost(nextHost);
-        scheduleResizeImmediate(true);
-      };
-      nextShell.addEventListener("animationend", onEnter);
-      window.setTimeout(onEnter, 420);
+      void animateClass(nextShell, "term-tab-pane-shell--entering", 420).then(
+        () => {
+          if (activeWorkspaceTabId !== capturedTabId) return;
+          for (const [id, shell] of tabPaneShells) {
+            if (id !== capturedTabId)
+              shell.classList.add("term-tab-pane-shell--hidden");
+          }
+          scheduleCreationReflowForHost(nextHost);
+          scheduleResizeImmediate(true);
+        },
+      );
     } else {
       for (const [id, shell] of tabPaneShells) {
         shell.classList.toggle("term-tab-pane-shell--hidden", id !== tabId);
@@ -3120,11 +3115,24 @@ async function boot(): Promise<void> {
   }
 
   const tabMenuEl = document.getElementById("tab-context-menu");
+  let tabMenuOverlay: OverlayHandle | null = null;
 
   function hideTabContextMenu(): void {
+    tabMenuOverlay?.release();
+    tabMenuOverlay = null;
     tabMenuEl?.classList.add("tab-context-menu--hidden");
     tabMenuEl?.replaceChildren();
     tabMenuEl?.setAttribute("aria-hidden", "true");
+  }
+
+  function showTabContextMenuAt(clientX: number, clientY: number): void {
+    if (!tabMenuEl) return;
+    tabMenuEl.style.left = `${Math.min(clientX, window.innerWidth - 160)}px`;
+    tabMenuEl.style.top = `${Math.min(clientY, window.innerHeight - 120)}px`;
+    tabMenuEl.classList.remove("tab-context-menu--hidden");
+    tabMenuEl.setAttribute("aria-hidden", "false");
+    tabMenuOverlay?.release();
+    tabMenuOverlay = pushOverlay(hideTabContextMenu);
   }
 
   function duplicateWorkspaceTab(fromTabId: string): void {
@@ -3470,6 +3478,8 @@ async function boot(): Promise<void> {
     renderWorkspaceTabsBar();
   }
 
+  let zenRenameOverlay: OverlayHandle | null = null;
+
   function openZenRenameModal(): void {
     const modal = document.getElementById("zen-rename-modal");
     const input = document.getElementById(
@@ -3483,6 +3493,8 @@ async function boot(): Promise<void> {
     input.value = tab?.name ?? "";
     modal.classList.remove("zen-rename-modal--hidden");
     modal.setAttribute("aria-hidden", "false");
+    zenRenameOverlay?.release();
+    zenRenameOverlay = pushOverlay(() => closeZenRenameModal(false));
     mouseCursorForceVisible(true);
     requestAnimationFrame(() => {
       input.focus();
@@ -3493,6 +3505,8 @@ async function boot(): Promise<void> {
   function closeZenRenameModal(commit: boolean): void {
     const modal = document.getElementById("zen-rename-modal");
     if (!modal) return;
+    zenRenameOverlay?.release();
+    zenRenameOverlay = null;
     modal.classList.add("zen-rename-modal--hidden");
     modal.setAttribute("aria-hidden", "true");
     mouseCursorForceVisible(false);
@@ -3671,23 +3685,17 @@ async function boot(): Promise<void> {
       saveTabsState(tabsState);
       renderWorkspaceTabsBar();
     });
-    if (tabsState.groups.length > 0) {
-      mk("Add to existing group", () => {
-        const groupNames = tabsState.groups.map((g) => g.name);
-        const groupName = prompt("Enter group name:", groupNames[0]);
-        if (groupName) {
-          const group = tabsState.groups.find((g) => g.name === groupName);
-          if (group) {
-            tabsState = {
-              ...tabsState,
-              tabs: tabsState.tabs.map((t) =>
-                t.id === tab.id ? { ...t, groupId: group.id } : t,
-              ),
-            };
-            saveTabsState(tabsState);
-            renderWorkspaceTabsBar();
-          }
-        }
+    for (const group of tabsState.groups) {
+      if (group.id === tab.groupId) continue;
+      mk(`Add to “${group.name}”`, () => {
+        tabsState = {
+          ...tabsState,
+          tabs: tabsState.tabs.map((t) =>
+            t.id === tab.id ? { ...t, groupId: group.id } : t,
+          ),
+        };
+        saveTabsState(tabsState);
+        renderWorkspaceTabsBar();
       });
     }
     if (tab.groupId) {
@@ -3705,10 +3713,7 @@ async function boot(): Promise<void> {
     if (tabsState.tabs.length > 1) {
       mk("Close", () => closeWorkspaceTab(tab.id));
     }
-    tabMenuEl.style.left = `${Math.min(clientX, window.innerWidth - 160)}px`;
-    tabMenuEl.style.top = `${Math.min(clientY, window.innerHeight - 120)}px`;
-    tabMenuEl.classList.remove("tab-context-menu--hidden");
-    tabMenuEl.setAttribute("aria-hidden", "false");
+    showTabContextMenuAt(clientX, clientY);
   }
 
   function openGroupContextMenu(
@@ -3782,10 +3787,7 @@ async function boot(): Promise<void> {
       saveTabsState(tabsState);
       renderWorkspaceTabsBar();
     });
-    tabMenuEl.style.left = `${Math.min(clientX, window.innerWidth - 160)}px`;
-    tabMenuEl.style.top = `${Math.min(clientY, window.innerHeight - 120)}px`;
-    tabMenuEl.classList.remove("tab-context-menu--hidden");
-    tabMenuEl.setAttribute("aria-hidden", "false");
+    showTabContextMenuAt(clientX, clientY);
   }
 
   document.addEventListener(
@@ -4253,11 +4255,13 @@ async function boot(): Promise<void> {
       root.setAttribute("aria-hidden", "false");
       mouseCursorForceVisible(true);
       const finish = (v: "keep" | "discard" | "cancel") => {
+        overlay.release();
         root.classList.add("shed-exit-dialog--hidden");
         root.setAttribute("aria-hidden", "true");
         mouseCursorForceVisible(false);
         resolve(v);
       };
+      const overlay = pushOverlay(() => finish("cancel"));
       root
         .querySelector("#shed-exit-keep")
         ?.addEventListener("click", () => finish("keep"), { once: true });
@@ -5076,18 +5080,22 @@ async function boot(): Promise<void> {
     action: ProfilePaletteAction,
     filter: string,
   ): PaletteCommand[] {
-    const filterLower = filter.toLowerCase();
     const actionLabel = PROFILE_ACTION_LABEL[action];
-    const idToAlias = !filterLower
+    const idToAlias = !filter.trim()
       ? profileIdAliasMap(profileBehaviorRef.v.profile_selection_aliases)
       : null;
-    return profilesList
-      .filter((p) => {
-        if (!filterLower) return true;
-        const hay =
-          `${p.name} ${p.kind} ${p.id} ${p.shell ?? ""} ${p.wslDistro ?? ""} ${p.sshHost ?? ""}`.toLowerCase();
-        return hay.includes(filterLower);
-      })
+    // Same token-based ranking as the palette / theme / workspace search.
+    const ranked = filterAndRankLexical(
+      profilesList.map((p) => ({
+        profile: p,
+        id: p.id,
+        label: p.name,
+        keywords: `${p.kind} ${p.id} ${p.shell ?? ""} ${p.wslDistro ?? ""} ${p.sshHost ?? ""}`,
+      })),
+      normalizeQuery(filter),
+    );
+    return ranked
+      .map((r) => r.profile)
       .map((p: ConnectionProfile) => {
         const sshDetail = p.kind === "ssh" ? p.sshHost?.trim() || "" : "";
         const showDetail =
@@ -5549,6 +5557,7 @@ async function boot(): Promise<void> {
         })
       : null;
 
+  let helpOverlay: OverlayHandle | null = null;
   openHelpPanel = () => {
     if (!helpPanelEl) return;
     commandPalette?.close();
@@ -5556,9 +5565,13 @@ async function boot(): Promise<void> {
     renderHelpShortcuts();
     helpPanelEl.classList.remove("help-panel--hidden");
     helpPanelEl.setAttribute("aria-hidden", "false");
+    helpOverlay?.release();
+    helpOverlay = pushOverlay(() => closeHelpPanel());
     mouseCursorForceVisible(true);
   };
   closeHelpPanel = () => {
+    helpOverlay?.release();
+    helpOverlay = null;
     helpPanelEl?.classList.add("help-panel--hidden");
     helpPanelEl?.setAttribute("aria-hidden", "true");
     mouseCursorForceVisible(false);
@@ -5590,9 +5603,7 @@ async function boot(): Promise<void> {
     ?.addEventListener("click", (e) => {
       if (e.target === e.currentTarget) closeZenRenameModal(false);
     });
-  zenModal?.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeZenRenameModal(false);
-  });
+  // Escape is handled by the shared overlay stack.
   const extManagerEl = document.getElementById(
     "extension-manager",
   ) as HTMLElement | null;
@@ -5826,28 +5837,6 @@ async function boot(): Promise<void> {
     );
 
   }
-
-  document.addEventListener(
-    "keydown",
-    (e) => {
-      if (e.key !== "Escape") return;
-      if (commandPalette?.isOpen()) return;
-      if (settingsApi?.isOpen()) return;
-      if (themeModal?.isOpen()) {
-        e.preventDefault();
-        themeModal.close();
-        return;
-      }
-      if (
-        helpPanelEl &&
-        !helpPanelEl.classList.contains("help-panel--hidden")
-      ) {
-        e.preventDefault();
-        closeHelpPanel();
-      }
-    },
-    true,
-  );
 
   type StashedPaneBuffer = {
     data: string;

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { mouseCursorForceVisible } from "./mouseCursor";
+import { pushOverlay, type OverlayHandle } from "./overlayStack";
 
 export type ExtensionMeta = {
   id: string;
@@ -19,6 +20,7 @@ export type ExtensionManagerApi = {
 
 export function createExtensionManager(el: HTMLElement): ExtensionManagerApi {
   let open = false;
+  let overlay: OverlayHandle | null = null;
   const list = el.querySelector(".extension-manager-list") as HTMLElement | null;
 
   async function loadExtensions(): Promise<ExtensionMeta[]> {
@@ -65,6 +67,8 @@ export function createExtensionManager(el: HTMLElement): ExtensionManagerApi {
 
   const closeImpl = () => {
     open = false;
+    overlay?.release();
+    overlay = null;
     mouseCursorForceVisible(false);
     el.classList.add("extension-manager--hidden");
     el.setAttribute("aria-hidden", "true");
@@ -78,6 +82,7 @@ export function createExtensionManager(el: HTMLElement): ExtensionManagerApi {
     open: async () => {
       if (open) return;
       open = true;
+      overlay = pushOverlay(closeImpl);
       mouseCursorForceVisible(true);
       el.classList.remove("extension-manager--hidden");
       el.setAttribute("aria-hidden", "false");

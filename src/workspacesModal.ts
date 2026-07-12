@@ -5,6 +5,7 @@ import {
   type Workspace,
 } from "./workspaces";
 import { mouseCursorForceVisible } from "./mouseCursor";
+import { pushOverlay, type OverlayHandle } from "./overlayStack";
 import { filterAndRankLexical, normalizeQuery } from "./lexicalSearch";
 import type { WorkspaceLoadTarget } from "./workspaceEditorModal";
 
@@ -25,6 +26,7 @@ export type WorkspacesModalOptions = {
 export function createWorkspacesModal(opts: WorkspacesModalOptions): WorkspacesModalApi {
   const { root, onSave, onLoad, onEdit, onCapture } = opts;
   let open = false;
+  let overlay: OverlayHandle | null = null;
   let selected = 0;
   let names: string[] = [];
   let filteredNames: string[] = [];
@@ -229,10 +231,7 @@ export function createWorkspacesModal(opts: WorkspacesModalOptions): WorkspacesM
       updateSelectionClasses();
       return;
     }
-    if (e.key === "Escape") {
-      e.preventDefault();
-      close();
-    }
+    // Escape is handled by the shared overlay stack.
   });
 
   closeBtn.addEventListener("click", () => close());
@@ -240,6 +239,7 @@ export function createWorkspacesModal(opts: WorkspacesModalOptions): WorkspacesM
 
   function show(): void {
     open = true;
+    overlay = pushOverlay(close);
     root.classList.remove("theme-modal--hidden");
     root.setAttribute("aria-hidden", "false");
     document.documentElement.classList.add("theme-modal-open");
@@ -255,6 +255,8 @@ export function createWorkspacesModal(opts: WorkspacesModalOptions): WorkspacesM
   function close(): void {
     if (!open) return;
     open = false;
+    overlay?.release();
+    overlay = null;
     root.classList.add("theme-modal--hidden");
     root.setAttribute("aria-hidden", "true");
     document.documentElement.classList.remove("theme-modal-open");

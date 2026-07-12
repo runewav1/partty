@@ -146,6 +146,23 @@
   --ui-chrome-fg: #f4f4f5;
   --ui-chrome-muted: #a1a1aa;
   --ui-chrome-fainter: #71717a;
+
+  /* ===== Z-Index Layers (single source of truth for overlay stacking) ===== */
+  --layer-pane-rename: 100;
+  --layer-palette: 1000;
+  --layer-panel: 1100;              /* settings + help panels */
+  --layer-extensions: 1500;
+  --layer-toast: 2000;
+  --layer-dialog: 3000;             /* termie alert / prompt / confirm */
+  --layer-dev-overlay: 5000;
+  --layer-theme-modal: 8500;
+  --layer-theme-builder: 9000;
+  --layer-zen-rename: 9500;
+  --layer-workspace-editor: 9600;
+  --layer-workspace-editor-drag: 9700;
+  --layer-context-menu: 12000;
+  --layer-exit-dialog: 13000;
+  --layer-pane-drag-preview: 20000;
 }
 
 /* ===== Motion "Feel" presets (Settings → Terminal → Feel) ===== */
@@ -163,6 +180,51 @@ html[data-motion-style="gentle"] {
   --motion-ease-emphasized: cubic-bezier(0.25, 1, 0.5, 1);
   --motion-ease-standard: cubic-bezier(0.45, 0, 0.55, 1);
 }
+/* ===== Shared overlay enter motion =====
+   Every chrome surface (modals, panels, menus, dialogs) fades and settles in
+   with the same curve. Animations replay automatically when the surface's
+   root leaves display:none, so no JS is involved. Exit stays instant by
+   design — dismissal should feel immediate. `scale` (the standalone property)
+   is used instead of `transform` so translate-based centering and dragged
+   positions are never disturbed. */
+@keyframes overlay-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes overlay-panel-in {
+  from { opacity: 0; scale: 0.98; }
+  to { opacity: 1; scale: 1; }
+}
+
+.command-palette-panel,
+.settings-panel-card,
+.help-panel-card,
+.theme-modal-panel,
+.theme-builder-panel,
+.workspace-editor-panel,
+.zen-rename-card,
+.extension-manager-card,
+.termie-dialog-panel,
+.shed-exit-dialog-card,
+.pane-rename-panel,
+.tab-context-menu {
+  animation: overlay-panel-in var(--motion-medium) var(--motion-ease-out) backwards;
+}
+
+.command-palette,
+.help-panel-backdrop,
+.settings-panel-backdrop,
+.termie-dialog-backdrop,
+.theme-builder-backdrop,
+.theme-modal-backdrop,
+.workspace-editor-backdrop,
+.zen-rename-backdrop,
+.extension-manager-backdrop,
+.shed-exit-dialog {
+  animation: overlay-backdrop-in var(--motion-fast) var(--motion-ease-out) backwards;
+}
+
 html[data-motion-style="bouncy"] {
   --motion-feel: 1.08;
   --motion-ease-out: cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -273,7 +335,7 @@ html.theme-builder-open #main-workspace {
 
 .pane-rename-panel {
   position: fixed;
-  z-index: 100;
+  z-index: var(--layer-pane-rename);
   min-width: 260px;
   overflow: hidden;
   border: 1px solid var(--panel-border);
@@ -827,7 +889,7 @@ html.terminal-no-round .term-tab-group {
 /* Alt+drag from pane to swap (see theme modal hint). Floated during drag: glass blur. */
 .pane-drag-preview {
   position: fixed;
-  z-index: 20000;
+  z-index: var(--layer-pane-drag-preview);
   pointer-events: none;
   box-sizing: border-box;
   border-radius: var(--termie-pane-radius);
@@ -1283,7 +1345,7 @@ html.zen-mode #main-workspace {
   right: 0;
   bottom: 0;
   left: 0;
-  z-index: 1000;
+  z-index: var(--layer-palette);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -1312,7 +1374,7 @@ html.zen-mode #main-workspace {
   backdrop-filter: blur(16px) saturate(1.08);
   -webkit-backdrop-filter: blur(16px) saturate(1.08);
   overflow: hidden;
-  z-index: 1001;
+  z-index: calc(var(--layer-palette) + 1);
 }
 
 .command-palette-toolbar {
@@ -1488,7 +1550,7 @@ html.zen-mode #main-workspace {
 /* Workspace tab context menu (right-click tab) */
 .tab-context-menu {
   position: fixed;
-  z-index: 12000;
+  z-index: var(--layer-context-menu);
   min-width: 168px;
   padding: 5px;
   margin: 0;
@@ -1526,7 +1588,7 @@ html.zen-mode #main-workspace {
 .help-panel {
   position: fixed;
   inset: 0;
-  z-index: 1100;
+  z-index: var(--layer-panel);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -1615,7 +1677,7 @@ html.zen-mode #main-workspace {
 .settings-panel {
   position: fixed;
   inset: 0;
-  z-index: 1100;
+  z-index: var(--layer-panel);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -1913,7 +1975,7 @@ html.zen-mode #main-workspace {
   outline-offset: 2px;
 }
 
-/* ── Toggle grids (deprecated — each toggle is now its own full-width row) ── */
+/* ── Toggle group wrappers (layout-neutral; each toggle is its own row) ── */
 .settings-toggles { display: contents; }
 
 /* ── Tree visibility ── */
@@ -1969,7 +2031,7 @@ html.zen-mode #main-workspace {
 .termie-dialog-host {
   position: fixed;
   inset: 0;
-  z-index: 3000;
+  z-index: var(--layer-dialog);
   pointer-events: none;
 }
 
@@ -2049,28 +2111,28 @@ html.zen-mode #main-workspace {
 }
 
 .termie-dialog-btn--primary {
-  background: #6366f1;
+  background: var(--accent-primary);
   color: #fafafa;
 }
 
 .termie-dialog-btn--primary:hover {
-  background: #818cf8;
+  background: var(--accent-primary-light);
 }
 
 .termie-dialog-btn--danger {
-  background: #b91c1c;
+  background: var(--accent-danger);
   color: #fafafa;
 }
 
 .termie-dialog-btn--danger:hover {
-  background: #dc2626;
+  background: var(--accent-danger-light);
 }
 
 /* Exit: keep vs shed workspace (close-requested when prefs = ask) */
 .shed-exit-dialog {
   position: fixed;
   inset: 0;
-  z-index: 13000;
+  z-index: var(--layer-exit-dialog);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2153,7 +2215,7 @@ html.zen-mode #main-workspace {
 .theme-builder-root {
   position: fixed;
   inset: 0;
-  z-index: 9000;
+  z-index: var(--layer-theme-builder);
   pointer-events: none;
 }
 
@@ -2374,7 +2436,7 @@ html.zen-mode #main-workspace {
 .theme-modal {
   position: fixed;
   inset: 0;
-  z-index: 8500;
+  z-index: var(--layer-theme-modal);
   pointer-events: none;
 }
 
@@ -2499,8 +2561,7 @@ html.zen-mode #main-workspace {
 }
 
 .theme-modal-item--active {
-  background: rgba(129, 140, 248, 0.18);
-  outline: 1px solid rgba(129, 140, 248, 0.35);
+  background: var(--hover-overlay);
 }
 
 /* Workspaces modal — minimal (no title bar, no list scrollbar) */
@@ -2536,7 +2597,7 @@ html.zen-mode #main-workspace {
 .workspace-editor-root {
   position: fixed;
   inset: 0;
-  z-index: 9600;
+  z-index: var(--layer-workspace-editor);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2683,7 +2744,7 @@ html.zen-mode #main-workspace {
 
 .workspace-editor-drag-preview {
   position: fixed;
-  z-index: 9700;
+  z-index: var(--layer-workspace-editor-drag);
   pointer-events: none;
   opacity: 0.85;
   box-shadow: 0 8px 24px var(--panel-shadow);
@@ -2765,7 +2826,7 @@ html.workspace-editor-open #main-workspace {
 .zen-rename-modal {
   position: fixed;
   inset: 0;
-  z-index: 9500;
+  z-index: var(--layer-zen-rename);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2843,16 +2904,12 @@ html.workspace-editor-open #main-workspace {
   filter: brightness(1.06);
 }
 
-.theme-modal-item--active {
-  background: var(--hover-overlay-light);
-}
-
 /* ── Process completion notification toast ── */
 .proc-toast {
   position: fixed;
   bottom: 12px;
   right: 12px;
-  z-index: 2000;
+  z-index: var(--layer-toast);
   max-width: 400px;
   padding: 6px 10px;
   border-radius: 6px;
@@ -2911,7 +2968,7 @@ html.workspace-editor-open #main-workspace {
 .extension-manager {
   position: fixed;
   inset: 0;
-  z-index: 1500;
+  z-index: var(--layer-extensions);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3024,7 +3081,7 @@ html.workspace-editor-open #main-workspace {
   border: 1px solid color-mix(in srgb, var(--ui-chrome-muted) 20%, transparent);
   border-radius: 8px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
-  z-index: 5000;
+  z-index: var(--layer-dev-overlay);
   font-family: var(--font-ui);
   font-size: 11px;
   color: var(--ui-chrome-fg);

@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { mouseCursorForceVisible } from "./mouseCursor";
+import { pushOverlay, type OverlayHandle } from "./overlayStack";
+import { showAlert, showConfirm } from "./dialog";
 import type { ParttyPrefs } from "./settingsPanel";
 import {
   applyUiTheme,
@@ -62,6 +64,7 @@ export function createThemeBuilderModal(
   onApplied: (prefs: UiThemePrefs) => void,
 ): ThemeBuilderApi {
   let open = false;
+  let overlay: OverlayHandle | null = null;
   let vars: ThemeCssVars = {};
   let initialPrefs: UiThemePrefs | null = null;
 
@@ -195,7 +198,13 @@ export function createThemeBuilderModal(
       del.textContent = "Remove";
       del.addEventListener("click", () => {
         void (async () => {
-          if (!window.confirm(`Remove custom theme “${name}”?`)) return;
+          const ok = await showConfirm(
+            `Remove custom theme “${name}”?`,
+            "Delete theme",
+            "Remove",
+            true,
+          );
+          if (!ok) return;
           try {
             await invoke("delete_theme", { name });
             await reloadCustomThemesIntoCache();
@@ -214,6 +223,8 @@ export function createThemeBuilderModal(
   function close(): void {
     if (!open) return;
     open = false;
+    overlay?.release();
+    overlay = null;
     mouseCursorForceVisible(false);
     root.classList.add("theme-builder-root--hidden");
     root.setAttribute("aria-hidden", "true");
@@ -231,7 +242,10 @@ export function createThemeBuilderModal(
     void (async () => {
       const slug = nameInput.value.trim().toLowerCase().replace(/\s+/g, "-");
       if (!slug || !/^[a-z0-9_-]+$/i.test(slug)) {
-        window.alert("Enter a valid theme name (letters, numbers, dashes, underscores).");
+        await showAlert(
+          "Enter a valid theme name (letters, numbers, dashes, underscores).",
+          "Theme builder",
+        );
         return;
       }
       try {
@@ -254,7 +268,7 @@ export function createThemeBuilderModal(
         close();
       } catch (e) {
         console.error("save theme", e);
-        window.alert("Could not save theme.");
+        await showAlert("Could not save theme.", "Theme builder");
       }
     })();
   });
@@ -263,6 +277,7 @@ export function createThemeBuilderModal(
     open: (options?: ThemeBuilderOpenOptions) => {
       if (open) return;
       open = true;
+      overlay = pushOverlay(close);
       mouseCursorForceVisible(true);
       void (async () => {
         try {

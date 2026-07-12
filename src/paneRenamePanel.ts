@@ -1,4 +1,8 @@
 import { mouseCursorForceVisible } from "./mouseCursor";
+import { pushOverlay, type OverlayHandle } from "./overlayStack";
+import { attachDraggablePanel } from "./draggablePanel";
+
+const POS_KEY = "partty.paneRename.pos";
 
 export type PaneRenamePanelApi = {
   open(paneId: string, currentName?: string): void;
@@ -13,6 +17,7 @@ export function createPaneRenamePanel(opts: {
 }): PaneRenamePanelApi {
   const { root, onCommit } = opts;
   let open = false;
+  let overlay: OverlayHandle | null = null;
   let activePaneId = "";
 
   root.className = "pane-rename pane-rename--hidden";
@@ -29,6 +34,8 @@ export function createPaneRenamePanel(opts: {
   const input = root.querySelector(".pane-rename-input") as HTMLInputElement;
   const form = root.querySelector(".pane-rename-form") as HTMLFormElement;
 
+  attachDraggablePanel(panel, form, POS_KEY);
+
   function positionForFirstOpen(): void {
     if (panel.style.left && panel.style.top) return;
     const w = 300;
@@ -42,37 +49,17 @@ export function createPaneRenamePanel(opts: {
   function close(): void {
     if (!open) return;
     open = false;
+    overlay?.release();
+    overlay = null;
     mouseCursorForceVisible(false);
     root.classList.add("pane-rename--hidden");
     root.setAttribute("aria-hidden", "true");
-  }
-
-  function beginDrag(e: PointerEvent): void {
-    if (e.button !== 0 || (e.target as HTMLElement).closest("button,input")) return;
-    e.preventDefault();
-    const rect = panel.getBoundingClientRect();
-    const dx = e.clientX - rect.left;
-    const dy = e.clientY - rect.top;
-    const move = (ev: PointerEvent): void => {
-      panel.style.left = `${Math.max(0, Math.min(window.innerWidth - 80, ev.clientX - dx))}px`;
-      panel.style.top = `${Math.max(0, Math.min(window.innerHeight - 48, ev.clientY - dy))}px`;
-    };
-    const done = (): void => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", done);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", done, { once: true });
   }
 
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     onCommit(activePaneId, input.value);
     close();
-  });
-  form.addEventListener("pointerdown", beginDrag);
-  panel.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") close();
   });
 
   function setPane(paneId: string, currentName = ""): void {
@@ -84,7 +71,10 @@ export function createPaneRenamePanel(opts: {
   return {
     open: (paneId, currentName = "") => {
       setPane(paneId, currentName);
-      open = true;
+      if (!open) {
+        open = true;
+        overlay = pushOverlay(close);
+      }
       mouseCursorForceVisible(true);
       positionForFirstOpen();
       root.classList.remove("pane-rename--hidden");

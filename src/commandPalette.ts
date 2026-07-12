@@ -3,6 +3,7 @@
  */
 
 import { mouseCursorForceVisible } from "./mouseCursor";
+import { pushOverlay, type OverlayHandle } from "./overlayStack";
 import {
   filterAndRankLexical,
   normalizeQuery,
@@ -85,6 +86,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
   let filterRaf = 0;
   let refreshTimer = 0;
   let pendingOpen: CommandPaletteOpenOptions | null = null;
+  let overlay: OverlayHandle | null = null;
   const defaultPlaceholder = input.placeholder || "Command or > …";
 
   function applyFilter(): void {
@@ -198,6 +200,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
         await onBeforeOpen?.();
         if (open) return;
         open = true;
+        overlay = pushOverlay(() => closePalette(false));
         mouseCursorForceVisible(true);
         root.classList.remove("command-palette--hidden");
         root.setAttribute("aria-hidden", "false");
@@ -225,6 +228,8 @@ export function createCommandPalette(mount: CommandPaletteMount): {
   function closePalette(skipFocus = false): void {
     if (!open) return;
     open = false;
+    overlay?.release();
+    overlay = null;
     mouseCursorForceVisible(false);
     root.classList.add("command-palette--hidden");
     root.setAttribute("aria-hidden", "true");
@@ -255,12 +260,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 
   function onKeyDown(e: KeyboardEvent): void {
     if (!open) return;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      closePalette(false);
-      return;
-    }
+    // Escape is handled by the shared overlay stack.
     if (e.key === "ArrowDown") {
       e.preventDefault();
       e.stopPropagation();

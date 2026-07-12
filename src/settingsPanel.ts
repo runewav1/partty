@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { mouseCursorForceVisible } from "./mouseCursor";
+import { pushOverlay, type OverlayHandle } from "./overlayStack";
 
 /** Mirrors `prefs::Prefs` JSON (snake_case). */
 export type ParttyPrefs = {
@@ -165,6 +166,7 @@ export function createSettingsPanel(
 ): SettingsPanelApi {
   let open = false;
   let saving = false;
+  let overlay: OverlayHandle | null = null;
 
   const form = root.querySelector("#settings-form") as HTMLFormElement | null;
 
@@ -520,6 +522,8 @@ export function createSettingsPanel(
   function close(save = true): void {
     if (!open) return;
     open = false;
+    overlay?.release();
+    overlay = null;
     mouseCursorForceVisible(false);
     root.classList.add("settings-panel--hidden");
     root.setAttribute("aria-hidden", "true");
@@ -555,9 +559,7 @@ export function createSettingsPanel(
         applySettingsSearch();
       });
     });
-    root.addEventListener("keydown", (e) => {
-      if (e.key === "Escape") close();
-    });
+    // Escape is handled by the shared overlay stack.
   }
   ensureListeners();
 
@@ -565,6 +567,7 @@ export function createSettingsPanel(
     open: () => {
       if (open) return;
       open = true;
+      overlay = pushOverlay(() => close());
       mouseCursorForceVisible(true);
       ensureListeners();
       root.classList.remove("settings-panel--hidden");

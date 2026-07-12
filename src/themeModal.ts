@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { mouseCursorForceVisible } from "./mouseCursor";
+import { pushOverlay, type OverlayHandle } from "./overlayStack";
+import { attachDraggablePanel } from "./draggablePanel";
 import {
   filterAndRankLexical,
   normalizeQuery,
@@ -43,6 +45,7 @@ export function createThemeModal(
   onClosed?: () => void,
 ): ThemeModalApi {
   let open = false;
+  let overlay: OverlayHandle | null = null;
   let initial: UiThemePrefs | null = null;
   let commitOverride: ThemeModalOpenOptions["onCommit"] | null = null;
   let fontBase = { font_terminal: "", font_ui: "" };
@@ -193,45 +196,7 @@ export function createThemeModal(
   root.appendChild(backdrop);
   root.appendChild(panel);
 
-  function loadPos(): void {
-    try {
-      const raw = localStorage.getItem(POS_KEY);
-      if (!raw) return;
-      const j = JSON.parse(raw) as { left: number; top: number };
-      if (typeof j.left === "number" && typeof j.top === "number") {
-        panel.style.left = `${j.left}px`;
-        panel.style.top = `${j.top}px`;
-        panel.style.transform = "none";
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  function savePos(): void {
-    const r = panel.getBoundingClientRect();
-    localStorage.setItem(POS_KEY, JSON.stringify({ left: r.left, top: r.top }));
-  }
-
-  let drag: { x: number; y: number; ox: number; oy: number } | null = null;
-  head.addEventListener("pointerdown", (e) => {
-    if ((e.target as HTMLElement).closest("button")) return;
-    drag = { x: e.clientX, y: e.clientY, ox: panel.offsetLeft, oy: panel.offsetTop };
-    head.setPointerCapture(e.pointerId);
-  });
-  head.addEventListener("pointermove", (e) => {
-    if (!drag) return;
-    const dx = e.clientX - drag.x;
-    const dy = e.clientY - drag.y;
-    panel.style.left = `${drag.ox + dx}px`;
-    panel.style.top = `${drag.oy + dy}px`;
-    panel.style.transform = "none";
-  });
-  head.addEventListener("pointerup", (e) => {
-    if (drag) savePos();
-    drag = null;
-    head.releasePointerCapture(e.pointerId);
-  });
+  attachDraggablePanel(panel, head, POS_KEY);
 
   function indexForPrefs(p: UiThemePrefs): number {
     const n = normalizePaneThemePrefs(p);
@@ -303,12 +268,7 @@ export function createThemeModal(
   const onKey = (e: KeyboardEvent): void => {
     if (!open) return;
     if (e.target === searchInput && e.key !== "Escape" && e.key !== "Enter" && e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      close();
-      return;
-    }
+    // Escape is handled by the shared overlay stack.
     if (e.key === "ArrowDown") {
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -345,6 +305,8 @@ export function createThemeModal(
   function close(): void {
     if (!open) return;
     open = false;
+    overlay?.release();
+    overlay = null;
     mouseCursorForceVisible(false);
     root.classList.add("theme-modal--hidden");
     root.setAttribute("aria-hidden", "true");
@@ -363,6 +325,7 @@ export function createThemeModal(
     open: (options?: ThemeModalOpenOptions) => {
       if (open) return;
       open = true;
+      overlay = pushOverlay(close);
       mouseCursorForceVisible(true);
       commitOverride = options?.onCommit ?? null;
       window.addEventListener("keydown", onKey, true);
@@ -395,7 +358,6 @@ export function createThemeModal(
         if (!open) return;
         selectedFlat = indexForPrefs(initial);
         updateSelection();
-        loadPos();
         root.classList.remove("theme-modal--hidden");
         root.setAttribute("aria-hidden", "false");
         document.documentElement.classList.add("theme-modal-open");

@@ -1,6 +1,7 @@
 import type { ConnectionProfile } from "./connectionProfiles";
 import { getProfileById } from "./connectionProfiles";
 import { mouseCursorForceVisible } from "./mouseCursor";
+import { pushOverlay, type OverlayHandle } from "./overlayStack";
 import {
   THEME_OPTIONS,
   normalizePaneThemePrefs,
@@ -74,6 +75,7 @@ export function createWorkspaceEditorModal(
 ): WorkspaceEditorApi {
   const { root, getProfiles, onApply } = opts;
   let open = false;
+  let overlay: OverlayHandle | null = null;
   let maps = emptyDraftMaps();
   let selectedId = "";
   let viewport: WorkspaceEditorViewport | null = null;
@@ -370,6 +372,7 @@ export function createWorkspaceEditorModal(
     ensureViewport(w.layout);
     syncNameActions();
     open = true;
+    overlay = pushOverlay(close);
     mouseCursorForceVisible(true);
     root.classList.remove("workspace-editor-root--hidden");
     root.setAttribute("aria-hidden", "false");
@@ -451,13 +454,11 @@ export function createWorkspaceEditorModal(
   cancelBtn.addEventListener("click", () => close());
   backdrop.addEventListener("click", () => close());
   closeBtn.addEventListener("click", () => close());
-  panel.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") close();
-  });
-
   function close(): void {
     if (!open) return;
     open = false;
+    overlay?.release();
+    overlay = null;
     viewport = null;
     viewportMount.replaceChildren();
     mouseCursorForceVisible(false);
