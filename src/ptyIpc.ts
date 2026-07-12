@@ -20,8 +20,25 @@ export function ptyEnsure(
   });
 }
 
-export function ptyResize(paneId: string, cols: number, rows: number): Promise<void> {
-  return invoke("pty_resize", { paneId, cols, rows });
+export type PtyResizeEntry = {
+  paneId: string;
+  cols: number;
+  rows: number;
+};
+
+export function ptyResizeBatch(
+  items: ReadonlyArray<PtyResizeEntry>,
+): Promise<void> {
+  if (items.length === 0) return Promise.resolve();
+  return invoke("pty_resize_batch", { items });
+}
+
+export function ptyResize(
+  paneId: string,
+  cols: number,
+  rows: number,
+): Promise<void> {
+  return ptyResizeBatch([{ paneId, cols, rows }]);
 }
 
 export function ptyWrite(paneId: string, data: string): Promise<void> {

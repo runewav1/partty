@@ -8,7 +8,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig(({ mode }) => ({
+  resolve: {
+    alias:
+      mode === "production"
+        ? {
+            [path.resolve(__dirname, "src/perf.ts")]: path.resolve(
+              __dirname,
+              "src/perf.stub.ts",
+            ),
+          }
+        : {},
+  },
 
   build: {
   },

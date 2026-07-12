@@ -128,18 +128,25 @@ import {
 } from "./workspaces";
 
 import {
+  createStringChunkBuffer,
+  drainStringChunks,
+  peekStringChunkChars,
+  pushStringChunk,
+  type StringChunkBuffer,
+} from "./chunkBuffer";
+import {
   ptyAckExit,
   ptyEnsure,
   ptyFocusPane,
   ptyKillPane,
   ptyReplaySnapshot,
-  ptyResize,
+  ptyResizeBatch,
   ptyShellCwd,
   ptyWrite,
 } from "./ptyIpc";
 import { createTabCloseIcon } from "./toolbarIcons";
 import { parttyPerf } from "./perf";
-import { createDevMetricsOverlay, type DevMetricsOverlayApi } from "./devMetricsOverlay";
+import type { DevMetricsOverlayApi } from "./devMetricsOverlay";
 import {
   bindMouseCursorForceVisible,
   createMouseCursorController,
@@ -152,10 +159,12 @@ import {
   displayProcessCommand,
   markProcessExecStart,
   mergeProcessCommand,
-  normalizeCommandLine,
+  needsKeystrokeProcessTracking,
+  observeKeystrokeProcessInput,
   processDurationMs,
   shouldEndOnPromptStart,
   type ActiveProcessEntry,
+  type KeystrokeProcessObserver,
 } from "./processTracking";
 
 // Terminal color constants with fallbacks
@@ -336,6 +345,7 @@ function applyPaneFocusScalePrefs(raw: Partial<ParttyPrefs>): void {
 }
 
 function configureDevPerfPrefs(raw: Partial<ParttyPrefs>): void {
+  if (!import.meta.env.DEV) return;
   parttyPerf.configure({
     enabled: Boolean(raw.dev_perf_enabled),
     consoleEnabled: Boolean(raw.dev_perf_console),
@@ -379,7 +389,7 @@ type PaneWebglState = {
   contextLossDispose?: { dispose(): void };
 };
 type PendingPtyOutput = {
-  data: string;
+  chunks: StringChunkBuffer;
   eventCount: number;
   queuedAt: number;
 };
@@ -418,6 +428,9 @@ function terminalFontStackFromDocument(): string {
 
 async function boot(): Promise<void> {
   migrateParttyLocalStorage();
+  if (!import.meta.env.DEV) {
+    document.querySelectorAll("[data-dev-only]").forEach((el) => el.remove());
+  }
   const k = createKeybinds();
   const persisted = await invoke<PersistedPayload>("get_persisted_state");
   syncRuntimeShedFromPrefs(persisted.prefs as ParttyPrefs);
@@ -729,6 +742,7 @@ async function boot(): Promise<void> {
   /** Latest OSC 633;E line per pane, merged until pre-exec or finish. */
   const pendingShellCommandLine = new Map<string, string>();
   const processInputBuffers = new Map<string, string>();
+  let keystrokeProcessTrackingEnabled = false;
   const paneHostCleanups = new Map<string, Array<() => void>>();
   /** Extension PTY input subscribers — zero-cost when empty. */
   const extPtyInputSubs: Array<(paneId: string, data: string) => void> = [];
@@ -757,7 +771,38 @@ async function boot(): Promise<void> {
   const extWindowShowSubs: Array<() => void> = [];
   const extWindowHideSubs: Array<() => void> = [];
 
-  const pendingPtyWriteByPane = new Map<string, string>();
+  const syncKeystrokeProcessTracking = (): void => {
+    keystrokeProcessTrackingEnabled = needsKeystrokeProcessTracking(
+      processNotificationEnabledRef.v,
+      extProcStartSubs.length,
+    );
+    if (!keystrokeProcessTrackingEnabled) processInputBuffers.clear();
+  };
+  const keystrokeProcessObserver: KeystrokeProcessObserver = {
+    buffers: processInputBuffers,
+    onCommandEnter: (paneId, cmd) => {
+      if (activeProcesses.has(paneId)) return;
+      const proc = createActiveProcessEntry(cmd, paneCwdHints.get(paneId) || "");
+      activeProcesses.set(paneId, proc);
+      if (extProcStartSubs.length > 0) {
+        const start = {
+          paneId,
+          command: displayProcessCommand(cmd),
+          cwd: proc.cwd,
+        };
+        for (const fn of extProcStartSubs) {
+          try {
+            fn(start);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    },
+  };
+  syncKeystrokeProcessTracking();
+
+  const pendingPtyWriteByPane = new Map<string, StringChunkBuffer>();
   const pendingPtyOutputByPane = new Map<string, PendingPtyOutput>();
   let pendingPtyWriteRaf = 0;
   let pendingPtyOutputRaf = 0;
@@ -777,13 +822,23 @@ async function boot(): Promise<void> {
   const ptyBulkWriteTailByPane = new Map<string, Promise<void>>();
   const ptyBulkActiveByPane = new Set<string>();
 
+  const appendPendingPtyWrite = (paneId: string, data: string): void => {
+    let buf = pendingPtyWriteByPane.get(paneId);
+    if (!buf) {
+      buf = createStringChunkBuffer();
+      pendingPtyWriteByPane.set(paneId, buf);
+    }
+    pushStringChunk(buf, data);
+  };
+
   const flushPendingPtyWrites = (): void => {
     pendingPtyWriteRaf = 0;
     if (pendingPtyWriteByPane.size === 0) return;
-    for (const [paneId, data] of pendingPtyWriteByPane) {
+    for (const [paneId, buf] of pendingPtyWriteByPane) {
       // Don't interleave with an in-flight chunked paste.
       if (ptyBulkActiveByPane.has(paneId)) continue;
       pendingPtyWriteByPane.delete(paneId);
+      const data = drainStringChunks(buf);
       parttyPerf.mark("pty.input.flushes");
       parttyPerf.mark("pty.input.flush.chars", data.length);
       void writePtyPayload(paneId, data);
@@ -792,9 +847,10 @@ async function boot(): Promise<void> {
 
   const flushPendingPtyWriteForPane = (paneId: string): void => {
     if (ptyBulkActiveByPane.has(paneId)) return;
-    const pending = pendingPtyWriteByPane.get(paneId);
-    if (!pending) return;
+    const buf = pendingPtyWriteByPane.get(paneId);
+    if (!buf || buf.totalChars === 0) return;
     pendingPtyWriteByPane.delete(paneId);
+    const pending = drainStringChunks(buf);
     parttyPerf.mark("pty.input.flush_pane");
     parttyPerf.mark("pty.input.flush_pane.chars", pending.length);
     void writePtyPayload(paneId, pending);
@@ -826,9 +882,10 @@ async function boot(): Promise<void> {
       .then(async () => {
         ptyBulkActiveByPane.add(paneId);
         try {
-          const queued = pendingPtyWriteByPane.get(paneId);
-          if (queued) {
+          const queuedBuf = pendingPtyWriteByPane.get(paneId);
+          if (queuedBuf && queuedBuf.totalChars > 0) {
             pendingPtyWriteByPane.delete(paneId);
+            const queued = drainStringChunks(queuedBuf);
             await ptyWrite(paneId, queued).catch((e) =>
               console.error("pty_write", e),
             );
@@ -844,9 +901,10 @@ async function boot(): Promise<void> {
           }
         } finally {
           ptyBulkActiveByPane.delete(paneId);
-          const after = pendingPtyWriteByPane.get(paneId);
-          if (after) {
+          const afterBuf = pendingPtyWriteByPane.get(paneId);
+          if (afterBuf && afterBuf.totalChars > 0) {
             pendingPtyWriteByPane.delete(paneId);
+            const after = drainStringChunks(afterBuf);
             await ptyWrite(paneId, after).catch((e) =>
               console.error("pty_write", e),
             );
@@ -883,8 +941,7 @@ async function boot(): Promise<void> {
     }
     // During chunked paste, hold keystrokes until the paste finishes.
     if (ptyBulkActiveByPane.has(paneId)) {
-      const held = pendingPtyWriteByPane.get(paneId);
-      pendingPtyWriteByPane.set(paneId, held ? `${held}${data}` : data);
+      appendPendingPtyWrite(paneId, data);
       return;
     }
     if (immediate || isLatencySensitiveInput(data)) {
@@ -897,8 +954,7 @@ async function boot(): Promise<void> {
     }
     parttyPerf.mark("pty.input.queued.calls");
     parttyPerf.mark("pty.input.queued.chars", data.length);
-    const prior = pendingPtyWriteByPane.get(paneId);
-    pendingPtyWriteByPane.set(paneId, prior ? `${prior}${data}` : data);
+    appendPendingPtyWrite(paneId, data);
     if (pendingPtyWriteRaf) return;
     pendingPtyWriteRaf = requestAnimationFrame(flushPendingPtyWrites);
   };
@@ -989,14 +1045,14 @@ async function boot(): Promise<void> {
       if (
         !isFocused &&
         age < PTY_OUTPUT_BACKGROUND_FLUSH_MS &&
-        batch.data.length < PTY_OUTPUT_MAX_BATCH_CHARS
+        peekStringChunkChars(batch.chunks) < PTY_OUTPUT_MAX_BATCH_CHARS
       ) {
         pendingPtyOutputByPane.set(paneId, batch);
         continue;
       }
       processPtyOutputBatch(
         paneId,
-        batch.data,
+        drainStringChunks(batch.chunks),
         batch.eventCount,
         batch.queuedAt,
       );
@@ -1031,17 +1087,22 @@ async function boot(): Promise<void> {
     parttyPerf.mark("pty.output.queued.chars", data.length);
     const existing = pendingPtyOutputByPane.get(paneId);
     if (existing) {
-      existing.data += data;
+      pushStringChunk(existing.chunks, data);
       existing.eventCount++;
     } else {
+      const chunks = createStringChunkBuffer();
+      pushStringChunk(chunks, data);
       pendingPtyOutputByPane.set(paneId, {
-        data,
+        chunks,
         eventCount: 1,
         queuedAt: performance.now(),
       });
     }
     const batch = pendingPtyOutputByPane.get(paneId);
-    if (batch && batch.data.length >= PTY_OUTPUT_MAX_BATCH_CHARS) {
+    if (
+      batch &&
+      peekStringChunkChars(batch.chunks) >= PTY_OUTPUT_MAX_BATCH_CHARS
+    ) {
       flushPendingPtyOutputs();
       return;
     }
@@ -1960,6 +2021,10 @@ async function boot(): Promise<void> {
   function runLayoutPassForHost(host: PaneHost, forceRefresh = false): void {
     const passStarted = performance.now();
     let paneCount = 0;
+    const resizeBatch: Array<{ paneId: string; cols: number; rows: number }> =
+      [];
+    const refreshPanes: PaneTerminal[] = [];
+
     host.forEachPane((paneId, pt) => {
       paneCount++;
       const fitStarted = performance.now();
@@ -1975,14 +2040,27 @@ async function boot(): Promise<void> {
         return;
       }
       lastPtyDims.set(paneId, safe);
-      parttyPerf.mark("layout.pty_resize");
-      parttyPerf.time("layout.pty_resize.invoke.ms", performance.now() - fitStarted);
-      void ptyResize(paneId, safe.cols, safe.rows)
-        .then(() => {
-          pt.term.refresh(0, pt.term.rows - 1);
-        })
-        .catch((e) => console.warn("pty_resize", e));
+      resizeBatch.push({ paneId, cols: safe.cols, rows: safe.rows });
+      refreshPanes.push(pt);
     });
+
+    if (resizeBatch.length > 0) {
+      parttyPerf.mark("layout.pty_resize");
+      parttyPerf.mark("layout.pty_resize.count", resizeBatch.length);
+      const invokeStarted = performance.now();
+      void ptyResizeBatch(resizeBatch)
+        .then(() => {
+          parttyPerf.time(
+            "layout.pty_resize.invoke.ms",
+            performance.now() - invokeStarted,
+          );
+          for (const pt of refreshPanes) {
+            pt.term.refresh(0, pt.term.rows - 1);
+          }
+        })
+        .catch((e) => console.warn("pty_resize_batch", e));
+    }
+
     parttyPerf.mark("layout.pass");
     parttyPerf.gauge("layout.pass.panes", paneCount);
     parttyPerf.time("layout.pass.ms", performance.now() - passStarted);
@@ -2426,118 +2504,8 @@ async function boot(): Promise<void> {
           pt.term.onData((data) => {
             parttyPerf.recordInputEvent();
             queuePtyWrite(id, data);
-            // Observe input keystrokes for process tracking (command start detection).
-            // Mirrors the old CommandHistoryStore.observeInput approach: parse raw
-            // keystrokes, strip ANSI/OSC sequences, handle editing keystrokes.
-            {
-              let buf = processInputBuffers.get(id) ?? "";
-              let i = 0;
-              while (i < data.length) {
-                const ch = data[i];
-                const code = ch.charCodeAt(0);
-
-                // Skip ANSI escape / CSI / OSC sequences entirely.
-                if (ch === "\x1b") {
-                  if (data[i + 1] === "]") {
-                    // OSC: \x1b] ... BEL or ST
-                    const end = data.indexOf("\x07", i + 2);
-                    const st = data.indexOf("\x1b\\", i + 2);
-                    let n =
-                      end === -1 ? st : st === -1 ? end : Math.min(end, st);
-                    i =
-                      n === -1 ? data.length : n + (data[n] === "\x1b" ? 2 : 1);
-                    continue;
-                  }
-                  if (data[i + 1] === "[") {
-                    // CSI: \x1b[ ... final byte @–~
-                    let j = i + 2;
-                    while (j < data.length && data.charCodeAt(j) < 0x40) j++;
-                    i = j < data.length ? j + 1 : data.length;
-                    continue;
-                  }
-                  if (
-                    data[i + 1] === "P" ||
-                    data[i + 1] === "_" ||
-                    data[i + 1] === "^" ||
-                    data[i + 1] === "X"
-                  ) {
-                    // DCS / APC / PM / SOS terminated by ST
-                    const st = data.indexOf("\x1b\\", i + 2);
-                    i = st === -1 ? data.length : st + 2;
-                    continue;
-                  }
-                  // Other escape (e.g. \x1bO for SS3 sequences): skip 2 chars
-                  i += 2;
-                  continue;
-                }
-
-                // Enter — finalize the command.
-                if (ch === "\r" || ch === "\n") {
-                  const cmd = normalizeCommandLine(buf);
-                  if (cmd) {
-                    // Only start tracking if no process is already active for this pane.
-                    // This prevents Enter keystrokes inside a TUI (nvim, htop, etc.) from
-                    // overwriting the command that originally started the process.
-                    if (!activeProcesses.has(id)) {
-                      const proc = createActiveProcessEntry(
-                        cmd,
-                        paneCwdHints.get(id) || "",
-                      );
-                      activeProcesses.set(id, proc);
-                      // Notify extension subscribers.
-                      if (extProcStartSubs.length > 0) {
-                        const start = {
-                          paneId: id,
-                          command: displayProcessCommand(cmd),
-                          cwd: proc.cwd,
-                        };
-                        for (const fn of extProcStartSubs) {
-                          try {
-                            fn(start);
-                          } catch {
-                            /* ignore */
-                          }
-                        }
-                      }
-                    }
-                  }
-                  buf = "";
-                  i++;
-                  continue;
-                }
-
-                // Backspace (BS or DEL).
-                if (ch === "\b" || code === 0x7f) {
-                  buf = buf.slice(0, -1);
-                  i++;
-                  continue;
-                }
-
-                // Ctrl+W  or  Ctrl+Backspace → delete last word.
-                if (code === 0x17 || ch === "\x1b\x7f" || ch === "\x1b\x08") {
-                  buf = buf.replace(/\S+\s*$/, "").trimEnd();
-                  i++;
-                  continue;
-                }
-
-                // Ctrl+U → clear line.
-                if (code === 0x15) {
-                  buf = "";
-                  i++;
-                  continue;
-                }
-
-                // Printable character or tab.
-                if ((code >= 0x20 && code !== 0x7f) || code === 0x09) {
-                  buf += ch;
-                  i++;
-                  continue;
-                }
-
-                // Unknown control char — skip.
-                i++;
-              }
-              processInputBuffers.set(id, buf);
+            if (keystrokeProcessTrackingEnabled) {
+              observeKeystrokeProcessInput(keystrokeProcessObserver, id, data);
             }
             // Notify extension PTY input subscribers (zero-cost when empty).
             if (extPtyInputSubs.length > 0) {
@@ -2612,19 +2580,6 @@ async function boot(): Promise<void> {
           if (!document.documentElement.classList.contains("partty-booting")) {
             scheduleCreationReflow(id);
           }
-          const paneResizeObs = new ResizeObserver(() => {
-            if (terminalLayoutSuspended) return;
-            if (pt.host.clientWidth < 2 || pt.host.clientHeight < 2) return;
-            lastPtyDims.delete(id);
-            pt.fit.fit();
-            if (getPaneHostByPaneId(id) === paneHost) scheduleResizeImmediate();
-          });
-          paneResizeObs.observe(pt.host);
-          const priorCleanups = paneHostCleanups.get(id) ?? [];
-          paneHostCleanups.set(id, [
-            ...priorCleanups,
-            () => paneResizeObs.disconnect(),
-          ]);
           // Notify extension subscribers.
           if (extPaneCreatedSubs.length > 0) {
             for (const fn of extPaneCreatedSubs) {
@@ -4584,6 +4539,7 @@ async function boot(): Promise<void> {
           processNotificationEnabledRef.v =
             (saved as Partial<ParttyPrefs>).process_notification_enabled ??
             false;
+          syncKeystrokeProcessTracking();
           cursorFollowWindowMoveRef.v = Boolean(
             (saved as Partial<ParttyPrefs>).cursor_follow_window_move,
           );
@@ -6060,7 +6016,7 @@ async function boot(): Promise<void> {
         pendingPtyOutputByPane.delete(pane_id);
         processPtyOutputBatch(
           pane_id,
-          pending.data,
+          drainStringChunks(pending.chunks),
           pending.eventCount,
           pending.queuedAt,
         );
@@ -6257,9 +6213,11 @@ async function boot(): Promise<void> {
           fn: (proc: { paneId: string; command: string; cwd: string }) => void,
         ) {
           extProcStartSubs.push(fn);
+          syncKeystrokeProcessTracking();
           return () => {
             const idx = extProcStartSubs.indexOf(fn);
             if (idx !== -1) extProcStartSubs.splice(idx, 1);
+            syncKeystrokeProcessTracking();
           };
         },
         onProcessEnd(
@@ -6470,25 +6428,40 @@ async function boot(): Promise<void> {
     }
   })();
 
-  let devMetricsOverlay: DevMetricsOverlayApi | null = null;
-  const appRoot = document.getElementById("app");
-  const getFocusedPaneId = (): string | null | undefined => paneHost?.getFocusedPaneId();
-  if (parttyPerf.enabled && appRoot) {
-    devMetricsOverlay = createDevMetricsOverlay({ root: appRoot, getFocusedPaneId });
-  }
-
-  window.addEventListener("keydown", (e) => {
-    if (!k.match(e, "dev_toggle")) return;
-    const t = e.target as HTMLElement | null;
-    if (t?.closest("#command-palette") || t?.closest("#settings-panel")) return;
-    if (!parttyPerf.enabled) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (!devMetricsOverlay && appRoot) {
-      devMetricsOverlay = createDevMetricsOverlay({ root: appRoot, getFocusedPaneId });
+  if (import.meta.env.DEV) {
+    const { createDevMetricsOverlay } = await import("./devMetricsOverlay");
+    let devMetricsOverlay: DevMetricsOverlayApi | null = null;
+    const appRoot = document.getElementById("app");
+    const getFocusedPaneId = (): string | null | undefined =>
+      paneHost?.getFocusedPaneId();
+    if (parttyPerf.enabled && appRoot) {
+      devMetricsOverlay = createDevMetricsOverlay({
+        root: appRoot,
+        getFocusedPaneId,
+      });
     }
-    devMetricsOverlay?.toggle();
-  }, true);
+
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        if (!k.match(e, "dev_toggle")) return;
+        const t = e.target as HTMLElement | null;
+        if (t?.closest("#command-palette") || t?.closest("#settings-panel"))
+          return;
+        if (!parttyPerf.enabled) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (!devMetricsOverlay && appRoot) {
+          devMetricsOverlay = createDevMetricsOverlay({
+            root: appRoot,
+            getFocusedPaneId,
+          });
+        }
+        devMetricsOverlay?.toggle();
+      },
+      true,
+    );
+  }
 
   window.addEventListener("beforeunload", () => {
     mouseCursorController?.dispose();

@@ -267,9 +267,11 @@ export function createSettingsPanel(
       mouse_hidden: gc("mouse_hidden"),
       mouse_hide_on_idle: gc("mouse_hide_on_idle"),
       mouse_idle_seconds: clampf(g("mouse_idle_seconds"), 3, 0.5, 300),
-      dev_perf_enabled: gc("dev_perf_enabled"),
-      dev_perf_console: gc("dev_perf_console"),
-      dev_perf_console_interval_ms: Math.max(1000, Math.min(60000, parseInt(g("dev_perf_console_interval_ms"), 10) || 5000)),
+      dev_perf_enabled: import.meta.env.DEV ? gc("dev_perf_enabled") : false,
+      dev_perf_console: import.meta.env.DEV ? gc("dev_perf_console") : false,
+      dev_perf_console_interval_ms: import.meta.env.DEV
+        ? Math.max(1000, Math.min(60000, parseInt(g("dev_perf_console_interval_ms"), 10) || 5000))
+        : 5000,
     };
   }
 

@@ -811,18 +811,29 @@ fn pty_replay_snapshot(
         .filter(|s| !s.is_empty()))
 }
 
-#[tauri::command]
-fn pty_resize(
-    state: State<'_, AppState>,
+#[derive(serde::Deserialize)]
+struct PtyResizeEntry {
+    #[serde(rename = "paneId")]
     pane_id: String,
     cols: u16,
     rows: u16,
+}
+
+#[tauri::command]
+fn pty_resize_batch(
+    state: State<'_, AppState>,
+    items: Vec<PtyResizeEntry>,
 ) -> Result<(), String> {
-    let g = state.pty_panes.lock();
-    let Some(s) = g.get(&pane_id) else {
+    if items.is_empty() {
         return Ok(());
-    };
-    s.resize(cols, rows)
+    }
+    let g = state.pty_panes.lock();
+    for item in items {
+        if let Some(s) = g.get(&item.pane_id) {
+            s.resize(item.cols, item.rows)?;
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1113,7 +1124,7 @@ pub fn run() {
             pty_spawn,
             pty_write,
             pty_replay_snapshot,
-            pty_resize,
+            pty_resize_batch,
             pty_kill,
             pty_kill_pane,
             pty_ack_exit,

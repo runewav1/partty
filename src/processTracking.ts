@@ -91,3 +91,93 @@ export function shouldEndOnPromptStart(entry: ActiveProcessEntry): boolean {
 export function processDurationMs(entry: ActiveProcessEntry, endedAt: number): number {
   return Math.max(0, endedAt - entry.startedAt);
 }
+
+/** Keystroke fallback when shell OSC integration is unavailable. */
+export function needsKeystrokeProcessTracking(
+  notificationsEnabled: boolean,
+  extensionSubscriberCount: number,
+): boolean {
+  return notificationsEnabled || extensionSubscriberCount > 0;
+}
+
+export type KeystrokeProcessObserver = {
+  buffers: Map<string, string>;
+  onCommandEnter: (paneId: string, command: string) => void;
+};
+
+/** Parse raw PTY input for Enter-observed command starts (non-OSC shells). */
+export function observeKeystrokeProcessInput(
+  observer: KeystrokeProcessObserver,
+  paneId: string,
+  data: string,
+): void {
+  let buf = observer.buffers.get(paneId) ?? "";
+  let i = 0;
+  while (i < data.length) {
+    const ch = data[i];
+    const code = ch.charCodeAt(0);
+
+    if (ch === "\x1b") {
+      if (data[i + 1] === "]") {
+        const end = data.indexOf("\x07", i + 2);
+        const st = data.indexOf("\x1b\\", i + 2);
+        const n = end === -1 ? st : st === -1 ? end : Math.min(end, st);
+        i = n === -1 ? data.length : n + (data[n] === "\x1b" ? 2 : 1);
+        continue;
+      }
+      if (data[i + 1] === "[") {
+        let j = i + 2;
+        while (j < data.length && data.charCodeAt(j) < 0x40) j++;
+        i = j < data.length ? j + 1 : data.length;
+        continue;
+      }
+      if (
+        data[i + 1] === "P" ||
+        data[i + 1] === "_" ||
+        data[i + 1] === "^" ||
+        data[i + 1] === "X"
+      ) {
+        const st = data.indexOf("\x1b\\", i + 2);
+        i = st === -1 ? data.length : st + 2;
+        continue;
+      }
+      i += 2;
+      continue;
+    }
+
+    if (ch === "\r" || ch === "\n") {
+      const cmd = normalizeCommandLine(buf);
+      if (cmd) observer.onCommandEnter(paneId, cmd);
+      buf = "";
+      i++;
+      continue;
+    }
+
+    if (ch === "\b" || code === 0x7f) {
+      buf = buf.slice(0, -1);
+      i++;
+      continue;
+    }
+
+    if (code === 0x17 || ch === "\x1b\x7f" || ch === "\x1b\x08") {
+      buf = buf.replace(/\S+\s*$/, "").trimEnd();
+      i++;
+      continue;
+    }
+
+    if (code === 0x15) {
+      buf = "";
+      i++;
+      continue;
+    }
+
+    if ((code >= 0x20 && code !== 0x7f) || code === 0x09) {
+      buf += ch;
+      i++;
+      continue;
+    }
+
+    i++;
+  }
+  observer.buffers.set(paneId, buf);
+}
