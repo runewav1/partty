@@ -224,8 +224,9 @@ export function createThemeModal(
   });
 
   function indexForPrefs(p: UiThemePrefs): number {
+    const n = pickUiPrefs(p as unknown as Record<string, unknown>);
     const idx = flat.findIndex(
-      (r) => r.themeId === p.ui_theme && r.variantId === p.ui_theme_variant,
+      (r) => r.themeId === n.ui_theme && r.variantId === n.ui_theme_variant,
     );
     return idx >= 0 ? idx : 0;
   }
@@ -274,6 +275,7 @@ export function createThemeModal(
         ui_theme_variant: row.variantId,
       };
       if (row.themeId.startsWith("custom:")) {
+        // Theme.toml [prefs] apply only when committing as the app theme.
         const slug = row.themeId.slice(7);
         const tprefs = getThemePrefsCache()[slug];
         if (tprefs) {

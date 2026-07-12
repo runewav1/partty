@@ -55,10 +55,74 @@ function normalizeQuery(raw: string): string[] {
     .filter(Boolean);
 }
 
-function matchesFilter(cmd: PaletteCommand, parts: string[]): boolean {
-  if (parts.length === 0) return true;
-  const hay = `${cmd.label} ${cmd.keywords ?? ""}`.toLowerCase();
-  return parts.every((p) => hay.includes(p));
+function tokenize(s: string): string[] {
+  return s
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+/**
+ * Rank matches so shorter / label-primary hits win hierarchies
+ * (e.g. query "theme" → "Theme" before "Pane theme").
+ * Returns null when the command does not match.
+ */
+function scoreCommand(cmd: PaletteCommand, parts: string[]): number | null {
+  if (parts.length === 0) return 0;
+  const label = cmd.label.toLowerCase();
+  const keywords = (cmd.keywords ?? "").toLowerCase();
+  const idTokens = tokenize(cmd.id);
+  const idHay = idTokens.join(" ");
+  const hay = `${label} ${keywords} ${idHay}`;
+  if (!parts.every((p) => hay.includes(p))) return null;
+
+  const q = parts.join(" ");
+  const labelTokens = tokenize(label);
+  let score = 0;
+
+  if (label === q) score += 10_000;
+  else if (label.startsWith(q)) score += 5_000;
+
+  const allInLabel = parts.every((p) => label.includes(p));
+  if (allInLabel) {
+    score += 2_000;
+    // Tighter labels rank higher: "Theme" beats "Pane theme" for "theme".
+    score += Math.max(0, 400 - labelTokens.length * 80);
+    const covered = labelTokens.filter((w) =>
+      parts.some((p) => w === p || w.startsWith(p)),
+    ).length;
+    score += Math.round((covered / Math.max(labelTokens.length, 1)) * 400);
+  } else {
+    score += 150;
+  }
+
+  for (const p of parts) {
+    if (labelTokens.some((w) => w === p)) score += 100;
+    else if (labelTokens.some((w) => w.startsWith(p))) score += 60;
+    else if (label.includes(p)) score += 25;
+    else if (idTokens.some((w) => w === p || w.startsWith(p))) score += 15;
+    else score += 5;
+  }
+
+  score -= Math.min(label.length, 40);
+  return score;
+}
+
+function filterAndRankCommands(
+  all: readonly PaletteCommand[],
+  parts: string[],
+): PaletteCommand[] {
+  if (parts.length === 0) return [...all];
+  return all
+    .map((cmd) => ({ cmd, score: scoreCommand(cmd, parts) }))
+    .filter((row): row is { cmd: PaletteCommand; score: number } => row.score !== null)
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        a.cmd.label.length - b.cmd.label.length ||
+        a.cmd.label.localeCompare(b.cmd.label),
+    )
+    .map((row) => row.cmd);
 }
 
 export function createCommandPalette(mount: CommandPaletteMount): {
@@ -90,7 +154,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
   function applyFilter(): void {
     const parts = normalizeQuery(input.value);
     const all = getCommands();
-    filtered = parts.length === 0 ? all : all.filter((c) => matchesFilter(c, parts));
+    filtered = filterAndRankCommands(all, parts);
     selected = Math.min(selected, Math.max(0, filtered.length - 1));
     renderList();
   }

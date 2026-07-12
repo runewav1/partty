@@ -36,6 +36,11 @@ export type ConnectionProfile = {
   startupCommand?: string | null;
   /** Optional icon path override (`.ico` / `.png` / `.exe`). */
   icon?: string | null;
+  /**
+   * Pane color theme: `id`, `id/variant`, or custom theme slug (no `custom:`).
+   * Colors only — theme.toml `[prefs]` are never applied from profile themes.
+   */
+  theme?: string | null;
   /** Cached `data:` URL from the backend when palette icons are enabled. */
   iconDataUrl?: string | null;
   builtin?: boolean;
@@ -101,6 +106,7 @@ function normalizeProfile(raw: unknown): ConnectionProfile | null {
     commandline: typeof o.commandline === "string" ? o.commandline : undefined,
     startupCommand: typeof o.startupCommand === "string" ? o.startupCommand : undefined,
     icon: typeof o.icon === "string" ? o.icon : undefined,
+    theme: typeof o.theme === "string" ? o.theme : o.theme === null ? null : undefined,
     iconDataUrl: typeof o.iconDataUrl === "string" ? o.iconDataUrl : undefined,
     builtin: o.builtin === true || o.id === LOCAL_DEFAULT_PROFILE_ID,
   };

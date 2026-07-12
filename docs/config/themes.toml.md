@@ -46,9 +46,12 @@ Common keys:
 
 ### `[prefs]`
 
-Optional. Overrides config.toml when the theme is active. Any section from
-`config.toml` is valid here. Omitted sections/fields fall back to the user's
-`config.toml`.
+Optional. Overrides `config.toml` **only when this theme is set as the app theme**
+(Theme picker → app, or `[theme]` in config). Any section from `config.toml` is valid
+here. Omitted sections/fields fall back to the user's `config.toml`.
+
+**Not applied** when the theme is used as a **pane** theme or a **profile** `theme` —
+those paths are colors-only (subtractive: `[prefs]` is ignored).
 
 ## Examples
 
@@ -87,6 +90,7 @@ blink = false
 size = 13.0
 ```
 
-When this theme is applied, `pane.blur`, `pane.corner_radius`, `cursor.style`,
-`cursor.blink`, and `font.size` are set from the theme. All other preferences
-remain as defined in `config.toml`.
+When this theme is applied **as the app theme**, `pane.blur`, `pane.corner_radius`,
+`cursor.style`, `cursor.blink`, and `font.size` are set from the theme. All other
+preferences remain as defined in `config.toml`. Pane and profile themes use only
+`[colors]`.

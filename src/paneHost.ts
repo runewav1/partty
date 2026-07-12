@@ -1551,6 +1551,21 @@ export class PaneHost {
     if (commitLayout) this.opts.onPaneLayout?.();
   }
 
+  private applyLeafTheme(wrap: HTMLElement, paneId: string, pt: PaneTerminal): void {
+    const cssVars = this.opts.getPaneCssVars?.(paneId);
+    if (cssVars) {
+      for (const [key, value] of Object.entries(cssVars)) {
+        if (key.startsWith("--")) wrap.style.setProperty(key, value);
+      }
+    }
+    pt.term.options.theme = this.opts.getTheme(paneId);
+    try {
+      pt.term.refresh(0, pt.term.rows - 1);
+    } catch {
+      /* ignore before first fit */
+    }
+  }
+
   private renderNode(node: PaneNode, path = ""): HTMLElement {
     if (node.kind === "leaf") {
       const wrap = document.createElement("div");
@@ -1558,12 +1573,6 @@ export class PaneHost {
       wrap.dataset.paneId = node.id;
       if (node.id === this.focusedId) {
         wrap.classList.add("pane-leaf--focused");
-      }
-      const cssVars = this.opts.getPaneCssVars?.(node.id);
-      if (cssVars) {
-        for (const [key, value] of Object.entries(cssVars)) {
-          if (key.startsWith("--")) wrap.style.setProperty(key, value);
-        }
       }
       for (const [cls, edgeX, edgeY] of [
         ["pane-corner-handle--nw", "left", "top"],
@@ -1625,6 +1634,7 @@ export class PaneHost {
           scrollOnEraseInDisplay: false,
           scrollSensitivity: this.opts.scrollSensitivity ?? 1,
           smoothScrollDuration: this.opts.smoothScrollDuration,
+          // Theme reapplied after onPaneCreated (profile themes seed paneThemes there).
           theme: this.opts.getTheme(node.id),
           scrollback: this.opts.scrollbackLines,
           linkHandler: this.opts.linkHandler ?? undefined,
@@ -1660,6 +1670,8 @@ export class PaneHost {
         this.terminals.set(node.id, pt);
         this.opts.onPaneCreated(node.id, pt);
       }
+      // After onPaneCreated so profile/layout themes seeded there apply to leaf + xterm.
+      this.applyLeafTheme(wrap, node.id, pt);
       wrap.appendChild(pt.row);
       if (this.justTiled.delete(node.id)) {
         wrap.classList.add("pane-leaf--floating-return");

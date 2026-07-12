@@ -27,7 +27,33 @@ File name stem must match `id` (letters, numbers, `-`, `_` only), e.g. `ssh-prod
 | `kind` | string | `local` `wsl` `ssh` |
 | `initial_cwd` | string | Start directory; overrides `[profiles].initial_dir`. Pane/split cwd still wins when set |
 | `icon` | string | Path to `.ico` / `.png` / `.exe`; overrides auto icon |
+| `theme` | string | Pane color theme: `id`, `id/variant`, or custom theme slug (see below) |
 | `builtin` | bool | Seeded profile (still editable) |
+
+### Profile theme
+
+Optional. Applies **colors only** to panes spawned with this profile (same as Palette → Pane theme). Theme.toml `[prefs]` are **not** applied — those only take effect when the theme is set as the **app** theme.
+
+| Value | Meaning |
+|-------|---------|
+| omitted / empty | Use the current app theme |
+| `tokyonight` | Built-in theme, default variant |
+| `github/dark` | Built-in theme + variant (`/` separates variant) |
+| `soft-amber` | Custom `~/.partty/themes/soft-amber.toml` (no `custom:` prefix) |
+
+Deprecated combined ids such as `github-dark` / `vscode-light` still load (mapped to
+`github` + `dark`, etc.) but prefer `name/variant`. Do not use `{name} dark — default`.
+
+Persisted per-pane theme overrides (layout / Pane theme) still win over the profile default.
+
+```toml
+version = 1
+id = "wsl-ubuntu"
+name = "Ubuntu"
+kind = "wsl"
+wsl_distro = "Ubuntu"
+theme = "github/dark"
+```
 
 ## Local
 

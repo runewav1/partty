@@ -418,8 +418,8 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--pane-divider-hover": "rgba(166,226,46,0.4)",
     },
   },
-  "github-dark": {
-    default: {
+  github: {
+    dark: {
       "--term-bg": "#0d1117",
       "--term-fg": "#c9d1d9",
       "--term-cursor": "#58a6ff",
@@ -438,9 +438,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--pane-divider": "rgba(88,166,255,0.22)",
       "--pane-divider-hover": "rgba(88,166,255,0.4)",
     },
-  },
-  "github-light": {
-    default: {
+    light: {
       "--term-bg": "#ffffff",
       "--term-fg": "#24292f",
       "--term-cursor": "#0969da",
@@ -587,8 +585,8 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--pane-divider-hover": "rgba(95,135,95,0.4)",
     },
   },
-  "vscode-dark": {
-    default: {
+  vscode: {
+    dark: {
       "--term-bg": "#1E1E1E",
       "--term-fg": "#D4D4D4",
       "--term-cursor": "#D4D4D4",
@@ -609,9 +607,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
       "--pane-divider": "rgba(0,122,204,0.22)",
       "--pane-divider-hover": "rgba(0,122,204,0.4)",
     },
-  },
-  "vscode-light": {
-    default: {
+    light: {
       "--term-bg": "#FFFFFF",
       "--term-fg": "#000000",
       "--term-cursor": "#000000",
@@ -634,6 +630,38 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
     },
   },
 };
+
+/**
+ * Deprecated theme ids from when dark/light were separate themes with a
+ * `default` variant (e.g. "GitHub Dark — default"). Prefer `github` + `dark`.
+ * Kept only as a one-way read migration for persisted prefs / layouts / profiles.
+ */
+const DEPRECATED_THEME_IDS: Record<string, { theme: string; variant: string }> = {
+  "github-dark": { theme: "github", variant: "dark" },
+  "github-light": { theme: "github", variant: "light" },
+  "vscode-dark": { theme: "vscode", variant: "dark" },
+  "vscode-light": { theme: "vscode", variant: "light" },
+};
+
+/** Normalize persisted theme ids; maps deprecated `{name}-{variant}` → `{name}` + variant. */
+export function normalizePaneThemePrefs(prefs: PaneThemePrefs): PaneThemePrefs {
+  const legacy = DEPRECATED_THEME_IDS[prefs.ui_theme];
+  if (!legacy) {
+    return {
+      ui_theme: prefs.ui_theme,
+      ui_theme_variant: prefs.ui_theme_variant || "default",
+    };
+  }
+  const variant =
+    !prefs.ui_theme_variant || prefs.ui_theme_variant === "default"
+      ? legacy.variant
+      : prefs.ui_theme_variant;
+  return { ui_theme: legacy.theme, ui_theme_variant: variant };
+}
+
+export function isDeprecatedThemeId(themeId: string): boolean {
+  return Object.prototype.hasOwnProperty.call(DEPRECATED_THEME_IDS, themeId);
+}
 
 type ThemeInfo = { name: string; colors: Record<string, string>; prefs: Record<string, unknown> | null };
 
@@ -713,10 +741,14 @@ const INHERITED_THEME_KEYS = new Set([
 ]);
 
 export function pickUiPrefs(prefs: Record<string, unknown>): UiThemePrefs {
-  return {
+  const normalized = normalizePaneThemePrefs({
     ui_theme: typeof prefs.ui_theme === "string" ? prefs.ui_theme : "system",
     ui_theme_variant:
       typeof prefs.ui_theme_variant === "string" ? prefs.ui_theme_variant : "default",
+  });
+  return {
+    ui_theme: normalized.ui_theme,
+    ui_theme_variant: normalized.ui_theme_variant,
     font_terminal: typeof prefs.font_terminal === "string" ? prefs.font_terminal : "",
     font_ui: typeof prefs.font_ui === "string" ? prefs.font_ui : "",
   };
@@ -730,22 +762,37 @@ export function uiPrefsChanged(a: UiThemePrefs, b: UiThemePrefs): boolean {
 }
 
 function resolvePreset(themeId: string, variant: string): ThemeCssVars {
-  if (themeId.startsWith("custom:")) {
-    const slug = themeId.slice(7);
+  const normalized = normalizePaneThemePrefs({
+    ui_theme: themeId,
+    ui_theme_variant: variant,
+  });
+  const id = normalized.ui_theme;
+  const variantId = normalized.ui_theme_variant;
+  if (id.startsWith("custom:")) {
+    const slug = id.slice(7);
     const c = customThemeVarsCache[slug];
     if (c && Object.keys(c).length > 0) return { ...c };
     return PRESETS.tokyonight.default;
   }
-  const t = PRESETS[themeId];
+  const t = PRESETS[id];
   if (!t) return PRESETS.tokyonight.default;
-  let v = variant || "default";
-  if (themeId === "catppuccin" && (v === "default" || !t[v])) {
+  let v = variantId || "default";
+  if (id === "catppuccin" && (v === "default" || !t[v])) {
     v = "mocha";
   }
-  if (themeId === "gruvbox" && (v === "default" || !t[v])) {
+  if (id === "gruvbox" && (v === "default" || !t[v])) {
     v = "soft_dark";
   }
-  if (themeId === "solarized" && (v === "default" || !t[v])) {
+  if (id === "solarized" && (v === "default" || !t[v])) {
+    v = "dark";
+  }
+  if (id === "flexoki" && (v === "default" || !t[v])) {
+    v = "dark";
+  }
+  if (id === "github" && (v === "default" || !t[v])) {
+    v = "dark";
+  }
+  if (id === "vscode" && (v === "default" || !t[v])) {
     v = "dark";
   }
   return t[v] ?? t.default ?? PRESETS.tokyonight.default;
@@ -1101,18 +1148,58 @@ export const THEME_OPTIONS: {
   { id: "rose-pine", label: "Rosé Pine", description: "Rosé Pine base", variants: [{ id: "default", label: "Default" }] },
   { id: "palenight", label: "Palenight", description: "Material-inspired dusk palette", variants: [{ id: "default", label: "Default" }] },
   { id: "monokai", label: "Monokai", description: "Classic high-contrast coding palette", variants: [{ id: "default", label: "Default" }] },
-  { id: "github-dark", label: "GitHub Dark", description: "GitHub dark developer palette", variants: [{ id: "default", label: "Default" }] },
-  { id: "github-light", label: "GitHub Light", description: "GitHub light developer palette", variants: [{ id: "default", label: "Default" }] },
+  { id: "github", label: "GitHub", description: "GitHub developer palette", variants: [
+    { id: "dark", label: "Dark" }, { id: "light", label: "Light" },
+  ]},
   { id: "night-owl", label: "Night Owl", description: "Blue night coding palette", variants: [{ id: "default", label: "Default" }] },
   { id: "synthwave-84", label: "Synthwave '84", description: "Neon retro terminal palette", variants: [{ id: "default", label: "Default" }] },
   { id: "carbonfox", label: "Carbonfox", description: "Low-glare IBM Carbon-inspired palette", variants: [{ id: "default", label: "Default" }] },
   { id: "flexoki", label: "Flexoki", description: "Inky prose & code palette", variants: [{ id: "dark", label: "Dark" }, { id: "light", label: "Light" }] },
   { id: "miasma", label: "Miasma", description: "Foggy woods-inspired dark palette", variants: [{ id: "default", label: "Default" }] },
-  { id: "vscode-dark", label: "VS Code Dark", description: "Visual Studio Code dark palette", variants: [{ id: "default", label: "Default" }] },
-  { id: "vscode-light", label: "VS Code Light", description: "Visual Studio Code light palette", variants: [{ id: "default", label: "Default" }] },
+  { id: "vscode", label: "VS Code", description: "Visual Studio Code palette", variants: [
+    { id: "dark", label: "Dark" }, { id: "light", label: "Light" },
+  ]},
 ];
 
 export function defaultVariantForTheme(themeId: string): string {
   const t = THEME_OPTIONS.find((x) => x.id === themeId);
   return t?.variants[0]?.id ?? "default";
+}
+
+/**
+ * Profile `theme` field: `id`, `id/variant`, or a custom theme slug (no `custom:` prefix).
+ * Colors only — never applies theme.toml `[prefs]`.
+ */
+export function parseProfileThemeRef(ref: string): PaneThemePrefs | null {
+  const raw = ref.trim();
+  if (!raw) return null;
+  const slash = raw.lastIndexOf("/");
+  let themePart = raw;
+  let variantPart: string | null = null;
+  if (slash > 0) {
+    themePart = raw.slice(0, slash).trim();
+    variantPart = raw.slice(slash + 1).trim() || null;
+  }
+  if (!themePart) return null;
+
+  if (DEPRECATED_THEME_IDS[themePart]) {
+    return normalizePaneThemePrefs({
+      ui_theme: themePart,
+      ui_theme_variant: variantPart ?? "default",
+    });
+  }
+
+  if (themePart === "system" || PRESETS[themePart] || THEME_OPTIONS.some((t) => t.id === themePart)) {
+    return {
+      ui_theme: themePart,
+      ui_theme_variant: variantPart ?? defaultVariantForTheme(themePart),
+    };
+  }
+
+  const slug = themePart.startsWith("custom:") ? themePart.slice(7) : themePart;
+  if (!slug) return null;
+  return {
+    ui_theme: `custom:${slug}`,
+    ui_theme_variant: variantPart ?? "default",
+  };
 }

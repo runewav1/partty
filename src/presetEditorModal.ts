@@ -2,7 +2,7 @@ import type { PaneNode, PaneSplit } from "./paneHost";
 import { findPaneLeaf } from "./paneHost";
 import { mouseCursorForceVisible } from "./mouseCursor";
 import { writePresetJson, type Preset } from "./presets";
-import { THEME_OPTIONS, themeCssVarsForPrefs } from "./uiTheme";
+import { THEME_OPTIONS, normalizePaneThemePrefs, themeCssVarsForPrefs } from "./uiTheme";
 
 export type PresetEditorApi = {
   open(preset: Preset): void;
@@ -320,7 +320,10 @@ export function createPresetEditorModal(root: HTMLElement): PresetEditorApi {
     cwdIpt.value = preset.paneCwds[id] ?? "";
     startupIpt.value = preset.startupCommands?.[id] ?? "";
     const theme = preset.paneThemes[id];
-    themeSel.value = theme ? `${theme.ui_theme}\0${theme.ui_theme_variant}` : "";
+    const normalized = theme ? normalizePaneThemePrefs(theme) : null;
+    themeSel.value = normalized
+      ? `${normalized.ui_theme}\0${normalized.ui_theme_variant}`
+      : "";
   }
 
   function applyCurrentToSelected(): void {
@@ -335,7 +338,7 @@ export function createPresetEditorModal(root: HTMLElement): PresetEditorApi {
     if (startup) preset.startupCommands[selectedId] = startup; else delete preset.startupCommands[selectedId];
     if (tv) {
       const [ui_theme, ui_theme_variant] = tv.split("\0") as [string, string];
-      preset.paneThemes[selectedId] = { ui_theme, ui_theme_variant };
+      preset.paneThemes[selectedId] = normalizePaneThemePrefs({ ui_theme, ui_theme_variant });
     } else {
       delete preset.paneThemes[selectedId];
     }

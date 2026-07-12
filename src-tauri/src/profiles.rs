@@ -67,6 +67,10 @@ pub struct ConnectionProfile {
     /// Optional icon path (`.ico` / `.png` / `.exe`). Overrides auto-extract.
     #[serde(default)]
     pub icon: Option<String>,
+    /// Pane color theme: `id`, `id/variant`, or custom theme slug (no `custom:` prefix).
+    /// Colors only — theme.toml `[prefs]` are never applied from profile themes.
+    #[serde(default)]
+    pub theme: Option<String>,
     /// Seeded / built-in profiles (still editable on disk).
     #[serde(default)]
     pub builtin: bool,
@@ -95,6 +99,7 @@ pub struct ProfileDto {
     pub commandline: Option<String>,
     pub startup_command: Option<String>,
     pub icon: Option<String>,
+    pub theme: Option<String>,
     pub builtin: bool,
     /// `data:image/…;base64,…` when `[profiles].palette_icons` is on.
     pub icon_data_url: Option<String>,
@@ -122,6 +127,7 @@ impl From<&ConnectionProfile> for ProfileDto {
             commandline: p.commandline.clone(),
             startup_command: p.startup_command.clone(),
             icon: p.icon.clone(),
+            theme: p.theme.clone(),
             builtin: p.builtin,
             icon_data_url: None,
         }
@@ -171,6 +177,7 @@ fn builtin_local_default() -> ConnectionProfile {
         commandline: None,
         startup_command: None,
         icon: None,
+        theme: None,
         builtin: true,
     }
 }
@@ -423,6 +430,7 @@ fn seed_local_shell_profiles() -> Result<(), String> {
             commandline: None,
             startup_command: None,
             icon: None,
+            theme: None,
             builtin: true,
         };
         write_profile(&profile)?;
@@ -454,6 +462,7 @@ fn seed_wsl_profiles() -> Result<(), String> {
             commandline: None,
             startup_command: None,
             icon: None,
+            theme: None,
             builtin: true,
         };
         write_profile_if_missing(&profile)?;
@@ -500,6 +509,7 @@ fn merge_detected_ephemeral(mut profiles: Vec<ConnectionProfile>) -> Vec<Connect
             commandline: None,
             startup_command: None,
             icon: None,
+            theme: None,
             builtin: true,
         });
     }
@@ -527,6 +537,7 @@ fn merge_detected_ephemeral(mut profiles: Vec<ConnectionProfile>) -> Vec<Connect
             commandline: None,
             startup_command: None,
             icon: None,
+            theme: None,
             builtin: true,
         });
     }

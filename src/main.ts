@@ -77,6 +77,8 @@ import {
   buildXtermThemeFromDocument,
   DEFAULT_TERMINAL_FONT_STACK,
   loadCustomThemesIntoCache,
+  normalizePaneThemePrefs,
+  parseProfileThemeRef,
   pickUiPrefs,
   themeCssVarsForPrefs,
   type PaneThemePrefs,
@@ -1922,7 +1924,7 @@ async function boot(): Promise<void> {
   }
 
   function applyPaneTheme(paneId: string, prefs: PaneThemePrefs | null): void {
-    if (prefs) paneThemes.set(paneId, { ...prefs });
+    if (prefs) paneThemes.set(paneId, normalizePaneThemePrefs(prefs));
     else paneThemes.delete(paneId);
     paneHost?.remountPaneSurfaces();
     const pt = paneHost?.getPaneTerminal(paneId);
@@ -2564,6 +2566,18 @@ async function boot(): Promise<void> {
           );
           paneProfileIds.set(id, resolvedProfile);
 
+          // Profile theme is colors-only (ignores theme.toml [prefs]). Layout
+          // paneThemes win when already set. paneHost reapplies leaf CSS + xterm
+          // theme right after this callback.
+          if (!paneThemes.has(id)) {
+            const profile = getProfileById(resolvedProfile, profilesList);
+            const themeRef = profile?.theme?.trim();
+            if (themeRef) {
+              const parsed = parseProfileThemeRef(themeRef);
+              if (parsed) paneThemes.set(id, normalizePaneThemePrefs(parsed));
+            }
+          }
+
           // During destroy→recreate boot, prepare-show owns ensure after scrollback
           // restore — avoid a premature ensure that races rehydration.
           if (!document.documentElement.classList.contains("partty-booting")) {
@@ -2657,7 +2671,7 @@ async function boot(): Promise<void> {
       layout = emptyWorkspaceLayout(tab.id);
     }
     for (const [paneId, theme] of Object.entries(layout.paneThemes ?? {})) {
-      paneThemes.set(paneId, { ...theme });
+      paneThemes.set(paneId, normalizePaneThemePrefs(theme));
     }
     for (const [paneId, name] of Object.entries(layout.paneNames ?? {})) {
       const cleaned = name.trim().replace(/\s+/g, "_");
@@ -4210,7 +4224,7 @@ async function boot(): Promise<void> {
         // Seed pane state BEFORE creating host so PTYs inherit parent cwd/theme on spawn
         for (const [oid, theme] of Object.entries(preset.paneThemes)) {
           const nid = idMap.get(oid);
-          if (nid && theme) paneThemes.set(nid, { ...theme });
+          if (nid && theme) paneThemes.set(nid, normalizePaneThemePrefs(theme));
         }
         for (const [oid, pn] of Object.entries(preset.paneNames)) {
           const nid = idMap.get(oid);
@@ -5119,12 +5133,6 @@ async function boot(): Promise<void> {
           void closeAllChildPanes();
         },
       },
-      {
-        id: "open-pane-theme",
-        label: "Theme pane",
-        keywords: "theme appearance colors focused pane local override",
-        run: () => openFocusedPaneTheme(),
-      },
       // --- View / appearance ---
       {
         id: "toggle-zen-mode",
@@ -5147,7 +5155,7 @@ async function boot(): Promise<void> {
       {
         id: "open-themes",
         label: "Theme",
-        keywords: "theme appearance colors ui palette app global",
+        keywords: "appearance colors ui palette app global",
         run: () => {
           themeTargetPaneId = null;
           paneThemeRestore = null;
@@ -5156,6 +5164,12 @@ async function boot(): Promise<void> {
             initialPrefs: currentUiPrefs,
           });
         },
+      },
+      {
+        id: "open-pane-theme",
+        label: "Pane theme",
+        keywords: "theme pane appearance colors focused local override",
+        run: () => openFocusedPaneTheme(),
       },
       {
         id: "open-theme-builder",
