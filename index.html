@@ -107,8 +107,8 @@
                 </div>
                 <div class="settings-toggles">
                   <label class="settings-checkbox-label" title="Splits copy the parent pane's connection profile"><span>Inherit profile on split</span><input class="settings-checkbox-input" type="checkbox" name="inherit_profile_on_split" /></label>
-                  <label class="settings-checkbox-label" title="Splits copy the parent pane's working directory (Windows-native paths)"><span>Inherit cwd on split</span><input class="settings-checkbox-input" type="checkbox" name="inherit_cwd_on_split" /></label>
-                  <label class="settings-checkbox-label" title="In the command palette, Tab on New tab / Split opens a profile list"><span>Palette Tab → profiles</span><input class="settings-checkbox-input" type="checkbox" name="palette_tab_profile_picker" /></label>
+                  <label class="settings-checkbox-label" title="Splits copy the parent pane's working directory"><span>Inherit cwd on split</span><input class="settings-checkbox-input" type="checkbox" name="inherit_cwd_on_split" /></label>
+                  <label class="settings-checkbox-label" title="Tab on New tab / Split opens a profile list"><span>Palette Tab → profiles</span><input class="settings-checkbox-input" type="checkbox" name="palette_tab_profile_picker" /></label>
                   <label class="settings-checkbox-label" title="New tabs use the default profile instead of the focused pane's profile"><span>New tab uses default profile</span><input class="settings-checkbox-input" type="checkbox" name="new_tab_uses_default_profile" /></label>
                 </div>
               </div>
@@ -157,8 +157,8 @@
                   <input id="setting-terminal-sandbox-padding" name="terminal_sandbox_padding" type="number" min="0" max="32" step="1" class="settings-input settings-input--narrow" />
                 </div>
                 <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label" title="Balanced: honor split direction (50/50). Dwindle: auto-pick direction from pane aspect (BSP-style). Master: keep root as left master; new panes stack on the right.">Split style</span>
-                  <select id="setting-split-layout-style" name="split_layout_style" class="settings-input settings-input--narrow" title="Balanced: honor split direction (50/50). Dwindle: auto-pick direction from pane aspect (BSP-style). Master: keep root as left master; new panes stack on the right.">
+                  <span class="settings-row-label" title="Balanced: fixed split direction. Dwindle: pick direction from pane shape. Master: root stays left; new panes stack right.">Split style</span>
+                  <select id="setting-split-layout-style" name="split_layout_style" class="settings-input settings-input--narrow" title="Balanced: fixed split direction. Dwindle: pick direction from pane shape. Master: root stays left; new panes stack right.">
                     <option value="balanced">Balanced</option><option value="dwindle">Dwindle</option><option value="master">Master</option>
                   </select>
                 </div>
@@ -238,7 +238,7 @@
                     <span class="settings-row-label">Scale intensity</span>
                     <input name="pane_focus_scale_intensity" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
                   </div>
-                  <label class="settings-checkbox-label" title="Backspace deletes a single-line selection on the current input line (shell-dependent)"><span>Backspace selection</span><input class="settings-checkbox-input" type="checkbox" name="terminal_backspace_delete_selection" checked /></label>
+                  <label class="settings-checkbox-label" title="Backspace deletes a single-line selection on the input line"><span>Backspace selection</span><input class="settings-checkbox-input" type="checkbox" name="terminal_backspace_delete_selection" checked /></label>
                 </div>
               </div>
             </div>
@@ -342,21 +342,21 @@
               <div class="settings-section-bd">
                 <div class="settings-toggles">
                   <label class="settings-checkbox-label" title="Save pane layouts and working directories to restore on next launch"><span>Keep session</span><input class="settings-checkbox-input" type="checkbox" name="retain_session_state" checked /></label>
-                  <div class="settings-toggle-desc">Remember pane positions, directories, and tabs across restarts.</div>
+                  <div class="settings-toggle-desc">Remember pane layouts, directories, and tabs across restarts.</div>
                   <label class="settings-checkbox-label"><span>Preload PTY</span><input class="settings-checkbox-input" type="checkbox" name="preload_pty_on_startup" checked /></label>
-                  <div class="settings-toggle-desc">Pre-create a PTY session for instant pane spawning.</div>
+                  <div class="settings-toggle-desc">Start a shell early so new panes open faster.</div>
                   <label class="settings-checkbox-label"><span>Preload WebGL</span><input class="settings-checkbox-input" type="checkbox" name="preload_webgl_on_startup" checked /></label>
-                  <div class="settings-toggle-desc">Pre-warm the WebGL renderer to avoid first-paint flash.</div>
+                  <div class="settings-toggle-desc">Warm up the GPU renderer before first paint.</div>
                   <label class="settings-checkbox-label"><span>Defer show</span><input class="settings-checkbox-input" type="checkbox" name="defer_window_show_until_prepared" checked /></label>
-                  <div class="settings-toggle-desc">Hide the window until terminal layout completes on startup.</div>
+                  <div class="settings-toggle-desc">Wait until the terminal is ready before showing the window.</div>
                   <label class="settings-checkbox-label"><span>Destroy on hide</span><input class="settings-checkbox-input" type="checkbox" name="destroy_webview_on_hide" checked /></label>
-                  <div class="settings-toggle-desc">Destroy the webview when hiding (saves RAM). With Drop buffers off, scrollback is snapshotted into process memory and restored on summon — not written to disk.</div>
+                  <div class="settings-toggle-desc">Tear down the webview when hidden to free memory. With Drop buffers off, scrollback is restored on summon.</div>
                   <label class="settings-checkbox-label"><span>Shed PTYs</span><input class="settings-checkbox-input" type="checkbox" name="shed_on_hide" /></label>
-                  <div class="settings-toggle-desc">Release PTY resources when the window is hidden.</div>
+                  <div class="settings-toggle-desc">Stop shells when the window is hidden.</div>
                   <label class="settings-checkbox-label"><span>Shed WebGL</span><input class="settings-checkbox-input" type="checkbox" name="webgl_shed_on_hide" checked /></label>
-                  <div class="settings-toggle-desc">Release the WebGL renderer when the window is hidden.</div>
+                  <div class="settings-toggle-desc">Release the GPU renderer when the window is hidden.</div>
                   <label class="settings-checkbox-label"><span>Drop buffers</span><input class="settings-checkbox-input" type="checkbox" name="discard_buffer_on_hide" /></label>
-                  <div class="settings-toggle-desc">Skip scrollback snapshot/restore on hide (no serialize, no stash). Off = keep history across hide/summon.</div>
+                  <div class="settings-toggle-desc">Discard scrollback when hiding. Off = keep history across hide/summon.</div>
                 </div>
               </div>
             </div>

@@ -134,7 +134,7 @@ Changing style does not rewrite existing trees.
 | `prewarm_pty` | bool | `true` | |
 | `prewarm_webgl` | bool | `true` | |
 | `defer_show` | bool | `true` | Hold window until layout is ready |
-| `destroy_webview` | bool | `true` | Tear down WebView2 on hide. With `discard_buffer = false`, scrollback is snapshotted into process memory and restored on summon |
+| `destroy_webview` | bool | `true` | Tear down WebView2 on hide; with `discard_buffer = false`, scrollback is restored on summon |
 
 ## `[focus]`
 

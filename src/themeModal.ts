@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import { mouseCursorForceVisible } from "./mouseCursor";
+import {
+  filterAndRankLexical,
+  normalizeQuery,
+  type LexicalSearchItem,
+} from "./lexicalSearch";
 import type { ParttyPrefs } from "./settingsPanel";
 import { loadCustomThemesIntoCache, normalizePaneThemePrefs, pickUiPrefs, themeCssVarsForPrefs, THEME_OPTIONS, getThemePrefsCache, type ThemeCssVars, type UiThemePrefs } from "./uiTheme";
 
@@ -25,7 +30,11 @@ export type ThemeModalCloneRequest = {
   suggestedName: string;
 };
 
-type FlatThemeRow = { themeId: string; variantId: string; label: string; search: string; builtin: boolean };
+type FlatThemeRow = LexicalSearchItem & {
+  themeId: string;
+  variantId: string;
+  builtin: boolean;
+};
 
 export function createThemeModal(
   root: HTMLElement,
@@ -45,7 +54,8 @@ export function createThemeModal(
         themeId: t.id,
         variantId: v.id,
         label: `${t.label} — ${v.label}`,
-        search: `${t.label} ${t.description} ${v.label}`.toLowerCase(),
+        id: `${t.id} ${v.id}`,
+        keywords: `${t.label} ${t.description} ${v.label} ${t.id} ${v.id}`,
         builtin: true,
       });
     }
@@ -58,8 +68,7 @@ export function createThemeModal(
   }
 
   function applyFilter(): void {
-    const q = searchInput.value.trim().toLowerCase();
-    flat = q ? allFlat.filter((row) => row.search.includes(q) || row.label.toLowerCase().includes(q)) : [...allFlat];
+    flat = filterAndRankLexical(allFlat, normalizeQuery(searchInput.value));
     selectedFlat = Math.min(selectedFlat, Math.max(0, flat.length - 1));
     rebuildListDom();
     updateSelection();
@@ -140,7 +149,8 @@ export function createThemeModal(
         themeId: `custom:${name}`,
         variantId: "default",
         label: `Custom — ${name}`,
-        search: `custom ${name}`.toLowerCase(),
+        id: `custom ${name}`,
+        keywords: `custom ${name}`,
         builtin: false,
       });
     }

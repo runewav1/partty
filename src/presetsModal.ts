@@ -1,5 +1,6 @@
 import { listPresetNames, readPresetJson, deletePresetJson, type Preset } from "./presets";
 import { mouseCursorForceVisible } from "./mouseCursor";
+import { filterAndRankLexical, normalizeQuery } from "./lexicalSearch";
 
 export type PresetsModalApi = {
   open(): void;
@@ -65,8 +66,11 @@ export function createPresetsModal(opts: PresetsModalOptions): PresetsModalApi {
   root.appendChild(panel);
 
   function applyFilter(): void {
-    const q = searchInput.value.trim().toLowerCase();
-    filteredNames = q ? names.filter((n) => n.toLowerCase().includes(q)) : [...names];
+    const ranked = filterAndRankLexical(
+      names.map((name) => ({ label: name, id: name, keywords: name })),
+      normalizeQuery(searchInput.value),
+    );
+    filteredNames = ranked.map((r) => r.label);
     selected = Math.min(selected, Math.max(0, filteredNames.length - 1));
     renderList();
   }
