@@ -6,6 +6,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { parttyPerf } from "./perf";
+import { motionDisabled } from "./motion";
 
 export const MAIN_PANE_ID = "main";
 
@@ -234,6 +235,8 @@ export class PaneHost {
   private focusFollowRaf = 0;
   private pendingFocusFollowId: string | null = null;
   private paneDragActive = false;
+  /** Cached leaf rects for directional focus; invalidated on layout/mount. */
+  private leafGeometryCache: LeafGeometry[] | null = null;
 
   private readonly onPaneAltDragPointerDown = (e: PointerEvent): void => {
     if (!e.altKey || !e.ctrlKey || e.button !== 0) return;
@@ -282,6 +285,7 @@ export class PaneHost {
     this.mountTree();
     this.resizeObs = new ResizeObserver(() => {
       if (this.layoutDragDepth > 0) return;
+      this.leafGeometryCache = null;
       this.opts.onPaneLayout?.();
     });
     this.resizeObs.observe(this.root);
@@ -320,6 +324,7 @@ export class PaneHost {
   }
 
   private getLeafGeometries(): LeafGeometry[] {
+    if (this.leafGeometryCache) return this.leafGeometryCache;
     const ids: string[] = [];
     collectLeafIds(this.tree, ids);
     const geometries: LeafGeometry[] = [];
@@ -337,12 +342,19 @@ export class PaneHost {
         cy: r.top + r.height / 2,
       });
     }
+    this.leafGeometryCache = geometries;
     return geometries;
+  }
+
+  /** Drop cached leaf rects (call after any layout mutation). */
+  invalidateLeafGeometryCache(): void {
+    this.leafGeometryCache = null;
   }
 
   getDirectionalAdjacentLeafId(fromId: string, dir: "h" | "v" | "left" | "right" | "up" | "down" | "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"): string | null {
     if (!findPaneLeaf(this.tree, fromId)) return null;
-    const current = this.getLeafGeometries().find((leaf) => leaf.id === fromId);
+    const geometries = this.getLeafGeometries();
+    const current = geometries.find((leaf) => leaf.id === fromId);
     if (!current) return null;
     const normalized =
       dir === "ArrowLeft" ? "left" :
@@ -354,7 +366,7 @@ export class PaneHost {
     const neg = normalized === "left" || normalized === "up";
 
     let best: { id: string; score: number } | null = null;
-    for (const leaf of this.getLeafGeometries()) {
+    for (const leaf of geometries) {
       if (leaf.id === fromId) continue;
       const dx = leaf.cx - current.cx;
       const dy = leaf.cy - current.cy;
@@ -445,16 +457,31 @@ export class PaneHost {
 
   setFocusedPaneId(id: string): void {
     if (!findPaneLeaf(this.tree, id)) return;
-    this.focusedId = id;
-    this.updateFocusClass();
+    const prev = this.focusedId;
+    if (id !== prev) {
+      this.focusedId = id;
+      this.updateFocusClass(prev, id);
+    }
     this.opts.onPaneFocus(id);
     if (this.floating.has(id)) this.bringFloatingPaneToFront(id);
   }
 
-  private updateFocusClass(): void {
+  private updateFocusClass(prevId?: string, nextId?: string): void {
+    const focused = nextId ?? this.focusedId;
+    if (prevId && prevId !== focused) {
+      const prev = this.root.querySelector(
+        `.pane-leaf[data-pane-id="${CSS.escape(prevId)}"]`,
+      );
+      prev?.classList.remove("pane-leaf--focused");
+      const next = this.root.querySelector(
+        `.pane-leaf[data-pane-id="${CSS.escape(focused)}"]`,
+      );
+      next?.classList.add("pane-leaf--focused");
+      return;
+    }
     this.root.querySelectorAll(".pane-leaf").forEach((el) => {
       const pid = (el as HTMLElement).dataset.paneId;
-      el.classList.toggle("pane-leaf--focused", pid === this.focusedId);
+      el.classList.toggle("pane-leaf--focused", pid === focused);
     });
   }
 
@@ -845,7 +872,7 @@ export class PaneHost {
       }
     };
 
-    if (leafEl) {
+    if (leafEl && !motionDisabled()) {
       let done = false;
       const finish = (): void => {
         if (done) return;
@@ -858,7 +885,7 @@ export class PaneHost {
         if (!ev.animationName.includes("pane-leave")) return;
         finish();
       };
-      const safety = window.setTimeout(finish, 420);
+      const safety = window.setTimeout(finish, 280);
       leafEl.addEventListener("animationend", onAnimEnd);
       leafEl.classList.add("pane-leaf--leaving");
       leafEl.style.pointerEvents = "none";
@@ -970,8 +997,7 @@ export class PaneHost {
   }
 
   private shouldAnimatePaneMotion(): boolean {
-    if (document.documentElement.classList.contains("terminal-motion-off")) return false;
-    return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    return !motionDisabled();
   }
 
   private playPaneSwapFlip(before: Map<string, DOMRect>): void {
@@ -1098,6 +1124,7 @@ export class PaneHost {
   }
 
   private mountTree(): void {
+    this.leafGeometryCache = null;
     this.syncRatiosFromDom();
     this.root.replaceChildren();
     const tiledTree = this.pruneFloatingLeaves(this.tree);
@@ -1546,9 +1573,22 @@ export class PaneHost {
   private endLayoutDrag(commitLayout: boolean): void {
     this.layoutDragDepth = Math.max(0, this.layoutDragDepth - 1);
     if (this.layoutDragDepth > 0) return;
+    this.leafGeometryCache = null;
+    // Keep transition suppression through the layout commit + one frame so
+    // flex doesn't ease while xterm reflows (that was a common tear).
+    if (commitLayout) {
+      this.opts.onPaneLayout?.();
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (this.layoutDragDepth !== 0) return;
+          this.root.classList.remove("pane-host--layout-dragging");
+          this.opts.onPaneLayoutDrag?.(false);
+        });
+      });
+      return;
+    }
     this.root.classList.remove("pane-host--layout-dragging");
     this.opts.onPaneLayoutDrag?.(false);
-    if (commitLayout) this.opts.onPaneLayout?.();
   }
 
   private applyLeafTheme(wrap: HTMLElement, paneId: string, pt: PaneTerminal): void {

@@ -785,7 +785,10 @@ html.term-tabs-multiple .term-toolbar {
   min-height: 0;
 }
 
-/* Stacked workspace tab pane hosts (only one visible). */
+/* Stacked workspace tab pane hosts (only one interactive).
+   Prefer visibility over display:none so in-flight enter/leave animations
+   are never aborted mid-frame (a common tear source). Shells are absolute
+   so hidden ones do not affect layout. */
 .term-tab-pane-shell {
   position: absolute;
   inset: 0;
@@ -794,51 +797,53 @@ html.term-tabs-multiple .term-toolbar {
   min-height: 0;
   min-width: 0;
   opacity: 1;
-  will-change: opacity, transform;
+  contain: layout style;
 }
 
 .term-tab-pane-shell--hidden {
-  display: none !important;
+  visibility: hidden;
   opacity: 0;
   pointer-events: none;
+  z-index: 0;
 }
 
-/* ── Tab switch animations ── */
+/* ── Tab switch animations (opacity + light translate only — no blur/filter) ── */
 @keyframes tab-pane-enter {
   0% {
     opacity: 0;
-    transform: translateX(18px) scale(0.985);
-    filter: blur(2px);
+    transform: translateX(10px);
   }
   100% {
     opacity: 1;
-    transform: translateX(0) scale(1);
-    filter: blur(0);
+    transform: translateX(0);
   }
 }
 
 @keyframes tab-pane-leave {
   0% {
     opacity: 1;
-    transform: translateX(0) scale(1);
-    filter: blur(0);
+    transform: translateX(0);
   }
   100% {
     opacity: 0;
-    transform: translateX(-16px) scale(0.985);
-    filter: blur(2px);
+    transform: translateX(-8px);
   }
 }
 
 .term-tab-pane-shell--entering {
   z-index: 2;
+  visibility: visible;
+  pointer-events: auto;
   animation: tab-pane-enter var(--motion-medium) var(--motion-ease-emphasized) backwards;
+  will-change: opacity, transform;
 }
 
 .term-tab-pane-shell--leaving {
   z-index: 1;
+  visibility: visible;
   pointer-events: none;
   animation: tab-pane-leave var(--motion-medium) var(--motion-ease-out) forwards;
+  will-change: opacity, transform;
 }
 
 .pane-host {
@@ -864,10 +869,11 @@ html.term-tabs-multiple .term-toolbar {
   border-radius: var(--termie-pane-radius);
   overflow: hidden;
   background: var(--term-bg);
+  /* Border snaps quickly; opacity/filter ease so focus hops still feel alive. */
   transition:
-    border-color var(--motion-medium) var(--motion-ease-out),
+    border-color var(--motion-fast) var(--motion-ease-out),
     opacity var(--motion-medium) var(--motion-ease-out),
-    filter var(--motion-slow) var(--motion-ease-out),
+    filter var(--motion-medium) var(--motion-ease-out),
     background var(--motion-medium) var(--motion-ease-out),
     outline var(--motion-fast) var(--motion-ease-out);
 }
@@ -988,16 +994,13 @@ html.terminal-no-round .term-tab-group {
 }
 
 @keyframes pane-float-out {
-  0%   { transform: scale(0.96) translateY(6px); opacity: 0.7; filter: brightness(0.92); }
-  60%  { opacity: 0.95; }
-  100% { transform: scale(1) translateY(0); opacity: 1; filter: brightness(1); }
+  0%   { transform: scale(0.98); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 @keyframes pane-float-return {
-  0%   { transform: scale(1.03) translateY(-3px); opacity: 0.84; }
-  40%  { transform: scale(0.99); }
-  70%  { transform: scale(1.005); }
-  100% { transform: scale(1) translateY(0); opacity: 1; }
+  0%   { transform: scale(1.02); opacity: 0.85; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 .pane-leaf--floating-enter {
@@ -1050,9 +1053,9 @@ html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--foc
   transform-origin: center center;
   transition:
     transform var(--motion-medium) var(--motion-ease-out),
-    border-color var(--motion-medium) var(--motion-ease-out),
+    border-color var(--motion-fast) var(--motion-ease-out),
     opacity var(--motion-medium) var(--motion-ease-out),
-    filter var(--motion-slow) var(--motion-ease-out),
+    filter var(--motion-medium) var(--motion-ease-out),
     background var(--motion-medium) var(--motion-ease-out),
     outline var(--motion-fast) var(--motion-ease-out);
   z-index: 0;
@@ -1063,23 +1066,22 @@ html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf.pane-leaf--focused:
   transform-origin: center center;
   transition:
     transform var(--motion-medium) var(--motion-ease-out),
-    border-color var(--motion-medium) var(--motion-ease-out),
+    border-color var(--motion-fast) var(--motion-ease-out),
     opacity var(--motion-medium) var(--motion-ease-out),
-    filter var(--motion-slow) var(--motion-ease-out),
+    filter var(--motion-medium) var(--motion-ease-out),
     background var(--motion-medium) var(--motion-ease-out),
     outline var(--motion-fast) var(--motion-ease-out);
   z-index: 2;
 }
 
-/* Panel creation animation */
+/* Panel creation / destroy — opacity + mild scale only (no filter/brightness tears). */
 @keyframes pane-enter {
-  0%   { transform: scale(0.94) translateY(8px); opacity: 0; filter: brightness(0.9); }
-  60%  { opacity: 1; filter: brightness(1); }
-  100% { transform: scale(1) translateY(0); opacity: 1; }
+  0%   { transform: scale(0.97); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 .pane-leaf--entering {
-  animation: pane-enter var(--motion-slow) var(--motion-ease-emphasized) backwards;
+  animation: pane-enter var(--motion-medium) var(--motion-ease-emphasized) backwards;
   will-change: transform, opacity;
 }
 
@@ -1089,7 +1091,7 @@ html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf.pane-leaf--focused:
     opacity: 1;
   }
   100% {
-    transform: scale(0.94) translateY(2px);
+    transform: scale(0.97);
     opacity: 0;
   }
 }
@@ -1104,15 +1106,14 @@ html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf.pane-leaf--focused:
    is resized/restored/maximized or hops monitors (driven from playWindowMotion).
    Subtle scale + fade so the snap reads as intentional. Inherits the active Feel. */
 @keyframes window-motion-settle {
-  0%   { transform: scale(0.98); opacity: 0.7; filter: brightness(0.92); }
-  50%  { opacity: 0.95; filter: brightness(0.98); }
-  100% { transform: scale(1); opacity: 1; filter: brightness(1); }
+  0%   { transform: scale(0.992); opacity: 0.92; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 .window-motion-settle {
-  animation: window-motion-settle var(--motion-slow) var(--motion-ease-emphasized) backwards;
+  animation: window-motion-settle var(--motion-medium) var(--motion-ease-emphasized) backwards;
   transform-origin: center center;
-  will-change: transform, opacity, filter;
+  will-change: transform, opacity;
 }
 
 html.terminal-motion-off *,
@@ -1262,7 +1263,10 @@ html.terminal-motion-off *::after {
   outline: none;
 }
 
-.pane-split > :not(.pane-gutter) {
+/* Flex eases only during intentional layout settles (create/split), never
+   while a gutter/corner drag is active or through the post-drag reflow —
+   animating flex against simultaneous xterm fit causes visible tearing. */
+.pane-host:not(.pane-host--layout-dragging) .pane-split > :not(.pane-gutter) {
   transition: flex var(--motion-medium) var(--motion-ease-emphasized);
 }
 

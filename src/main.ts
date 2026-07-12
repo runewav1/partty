@@ -100,7 +100,7 @@ import {
 } from "./keybinds";
 import { showAlert } from "./dialog";
 import { pushOverlay, type OverlayHandle } from "./overlayStack";
-import { motionDisabled, animateClass } from "./motion";
+import { motionDisabled, animateClass, cancelElementAnimations } from "./motion";
 import { filterAndRankLexical, normalizeQuery } from "./lexicalSearch";
 import pkg from "../package.json";
 import { normalizeFsPathKey } from "./oscCwd";
@@ -2379,11 +2379,36 @@ async function boot(): Promise<void> {
     }
   }
 
+  /** Coalesce heavy focus side-effects so arrow spam stays visual-only. */
+  let pendingFocusAuxId: string | null = null;
+  let focusAuxRaf = 0;
+  function scheduleFocusAuxiliary(paneId: string): void {
+    pendingFocusAuxId = paneId;
+    if (focusAuxRaf) return;
+    focusAuxRaf = requestAnimationFrame(() => {
+      focusAuxRaf = 0;
+      const id = pendingFocusAuxId;
+      pendingFocusAuxId = null;
+      if (!id) return;
+      const pt = paneHost?.getPaneTerminal(id);
+      if (pt) {
+        lastPtyDims.delete(id);
+        pt.fit.fit();
+        scheduleResizeImmediate(true);
+      }
+      void remountAuxiliaryForFocus(id);
+      void syncCwdFromBackend();
+    });
+  }
+
   async function remountAuxiliaryForFocus(paneId: string): Promise<void> {
     const pt = paneHost?.getPaneTerminal(paneId);
     if (!pt) return;
+    // Skip stale work if the user already hopped to another pane.
+    if (paneHost?.getFocusedPaneId() !== paneId) return;
 
     await ensureWebglOnPane(paneId);
+    if (paneHost?.getFocusedPaneId() !== paneId) return;
 
     bridgeScrollCleanup?.();
     bridgeScrollCleanup = null;
@@ -2575,21 +2600,16 @@ async function boot(): Promise<void> {
           if (paneRenamePanel?.isOpen())
             paneRenamePanel.setPane(id, paneNames.get(id) ?? "");
           const pt = paneHost?.getPaneTerminal(id);
-          if (pt) {
-            lastPtyDims.delete(id);
-            requestAnimationFrame(() => {
-              pt.fit.fit();
-              scheduleResizeImmediate(true);
-            });
-            pt.term.focus();
-          }
+          // Sync hot path only: terminal focus + PTY focus IPC.
+          // Fit / WebGL / CWD / bridge scroll are coalesced to the next frame
+          // so Ctrl+Arrow hops stay visually instant.
+          if (pt) pt.term.focus();
           void ptyFocusPane(id).catch(() => {});
           const hint = paneCwdHints.get(id);
           if (hint) {
             liveCwd = hint;
           }
-          void syncCwdFromBackend();
-          void remountAuxiliaryForFocus(id);
+          scheduleFocusAuxiliary(id);
           try {
             scheduleCursorWarpToPane(id);
           } catch {
@@ -2850,11 +2870,17 @@ async function boot(): Promise<void> {
       try { fn(tabId); } catch { /* ignore */ }
     }
 
-    for (const shell of tabPaneShells.values()) {
+    // Only the prev→next pair participates in the crossfade; everything else
+    // is hidden immediately so stacked shells never flash or tear.
+    for (const [id, shell] of tabPaneShells) {
+      cancelElementAnimations(shell);
       shell.classList.remove(
         "term-tab-pane-shell--entering",
         "term-tab-pane-shell--leaving",
       );
+      if (id !== tabId && id !== prevTabId) {
+        shell.classList.add("term-tab-pane-shell--hidden");
+      }
     }
 
     paneHost = nextHost;
@@ -2867,21 +2893,19 @@ async function boot(): Promise<void> {
     if (prevShell && prevShell !== nextShell && motionOn) {
       prevShell.classList.remove("term-tab-pane-shell--hidden");
       const capturedPrev = prevTabId;
-      void animateClass(prevShell, "term-tab-pane-shell--leaving", 420).then(
+      void animateClass(prevShell, "term-tab-pane-shell--leaving", 320).then(
         () => {
           if (activeWorkspaceTabId === capturedPrev) return;
           prevShell.classList.add("term-tab-pane-shell--hidden");
         },
       );
-    } else {
-      for (const [id, shell] of tabPaneShells) {
-        shell.classList.toggle("term-tab-pane-shell--hidden", id !== tabId);
-      }
+    } else if (prevShell && prevShell !== nextShell) {
+      prevShell.classList.add("term-tab-pane-shell--hidden");
     }
 
     if (nextShell && motionOn) {
       const capturedTabId = tabId;
-      void animateClass(nextShell, "term-tab-pane-shell--entering", 420).then(
+      void animateClass(nextShell, "term-tab-pane-shell--entering", 320).then(
         () => {
           if (activeWorkspaceTabId !== capturedTabId) return;
           for (const [id, shell] of tabPaneShells) {
