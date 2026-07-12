@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { mouseCursorForceVisible } from "./mouseCursor";
 import type { ParttyPrefs } from "./settingsPanel";
-import { loadCustomThemesIntoCache, pickUiPrefs, themeCssVarsForPrefs, THEME_OPTIONS, getThemePrefsCache, type ThemeCssVars, type UiThemePrefs } from "./uiTheme";
+import { loadCustomThemesIntoCache, normalizePaneThemePrefs, pickUiPrefs, themeCssVarsForPrefs, THEME_OPTIONS, getThemePrefsCache, type ThemeCssVars, type UiThemePrefs } from "./uiTheme";
 
 const POS_KEY = "partty.themeModal.pos";
 
@@ -224,7 +224,7 @@ export function createThemeModal(
   });
 
   function indexForPrefs(p: UiThemePrefs): number {
-    const n = pickUiPrefs(p as unknown as Record<string, unknown>);
+    const n = normalizePaneThemePrefs(p);
     const idx = flat.findIndex(
       (r) => r.themeId === n.ui_theme && r.variantId === n.ui_theme_variant,
     );
@@ -275,7 +275,6 @@ export function createThemeModal(
         ui_theme_variant: row.variantId,
       };
       if (row.themeId.startsWith("custom:")) {
-        // Theme.toml [prefs] apply only when committing as the app theme.
         const slug = row.themeId.slice(7);
         const tprefs = getThemePrefsCache()[slug];
         if (tprefs) {

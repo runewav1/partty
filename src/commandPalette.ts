@@ -63,17 +63,15 @@ function tokenize(s: string): string[] {
 }
 
 /**
- * Rank matches so shorter / label-primary hits win hierarchies
- * (e.g. query "theme" → "Theme" before "Pane theme").
- * Returns null when the command does not match.
+ * Rank matches so shorter / label-primary hits win
+ * (e.g. "theme" → Theme before Pane theme). Null = no match.
  */
 function scoreCommand(cmd: PaletteCommand, parts: string[]): number | null {
   if (parts.length === 0) return 0;
   const label = cmd.label.toLowerCase();
   const keywords = (cmd.keywords ?? "").toLowerCase();
   const idTokens = tokenize(cmd.id);
-  const idHay = idTokens.join(" ");
-  const hay = `${label} ${keywords} ${idHay}`;
+  const hay = `${label} ${keywords} ${idTokens.join(" ")}`;
   if (!parts.every((p) => hay.includes(p))) return null;
 
   const q = parts.join(" ");
@@ -83,10 +81,8 @@ function scoreCommand(cmd: PaletteCommand, parts: string[]): number | null {
   if (label === q) score += 10_000;
   else if (label.startsWith(q)) score += 5_000;
 
-  const allInLabel = parts.every((p) => label.includes(p));
-  if (allInLabel) {
+  if (parts.every((p) => label.includes(p))) {
     score += 2_000;
-    // Tighter labels rank higher: "Theme" beats "Pane theme" for "theme".
     score += Math.max(0, 400 - labelTokens.length * 80);
     const covered = labelTokens.filter((w) =>
       parts.some((p) => w === p || w.startsWith(p)),
@@ -104,8 +100,7 @@ function scoreCommand(cmd: PaletteCommand, parts: string[]): number | null {
     else score += 5;
   }
 
-  score -= Math.min(label.length, 40);
-  return score;
+  return score - Math.min(label.length, 40);
 }
 
 function filterAndRankCommands(

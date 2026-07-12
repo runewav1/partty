@@ -67,8 +67,7 @@ pub struct ConnectionProfile {
     /// Optional icon path (`.ico` / `.png` / `.exe`). Overrides auto-extract.
     #[serde(default)]
     pub icon: Option<String>,
-    /// Pane color theme: `id`, `id/variant`, or custom theme slug (no `custom:` prefix).
-    /// Colors only — theme.toml `[prefs]` are never applied from profile themes.
+    /// Pane color theme (`id`, `id/variant`, or custom slug). Colors only.
     #[serde(default)]
     pub theme: Option<String>,
     /// Seeded / built-in profiles (still editable on disk).

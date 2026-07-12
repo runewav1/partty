@@ -1555,12 +1555,7 @@ export class PaneHost {
     const cssVars = this.opts.getPaneCssVars?.(paneId);
     if (cssVars) {
       for (const [key, value] of Object.entries(cssVars)) {
-        if (!key.startsWith("--")) continue;
-        wrap.style.setProperty(key, value);
-        // Row/host also reference --term-bg; set explicitly so chrome matches
-        // even if a parent remount races inheritance.
-        pt.row.style.setProperty(key, value);
-        pt.host.style.setProperty(key, value);
+        if (key.startsWith("--")) wrap.style.setProperty(key, value);
       }
     }
     pt.term.options.theme = this.opts.getTheme(paneId);
@@ -1639,7 +1634,7 @@ export class PaneHost {
           scrollOnEraseInDisplay: false,
           scrollSensitivity: this.opts.scrollSensitivity ?? 1,
           smoothScrollDuration: this.opts.smoothScrollDuration,
-          // Theme reapplied after onPaneCreated (profile themes seed paneThemes there).
+          // Theme reapplied after onPaneCreated (profile themes may seed there).
           theme: this.opts.getTheme(node.id),
           scrollback: this.opts.scrollbackLines,
           linkHandler: this.opts.linkHandler ?? undefined,
@@ -1675,7 +1670,6 @@ export class PaneHost {
         this.terminals.set(node.id, pt);
         this.opts.onPaneCreated(node.id, pt);
       }
-      // After onPaneCreated so profile/layout themes seeded there apply to leaf + xterm.
       this.applyLeafTheme(wrap, node.id, pt);
       wrap.appendChild(pt.row);
       if (this.justTiled.delete(node.id)) {

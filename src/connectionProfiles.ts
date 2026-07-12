@@ -36,10 +36,7 @@ export type ConnectionProfile = {
   startupCommand?: string | null;
   /** Optional icon path override (`.ico` / `.png` / `.exe`). */
   icon?: string | null;
-  /**
-   * Pane color theme: `id`, `id/variant`, or custom theme slug (no `custom:`).
-   * Colors only — theme.toml `[prefs]` are never applied from profile themes.
-   */
+  /** Pane color theme: `id`, `id/variant`, or custom theme slug (colors only). */
   theme?: string | null;
   /** Cached `data:` URL from the backend when palette icons are enabled. */
   iconDataUrl?: string | null;

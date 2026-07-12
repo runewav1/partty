@@ -2304,7 +2304,6 @@ async function boot(): Promise<void> {
     return paneTheme ? themeCssVarsForPrefs(paneTheme) : null;
   }
 
-  /** Theme from a profile id (colors only). */
   function themePrefsFromProfileId(
     profileId: string | null | undefined,
   ): PaneThemePrefs | null {
@@ -2314,27 +2313,21 @@ async function boot(): Promise<void> {
       profilesList,
     );
     const ref = profile?.theme?.trim();
-    if (!ref) return null;
-    const parsed = parseProfileThemeRef(ref);
-    return parsed ? normalizePaneThemePrefs(parsed) : null;
+    return ref ? parseProfileThemeRef(ref) : null;
   }
 
-  /**
-   * Explicit pane override, else profile theme (pending spawn / paneProfileIds).
-   * Used by getTheme/getPaneCssVars so the first paint (before onPaneCreated)
-   * already has the right colors.
-   */
+  /** Explicit pane theme, else profile theme (including pending spawn). */
   function resolvePaneThemePrefs(paneId: string): PaneThemePrefs | null {
-    const explicit = paneThemes.get(paneId);
-    if (explicit) return explicit;
-    const profileId =
-      pendingPaneSpawnProfile.get(paneId) ??
-      paneProfileIds.get(paneId) ??
-      pendingNewPaneProfile.v;
-    return themePrefsFromProfileId(profileId);
+    return (
+      paneThemes.get(paneId) ??
+      themePrefsFromProfileId(
+        pendingPaneSpawnProfile.get(paneId) ??
+          paneProfileIds.get(paneId) ??
+          pendingNewPaneProfile.v,
+      )
+    );
   }
 
-  /** Materialize profile theme into paneThemes so layout persist + remount keep it. */
   function ensurePaneThemeFromProfile(
     paneId: string,
     profileId: string | null | undefined,
@@ -2605,10 +2598,6 @@ async function boot(): Promise<void> {
             profilesList,
           );
           paneProfileIds.set(id, resolvedProfile);
-
-          // Materialize profile theme into paneThemes (colors only). Layout
-          // overrides already in the map win. getTheme/cssVars also fall back
-          // to the profile, but persisting here keeps remounts/layout in sync.
           ensurePaneThemeFromProfile(id, resolvedProfile);
 
           // During destroy→recreate boot, prepare-show owns ensure after scrollback
@@ -2716,15 +2705,9 @@ async function boot(): Promise<void> {
       }
     }
     for (const [paneId, profileId] of Object.entries(layout.paneProfileIds ?? {})) {
-      paneProfileIds.set(
-        paneId,
-        resolveDefaultProfileId(profileId, profilesList),
-      );
-      // Seed profile themes before mount so first getTheme/cssVars hit is correct.
-      ensurePaneThemeFromProfile(
-        paneId,
-        resolveDefaultProfileId(profileId, profilesList),
-      );
+      const resolved = resolveDefaultProfileId(profileId, profilesList);
+      paneProfileIds.set(paneId, resolved);
+      ensurePaneThemeFromProfile(paneId, resolved);
     }
     createTabPaneShellAndHost(
       tab.id,

@@ -632,9 +632,7 @@ const PRESETS: Record<string, Record<string, ThemeCssVars>> = {
 };
 
 /**
- * Deprecated theme ids from when dark/light were separate themes with a
- * `default` variant (e.g. "GitHub Dark — default"). Prefer `github` + `dark`.
- * Kept only as a one-way read migration for persisted prefs / layouts / profiles.
+ * Deprecated `{name}-{variant}` ids (e.g. github-dark). One-way read migration only.
  */
 const DEPRECATED_THEME_IDS: Record<string, { theme: string; variant: string }> = {
   "github-dark": { theme: "github", variant: "dark" },
@@ -643,7 +641,7 @@ const DEPRECATED_THEME_IDS: Record<string, { theme: string; variant: string }> =
   "vscode-light": { theme: "vscode", variant: "light" },
 };
 
-/** Normalize persisted theme ids; maps deprecated `{name}-{variant}` → `{name}` + variant. */
+/** Map deprecated theme ids to `{ theme, variant }`. */
 export function normalizePaneThemePrefs(prefs: PaneThemePrefs): PaneThemePrefs {
   const legacy = DEPRECATED_THEME_IDS[prefs.ui_theme];
   if (!legacy) {
@@ -657,10 +655,6 @@ export function normalizePaneThemePrefs(prefs: PaneThemePrefs): PaneThemePrefs {
       ? legacy.variant
       : prefs.ui_theme_variant;
   return { ui_theme: legacy.theme, ui_theme_variant: variant };
-}
-
-export function isDeprecatedThemeId(themeId: string): boolean {
-  return Object.prototype.hasOwnProperty.call(DEPRECATED_THEME_IDS, themeId);
 }
 
 type ThemeInfo = { name: string; colors: Record<string, string>; prefs: Record<string, unknown> | null };
@@ -762,12 +756,10 @@ export function uiPrefsChanged(a: UiThemePrefs, b: UiThemePrefs): boolean {
 }
 
 function resolvePreset(themeId: string, variant: string): ThemeCssVars {
-  const normalized = normalizePaneThemePrefs({
+  const { ui_theme: id, ui_theme_variant: variantId } = normalizePaneThemePrefs({
     ui_theme: themeId,
     ui_theme_variant: variant,
   });
-  const id = normalized.ui_theme;
-  const variantId = normalized.ui_theme_variant;
   if (id.startsWith("custom:")) {
     const slug = id.slice(7);
     const c = customThemeVarsCache[slug];
@@ -776,25 +768,8 @@ function resolvePreset(themeId: string, variant: string): ThemeCssVars {
   }
   const t = PRESETS[id];
   if (!t) return PRESETS.tokyonight.default;
-  let v = variantId || "default";
-  if (id === "catppuccin" && (v === "default" || !t[v])) {
-    v = "mocha";
-  }
-  if (id === "gruvbox" && (v === "default" || !t[v])) {
-    v = "soft_dark";
-  }
-  if (id === "solarized" && (v === "default" || !t[v])) {
-    v = "dark";
-  }
-  if (id === "flexoki" && (v === "default" || !t[v])) {
-    v = "dark";
-  }
-  if (id === "github" && (v === "default" || !t[v])) {
-    v = "dark";
-  }
-  if (id === "vscode" && (v === "default" || !t[v])) {
-    v = "dark";
-  }
+  const preferred = variantId || "default";
+  const v = t[preferred] ? preferred : defaultVariantForTheme(id);
   return t[v] ?? t.default ?? PRESETS.tokyonight.default;
 }
 
@@ -1167,33 +1142,33 @@ export function defaultVariantForTheme(themeId: string): string {
 }
 
 /**
- * Profile `theme` field: `id`, `id/variant`, or a custom theme slug (no `custom:` prefix).
+ * Profile `theme` field: `id`, `id/variant`, or custom theme slug (no `custom:`).
  * Colors only — never applies theme.toml `[prefs]`.
  */
 export function parseProfileThemeRef(ref: string): PaneThemePrefs | null {
   const raw = ref.trim();
   if (!raw) return null;
   const slash = raw.lastIndexOf("/");
-  let themePart = raw;
-  let variantPart: string | null = null;
-  if (slash > 0) {
-    themePart = raw.slice(0, slash).trim();
-    variantPart = raw.slice(slash + 1).trim() || null;
-  }
+  const themePart = (slash > 0 ? raw.slice(0, slash) : raw).trim();
+  const variantPart =
+    slash > 0 ? raw.slice(slash + 1).trim() || undefined : undefined;
   if (!themePart) return null;
 
-  if (DEPRECATED_THEME_IDS[themePart]) {
+  const isBuiltin =
+    themePart === "system" ||
+    Boolean(PRESETS[themePart]) ||
+    Boolean(DEPRECATED_THEME_IDS[themePart]) ||
+    THEME_OPTIONS.some((t) => t.id === themePart);
+
+  if (isBuiltin) {
     return normalizePaneThemePrefs({
       ui_theme: themePart,
-      ui_theme_variant: variantPart ?? "default",
+      ui_theme_variant:
+        variantPart ??
+        (DEPRECATED_THEME_IDS[themePart]
+          ? "default"
+          : defaultVariantForTheme(themePart)),
     });
-  }
-
-  if (themePart === "system" || PRESETS[themePart] || THEME_OPTIONS.some((t) => t.id === themePart)) {
-    return {
-      ui_theme: themePart,
-      ui_theme_variant: variantPart ?? defaultVariantForTheme(themePart),
-    };
   }
 
   const slug = themePart.startsWith("custom:") ? themePart.slice(7) : themePart;
