@@ -2503,6 +2503,264 @@ html.zen-mode #main-workspace {
   outline: 1px solid rgba(129, 140, 248, 0.35);
 }
 
+/* Workspaces modal — minimal (no title bar, no list scrollbar) */
+.workspaces-modal-panel {
+  padding-top: 10px;
+}
+
+.workspaces-modal-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+}
+
+.workspaces-modal-list {
+  overflow: hidden;
+  scrollbar-width: none;
+}
+
+.workspaces-item-actions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.workspaces-capture-btn {
+  margin: 0 12px 8px;
+  width: calc(100% - 24px);
+}
+
+/* Workspace editor */
+.workspace-editor-root {
+  position: fixed;
+  inset: 0;
+  z-index: 9600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workspace-editor-root--hidden {
+  display: none !important;
+}
+
+.workspace-editor-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.workspace-editor-panel {
+  position: relative;
+  z-index: 1;
+  width: min(920px, 96vw);
+  max-height: min(90vh, 760px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-glass-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius);
+  box-shadow: 0 12px 40px var(--panel-shadow);
+  backdrop-filter: blur(16px) saturate(1.08);
+  -webkit-backdrop-filter: blur(16px) saturate(1.08);
+  overflow: hidden;
+}
+
+.workspace-editor-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+}
+
+.workspace-editor-meta {
+  display: block;
+  padding: 10px 40px 10px 14px;
+}
+
+.workspace-editor-name-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.workspace-editor-meta-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.workspace-editor-meta-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ui-chrome-fg);
+}
+
+.workspace-editor-meta-hint {
+  font-size: 10px;
+  color: var(--ui-chrome-fainter);
+  line-height: 1.35;
+}
+
+.workspace-editor-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  border-top: 1px solid var(--panel-divider);
+  border-bottom: 1px solid var(--panel-divider);
+}
+
+.workspace-editor-viewport-mount {
+  flex: 1;
+  min-width: 0;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+}
+
+.workspace-editor-viewport {
+  flex: 1;
+  min-height: 0;
+  margin: 10px;
+  background: var(--term-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--termie-pane-radius, 8px);
+  overflow: hidden;
+  display: flex;
+}
+
+.workspace-editor-host.pane-host {
+  flex: 1;
+  min-height: 0;
+}
+
+.workspace-editor-host.pane-host--layout-dragging .pane-split > :not(.pane-gutter) {
+  transition: none !important;
+}
+
+.workspace-editor-leaf-inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px;
+  min-height: 0;
+  background: color-mix(in srgb, var(--term-bg) 88%, var(--ws-pane-accent, var(--accent-primary)) 12%);
+  cursor: grab;
+}
+
+.workspace-editor-leaf-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ui-chrome-fg);
+  max-width: 92%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-editor-leaf-profile {
+  font-size: 10px;
+  color: var(--ui-chrome-muted);
+}
+
+.workspace-editor-leaf-cwd {
+  font-size: 9px;
+  color: var(--ui-chrome-fainter);
+  font-family: var(--font-terminal);
+}
+
+.workspace-editor-leaf-accent {
+  width: 28px;
+  height: 3px;
+  border-radius: 2px;
+  margin-top: 2px;
+}
+
+.workspace-editor-drag-preview {
+  position: fixed;
+  z-index: 9700;
+  pointer-events: none;
+  opacity: 0.85;
+  box-shadow: 0 8px 24px var(--panel-shadow);
+}
+
+.workspace-editor-props {
+  flex: 0 0 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border-left: 1px solid var(--panel-divider);
+  overflow-y: auto;
+}
+
+.workspace-editor-props-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ui-chrome-muted);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.workspace-editor-pane-id {
+  font-size: 10px;
+  color: var(--ui-chrome-fainter);
+  font-family: var(--font-terminal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workspace-editor-field label {
+  font-size: 11px;
+  color: var(--ui-chrome-muted);
+  font-weight: 500;
+}
+
+.workspace-editor-cwd-hint {
+  margin: 0;
+  font-size: 10px;
+  color: var(--ui-chrome-fainter);
+  line-height: 1.35;
+}
+
+.workspace-editor-prop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--panel-divider);
+}
+
+.workspace-editor-action-btn {
+  padding: 5px 10px !important;
+  font-size: 11px !important;
+}
+
+.workspace-editor-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+}
+
+html.workspace-editor-open #terminal-wrap,
+html.workspace-editor-open #main-workspace {
+  pointer-events: none;
+}
+
 /* Zen rename modal — minimal overlay for tab rename when tab bar hidden */
 .zen-rename-modal {
   position: fixed;
@@ -2587,16 +2845,6 @@ html.zen-mode #main-workspace {
 
 .theme-modal-item--active {
   background: var(--hover-overlay-light);
-}
-.presets-item-actions {
-  display: flex;
-  gap: 4px;
-  opacity: 0;
-  transition: opacity var(--motion-fast) var(--motion-ease-out);
-}
-.theme-modal-item:hover .presets-item-actions,
-.theme-modal-item--active .presets-item-actions {
-  opacity: 1;
 }
 
 /* ── Process completion notification toast ── */

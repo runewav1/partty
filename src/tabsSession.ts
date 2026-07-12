@@ -2,7 +2,6 @@ import type { PaneNode } from "./paneHost";
 import { loadPaneLayout, type PersistedPaneLayout } from "./paneLayout";
 import { workspaceRootPaneId } from "./workspacePaneIds";
 
-/** Deep-copy layout with new tab root id and fresh UUIDs for split panes (duplicate tab). */
 export function duplicateTabLayout(layout: PersistedPaneLayout, fromTabId: string, newTabId: string): PersistedPaneLayout {
   const oldRoot = workspaceRootPaneId(fromTabId);
   const newRoot = workspaceRootPaneId(newTabId);
@@ -112,7 +111,6 @@ export const emptyWorkspaceLayout = (tabId: string): PersistedPaneLayout => {
   return { v: 1, tree: { kind: "leaf", id: r }, focusedId: r };
 };
 
-/** Remap legacy `main` ids to this tab's root so PTYs never alias across tabs. */
 export function migrateLayoutFromLegacyMain(layout: PersistedPaneLayout, tabId: string): PersistedPaneLayout {
   const rid = workspaceRootPaneId(tabId);
   function mapNode(n: PaneNode): PaneNode {
@@ -161,7 +159,6 @@ function loadRawTabs(): TabsStateV1 {
     const p = JSON.parse(raw) as Partial<TabsStateV1>;
     if (p.v !== 1 || !Array.isArray(p.tabs) || typeof p.activeTabId !== "string") throw new Error("bad");
     if (p.tabs.length === 0) throw new Error("no tabs");
-    // Migrate old state without order field
     const tabs = p.tabs.map((t, i) => typeof t.order === "number" ? t : { ...t, order: i });
     const groups = (p.groups ?? []).map((g, i) => typeof g.order === "number" ? g : { ...g, order: i });
     return { v: 1, tabs, activeTabId: p.activeTabId, groups };
@@ -212,7 +209,6 @@ export function loadLayoutForTab(tabId: string): PersistedPaneLayout | null {
   }
 }
 
-/** First layout for a tab: migrate global pane layout once, else per-tab or fresh root. */
 export function initialLayoutForTab(tabId: string, isFirstTab: boolean): PersistedPaneLayout {
   if (isFirstTab) {
     const g = loadPaneLayout();

@@ -66,11 +66,11 @@ import { initParttyScrollFade } from "./scrollChrome";
 import { workspaceRootPaneId } from "./workspacePaneIds";
 import { attachDraggablePanel } from "./draggablePanel";
 import {
-  getShedWorkspaceExitMode,
-  shedWorkspaceLocalState,
-  shouldShedWorkspaceOnExitSilent,
+  getSessionShedOnExitMode,
+  shedSessionLocalState,
+  shouldShedSessionOnExitSilent,
   syncRuntimeShedFromPrefs,
-} from "./workspaceShed";
+} from "./sessionShed";
 import {
   applyUiTheme,
   buildXtermThemeFromPrefs,
@@ -107,12 +107,25 @@ import {
   type ThemeBuilderApi,
 } from "./themeBuilderModal";
 import { createThemeModal, type ThemeModalApi } from "./themeModal";
-import { createPresetsModal, type PresetsModalApi } from "./presetsModal";
 import {
-  createPresetEditorModal,
-  type PresetEditorApi,
-} from "./presetEditorModal";
-import { writePresetJson, type Preset } from "./presets";
+  createWorkspacesModal,
+  type WorkspacesModalApi,
+} from "./workspacesModal";
+import {
+  createWorkspaceEditorModal,
+  type WorkspaceEditorApi,
+  type WorkspaceLoadTarget,
+} from "./workspaceEditorModal";
+import {
+  normalizeLayoutForWorkspace,
+  remapWorkspaceLayoutForTab,
+} from "./workspaceLayout";
+import {
+  readWorkspace,
+  writeWorkspace,
+  workspaceIdFromName,
+  type Workspace,
+} from "./workspaces";
 
 import {
   ptyAckExit,
@@ -167,7 +180,6 @@ const STORAGE_KEY_MIGRATIONS: [string, string][] = [
   ["termie.defer_pty_reinit", DEFER_PTY_REINIT_KEY],
   ["termie.tabs.v1", "partty.tabs.v1"],
   ["termie.pane_layout.v1", "partty.pane_layout.v1"],
-  ["termie.runtime.shed_workspace_exit", "partty.runtime.shed_workspace_exit"],
   ["termie.themeModal.pos", "partty.themeModal.pos"],
   ["termie.settingsPanel.pos", "partty.settingsPanel.pos"],
   ["termie.helpPanel.pos", "partty.helpPanel.pos"],
@@ -183,7 +195,6 @@ function migrateParttyLocalStorage(): void {
         localStorage.setItem(newKey, oldValue);
       }
     }
-    // Legacy hide serialize path — scrollback now lives in process memory only.
     localStorage.removeItem("partty.terminal.serialize");
     localStorage.removeItem("termie.terminal.serialize");
     for (const key of Object.keys(localStorage)) {
@@ -195,11 +206,10 @@ function migrateParttyLocalStorage(): void {
       }
     }
   } catch {
-    /* localStorage may be unavailable; ignore migration. */
+    /* ignore */
   }
 }
 
-/** Fallback when fit has no dimensions yet (e.g. new pane before layout). */
 const PTY_FALLBACK_COLS = 80;
 const PTY_FALLBACK_ROWS = 24;
 
@@ -468,6 +478,7 @@ async function boot(): Promise<void> {
   const pendingPaneSpawnCwd = new Map<string, string>();
   const pendingNewPaneProfile = { v: null as string | null };
   const pendingPaneSpawnProfile = new Map<string, string>();
+  const pendingPaneStartupCommands = new Map<string, string>();
   let profilesList: ConnectionProfile[] = [];
   const focusFollowsRef = { v: lp.focus_follows_cursor };
   const autoCopySelectionRef = {
@@ -1299,6 +1310,7 @@ async function boot(): Promise<void> {
       paneHostCleanups.delete(paneId);
     }
     disposeWebglForPane(paneId);
+    pendingPaneStartupCommands.delete(paneId);
     paneShellState.delete(paneId);
     paneCwdHints.delete(paneId);
     paneProfileIds.delete(paneId);
@@ -1992,12 +2004,7 @@ async function boot(): Promise<void> {
     scheduleResizeImmediate(true);
   }
 
-  // A freshly created pane's first fit can quantize against not-yet-settled
-  // metrics (the viewport's scrollbar width and final host layout resolve a frame
-  // or two after the terminal opens), so the grid mis-centers until a manual
-  // resize busts the cached dims. Replicate that resize: once the pane has
-  // settled, drop its cached dims and force a corrective re-fit. Staggered over a
-  // couple of frames + one post-animation tick so late-resolving metrics converge.
+  // Staggered reflow after create — metrics settle a frame or two late.
   function scheduleCreationReflow(paneId: string): void {
     const run = (): void => {
       reflowPane(paneId, true);
@@ -2017,12 +2024,6 @@ async function boot(): Promise<void> {
     for (const id of ids) scheduleCreationReflow(id);
   }
 
-  /**
-   * After a pane-tree remount (transfer take, tab close → reveal), bust cached
-   * PTY dims and run the staggered creation reflow so flex-centered `.xterm`
-   * grids re-quantize against the settled host. Only call while `host` is
-   * visible — fitting a `display:none` tab can write 0×0 metrics.
-   */
   function scheduleHostGeometryRepair(host: PaneHost): void {
     const ids: string[] = [];
     collectLeafIds(host.getTree(), ids);
@@ -2164,6 +2165,7 @@ async function boot(): Promise<void> {
         parttyPerf.mark("pty.ensure.success");
         parttyPerf.time("pty.ensure.ms", performance.now() - ensureStarted);
         if (paneId === paneHost?.getFocusedPaneId()) scheduleCwdSync();
+        flushPaneStartupCommand(paneId);
         return;
       } catch (e) {
         lastErr = e;
@@ -2229,7 +2231,6 @@ async function boot(): Promise<void> {
     "tab-1";
   tabsState = { ...tabsState, activeTabId: activeWorkspaceTabId };
   saveTabsState(tabsState);
-  /** One pane host per workspace tab so shells + scrollback survive tab switches. */
   const tabPaneHosts = new Map<string, PaneHost>();
   const tabPaneShells = new Map<string, HTMLElement>();
 
@@ -3003,8 +3004,6 @@ async function boot(): Promise<void> {
     const pt = takePaneForTransfer(sourceHost, paneId);
     if (!pt) return;
 
-    // Survivors expand (split → full) via mountTree; they need the same
-    // staggered reflow as new panes, but only while their tab stays visible.
     const sourceSurvivorIds: string[] = [];
     if (!closingSourceTab) {
       collectLeafIds(sourceHost.getTree(), sourceSurvivorIds);
@@ -3057,8 +3056,6 @@ async function boot(): Promise<void> {
       switchWorkspaceTab(targetTabId);
     }
     scheduleCreationReflow(paneId);
-    // Quiet deferral keeps the source tab active — repair survivors now.
-    // If we switched away, do not fit a hidden host; close/switch-back repairs.
     if (!closingSourceTab && paneHost === sourceHost) {
       scheduleHostGeometryRepair(sourceHost);
     }
@@ -3114,6 +3111,235 @@ async function boot(): Promise<void> {
     switchWorkspaceTab(newId);
   }
 
+  function seedWorkspacePaneMaps(mapped: PersistedPaneLayout): void {
+    for (const [paneId, theme] of Object.entries(mapped.paneThemes ?? {})) {
+      paneThemes.set(paneId, normalizePaneThemePrefs(theme));
+    }
+    for (const [paneId, name] of Object.entries(mapped.paneNames ?? {})) {
+      const cleaned = name.trim().replace(/\s+/g, "_");
+      if (cleaned) paneNames.set(paneId, cleaned);
+    }
+    for (const [paneId, cwd] of Object.entries(mapped.paneCwds ?? {})) {
+      paneCwdHints.set(paneId, cwd);
+      pendingPaneSpawnCwd.set(paneId, cwd);
+    }
+    for (const [paneId, profileId] of Object.entries(
+      mapped.paneProfileIds ?? {},
+    )) {
+      const resolved = resolveDefaultProfileId(profileId, profilesList);
+      paneProfileIds.set(paneId, resolved);
+      pendingPaneSpawnProfile.set(paneId, resolved);
+    }
+  }
+
+  function queuePaneStartupCommands(
+    startup: Record<string, string> | undefined,
+    idMap: Map<string, string>,
+  ): void {
+    if (!startup) return;
+    for (const [savedId, cmd] of Object.entries(startup)) {
+      const paneId = idMap.get(savedId);
+      const trimmed = cmd.trim();
+      if (paneId && trimmed) pendingPaneStartupCommands.set(paneId, trimmed);
+    }
+  }
+
+  function flushPaneStartupCommand(paneId: string): void {
+    const cmd = pendingPaneStartupCommands.get(paneId);
+    if (!cmd) return;
+    pendingPaneStartupCommands.delete(paneId);
+    const payload = cmd.endsWith("\r") || cmd.endsWith("\n") ? cmd : `${cmd}\r`;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        void ptyWrite(paneId, payload).catch(() => {});
+      });
+    });
+  }
+
+  function runWorkspaceStartupCommands(
+    startup: Record<string, string> | undefined,
+    idMap: Map<string, string>,
+  ): void {
+    queuePaneStartupCommands(startup, idMap);
+  }
+
+  async function paneCwdMapForWorkspaceCapture(host: PaneHost): Promise<Map<string, string>> {
+    const ids: string[] = [];
+    collectLeafIds(host.getTree(), ids);
+    const out = new Map<string, string>();
+    const globalCwd = (
+      (persisted.prefs as Partial<ParttyPrefs>).initial_cwd as string | null | undefined
+    )?.trim();
+    for (const id of ids) {
+      let cwd = paneCwdHints.get(id)?.trim();
+      if (!cwd) {
+        try {
+          const fromPty = await ptyShellCwd(id);
+          if (fromPty?.trim()) {
+            cwd = fromPty.trim();
+            paneCwdHints.set(id, cwd);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      if (!cwd) {
+        const profileId = resolveDefaultProfileId(
+          paneProfileIds.get(id) ?? profileBehaviorRef.v.default_profile_id,
+          profilesList,
+        );
+        const profile = getProfileById(profileId, profilesList);
+        const fromProfile = profile?.initialCwd?.trim();
+        if (fromProfile) cwd = fromProfile;
+        else if (globalCwd) cwd = globalCwd;
+      }
+      if (cwd) out.set(id, cwd);
+    }
+    return out;
+  }
+
+  async function workspaceFromCurrentTab(name = ""): Promise<Workspace | null> {
+    const host = paneHost;
+    if (!host) return null;
+    const tree = host.getTree();
+    const rid = host.getRootPaneId();
+    if (!tree || !findPaneLeaf(tree, rid)) return null;
+    const panes = host.getPaneDescriptors();
+    const pl: PersistedPaneLayout = {
+      v: 1,
+      tree,
+      focusedId: host.getFocusedPaneId(),
+      floating: host.getFloatingState(),
+      paneThemes: Object.fromEntries(
+        panes
+          .filter((pane) => paneThemes.has(pane.id))
+          .map((pane) => [pane.id, paneThemes.get(pane.id)!]),
+      ),
+      paneNames: Object.fromEntries(
+        panes
+          .filter((pane) => paneNames.has(pane.id))
+          .map((pane) => [pane.id, paneNames.get(pane.id)!]),
+      ),
+      paneProfileIds: Object.fromEntries(
+        panes
+          .filter((pane) => paneProfileIds.has(pane.id))
+          .map((pane) => [pane.id, paneProfileIds.get(pane.id)!]),
+      ),
+    };
+    const cwdMap = await paneCwdMapForWorkspaceCapture(host);
+    const layout = normalizeLayoutForWorkspace({
+      layout: pl,
+      paneThemes,
+      paneNames,
+      paneCwdHints: cwdMap,
+      paneProfileIds,
+    });
+    const workspaceName = name.trim();
+    return {
+      version: 1,
+      name: workspaceName,
+      layout,
+    };
+  }
+
+  async function applyWorkspace(
+    workspace: Workspace,
+    target: WorkspaceLoadTarget,
+  ): Promise<void> {
+    if (target === "new") {
+      await applyWorkspaceToNewTab(workspace);
+      return;
+    }
+    await applyWorkspaceToCurrentTab(workspace);
+  }
+
+  async function applyWorkspaceToNewTab(workspace: Workspace): Promise<void> {
+    persistCurrentWorkspaceTabLayout();
+    const newTabId = crypto.randomUUID();
+    const { layout: mapped, idMap } = remapWorkspaceLayoutForTab(
+      workspace.layout,
+      newTabId,
+    );
+    if (!isWorkspaceLayoutUsable(mapped, newTabId)) return;
+
+    const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
+    tabsState = {
+      ...tabsState,
+      tabs: [
+        ...tabsState.tabs,
+        {
+          id: newTabId,
+          name: workspace.name.trim() || workspaceIdFromName(workspace.name),
+          groupId: null,
+          color: null,
+          order: maxOrder + 1,
+        },
+      ],
+    };
+    saveTabsState(tabsState);
+    persistLayoutForTab(newTabId, mapped);
+    seedWorkspacePaneMaps(mapped);
+    createTabPaneShellAndHost(
+      newTabId,
+      {
+        initialTree: mapped.tree,
+        initialFocusedId: mapped.focusedId,
+        initialFloating: mapped.floating,
+      },
+      workspaceRootPaneId(newTabId),
+    );
+    switchWorkspaceTab(newTabId);
+    runWorkspaceStartupCommands(workspace.layout.startupCommands, idMap);
+  }
+
+  async function applyWorkspaceToCurrentTab(workspace: Workspace): Promise<void> {
+    const tabId = activeWorkspaceTabId;
+    persistCurrentWorkspaceTabLayout();
+
+    const { layout: mapped, idMap } = remapWorkspaceLayoutForTab(
+      workspace.layout,
+      tabId,
+    );
+    if (!isWorkspaceLayoutUsable(mapped, tabId)) return;
+
+    const tab = tabsState.tabs.find((t) => t.id === tabId);
+    const title = workspace.name.trim();
+    if (tab && title) {
+      tab.name = title;
+      saveTabsState(tabsState);
+    }
+
+    const oldHost = tabPaneHosts.get(tabId);
+    if (oldHost) {
+      for (const pane of oldHost.getPaneDescriptors()) {
+        paneNames.delete(pane.id);
+        paneThemes.delete(pane.id);
+      }
+      disposeTabPaneHost(tabId);
+    }
+
+    seedWorkspacePaneMaps(mapped);
+
+    const newHost = createTabPaneShellAndHost(
+      tabId,
+      {
+        initialTree: mapped.tree,
+        initialFocusedId: mapped.focusedId,
+        initialFloating: mapped.floating,
+      },
+      workspaceRootPaneId(tabId),
+    );
+    paneHost = newHost;
+    lastFocusedPaneId = newHost.getFocusedPaneId();
+    persistLayoutForTab(tabId, mapped);
+    installPaneControlSurface();
+    renderWorkspaceTabsBar();
+    scheduleResizeImmediate(true);
+    scheduleCreationReflowForHost(newHost);
+
+    runWorkspaceStartupCommands(workspace.layout.startupCommands, idMap);
+  }
+
   function tabIdForPaneHost(host: PaneHost): string | null {
     for (const [tabId, h] of tabPaneHosts) {
       if (h === host) return tabId;
@@ -3158,8 +3384,6 @@ async function boot(): Promise<void> {
       tabsState.tabs.length > 1,
     );
     renderWorkspaceTabsBar();
-    // Force refresh + staggered reflow: survivors may have expanded while this
-    // tab was hidden, leaving a flex-centered grid offset until a full repaint.
     scheduleResizeImmediate(true);
     if (paneHost) scheduleHostGeometryRepair(paneHost);
     getFocusedTerm()?.focus();
@@ -3931,9 +4155,9 @@ async function boot(): Promise<void> {
     try {
       persistCurrentWorkspaceTabLayout();
       if (!retainSessionStateRef.v) {
-        shedWorkspaceLocalState();
-      } else if (shouldShedWorkspaceOnExitSilent()) {
-        shedWorkspaceLocalState();
+        shedSessionLocalState();
+      } else if (shouldShedSessionOnExitSilent()) {
+        shedSessionLocalState();
       }
     } catch {
       /* ignore */
@@ -3944,20 +4168,20 @@ async function boot(): Promise<void> {
     const appWin = getCurrentWindow();
     await appWin.onCloseRequested(async (event) => {
       if (!retainSessionStateRef.v) {
-        shedWorkspaceLocalState();
+        shedSessionLocalState();
         return;
       }
-      const mode = getShedWorkspaceExitMode();
+      const mode = getSessionShedOnExitMode();
       if (mode === "keep") return;
       if (mode === "shed") {
-        shedWorkspaceLocalState();
+        shedSessionLocalState();
         return;
       }
       event.preventDefault();
       const root = document.getElementById("shed-exit-dialog");
       const choice = await showShedExitDialog(root);
       if (choice === "cancel") return;
-      if (choice === "discard") shedWorkspaceLocalState();
+      if (choice === "discard") shedSessionLocalState();
       void appWin.destroy().catch(() => {});
     });
   })();
@@ -4082,217 +4306,54 @@ async function boot(): Promise<void> {
     };
   }
 
-  const presetsModalRoot = document.getElementById("presets-modal-root");
-  const presetEditorRoot = document.getElementById("preset-editor-root");
-  const presetEditor: PresetEditorApi | null = presetEditorRoot
-    ? createPresetEditorModal(presetEditorRoot as HTMLElement)
-    : null;
-  let presetsModal: PresetsModalApi | null = null;
-  if (presetsModalRoot) {
-    presetsModal = createPresetsModal({
-      root: presetsModalRoot as HTMLElement,
-      onEdit: (preset) => presetEditor?.open(preset),
-      onSave: async (name) => {
-        const pl = paneHost ? layoutForPaneHost(paneHost) : null;
-        if (!pl) return null;
-        const pids: string[] = [];
-        (function collect(n: typeof pl.tree): void {
-          if (n.kind === "leaf") {
-            pids.push(n.id);
-            return;
-          }
-          collect(n.a);
-          collect(n.b);
-        })(pl.tree);
-        // Normalize root pane id to a stable neutral value
-        const rootId = pids[0] ?? "";
-        const idNorm = new Map<string, string>();
-        if (rootId) idNorm.set(rootId, "root");
-        for (let i = 1; i < pids.length; i++) idNorm.set(pids[i]!, `p${i}`);
-        function normTree(
-          n: NonNullable<typeof pl>["tree"],
-        ): NonNullable<typeof pl>["tree"] {
-          if (n.kind === "leaf")
-            return { kind: "leaf", id: idNorm.get(n.id) ?? n.id };
-          return { ...n, a: normTree(n.a), b: normTree(n.b) };
-        }
-        function normMap<T>(src: Record<string, T>): Record<string, T> {
-          const out: Record<string, T> = {};
-          for (const [id, val] of Object.entries(src)) {
-            const nid = idNorm.get(id) ?? id;
-            out[nid] = val;
-          }
-          return out;
-        }
-        const preset: Preset = {
-          v: 1,
-          name,
-          tabName:
-            tabsState.tabs.find((t) => t.id === activeWorkspaceTabId)?.name ??
-            name,
-          tree: normTree(pl!.tree),
-          focusedId: idNorm.get(pl!.focusedId) ?? pl!.focusedId,
-          floating: Object.fromEntries(
-            Object.entries(pl!.floating ?? {}).map(([id, state]) => [
-              idNorm.get(id) ?? id,
-              state,
-            ]),
-          ),
-          paneThemes: normMap(
-            Object.fromEntries(
-              pids
-                .filter((id) => paneThemes.has(id))
-                .map((id) => [id, paneThemes.get(id)!]),
-            ),
-          ),
-          paneNames: normMap(
-            Object.fromEntries(
-              pids
-                .filter((id) => paneNames.has(id))
-                .map((id) => [id, paneNames.get(id)!]),
-            ),
-          ),
-          paneCwds: normMap(
-            Object.fromEntries(
-              pids
-                .filter((id) => paneCwdHints.has(id))
-                .map((id) => [id, paneCwdHints.get(id)!]),
-            ),
-          ),
-          paneProfileIds: normMap(
-            Object.fromEntries(
-              pids
-                .filter((id) => paneProfileIds.has(id))
-                .map((id) => [id, paneProfileIds.get(id)!]),
-            ),
-          ),
-          paneFontSizes: normMap(
-            Object.fromEntries(
-              pids
-                .map((id) => {
-                  const pt = paneHost?.getPaneTerminal(id);
-                  const sz = pt ? Number(pt.term.options.fontSize ?? 12) : 12;
-                  return [id, sz] as [string, number];
-                })
-                .filter(([, sz]) => sz !== 12),
-            ),
-          ),
-          startupCommands: {},
-        };
-        // Preserve existing startup commands when re-saving
-        try {
-          const existing = await invoke<string>("read_preset_json", {
-            name,
-          }).catch(() => null);
-          if (existing) {
-            const prev = JSON.parse(existing) as Preset;
-            if (prev.startupCommands)
-              preset.startupCommands = { ...prev.startupCommands };
-          }
-        } catch {
-          /* first save, no existing file */
-        }
-        await writePresetJson(name, JSON.stringify(preset));
-        return name;
-      },
-      onLoad: async (preset) => {
-        const ids: string[] = [];
-        (function collect(n: typeof preset.tree): void {
-          if (n.kind === "leaf") {
-            ids.push(n.id);
-            return;
-          }
-          collect(n.a);
-          collect(n.b);
-        })(preset.tree);
-        const newTabId = crypto.randomUUID();
-        const newRoot = workspaceRootPaneId(newTabId);
-        const idMap = new Map<string, string>();
-        // First leaf is the root — map it to the tab's root pane id
-        if (ids.length > 0) idMap.set(ids[0]!, newRoot);
-        for (const id of ids) {
-          if (!idMap.has(id)) idMap.set(id, crypto.randomUUID());
-        }
-        function mapNode(n: typeof preset.tree): typeof preset.tree {
-          if (n.kind === "leaf")
-            return { kind: "leaf", id: idMap.get(n.id) ?? crypto.randomUUID() };
-          return { ...n, a: mapNode(n.a), b: mapNode(n.b) };
-        }
-        const tree = mapNode(preset.tree);
-        const focusedId = idMap.get(preset.focusedId) ?? "";
-        const floating: Record<string, (typeof preset.floating)[string]> = {};
-        for (const [oid, state] of Object.entries(preset.floating)) {
-          const nid = idMap.get(oid);
-          if (nid) floating[nid] = { ...state };
-        }
+  const workspacesModalRoot = document.getElementById("workspaces-modal-root");
+  const workspaceEditorRoot = document.getElementById("workspace-editor-root");
+  let workspacesModal: WorkspacesModalApi | null = null;
+  let workspaceEditor: WorkspaceEditorApi | null = null;
 
-        const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
-        tabsState = {
-          ...tabsState,
-          tabs: [
-            ...tabsState.tabs,
-            {
-              id: newTabId,
-              name: preset.tabName || preset.name,
-              groupId: null,
-              color: null,
-              order: maxOrder + 1,
-            },
-          ],
-        };
-        saveTabsState(tabsState);
-        const pl: PersistedPaneLayout = { v: 1, tree, focusedId, floating };
-        persistLayoutForTab(newTabId, pl);
-        // Seed pane state BEFORE creating host so PTYs inherit parent cwd/theme on spawn
-        for (const [oid, theme] of Object.entries(preset.paneThemes)) {
-          const nid = idMap.get(oid);
-          if (nid && theme) paneThemes.set(nid, normalizePaneThemePrefs(theme));
-        }
-        for (const [oid, pn] of Object.entries(preset.paneNames)) {
-          const nid = idMap.get(oid);
-          if (nid && pn) paneNames.set(nid, pn.replace(/\s+/g, "_"));
-        }
-        for (const [oid, cwd] of Object.entries(preset.paneCwds)) {
-          const nid = idMap.get(oid);
-          if (nid && cwd) {
-            paneCwdHints.set(nid, cwd);
-            pendingPaneSpawnCwd.set(nid, cwd);
+  if (workspaceEditorRoot) {
+    workspaceEditor = createWorkspaceEditorModal({
+      root: workspaceEditorRoot as HTMLElement,
+      getProfiles: () => profilesList,
+      onApply: async (workspace, target) => {
+        await applyWorkspace(workspace, target);
+      },
+    });
+  }
+
+  if (workspacesModalRoot) {
+    workspacesModal = createWorkspacesModal({
+      root: workspacesModalRoot as HTMLElement,
+      onSave: async (name) => {
+        const captured = await workspaceFromCurrentTab(name);
+        if (!captured) return null;
+        const fileId = workspaceIdFromName(name);
+        try {
+          const prev = await readWorkspace(fileId);
+          if (prev.layout.startupCommands) {
+            captured.layout.startupCommands = {
+              ...prev.layout.startupCommands,
+            };
           }
+        } catch {}
+        try {
+          await writeWorkspace(captured);
+          return fileId;
+        } catch (e) {
+          console.error("save workspace", e);
+          return null;
         }
-        for (const [oid, profileId] of Object.entries(
-          preset.paneProfileIds ?? {},
-        )) {
-          const nid = idMap.get(oid);
-          if (nid && profileId) {
-            const resolved = resolveDefaultProfileId(profileId, profilesList);
-            paneProfileIds.set(nid, resolved);
-            pendingPaneSpawnProfile.set(nid, resolved);
-          }
-        }
-        createTabPaneShellAndHost(
-          newTabId,
-          {
-            initialTree: tree,
-            initialFocusedId: focusedId,
-            initialFloating: floating,
-          },
-          resolveTabRootPaneId({ v: 1, tree, focusedId, floating }, newTabId),
-        );
-        switchWorkspaceTab(newTabId);
-        const presetHost = tabPaneHosts.get(newTabId);
-        if (presetHost) scheduleCreationReflowForHost(presetHost);
-        if (
-          preset.startupCommands &&
-          Object.keys(preset.startupCommands).length > 0
-        ) {
-          setTimeout(() => {
-            for (const [oid, cmd] of Object.entries(preset.startupCommands)) {
-              const nid = idMap.get(oid);
-              if (!nid || !cmd) continue;
-              void ptyWrite(nid, cmd + "\r").catch(() => {});
-            }
-          }, 1500);
-        }
+      },
+      onLoad: async (workspace, target) => {
+        await applyWorkspace(workspace, target);
+      },
+      onEdit: (workspace) => {
+        workspaceEditor?.open(workspace);
+      },
+      onCapture: () => {
+        void workspaceFromCurrentTab().then((captured) => {
+          if (captured) workspaceEditor?.openCapture(captured);
+        });
       },
     });
   }
@@ -5194,6 +5255,22 @@ async function boot(): Promise<void> {
         run: () => openFocusedPaneTheme(),
       },
       {
+        id: "workspaces-save",
+        label: "Save workspace",
+        keywords: "workspace layout save snapshot tab panes edit",
+        run: () => {
+          void workspaceFromCurrentTab().then((captured) => {
+            if (captured) workspaceEditor?.openCapture(captured);
+          });
+        },
+      },
+      {
+        id: "workspaces-open",
+        label: "Open workspace",
+        keywords: "workspace layout preset load snapshot tab panes",
+        run: () => workspacesModal?.open(),
+      },
+      {
         id: "open-theme-builder",
         label: "Theme builder…",
         keywords: "theme custom colors editor create css variables",
@@ -5267,19 +5344,6 @@ async function boot(): Promise<void> {
         keywords: "close overlay tray background hotkey dismiss",
         hotkey: "Alt+Shift+T",
         run: () => void invoke("toggle_overlay").catch(() => {}),
-      },
-      // --- Presets / saved commands ---
-      {
-        id: "presets-save",
-        label: "Save as preset",
-        keywords: "presets workspace layout snapshot save template reuse",
-        run: () => presetsModal?.open(),
-      },
-      {
-        id: "presets-open",
-        label: "Open preset",
-        keywords: "presets workspace layout restore load template",
-        run: () => presetsModal?.open(),
       },
       // --- App ---
       {

@@ -35,7 +35,7 @@ export type ParttyPrefs = {
   ui_theme_variant: string;
   font_terminal: string;
   font_ui: string;
-  shed_workspace_exit: string;
+  session_shed_on_exit: string;
   always_summon_maximized: boolean;
   summon_spawn_at_cursor: boolean;
   cursor_follow_window_move: boolean;
@@ -180,7 +180,7 @@ export function createSettingsPanel(
 
   async function buildPrefs(previous: ParttyPrefs): Promise<ParttyPrefs> {
     const cwd = g("initial_cwd");
-    const shed_workspace_exit = ((v: string) => v === "shed" || v === "ask" ? v : "keep")(gs("shed_workspace_exit"));
+    const session_shed_on_exit = ((v: string) => v === "shed" || v === "ask" ? v : "keep")(gs("session_shed_on_exit"));
     const terminal_animation_speed = ((v: string) => v === "off" || v === "fast" || v === "slow" ? v : "normal")(gs("terminal_animation_speed"));
     const terminal_animation_style = ((v: string) => v === "snappy" || v === "gentle" || v === "bouncy" ? v : "smooth")(gs("terminal_animation_style"));
     const split_layout_style = ((v: string) => v === "dwindle" || v === "master" ? v : "balanced")(gs("split_layout_style"));
@@ -208,7 +208,7 @@ export function createSettingsPanel(
       focus_pane_scale: gc("focus_pane_scale"), pane_focus_scale_intensity: clampf(g("pane_focus_scale_intensity"), 0.45, 0, 1),
       auto_copy_selection: gc("auto_copy_selection"),
       right_click_paste: gc("right_click_paste"),
-      shed_workspace_exit,
+      session_shed_on_exit,
       retain_session_state: gc("retain_session_state"),
       always_summon_maximized: gc("always_summon_maximized"), summon_spawn_at_cursor: gc("summon_spawn_at_cursor"),
       cursor_follow_window_move: gc("cursor_follow_window_move"),
@@ -441,7 +441,7 @@ export function createSettingsPanel(
     setVal("terminal_pane_gap", String(pr.terminal_pane_gap ?? (pr.terminal_no_gap ? 0 : 6)));
     setVal("terminal_sandbox_padding", String(pr.terminal_sandbox_padding ?? 0));
 
-    setSel("shed_workspace_exit", ((v?: string) => { v = (v ?? "keep").toLowerCase(); return v === "shed" ? "shed" : v === "ask" ? "ask" : "keep"; })(pr.shed_workspace_exit));
+    setSel("session_shed_on_exit", ((v?: string) => { v = (v ?? "keep").toLowerCase(); return v === "shed" ? "shed" : v === "ask" ? "ask" : "keep"; })(pr.session_shed_on_exit));
     setSel("terminal_animation_speed", ((v?: string) => { v = (v ?? "normal").toLowerCase(); return v === "off" || v === "fast" || v === "slow" ? v : "normal"; })(pr.terminal_animation_speed));
     setSel("terminal_animation_style", ((v?: string) => { v = (v ?? "smooth").toLowerCase(); return v === "snappy" || v === "gentle" || v === "bouncy" ? v : "smooth"; })(pr.terminal_animation_style));
     setChk("terminal_window_motion", pr.terminal_window_motion ?? true);

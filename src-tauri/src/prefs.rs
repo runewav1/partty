@@ -75,6 +75,10 @@ fn default_terminal_animation_style() -> String {
 fn default_split_layout_style() -> String {
     "balanced".to_string()
 }
+
+fn default_session_shed_on_exit() -> String {
+    "keep".to_string()
+}
 fn default_default_profile_id() -> String {
     "local-default".to_string()
 }
@@ -184,8 +188,8 @@ pub struct Prefs {
     pub right_click_paste: bool,
     #[serde(default = "default_true")]
     pub retain_session_state: bool,
-    #[serde(default)]
-    pub shed_workspace_exit: String,
+    #[serde(default = "default_session_shed_on_exit")]
+    pub session_shed_on_exit: String,
     #[serde(default)]
     pub always_summon_maximized: bool,
     #[serde(default)]
@@ -336,7 +340,7 @@ impl Default for Prefs {
             auto_copy_selection: false,
             right_click_paste: true,
             retain_session_state: true,
-            shed_workspace_exit: "keep".to_string(),
+            session_shed_on_exit: "keep".to_string(),
             always_summon_maximized: false,
             summon_spawn_at_cursor: false,
             cursor_follow_window_move: false,
@@ -430,7 +434,8 @@ pub struct ConfigToml {
     pub lifecycle: LifecycleSection,
     #[serde(default)]
     pub focus: FocusSection,
-    pub workspace: WorkspaceSection,
+    #[serde(default)]
+    pub session: SessionSection,
     #[serde(default)]
     pub notifications: NotificationsSection,
     #[serde(default)]
@@ -888,7 +893,7 @@ impl Default for FocusSection {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkspaceSection {
+pub struct SessionSection {
     #[serde(default)]
     pub shed_on_exit: String,
     #[serde(default)]
@@ -899,7 +904,7 @@ pub struct WorkspaceSection {
     pub retain_session_state: bool,
 }
 
-impl Default for WorkspaceSection {
+impl Default for SessionSection {
     fn default() -> Self {
         Self {
             shed_on_exit: "keep".to_string(),
@@ -1105,10 +1110,10 @@ impl From<ConfigToml> for Prefs {
             cursor_follow_pane_focus: c.focus.warp_to_pane,
             cursor_follow_window_move: c.focus.warp_with_window,
             font_terminal: c.font_terminal.family,
-            shed_workspace_exit: c.workspace.shed_on_exit,
-            auto_copy_selection: c.workspace.auto_copy,
-            right_click_paste: c.workspace.right_click_paste,
-            retain_session_state: c.workspace.retain_session_state,
+            session_shed_on_exit: c.session.shed_on_exit,
+            auto_copy_selection: c.session.auto_copy,
+            right_click_paste: c.session.right_click_paste,
+            retain_session_state: c.session.retain_session_state,
             process_notification_threshold: c.notifications.command_threshold_secs,
             process_notification_show_for: c.notifications.toast_duration_ms,
             process_notification_show_ms: c.notifications.show_milliseconds,
@@ -1217,8 +1222,8 @@ impl From<&Prefs> for ConfigToml {
                 warp_to_pane: p.cursor_follow_pane_focus,
                 warp_with_window: p.cursor_follow_window_move,
             },
-            workspace: WorkspaceSection {
-                shed_on_exit: p.shed_workspace_exit.clone(),
+            session: SessionSection {
+                shed_on_exit: p.session_shed_on_exit.clone(),
                 auto_copy: p.auto_copy_selection,
                 right_click_paste: p.right_click_paste,
                 retain_session_state: p.retain_session_state,
@@ -1401,23 +1406,15 @@ pub fn validate_custom_theme_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn presets_dir() -> Result<PathBuf, String> {
-    let dir = ensure_config_dir()
-        .ok_or_else(|| "could not resolve home dir".to_string())?
-        .join("presets");
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir)
-}
-
-pub fn validate_preset_name(name: &str) -> Result<(), String> {
+pub fn validate_workspace_name(name: &str) -> Result<(), String> {
     if name.is_empty() || name.len() > 64 {
-        return Err("invalid preset name length".into());
+        return Err("invalid workspace name length".into());
     }
     if !name
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     {
-        return Err("preset name: use letters, numbers, dashes, underscores only".into());
+        return Err("workspace name: use letters, numbers, dashes, underscores only".into());
     }
     Ok(())
 }

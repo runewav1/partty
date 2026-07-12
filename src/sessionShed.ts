@@ -1,7 +1,6 @@
 import { clearPaneLayout } from "./paneLayout";
 
-/** Mirrors `prefs.shed_workspace_exit` (`keep` | `shed` | `ask`). */
-export const RUNTIME_SHED_WORKSPACE_EXIT_KEY = "partty.runtime.shed_workspace_exit";
+export const SESSION_SHED_ON_EXIT_KEY = "partty.runtime.session_shed_on_exit";
 
 const TABS_STATE_KEY = "partty.tabs.v1";
 const TAB_LAYOUT_PREFIX = "partty.tab.layout.v1.";
@@ -12,44 +11,39 @@ const SETTINGS_PANEL_POS = "partty.settingsPanel.pos";
 const HELP_PANEL_POS = "partty.helpPanel.pos";
 const COMMAND_PALETTE_POS = "partty.commandPalette.pos";
 
-export type ShedWorkspaceExitMode = "keep" | "shed" | "ask";
+export type SessionShedOnExitMode = "keep" | "shed" | "ask";
 
-export function syncRuntimeShedFromPrefs(prefs: { shed_workspace_exit?: string }): void {
+export function syncRuntimeShedFromPrefs(prefs: {
+  session_shed_on_exit?: string;
+}): void {
   try {
-    const v = normalizeShedMode(prefs.shed_workspace_exit);
-    localStorage.setItem(RUNTIME_SHED_WORKSPACE_EXIT_KEY, v);
+    const v = normalizeShedMode(prefs.session_shed_on_exit);
+    localStorage.setItem(SESSION_SHED_ON_EXIT_KEY, v);
   } catch {
     /* ignore */
   }
 }
 
-function normalizeShedMode(raw: string | undefined): ShedWorkspaceExitMode {
+function normalizeShedMode(raw: string | undefined): SessionShedOnExitMode {
   const s = (raw ?? "keep").toLowerCase().trim();
   if (s === "shed" || s === "always" || s === "on" || s === "true") return "shed";
   if (s === "ask") return "ask";
   return "keep";
 }
 
-export function getShedWorkspaceExitMode(): ShedWorkspaceExitMode {
+export function getSessionShedOnExitMode(): SessionShedOnExitMode {
   try {
-    return normalizeShedMode(localStorage.getItem(RUNTIME_SHED_WORKSPACE_EXIT_KEY) ?? undefined);
+    return normalizeShedMode(localStorage.getItem(SESSION_SHED_ON_EXIT_KEY) ?? undefined);
   } catch {
     return "keep";
   }
 }
 
-/** Silent shed on exit (no dialog). */
-export function shouldShedWorkspaceOnExitSilent(): boolean {
-  return getShedWorkspaceExitMode() === "shed";
+export function shouldShedSessionOnExitSilent(): boolean {
+  return getSessionShedOnExitMode() === "shed";
 }
 
-/** @deprecated use shouldShedWorkspaceOnExitSilent */
-export function shouldShedWorkspaceOnExit(): boolean {
-  return shouldShedWorkspaceOnExitSilent();
-}
-
-/** Clear workspace/session localStorage; keeps prefs (Rust), palette commands, etc. */
-export function shedWorkspaceLocalState(): void {
+export function shedSessionLocalState(): void {
   try {
     localStorage.removeItem(TABS_STATE_KEY);
     const keys = Object.keys(localStorage);

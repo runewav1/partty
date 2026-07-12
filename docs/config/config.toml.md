@@ -144,11 +144,13 @@ Changing style does not rewrite existing trees.
 | `warp_to_pane` | bool | `true` |
 | `warp_with_window` | bool | `false` |
 
-## `[workspace]`
+## `[session]`
+
+Terminal session behavior (tabs/layouts in localStorage, copy/paste). Not the same as saved **workspaces** under `~/.partty/workspaces/` — see [workspaces.toml.md](workspaces.toml.md).
 
 | Key | Type | Default | Values |
 |-----|------|---------|--------|
-| `shed_on_exit` | string | `"keep"` | `"keep"` `"shed"` `"ask"` |
+| `shed_on_exit` | string | `"keep"` | `"keep"` `"shed"` `"ask"` — discard tab session on quit |
 | `auto_copy` | bool | `false` | copy terminal selection on change |
 | `right_click_paste` | bool | `true` | right-click in a terminal pane pastes from the clipboard |
 | `retain_session_state` | bool | `true` | keep pane layouts and working directories across restarts |

@@ -72,6 +72,8 @@
       </div>
 
       <div id="theme-modal-root" class="theme-modal theme-modal--hidden" aria-hidden="true"></div>
+      <div id="workspaces-modal-root" class="theme-modal theme-modal--hidden" aria-hidden="true"></div>
+      <div id="workspace-editor-root" class="workspace-editor-root workspace-editor-root--hidden" aria-hidden="true"></div>
       <div id="pane-rename-root"></div>
 
       <!-- Settings Panel -->
@@ -302,7 +304,7 @@
               <div class="settings-section-bd">
                 <div class="settings-row settings-row--compact">
                   <span class="settings-row-label">Exit action</span>
-                  <select id="setting-shed-exit" name="shed_workspace_exit" class="settings-input settings-input--narrow">
+                  <select id="setting-shed-exit" name="session_shed_on_exit" class="settings-input settings-input--narrow">
                     <option value="ask">ask</option><option value="keep">keep</option><option value="shed">shed</option>
                   </select>
                 </div>
@@ -400,18 +402,16 @@
       <div id="shed-exit-dialog" class="shed-exit-dialog shed-exit-dialog--hidden" role="dialog" aria-modal="true" aria-labelledby="shed-exit-title" aria-hidden="true">
         <div class="shed-exit-dialog-card">
           <h2 id="shed-exit-title" class="shed-exit-dialog-title">Exit Partty</h2>
-          <p class="shed-exit-dialog-text">Save your workspace (tabs and layouts) for next launch, or discard it?</p>
+          <p class="shed-exit-dialog-text">Keep this session (tabs and layouts) for next launch, or discard it?</p>
           <div class="shed-exit-dialog-actions">
-            <button type="button" id="shed-exit-keep" class="shed-exit-dialog-btn shed-exit-dialog-btn--primary">Keep workspace</button>
-            <button type="button" id="shed-exit-discard" class="shed-exit-dialog-btn">Discard workspace</button>
+            <button type="button" id="shed-exit-keep" class="shed-exit-dialog-btn shed-exit-dialog-btn--primary">Keep session</button>
+            <button type="button" id="shed-exit-discard" class="shed-exit-dialog-btn">Discard session</button>
             <button type="button" id="shed-exit-cancel" class="shed-exit-dialog-btn shed-exit-dialog-btn--ghost">Cancel</button>
           </div>
         </div>
       </div>
 
       <div id="theme-builder-root" class="theme-builder-root theme-builder-root--hidden" aria-hidden="true"></div>
-      <div id="presets-modal-root" class="theme-modal theme-modal--hidden" aria-hidden="true"></div>
-      <div id="preset-editor-root" class="theme-builder-root theme-builder-root--hidden" aria-hidden="true"></div>
 
       <div id="zen-rename-modal" class="zen-rename-modal zen-rename-modal--hidden" aria-hidden="true">
         <div class="zen-rename-backdrop" data-zen-rename-close></div>

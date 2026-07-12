@@ -8,12 +8,12 @@ mod subprocess;
 mod theme;
 mod win_console;
 mod window_state;
+mod workspaces;
 
 use parking_lot::Mutex;
 use prefs::{load_persisted, save_prefs, PersistedState};
 use pty::PtySession;
 use std::collections::HashMap;
-use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -925,43 +925,6 @@ fn get_profile(id: String) -> Result<profiles::ProfileDto, String> {
 }
 
 #[tauri::command]
-fn list_preset_names() -> Result<Vec<String>, String> {
-    let dir = prefs::presets_dir()?;
-    let mut out = Vec::new();
-    for e in fs::read_dir(&dir).map_err(|e| e.to_string())? {
-        let e = e.map_err(|e| e.to_string())?;
-        let name = e.file_name().to_string_lossy().into_owned();
-        if let Some(stem) = name.strip_suffix(".json") {
-            out.push(stem.to_string());
-        }
-    }
-    out.sort();
-    Ok(out)
-}
-
-#[tauri::command]
-fn read_preset_json(name: String) -> Result<String, String> {
-    prefs::validate_preset_name(&name)?;
-    let path = prefs::presets_dir()?.join(format!("{name}.json"));
-    fs::read_to_string(&path).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn write_preset_json(name: String, json: String) -> Result<(), String> {
-    prefs::validate_preset_name(&name)?;
-    serde_json::from_str::<serde_json::Value>(&json).map_err(|e| e.to_string())?;
-    let path = prefs::presets_dir()?.join(format!("{name}.json"));
-    fs::write(path, json).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn delete_preset_json(name: String) -> Result<(), String> {
-    prefs::validate_preset_name(&name)?;
-    let path = prefs::presets_dir()?.join(format!("{name}.json"));
-    fs::remove_file(path).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 fn set_prefs(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -1170,10 +1133,10 @@ pub fn run() {
             theme::get_theme_effective_prefs,
             list_profiles,
             get_profile,
-            list_preset_names,
-            read_preset_json,
-            write_preset_json,
-            delete_preset_json,
+            workspaces::list_workspaces,
+            workspaces::read_workspace,
+            workspaces::write_workspace,
+            workspaces::delete_workspace,
             set_prefs,
             toggle_overlay,
             list_extensions,
