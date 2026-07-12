@@ -76,10 +76,11 @@ import {
   buildXtermThemeFromPrefs,
   buildXtermThemeFromDocument,
   DEFAULT_TERMINAL_FONT_STACK,
-  loadCustomThemesIntoCache,
+  ensureCustomThemesLoaded,
   normalizePaneThemePrefs,
   parseProfileThemeRef,
   pickUiPrefs,
+  prefsNeedCustomThemes,
   themeCssVarsForPrefs,
   type PaneThemePrefs,
   uiPrefsChanged,
@@ -436,7 +437,6 @@ async function boot(): Promise<void> {
   syncRuntimeShedFromPrefs(persisted.prefs as ParttyPrefs);
   configureDevPerfPrefs(persisted.prefs as Partial<ParttyPrefs>);
   parttyPerf.mark("boot.start");
-  await loadCustomThemesIntoCache();
   const lp: ParttyLifecyclePrefs = mergeLifecyclePrefs(persisted.prefs);
   const uiPrefs = pickUiPrefs(persisted.prefs);
   let currentUiPrefs = uiPrefs;
@@ -492,7 +492,17 @@ async function boot(): Promise<void> {
   const pendingNewPaneProfile = { v: null as string | null };
   const pendingPaneSpawnProfile = new Map<string, string>();
   const pendingPaneStartupCommands = new Map<string, string>();
-  let profilesList: ConnectionProfile[] = [];
+  let profilesList: ConnectionProfile[] = [
+    {
+      version: 1,
+      id: LOCAL_DEFAULT_PROFILE_ID,
+      name: "Local",
+      kind: "local",
+      shell: null,
+      builtin: true,
+    },
+  ];
+  let profilesReady: Promise<void> | null = null;
   const focusFollowsRef = { v: lp.focus_follows_cursor };
   const autoCopySelectionRef = {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).auto_copy_selection),
@@ -545,7 +555,10 @@ async function boot(): Promise<void> {
       );
     } catch (e) {
       console.warn("list_profiles", e);
-      if (profilesList.length === 0) {
+      if (
+        profilesList.length === 0 ||
+        !getProfileById(LOCAL_DEFAULT_PROFILE_ID, profilesList)
+      ) {
         profilesList = [
           {
             version: 1,
@@ -558,6 +571,13 @@ async function boot(): Promise<void> {
         ];
       }
     }
+  }
+
+  function ensureProfilesLoaded(): Promise<void> {
+    if (!profilesReady) {
+      profilesReady = refreshProfilesList();
+    }
+    return profilesReady;
   }
   const disableTooltipsRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).ui_disable_tooltips ?? false,
@@ -1411,19 +1431,6 @@ async function boot(): Promise<void> {
     return null;
   }
 
-  function reflowPane(paneId: string, force = true): void {
-    const host = getPaneHostByPaneId(paneId);
-    const pt = host?.getPaneTerminal(paneId);
-    if (!pt) return;
-    lastPtyDims.delete(paneId);
-    pt.fit.fit();
-    if (host === paneHost) {
-      scheduleResizeImmediate(force);
-    } else {
-      runLayoutPassForHost(host!, force);
-    }
-  }
-
   function focusActiveTerminal(): void {
     const id = paneHost?.getFocusedPaneId();
     if (!id) return;
@@ -2082,24 +2089,85 @@ async function boot(): Promise<void> {
     scheduleResizeImmediate(true);
   }
 
-  // Staggered reflow after create — metrics settle a frame or two late.
-  function scheduleCreationReflow(paneId: string): void {
-    const run = (): void => {
-      reflowPane(paneId, true);
-    };
-    requestAnimationFrame(() => requestAnimationFrame(run));
-    window.setTimeout(run, 50);
-    window.setTimeout(run, 150);
-    window.setTimeout(run, 320);
-    if (document.fonts && document.fonts.status === "loading") {
-      void document.fonts.ready.then(run);
+  function refreshAllPaneThemes(): void {
+    for (const host of tabPaneHosts.values()) {
+      host.forEachPane((paneId, pt) => {
+        const th = xtermThemeForPane(paneId);
+        pt.term.options.theme = {
+          ...th,
+          cursorAccent: th.background ?? TERM_BG_FALLBACK,
+        };
+        try {
+          pt.term.refresh(0, pt.term.rows - 1);
+        } catch {
+          /* ignore */
+        }
+      });
+      if (host === paneHost) host.remountPaneSurfaces();
     }
   }
 
+  function scheduleDeferredCustomThemes(): void {
+    if (!prefsNeedCustomThemes(currentUiPrefs, paneThemes.values())) return;
+    void ensureCustomThemesLoaded().then(() => {
+      applyUiTheme(currentUiPrefs);
+      refreshAllPaneThemes();
+    });
+  }
+
+  // Coalesced reflow after pane create — layout metrics can settle a frame late.
+  const pendingCreationReflowHosts = new Set<PaneHost>();
+  const pendingCreationReflowPanes = new Set<string>();
+  let creationReflowRaf = 0;
+  let creationReflowLateTimer = 0;
+
+  function flushCreationReflows(): void {
+    creationReflowRaf = 0;
+    const hosts = [...pendingCreationReflowHosts];
+    const paneIds = [...pendingCreationReflowPanes];
+    pendingCreationReflowHosts.clear();
+    pendingCreationReflowPanes.clear();
+
+    for (const paneId of paneIds) lastPtyDims.delete(paneId);
+    for (const host of hosts) {
+      const ids: string[] = [];
+      collectLeafIds(host.getTree(), ids);
+      for (const id of ids) lastPtyDims.delete(id);
+    }
+
+    const run = (): void => {
+      for (const paneId of paneIds) {
+        const host = getPaneHostByPaneId(paneId);
+        const pt = host?.getPaneTerminal(paneId);
+        if (pt) pt.fit.fit();
+      }
+      for (const host of hosts) {
+        if (host === paneHost) scheduleResizeImmediate(true);
+        else runLayoutPassForHost(host, true);
+      }
+    };
+
+    requestAnimationFrame(() => requestAnimationFrame(run));
+    if (creationReflowLateTimer) window.clearTimeout(creationReflowLateTimer);
+    if (document.fonts?.status === "loading") {
+      void document.fonts.ready.then(run);
+    } else {
+      creationReflowLateTimer = window.setTimeout(run, 80);
+    }
+  }
+
+  function scheduleCreationReflow(paneId: string): void {
+    const host = getPaneHostByPaneId(paneId);
+    if (host) pendingCreationReflowHosts.add(host);
+    else pendingCreationReflowPanes.add(paneId);
+    if (creationReflowRaf) return;
+    creationReflowRaf = requestAnimationFrame(flushCreationReflows);
+  }
+
   function scheduleCreationReflowForHost(host: PaneHost): void {
-    const ids: string[] = [];
-    collectLeafIds(host.getTree(), ids);
-    for (const id of ids) scheduleCreationReflow(id);
+    pendingCreationReflowHosts.add(host);
+    if (creationReflowRaf) return;
+    creationReflowRaf = requestAnimationFrame(flushCreationReflows);
   }
 
   function scheduleHostGeometryRepair(host: PaneHost): void {
@@ -2193,6 +2261,7 @@ async function boot(): Promise<void> {
     ptIn?: PaneTerminal,
     initialCwd?: string | null,
   ): Promise<void> {
+    await ensureProfilesLoaded();
     const pt = ptIn ?? getPaneTerminalById(paneId);
     if (!pt) return;
     const effectiveCwd = initialCwd ?? paneCwdHints.get(paneId) ?? null;
@@ -2640,7 +2709,7 @@ async function boot(): Promise<void> {
     return host;
   }
 
-  await refreshProfilesList();
+  void ensureProfilesLoaded();
 
   for (let i = 0; i < tabsState.tabs.length; i++) {
     const tab = tabsState.tabs[i]!;
@@ -2680,6 +2749,13 @@ async function boot(): Promise<void> {
   }
   paneHost = tabPaneHosts.get(activeWorkspaceTabId)!;
   lastFocusedPaneId = paneHost.getFocusedPaneId();
+  scheduleDeferredCustomThemes();
+  void ensureProfilesLoaded().then(() => {
+    for (const [paneId, profileId] of paneProfileIds) {
+      ensurePaneThemeFromProfile(paneId, profileId);
+    }
+    scheduleDeferredCustomThemes();
+  });
   installPaneControlSurface();
   cursorWarpReady = true;
 
@@ -4470,7 +4546,7 @@ async function boot(): Promise<void> {
                 {},
             ),
           };
-          void refreshProfilesList();
+          void (profilesReady = refreshProfilesList());
           disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
           altClickCursorRef.v = saved.terminal_alt_click_moves_cursor ?? true;
           cursorBlinkRef.v = saved.terminal_cursor_blink ?? true;
@@ -5402,7 +5478,7 @@ async function boot(): Promise<void> {
             closeHelpPanel();
             // Don't block open on profile re-detection (shell/WSL probes).
             // Cache from boot / settings save is enough; refresh in background.
-            void refreshProfilesList();
+            void (profilesReady = refreshProfilesList());
           },
           onClosed: () => {
             profilePickerSession = null;
@@ -6174,11 +6250,7 @@ async function boot(): Promise<void> {
   });
 
   // ── Extensions ──────────────────────────────────────────────
-  // Load extensions from %LOCALAPPDATA%/partty/extensions/<name>/index.js
-  // at runtime. Each extension receives an `api` object with the full
-  // ExtensionApi surface. The code runs as the body of function(api) { ... }
-  // — no export or build step required.
-  void (async () => {
+  const loadExtensions = async (): Promise<void> => {
     try {
       const allExts = await invoke<
         Array<{
@@ -6426,7 +6498,13 @@ async function boot(): Promise<void> {
     } catch {
       // Extensions directory doesn't exist or is empty — nothing to load.
     }
-  })();
+  };
+
+  if (typeof requestIdleCallback === "function") {
+    requestIdleCallback(() => void loadExtensions(), { timeout: 3000 });
+  } else {
+    window.setTimeout(() => void loadExtensions(), 0);
+  }
 
   if (import.meta.env.DEV) {
     const { createDevMetricsOverlay } = await import("./devMetricsOverlay");

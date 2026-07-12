@@ -5,7 +5,7 @@ import type { ParttyPrefs } from "./settingsPanel";
 import {
   applyUiTheme,
   collectCurrentThemeCssVars,
-  loadCustomThemesIntoCache,
+  reloadCustomThemesIntoCache,
   pickUiPrefs,
   previewThemeCssVars,
   registerCustomThemeInCache,
@@ -198,7 +198,7 @@ export function createThemeBuilderModal(
           if (!window.confirm(`Remove custom theme “${name}”?`)) return;
           try {
             await invoke("delete_theme", { name });
-            await loadCustomThemesIntoCache();
+            await reloadCustomThemesIntoCache();
             await refreshCustomList();
           } catch (e) {
             console.error(e);
@@ -240,7 +240,7 @@ export function createThemeBuilderModal(
           colors: vars,
         });
         registerCustomThemeInCache(slug, vars);
-        await loadCustomThemesIntoCache();
+        await reloadCustomThemesIntoCache();
         const data = await invoke<{ prefs: Record<string, unknown> }>("get_persisted_state");
         const prev = data.prefs as ParttyPrefs;
         const nextPrefs: ParttyPrefs = {

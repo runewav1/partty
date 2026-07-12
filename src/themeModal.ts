@@ -7,7 +7,7 @@ import {
   type LexicalSearchItem,
 } from "./lexicalSearch";
 import type { ParttyPrefs } from "./settingsPanel";
-import { loadCustomThemesIntoCache, normalizePaneThemePrefs, pickUiPrefs, themeCssVarsForPrefs, THEME_OPTIONS, getThemePrefsCache, type ThemeCssVars, type UiThemePrefs } from "./uiTheme";
+import { ensureCustomThemesLoaded, normalizePaneThemePrefs, pickUiPrefs, themeCssVarsForPrefs, THEME_OPTIONS, getThemePrefsCache, type ThemeCssVars, type UiThemePrefs } from "./uiTheme";
 
 const POS_KEY = "partty.themeModal.pos";
 
@@ -136,7 +136,7 @@ export function createThemeModal(
   }
 
   async function refreshFlatAndList(): Promise<void> {
-    await loadCustomThemesIntoCache();
+    await ensureCustomThemesLoaded();
     let names: string[] = [];
     try {
       names = await invoke<string[]>("list_themes");

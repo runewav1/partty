@@ -661,6 +661,36 @@ type ThemeInfo = { name: string; colors: Record<string, string>; prefs: Record<s
 
 const customThemeVarsCache: Record<string, ThemeCssVars> = {};
 const themePrefsCache: Record<string, Record<string, unknown>> = {};
+let customThemesReady: Promise<void> | null = null;
+
+export function usesCustomThemeId(themeId: string | null | undefined): boolean {
+  return (themeId ?? "").startsWith("custom:");
+}
+
+export function prefsNeedCustomThemes(
+  uiPrefs: UiThemePrefs,
+  paneThemes?: Iterable<PaneThemePrefs | null | undefined>,
+): boolean {
+  if (usesCustomThemeId(uiPrefs.ui_theme)) return true;
+  if (!paneThemes) return false;
+  for (const prefs of paneThemes) {
+    if (prefs && usesCustomThemeId(prefs.ui_theme)) return true;
+  }
+  return false;
+}
+
+export function ensureCustomThemesLoaded(): Promise<void> {
+  if (!customThemesReady) {
+    customThemesReady = loadCustomThemesIntoCache();
+  }
+  return customThemesReady;
+}
+
+/** Reload disk themes (after save/delete); updates the lazy-load cache. */
+export async function reloadCustomThemesIntoCache(): Promise<void> {
+  customThemesReady = loadCustomThemesIntoCache();
+  await customThemesReady;
+}
 
 export async function loadCustomThemesIntoCache(): Promise<void> {
   for (const k of Object.keys(customThemeVarsCache)) {
