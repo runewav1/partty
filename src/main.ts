@@ -546,7 +546,38 @@ async function boot(): Promise<void> {
     } satisfies ProfileBehaviorPrefs,
   };
 
+  let profilesLoaded = false;
+
+  function reresolveAllPaneProfileIds(): void {
+    if (!profilesLoaded) return;
+    for (const paneId of [...paneProfileIds.keys()]) {
+      const preferred = paneProfileIds.get(paneId);
+      if (!preferred) continue;
+      const resolved = resolveDefaultProfileId(preferred, profilesList);
+      paneProfileIds.set(paneId, resolved);
+      ensurePaneThemeFromProfile(paneId, resolved);
+    }
+  }
+
+  /** Keep persisted profile ids until list_profiles finishes; then validate. */
+  function assignPaneProfileId(
+    paneId: string,
+    preferred: string | null | undefined,
+  ): string {
+    const raw =
+      preferred?.trim() || profileBehaviorRef.v.default_profile_id;
+    if (!profilesLoaded) {
+      paneProfileIds.set(paneId, raw);
+      return raw;
+    }
+    const resolved = resolveDefaultProfileId(raw, profilesList);
+    paneProfileIds.set(paneId, resolved);
+    ensurePaneThemeFromProfile(paneId, resolved);
+    return resolved;
+  }
+
   async function refreshProfilesList(): Promise<void> {
+    profilesLoaded = false;
     try {
       profilesList = await fetchProfiles();
       profileBehaviorRef.v.default_profile_id = resolveDefaultProfileId(
@@ -570,6 +601,9 @@ async function boot(): Promise<void> {
           },
         ];
       }
+    } finally {
+      profilesLoaded = true;
+      reresolveAllPaneProfileIds();
     }
   }
 
@@ -2265,9 +2299,11 @@ async function boot(): Promise<void> {
     const pt = ptIn ?? getPaneTerminalById(paneId);
     if (!pt) return;
     const effectiveCwd = initialCwd ?? paneCwdHints.get(paneId) ?? null;
-    const profileId =
+    const profileId = assignPaneProfileId(
+      paneId,
       paneProfileIds.get(paneId) ??
-      resolveDefaultProfileId(profileBehaviorRef.v.default_profile_id, profilesList);
+        profileBehaviorRef.v.default_profile_id,
+    );
     const profile = getProfileById(profileId, profilesList);
     const globalShell =
       ((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
@@ -2629,14 +2665,12 @@ async function boot(): Promise<void> {
             pendingPaneSpawnProfile.get(id) ?? pendingNewPaneProfile.v;
           pendingPaneSpawnProfile.delete(id);
           pendingNewPaneProfile.v = null;
-          const resolvedProfile = resolveDefaultProfileId(
+          assignPaneProfileId(
+            id,
             explicitProfile ??
               paneProfileIds.get(id) ??
               profileBehaviorRef.v.default_profile_id,
-            profilesList,
           );
-          paneProfileIds.set(id, resolvedProfile);
-          ensurePaneThemeFromProfile(id, resolvedProfile);
 
           // During destroy→recreate boot, prepare-show owns ensure after scrollback
           // restore — avoid a premature ensure that races rehydration.
@@ -2730,9 +2764,7 @@ async function boot(): Promise<void> {
       }
     }
     for (const [paneId, profileId] of Object.entries(layout.paneProfileIds ?? {})) {
-      const resolved = resolveDefaultProfileId(profileId, profilesList);
-      paneProfileIds.set(paneId, resolved);
-      ensurePaneThemeFromProfile(paneId, resolved);
+      paneProfileIds.set(paneId, profileId);
     }
     createTabPaneShellAndHost(
       tab.id,
@@ -2750,12 +2782,7 @@ async function boot(): Promise<void> {
   paneHost = tabPaneHosts.get(activeWorkspaceTabId)!;
   lastFocusedPaneId = paneHost.getFocusedPaneId();
   scheduleDeferredCustomThemes();
-  void ensureProfilesLoaded().then(() => {
-    for (const [paneId, profileId] of paneProfileIds) {
-      ensurePaneThemeFromProfile(paneId, profileId);
-    }
-    scheduleDeferredCustomThemes();
-  });
+  void ensureProfilesLoaded().then(() => scheduleDeferredCustomThemes());
   installPaneControlSurface();
   cursorWarpReady = true;
 
