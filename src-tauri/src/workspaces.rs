@@ -1,132 +1,9 @@
 //! Saved workspace layouts (`~/.partty/workspaces/*.toml`).
 
 use crate::prefs::{ensure_config_dir, validate_workspace_name};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde_json::{Map, Value};
 use std::fs;
 use std::path::PathBuf;
-
-fn default_version() -> u32 {
-    1
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-pub enum PaneNodeSerde {
-    Leaf { id: String },
-    Split {
-        dir: String,
-        ratio: f64,
-        a: Box<PaneNodeSerde>,
-        b: Box<PaneNodeSerde>,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FloatingPaneSerde {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
-    pub z: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PaneThemeSerde {
-    pub ui_theme: String,
-    #[serde(default)]
-    pub ui_theme_variant: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LayoutSection {
-    #[serde(default = "default_version")]
-    pub v: u32,
-    pub tree: PaneNodeSerde,
-    pub focused_id: String,
-    #[serde(default)]
-    pub floating: HashMap<String, FloatingPaneSerde>,
-    #[serde(default)]
-    pub pane_themes: HashMap<String, PaneThemeSerde>,
-    #[serde(default)]
-    pub pane_names: HashMap<String, String>,
-    #[serde(default)]
-    pub pane_cwds: HashMap<String, String>,
-    #[serde(default)]
-    pub pane_profile_ids: HashMap<String, String>,
-    #[serde(default)]
-    pub startup_commands: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkspaceFile {
-    #[serde(default = "default_version", alias = "v")]
-    pub version: u32,
-    pub id: String,
-    pub name: String,
-    pub tab_name: String,
-    pub layout: LayoutSection,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspaceDto {
-    pub version: u32,
-    pub id: String,
-    pub name: String,
-    pub tab_name: String,
-    pub layout: LayoutDto,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LayoutDto {
-    pub v: u32,
-    pub tree: PaneNodeDto,
-    pub focused_id: String,
-    #[serde(default)]
-    pub floating: HashMap<String, FloatingPaneDto>,
-    #[serde(default)]
-    pub pane_themes: HashMap<String, PaneThemeDto>,
-    #[serde(default)]
-    pub pane_names: HashMap<String, String>,
-    #[serde(default)]
-    pub pane_cwds: HashMap<String, String>,
-    #[serde(default)]
-    pub pane_profile_ids: HashMap<String, String>,
-    #[serde(default)]
-    pub startup_commands: HashMap<String, String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-pub enum PaneNodeDto {
-    Leaf { id: String },
-    Split {
-        dir: String,
-        ratio: f64,
-        a: Box<PaneNodeDto>,
-        b: Box<PaneNodeDto>,
-    },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FloatingPaneDto {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
-    pub z: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PaneThemeDto {
-    pub ui_theme: String,
-    #[serde(default)]
-    pub ui_theme_variant: String,
-}
 
 fn workspaces_dir() -> Result<PathBuf, String> {
     let dir = ensure_config_dir()
@@ -134,6 +11,86 @@ fn workspaces_dir() -> Result<PathBuf, String> {
         .join("workspaces");
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
+}
+
+fn snake_to_camel_key(key: &str) -> String {
+    let mut out = String::with_capacity(key.len());
+    let mut upper = false;
+    for c in key.chars() {
+        if c == '_' {
+            upper = true;
+        } else if upper {
+            out.push(c.to_ascii_uppercase());
+            upper = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn camel_to_snake_key(key: &str) -> String {
+    let mut out = String::with_capacity(key.len() + 4);
+    for (i, c) in key.char_indices() {
+        if c.is_ascii_uppercase() {
+            if i > 0 {
+                out.push('_');
+            }
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn rename_keys(v: Value, to_camel: bool) -> Value {
+    match v {
+        Value::Object(map) => {
+            let mut out = Map::new();
+            for (k, v) in map {
+                let nk = if to_camel {
+                    snake_to_camel_key(&k)
+                } else {
+                    camel_to_snake_key(&k)
+                };
+                out.insert(nk, rename_keys(v, to_camel));
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(items.into_iter().map(|v| rename_keys(v, to_camel)).collect()),
+        other => other,
+    }
+}
+
+fn workspace_id(workspace: &Value) -> Option<&str> {
+    workspace
+        .get("id")
+        .or_else(|| workspace.get("name"))
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
+fn fill_workspace_defaults(mut workspace: Value, stem: &str) -> Value {
+    let Some(obj) = workspace.as_object_mut() else {
+        return workspace;
+    };
+    if obj
+        .get("id")
+        .and_then(|v| v.as_str())
+        .is_none_or(str::is_empty)
+    {
+        obj.insert("id".into(), Value::String(stem.to_string()));
+    }
+    if obj
+        .get("name")
+        .and_then(|v| v.as_str())
+        .is_none_or(str::is_empty)
+    {
+        obj.insert("name".into(), Value::String(stem.to_string()));
+    }
+    workspace
 }
 
 pub fn list_workspace_names() -> Result<Vec<String>, String> {
@@ -150,150 +107,27 @@ pub fn list_workspace_names() -> Result<Vec<String>, String> {
     Ok(out)
 }
 
-fn pane_node_to_dto(n: &PaneNodeSerde) -> PaneNodeDto {
-    match n {
-        PaneNodeSerde::Leaf { id } => PaneNodeDto::Leaf { id: id.clone() },
-        PaneNodeSerde::Split { dir, ratio, a, b } => PaneNodeDto::Split {
-            dir: dir.clone(),
-            ratio: *ratio,
-            a: Box::new(pane_node_to_dto(a)),
-            b: Box::new(pane_node_to_dto(b)),
-        },
-    }
-}
-
-fn pane_node_from_dto(n: &PaneNodeDto) -> PaneNodeSerde {
-    match n {
-        PaneNodeDto::Leaf { id } => PaneNodeSerde::Leaf { id: id.clone() },
-        PaneNodeDto::Split { dir, ratio, a, b } => PaneNodeSerde::Split {
-            dir: dir.clone(),
-            ratio: *ratio,
-            a: Box::new(pane_node_from_dto(a)),
-            b: Box::new(pane_node_from_dto(b)),
-        },
-    }
-}
-
-impl From<&WorkspaceFile> for WorkspaceDto {
-    fn from(w: &WorkspaceFile) -> Self {
-        let layout = &w.layout;
-        Self {
-            version: w.version,
-            id: w.id.clone(),
-            name: w.name.clone(),
-            tab_name: w.tab_name.clone(),
-            layout: LayoutDto {
-                v: layout.v,
-                tree: pane_node_to_dto(&layout.tree),
-                focused_id: layout.focused_id.clone(),
-                floating: layout
-                    .floating
-                    .iter()
-                    .map(|(k, v)| {
-                        (
-                            k.clone(),
-                            FloatingPaneDto {
-                                x: v.x,
-                                y: v.y,
-                                width: v.width,
-                                height: v.height,
-                                z: v.z,
-                            },
-                        )
-                    })
-                    .collect(),
-                pane_themes: layout
-                    .pane_themes
-                    .iter()
-                    .map(|(k, v)| {
-                        (
-                            k.clone(),
-                            PaneThemeDto {
-                                ui_theme: v.ui_theme.clone(),
-                                ui_theme_variant: v.ui_theme_variant.clone(),
-                            },
-                        )
-                    })
-                    .collect(),
-                pane_names: layout.pane_names.clone(),
-                pane_cwds: layout.pane_cwds.clone(),
-                pane_profile_ids: layout.pane_profile_ids.clone(),
-                startup_commands: layout.startup_commands.clone(),
-            },
-        }
-    }
-}
-
-impl From<&WorkspaceDto> for WorkspaceFile {
-    fn from(w: &WorkspaceDto) -> Self {
-        let layout = &w.layout;
-        Self {
-            version: w.version.max(1),
-            id: w.id.clone(),
-            name: w.name.clone(),
-            tab_name: w.tab_name.clone(),
-            layout: LayoutSection {
-                v: layout.v.max(1),
-                tree: pane_node_from_dto(&layout.tree),
-                focused_id: layout.focused_id.clone(),
-                floating: layout
-                    .floating
-                    .iter()
-                    .map(|(k, v)| {
-                        (
-                            k.clone(),
-                            FloatingPaneSerde {
-                                x: v.x,
-                                y: v.y,
-                                width: v.width,
-                                height: v.height,
-                                z: v.z,
-                            },
-                        )
-                    })
-                    .collect(),
-                pane_themes: layout
-                    .pane_themes
-                    .iter()
-                    .map(|(k, v)| {
-                        (
-                            k.clone(),
-                            PaneThemeSerde {
-                                ui_theme: v.ui_theme.clone(),
-                                ui_theme_variant: v.ui_theme_variant.clone(),
-                            },
-                        )
-                    })
-                    .collect(),
-                pane_names: layout.pane_names.clone(),
-                pane_cwds: layout.pane_cwds.clone(),
-                pane_profile_ids: layout.pane_profile_ids.clone(),
-                startup_commands: layout.startup_commands.clone(),
-            },
-        }
-    }
-}
-
-pub fn load_workspace(name: &str) -> Result<WorkspaceDto, String> {
+pub fn load_workspace(name: &str) -> Result<Value, String> {
     validate_workspace_name(name)?;
     let path = workspaces_dir()?.join(format!("{name}.toml"));
-    let s = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let mut w: WorkspaceFile = toml::from_str(&s).map_err(|e| e.to_string())?;
-    if w.id.is_empty() {
-        w.id = name.to_string();
-    }
-    if w.name.is_empty() {
-        w.name = name.to_string();
-    }
-    Ok(WorkspaceDto::from(&w))
+    let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let tom: toml::Value = toml::from_str(&text).map_err(|e| e.to_string())?;
+    let json = serde_json::to_value(tom).map_err(|e| e.to_string())?;
+    let json = rename_keys(json, true);
+    Ok(fill_workspace_defaults(json, name))
 }
 
-pub fn save_workspace(workspace: &WorkspaceDto) -> Result<(), String> {
-    validate_workspace_name(&workspace.id)?;
-    let file = WorkspaceFile::from(workspace);
-    let path = workspaces_dir()?.join(format!("{}.toml", file.id));
-    let bytes = toml::to_string_pretty(&file).map_err(|e| e.to_string())?;
-    fs::write(path, bytes).map_err(|e| e.to_string())
+pub fn save_workspace(workspace: &Value) -> Result<(), String> {
+    let id = workspace_id(workspace).ok_or_else(|| "workspace id missing".to_string())?;
+    validate_workspace_name(id)?;
+    let json = rename_keys(workspace.clone(), false);
+    let tom: toml::Value = serde_json::from_value(json).map_err(|e| e.to_string())?;
+    let bytes = toml::to_string_pretty(&tom).map_err(|e| e.to_string())?;
+    fs::write(
+        workspaces_dir()?.join(format!("{id}.toml")),
+        bytes,
+    )
+    .map_err(|e| e.to_string())
 }
 
 pub fn remove_workspace(name: &str) -> Result<(), String> {
@@ -308,12 +142,12 @@ pub fn list_workspaces() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub fn read_workspace(name: String) -> Result<WorkspaceDto, String> {
+pub fn read_workspace(name: String) -> Result<Value, String> {
     load_workspace(&name)
 }
 
 #[tauri::command]
-pub fn write_workspace(workspace: WorkspaceDto) -> Result<(), String> {
+pub fn write_workspace(workspace: Value) -> Result<(), String> {
     save_workspace(&workspace)
 }
 

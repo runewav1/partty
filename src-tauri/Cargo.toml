@@ -5,6 +5,11 @@ description = "Raycast-style terminal overlay for Windows"
 authors = ["you"]
 edition = "2021"
 
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+
 [lib]
 name = "partty_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
