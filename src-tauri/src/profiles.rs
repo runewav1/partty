@@ -671,6 +671,24 @@ mod tests {
     }
 
     #[test]
+    fn profile_theme_field_deserializes_and_dto() {
+        let text = r#"
+version = 1
+id = "ssh-mango"
+name = "mango"
+kind = "ssh"
+commandline = "ssh host"
+theme = "carbonfox"
+"#;
+        let p: ConnectionProfile = toml::from_str(text).unwrap();
+        assert_eq!(p.theme.as_deref(), Some("carbonfox"));
+        let dto = ProfileDto::from(&p);
+        assert_eq!(dto.theme.as_deref(), Some("carbonfox"));
+        let json = serde_json::to_value(&dto).unwrap();
+        assert_eq!(json["theme"], "carbonfox");
+    }
+
+    #[test]
     fn decode_utf16_le_wsl_list() {
         // "ubuntu\r\n" in UTF-16 LE
         let bytes: Vec<u8> = "ubuntu\r\n"

@@ -2293,15 +2293,55 @@ async function boot(): Promise<void> {
   }
 
   function xtermThemeForPane(paneId: string) {
-    const paneTheme = paneThemes.get(paneId);
+    const paneTheme = resolvePaneThemePrefs(paneId);
     return paneTheme
       ? buildXtermThemeFromPrefs(paneTheme)
       : buildXtermThemeFromDocument();
   }
 
   function cssVarsForPane(paneId: string): Record<string, string> | null {
-    const paneTheme = paneThemes.get(paneId);
+    const paneTheme = resolvePaneThemePrefs(paneId);
     return paneTheme ? themeCssVarsForPrefs(paneTheme) : null;
+  }
+
+  /** Theme from a profile id (colors only). */
+  function themePrefsFromProfileId(
+    profileId: string | null | undefined,
+  ): PaneThemePrefs | null {
+    if (!profileId) return null;
+    const profile = getProfileById(
+      resolveDefaultProfileId(profileId, profilesList),
+      profilesList,
+    );
+    const ref = profile?.theme?.trim();
+    if (!ref) return null;
+    const parsed = parseProfileThemeRef(ref);
+    return parsed ? normalizePaneThemePrefs(parsed) : null;
+  }
+
+  /**
+   * Explicit pane override, else profile theme (pending spawn / paneProfileIds).
+   * Used by getTheme/getPaneCssVars so the first paint (before onPaneCreated)
+   * already has the right colors.
+   */
+  function resolvePaneThemePrefs(paneId: string): PaneThemePrefs | null {
+    const explicit = paneThemes.get(paneId);
+    if (explicit) return explicit;
+    const profileId =
+      pendingPaneSpawnProfile.get(paneId) ??
+      paneProfileIds.get(paneId) ??
+      pendingNewPaneProfile.v;
+    return themePrefsFromProfileId(profileId);
+  }
+
+  /** Materialize profile theme into paneThemes so layout persist + remount keep it. */
+  function ensurePaneThemeFromProfile(
+    paneId: string,
+    profileId: string | null | undefined,
+  ): void {
+    if (paneThemes.has(paneId)) return;
+    const prefs = themePrefsFromProfileId(profileId);
+    if (prefs) paneThemes.set(paneId, prefs);
   }
 
   function createPaneHost(
@@ -2566,17 +2606,10 @@ async function boot(): Promise<void> {
           );
           paneProfileIds.set(id, resolvedProfile);
 
-          // Profile theme is colors-only (ignores theme.toml [prefs]). Layout
-          // paneThemes win when already set. paneHost reapplies leaf CSS + xterm
-          // theme right after this callback.
-          if (!paneThemes.has(id)) {
-            const profile = getProfileById(resolvedProfile, profilesList);
-            const themeRef = profile?.theme?.trim();
-            if (themeRef) {
-              const parsed = parseProfileThemeRef(themeRef);
-              if (parsed) paneThemes.set(id, normalizePaneThemePrefs(parsed));
-            }
-          }
+          // Materialize profile theme into paneThemes (colors only). Layout
+          // overrides already in the map win. getTheme/cssVars also fall back
+          // to the profile, but persisting here keeps remounts/layout in sync.
+          ensurePaneThemeFromProfile(id, resolvedProfile);
 
           // During destroy→recreate boot, prepare-show owns ensure after scrollback
           // restore — avoid a premature ensure that races rehydration.
@@ -2684,6 +2717,11 @@ async function boot(): Promise<void> {
     }
     for (const [paneId, profileId] of Object.entries(layout.paneProfileIds ?? {})) {
       paneProfileIds.set(
+        paneId,
+        resolveDefaultProfileId(profileId, profilesList),
+      );
+      // Seed profile themes before mount so first getTheme/cssVars hit is correct.
+      ensurePaneThemeFromProfile(
         paneId,
         resolveDefaultProfileId(profileId, profilesList),
       );
@@ -3272,6 +3310,7 @@ async function boot(): Promise<void> {
     const rootId = empty.focusedId;
     paneProfileIds.set(rootId, resolvedProfile);
     pendingPaneSpawnProfile.set(rootId, resolvedProfile);
+    ensurePaneThemeFromProfile(rootId, resolvedProfile);
     tabsState = {
       ...tabsState,
       tabs: [

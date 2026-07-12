@@ -1555,7 +1555,12 @@ export class PaneHost {
     const cssVars = this.opts.getPaneCssVars?.(paneId);
     if (cssVars) {
       for (const [key, value] of Object.entries(cssVars)) {
-        if (key.startsWith("--")) wrap.style.setProperty(key, value);
+        if (!key.startsWith("--")) continue;
+        wrap.style.setProperty(key, value);
+        // Row/host also reference --term-bg; set explicitly so chrome matches
+        // even if a parent remount races inheritance.
+        pt.row.style.setProperty(key, value);
+        pt.host.style.setProperty(key, value);
       }
     }
     pt.term.options.theme = this.opts.getTheme(paneId);
