@@ -2613,6 +2613,35 @@ async function boot(): Promise<void> {
     owner.setFocusedPaneId(paneId);
   }
 
+  let pointerFocusRaf = 0;
+  let pendingPointerFocusId: string | null = null;
+
+  function installPointerFocusFollow(): void {
+    const onMove = (ev: PointerEvent): void => {
+      if (!focusFollowsRef.v) return;
+      for (const host of tabPaneHosts.values()) {
+        if (host.isPaneInteractionActive()) return;
+      }
+      const leaf = document
+        .elementFromPoint(ev.clientX, ev.clientY)
+        ?.closest(".pane-leaf") as HTMLElement | null;
+      const id = leaf?.dataset.paneId;
+      if (!id || !getPaneHostByPaneId(id)) return;
+      const current = focusedPaneId();
+      if (id === current) return;
+      pendingPointerFocusId = id;
+      if (pointerFocusRaf) return;
+      pointerFocusRaf = requestAnimationFrame(() => {
+        pointerFocusRaf = 0;
+        const nextId = pendingPointerFocusId;
+        pendingPointerFocusId = null;
+        if (!nextId || nextId === focusedPaneId()) return;
+        focusPaneGlobal(nextId);
+      });
+    };
+    terminalPaneRoot.addEventListener("pointermove", onMove, true);
+  }
+
   type CursorWarpOptions = {
     /** Warp even when pointer-follow-focus is enabled. */
     force?: boolean;
@@ -2974,6 +3003,7 @@ async function boot(): Promise<void> {
   paneHost = tabPaneHosts.get(activeWorkspaceTabId)!;
   lastFocusedPaneId = paneHost.getFocusedPaneId();
   syncGlobalPaneFocus(lastFocusedPaneId);
+  installPointerFocusFollow();
   scheduleDeferredCustomThemes();
   void ensureProfilesLoaded().then(() => scheduleDeferredCustomThemes());
   installPaneControlSurface();

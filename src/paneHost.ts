@@ -291,9 +291,6 @@ export class PaneHost {
   private floatingZ = 50;
   private resizeObs: ResizeObserver | null = null;
   private layoutDragDepth = 0;
-  private focusFollowPointer: ((ev: PointerEvent) => void) | null = null;
-  private focusFollowRaf = 0;
-  private pendingFocusFollowId: string | null = null;
   private paneDragActive = false;
   /** Cached leaf rects for directional focus; invalidated on layout/mount. */
   private leafGeometryCache: LeafGeometry[] | null = null;
@@ -391,6 +388,11 @@ export class PaneHost {
 
   isPaneFollowing(paneId: string): boolean {
     return !!this.floating.get(paneId)?.follow;
+  }
+
+  /** True while a pane drag/resize is in progress (suppresses pointer-follow-focus). */
+  isPaneInteractionActive(): boolean {
+    return this.paneDragActive || this.layoutDragDepth > 0;
   }
 
   getPaneDescriptors(): PaneDescriptor[] {
@@ -1370,14 +1372,6 @@ export class PaneHost {
       this.onFollowMountPointerDown,
       true,
     );
-    if (this.focusFollowPointer) {
-      this.root.removeEventListener("pointermove", this.focusFollowPointer, true);
-      this.focusFollowPointer = null;
-    }
-    if (this.focusFollowRaf) {
-      cancelAnimationFrame(this.focusFollowRaf);
-      this.focusFollowRaf = 0;
-    }
     this.resizeObs?.disconnect();
     this.resizeObs = null;
     for (const [id, pt] of this.terminals) {
@@ -1452,29 +1446,6 @@ export class PaneHost {
   }
 
   private wireFocus(): void {
-    if (this.focusFollowPointer) {
-      this.root.removeEventListener("pointermove", this.focusFollowPointer, true);
-      this.focusFollowPointer = null;
-    }
-    this.focusFollowPointer = (ev: PointerEvent) => {
-      if (this.paneDragActive) return;
-      if (!this.opts.focusFollowsCursor()) return;
-      const el = document.elementFromPoint(ev.clientX, ev.clientY);
-      const leaf = el?.closest?.(".pane-leaf") as HTMLElement | null;
-      const id = leaf?.dataset.paneId;
-      if (!id || id === this.focusedId) return;
-      if (!findPaneLeaf(this.tree, id)) return;
-      this.pendingFocusFollowId = id;
-      if (this.focusFollowRaf) return;
-      this.focusFollowRaf = requestAnimationFrame(() => {
-        this.focusFollowRaf = 0;
-        const nextId = this.pendingFocusFollowId;
-        this.pendingFocusFollowId = null;
-        if (nextId && nextId !== this.focusedId) this.setFocusedPaneId(nextId);
-      });
-    };
-    this.root.addEventListener("pointermove", this.focusFollowPointer, true);
-
     const onLeafPointerDown = (e: PointerEvent): void => {
       const leaf = (e.target as HTMLElement).closest(".pane-leaf") as HTMLElement | null;
       if (!leaf || !this.ownsLeafElement(leaf)) return;
