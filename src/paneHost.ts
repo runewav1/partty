@@ -38,6 +38,8 @@ export type FloatingPaneState = {
   width: number;
   height: number;
   z: number;
+  /** Stay on screen across workspace tab switches (not default). */
+  follow?: boolean;
 };
 
 export type PaneDescriptor = {
@@ -95,6 +97,12 @@ export type PaneHostOptions = {
   onPaneLayoutDrag?: (dragging: boolean) => void;
   /** Called after pane positions change (e.g. drag-drop swap) so layout can be persisted. */
   onPaneReorder?: () => void;
+  /** Global mount for `follow` floats (stays visible across tab switches). */
+  followMount?: HTMLElement;
+  /** Apply focused styling across all pane hosts (variable opacity, etc.). */
+  applyPaneFocusClasses?: (focusedId: string) => void;
+  /** Global keyboard/visual focus (may differ from host `focusedId` when follow is on). */
+  getGlobalFocusedPaneId?: () => string | null;
   /** Root leaf id (per workspace tab). Defaults to `"main"`. */
   rootPaneId?: string;
   /** Handler for OSC 8 semantic hyperlinks. */
@@ -118,7 +126,7 @@ type AncestorSplitInfo = {
   startRatio: number;
 };
 
-type LeafGeometry = {
+export type LeafGeometry = {
   id: string;
   left: number;
   top: number;
@@ -127,6 +135,58 @@ type LeafGeometry = {
   cx: number;
   cy: number;
 };
+
+type FocusDir =
+  | "h"
+  | "v"
+  | "left"
+  | "right"
+  | "up"
+  | "down"
+  | "ArrowLeft"
+  | "ArrowRight"
+  | "ArrowUp"
+  | "ArrowDown";
+
+export function directionalAdjacentLeafId(
+  geometries: LeafGeometry[],
+  fromId: string,
+  dir: FocusDir,
+): string | null {
+  const current = geometries.find((leaf) => leaf.id === fromId);
+  if (!current) return null;
+  const normalized =
+    dir === "ArrowLeft"
+      ? "left"
+      : dir === "ArrowRight"
+        ? "right"
+        : dir === "ArrowUp"
+          ? "up"
+          : dir === "ArrowDown"
+            ? "down"
+            : dir;
+  const horizontal = normalized === "left" || normalized === "right";
+  const neg = normalized === "left" || normalized === "up";
+
+  let best: { id: string; score: number } | null = null;
+  for (const leaf of geometries) {
+    if (leaf.id === fromId) continue;
+    const dx = leaf.cx - current.cx;
+    const dy = leaf.cy - current.cy;
+    const directional = horizontal ? (neg ? dx < -6 : dx > 6) : neg ? dy < -6 : dy > 6;
+    if (!directional) continue;
+
+    const overlap = horizontal
+      ? overlapLen(current.top, current.bottom, leaf.top, leaf.bottom)
+      : overlapLen(current.left, current.right, leaf.left, leaf.right);
+    const primary = horizontal ? Math.abs(dx) : Math.abs(dy);
+    const secondary = horizontal ? Math.abs(dy) : Math.abs(dx);
+    const score = primary + secondary * 0.75 - overlap * 0.2;
+
+    if (!best || score < best.score) best = { id: leaf.id, score };
+  }
+  return best?.id ?? null;
+}
 
 export function findPaneLeaf(tree: PaneNode, id: string): PaneLeaf | null {
   if (tree.kind === "leaf") return tree.id === id ? tree : null;
@@ -238,13 +298,21 @@ export class PaneHost {
   /** Cached leaf rects for directional focus; invalidated on layout/mount. */
   private leafGeometryCache: LeafGeometry[] | null = null;
 
+  private readonly onFollowMountPointerDown = (e: PointerEvent): void => {
+    const leaf = (e.target as HTMLElement).closest(".pane-leaf") as HTMLElement | null;
+    const id = leaf?.dataset.paneId;
+    if (!id || !this.floating.get(id)?.follow) return;
+    if (!findPaneLeaf(this.tree, id)) return;
+    this.setFocusedPaneId(id);
+  };
+
   private readonly onPaneAltDragPointerDown = (e: PointerEvent): void => {
     if (!e.altKey || !e.ctrlKey || e.button !== 0) return;
     const t = e.target as HTMLElement | null;
     if (!t) return;
     if (t.closest(".pane-gutter") || t.closest(".pane-corner-handle")) return;
     const leaf = t.closest(".pane-leaf") as HTMLElement | null;
-    if (!leaf || !this.root.contains(leaf)) return;
+    if (!leaf || !this.ownsLeafElement(leaf)) return;
     const paneId = leaf.dataset.paneId;
     if (!paneId) return;
     const ids: string[] = [];
@@ -282,6 +350,16 @@ export class PaneHost {
     this.root.className = "pane-host";
     this.container.appendChild(this.root);
     this.root.addEventListener("pointerdown", this.onPaneAltDragPointerDown, true);
+    this.opts.followMount?.addEventListener(
+      "pointerdown",
+      this.onPaneAltDragPointerDown,
+      true,
+    );
+    this.opts.followMount?.addEventListener(
+      "pointerdown",
+      this.onFollowMountPointerDown,
+      true,
+    );
     this.mountTree();
     this.resizeObs = new ResizeObserver(() => {
       if (this.layoutDragDepth > 0) return;
@@ -297,7 +375,7 @@ export class PaneHost {
 
   getFloatingState(): Record<string, FloatingPaneState> {
     for (const [id, state] of this.floating) {
-      const el = this.root.querySelector(`.pane-leaf--floating[data-pane-id="${CSS.escape(id)}"]`) as HTMLElement | null;
+      const el = this.floatingLeafEl(id);
       if (!el) continue;
       state.width = el.offsetWidth || state.width;
       state.height = el.offsetHeight || state.height;
@@ -305,6 +383,14 @@ export class PaneHost {
       state.y = el.offsetTop;
     }
     return Object.fromEntries([...this.floating.entries()].map(([id, state]) => [id, { ...state }]));
+  }
+
+  isPaneFloating(paneId: string): boolean {
+    return this.floating.has(paneId);
+  }
+
+  isPaneFollowing(paneId: string): boolean {
+    return !!this.floating.get(paneId)?.follow;
   }
 
   getPaneDescriptors(): PaneDescriptor[] {
@@ -323,13 +409,13 @@ export class PaneHost {
     return this.getPaneDescriptor(this.focusedId);
   }
 
-  private getLeafGeometries(): LeafGeometry[] {
+  getLeafGeometries(): LeafGeometry[] {
     if (this.leafGeometryCache) return this.leafGeometryCache;
     const ids: string[] = [];
     collectLeafIds(this.tree, ids);
     const geometries: LeafGeometry[] = [];
     for (const id of ids) {
-      const el = this.root.querySelector(`.pane-leaf[data-pane-id="${CSS.escape(id)}"]`) as HTMLElement | null;
+      const el = this.leafEl(id);
       if (!el) continue;
       const r = el.getBoundingClientRect();
       geometries.push({
@@ -346,43 +432,36 @@ export class PaneHost {
     return geometries;
   }
 
+  /** Following floats only (for cross-tab focus hops). */
+  getFollowingLeafGeometries(): LeafGeometry[] {
+    const geometries: LeafGeometry[] = [];
+    for (const id of this.getFloatingIdsInTreeOrder()) {
+      if (!this.floating.get(id)?.follow) continue;
+      const el = this.floatingLeafEl(id);
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2) continue;
+      geometries.push({
+        id,
+        left: r.left,
+        top: r.top,
+        right: r.right,
+        bottom: r.bottom,
+        cx: r.left + r.width / 2,
+        cy: r.top + r.height / 2,
+      });
+    }
+    return geometries;
+  }
+
   /** Drop cached leaf rects (call after any layout mutation). */
   invalidateLeafGeometryCache(): void {
     this.leafGeometryCache = null;
   }
 
-  getDirectionalAdjacentLeafId(fromId: string, dir: "h" | "v" | "left" | "right" | "up" | "down" | "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"): string | null {
+  getDirectionalAdjacentLeafId(fromId: string, dir: FocusDir): string | null {
     if (!findPaneLeaf(this.tree, fromId)) return null;
-    const geometries = this.getLeafGeometries();
-    const current = geometries.find((leaf) => leaf.id === fromId);
-    if (!current) return null;
-    const normalized =
-      dir === "ArrowLeft" ? "left" :
-      dir === "ArrowRight" ? "right" :
-      dir === "ArrowUp" ? "up" :
-      dir === "ArrowDown" ? "down" :
-      dir;
-    const horizontal = normalized === "left" || normalized === "right";
-    const neg = normalized === "left" || normalized === "up";
-
-    let best: { id: string; score: number } | null = null;
-    for (const leaf of geometries) {
-      if (leaf.id === fromId) continue;
-      const dx = leaf.cx - current.cx;
-      const dy = leaf.cy - current.cy;
-      const directional = horizontal ? (neg ? dx < -6 : dx > 6) : (neg ? dy < -6 : dy > 6);
-      if (!directional) continue;
-
-      const overlap = horizontal
-        ? overlapLen(current.top, current.bottom, leaf.top, leaf.bottom)
-        : overlapLen(current.left, current.right, leaf.left, leaf.right);
-      const primary = horizontal ? Math.abs(dx) : Math.abs(dy);
-      const secondary = horizontal ? Math.abs(dy) : Math.abs(dx);
-      const score = primary + secondary * 0.75 - overlap * 0.2;
-
-      if (!best || score < best.score) best = { id: leaf.id, score };
-    }
-    return best?.id ?? null;
+    return directionalAdjacentLeafId(this.getLeafGeometries(), fromId, dir);
   }
 
   swapPaneWithAdjacent(paneId: string, dir: "h" | "v" | "left" | "right" | "up" | "down" | "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown"): boolean {
@@ -456,33 +535,43 @@ export class PaneHost {
   }
 
   setFocusedPaneId(id: string): void {
-    if (!findPaneLeaf(this.tree, id)) return;
-    const prev = this.focusedId;
-    if (id !== prev) {
-      this.focusedId = id;
-      this.updateFocusClass(prev, id);
+    this.focusPane(id);
+  }
+
+  /**
+   * Focus a pane. When `retainHostFocus` is set (following float), the tab
+   * host keeps its tiled focus anchor while global styling targets `paneId`.
+   */
+  focusPane(paneId: string, opts?: { retainHostFocus?: boolean }): void {
+    if (!findPaneLeaf(this.tree, paneId)) return;
+    if (!opts?.retainHostFocus) {
+      const prev = this.focusedId;
+      if (paneId !== prev) {
+        this.focusedId = paneId;
+        if (!this.opts.applyPaneFocusClasses) {
+          this.updateFocusClass(prev, paneId);
+        }
+      }
     }
-    this.opts.onPaneFocus(id);
-    if (this.floating.has(id)) this.bringFloatingPaneToFront(id);
+    if (this.opts.applyPaneFocusClasses) {
+      this.opts.applyPaneFocusClasses(paneId);
+    } else if (opts?.retainHostFocus) {
+      this.updateFocusClass(undefined, paneId);
+    }
+    this.opts.onPaneFocus(paneId);
+    if (this.floating.has(paneId)) this.bringFloatingPaneToFront(paneId);
   }
 
   private updateFocusClass(prevId?: string, nextId?: string): void {
     const focused = nextId ?? this.focusedId;
     if (prevId && prevId !== focused) {
-      const prev = this.root.querySelector(
-        `.pane-leaf[data-pane-id="${CSS.escape(prevId)}"]`,
-      );
-      prev?.classList.remove("pane-leaf--focused");
-      const next = this.root.querySelector(
-        `.pane-leaf[data-pane-id="${CSS.escape(focused)}"]`,
-      );
-      next?.classList.add("pane-leaf--focused");
+      this.leafEl(prevId)?.classList.remove("pane-leaf--focused");
+      this.leafEl(focused)?.classList.add("pane-leaf--focused");
       return;
     }
-    this.root.querySelectorAll(".pane-leaf").forEach((el) => {
-      const pid = (el as HTMLElement).dataset.paneId;
-      el.classList.toggle("pane-leaf--focused", pid === focused);
-    });
+    for (const id of this.getLeafIdsInOrder()) {
+      this.leafEl(id)?.classList.toggle("pane-leaf--focused", id === focused);
+    }
   }
 
   /**
@@ -1123,6 +1212,38 @@ export class PaneHost {
     return this.togglePaneFloating(this.focusedId);
   }
 
+  togglePaneFollow(paneId: string): boolean {
+    const state = this.floating.get(paneId);
+    if (!state) return false;
+    const leaf = this.floatingLeafEl(paneId);
+    if (!leaf) return false;
+    const next = !state.follow;
+    const from = leaf.getBoundingClientRect();
+    if (next) {
+      const mount = this.opts.followMount;
+      if (!mount) return false;
+      const to = mount.getBoundingClientRect();
+      state.x = from.left - to.left;
+      state.y = from.top - to.top;
+      state.follow = true;
+      const fallback = this.getLeafIdsInOrder().find(
+        (id) => id !== paneId && !this.floating.has(id),
+      );
+      if (fallback && this.focusedId === paneId) {
+        this.focusedId = fallback;
+      }
+    } else {
+      const to = this.root.getBoundingClientRect();
+      state.x = from.left - to.left;
+      state.y = from.top - to.top;
+      state.follow = false;
+    }
+    this.mountTree();
+    this.focusPane(paneId, { retainHostFocus: next });
+    this.opts.onPaneReorder?.();
+    return true;
+  }
+
   togglePaneFloating(paneId: string): boolean {
     if (!findPaneLeaf(this.tree, paneId)) return false;
     if (this.floating.has(paneId)) {
@@ -1181,8 +1302,53 @@ export class PaneHost {
     this.mountTree();
   }
 
+  private floatingMount(state: FloatingPaneState): HTMLElement {
+    return state.follow && this.opts.followMount ? this.opts.followMount : this.root;
+  }
+
+  private floatingLeafEl(paneId: string): HTMLElement | null {
+    const state = this.floating.get(paneId);
+    if (!state) return null;
+    return this.floatingMount(state).querySelector(
+      `.pane-leaf--floating[data-pane-id="${CSS.escape(paneId)}"]`,
+    ) as HTMLElement | null;
+  }
+
+  private leafEl(paneId: string): HTMLElement | null {
+    return (
+      this.floatingLeafEl(paneId) ??
+      (this.root.querySelector(
+        `.pane-leaf[data-pane-id="${CSS.escape(paneId)}"]`,
+      ) as HTMLElement | null)
+    );
+  }
+
+  private ownsLeafElement(leaf: HTMLElement): boolean {
+    if (this.root.contains(leaf)) return true;
+    const id = leaf.dataset.paneId;
+    return !!id && !!this.floating.get(id)?.follow;
+  }
+
+  private floatBoundsRect(paneId: string): DOMRect {
+    const state = this.floating.get(paneId);
+    if (state?.follow && this.opts.followMount) {
+      return this.opts.followMount.getBoundingClientRect();
+    }
+    return this.root.getBoundingClientRect();
+  }
+
   dispose(): void {
     this.root.removeEventListener("pointerdown", this.onPaneAltDragPointerDown, true);
+    this.opts.followMount?.removeEventListener(
+      "pointerdown",
+      this.onPaneAltDragPointerDown,
+      true,
+    );
+    this.opts.followMount?.removeEventListener(
+      "pointerdown",
+      this.onFollowMountPointerDown,
+      true,
+    );
     if (this.focusFollowPointer) {
       this.root.removeEventListener("pointermove", this.focusFollowPointer, true);
       this.focusFollowPointer = null;
@@ -1220,16 +1386,22 @@ export class PaneHost {
       const state = this.floating.get(paneId);
       if (!state) continue;
       el.classList.add("pane-leaf--floating");
+      if (state.follow) el.classList.add("pane-leaf--floating-follow");
       if (this.justFloated.delete(paneId)) el.classList.add("pane-leaf--floating-enter");
       el.style.left = `${state.x}px`;
       el.style.top = `${state.y}px`;
       el.style.width = `${state.width}px`;
       el.style.height = `${state.height}px`;
       el.style.zIndex = String(state.z);
-      this.root.appendChild(el);
+      this.floatingMount(state).appendChild(el);
     }
     this.wireFocus();
-    this.updateFocusClass();
+    if (this.opts.applyPaneFocusClasses && this.opts.getGlobalFocusedPaneId) {
+      const globalId = this.opts.getGlobalFocusedPaneId();
+      if (globalId) this.opts.applyPaneFocusClasses(globalId);
+    } else {
+      this.updateFocusClass();
+    }
     this.opts.onPaneLayout?.();
   }
 
@@ -1252,7 +1424,7 @@ export class PaneHost {
     const state = this.floating.get(paneId);
     if (!state) return;
     state.z = this.floatingZ++;
-    const leaf = this.root.querySelector(`.pane-leaf[data-pane-id="${CSS.escape(paneId)}"]`) as HTMLElement | null;
+    const leaf = this.floatingLeafEl(paneId);
     if (leaf) leaf.style.zIndex = String(state.z);
     this.opts.onPaneReorder?.();
   }
@@ -1269,6 +1441,7 @@ export class PaneHost {
       const leaf = el?.closest?.(".pane-leaf") as HTMLElement | null;
       const id = leaf?.dataset.paneId;
       if (!id || id === this.focusedId) return;
+      if (!findPaneLeaf(this.tree, id)) return;
       this.pendingFocusFollowId = id;
       if (this.focusFollowRaf) return;
       this.focusFollowRaf = requestAnimationFrame(() => {
@@ -1280,12 +1453,13 @@ export class PaneHost {
     };
     this.root.addEventListener("pointermove", this.focusFollowPointer, true);
 
-    this.root.addEventListener("pointerdown", (e) => {
+    const onLeafPointerDown = (e: PointerEvent): void => {
       const leaf = (e.target as HTMLElement).closest(".pane-leaf") as HTMLElement | null;
-      if (!leaf || !this.root.contains(leaf)) return;
+      if (!leaf || !this.ownsLeafElement(leaf)) return;
       const id = leaf.dataset.paneId;
       if (id) this.setFocusedPaneId(id);
-    });
+    };
+    this.root.addEventListener("pointerdown", onLeafPointerDown);
 
     this.root.querySelectorAll<HTMLElement>(".pane-gutter").forEach((gutter) => {
       gutter.addEventListener("pointerdown", (e) => {
@@ -1428,7 +1602,7 @@ export class PaneHost {
     const startLeft = state.x;
     const startTop = state.y;
     const onMove = (ev: PointerEvent): void => {
-      const hostRect = this.root.getBoundingClientRect();
+      const hostRect = this.floatBoundsRect(paneId);
       state.x = Math.max(-hostRect.left, Math.min(startLeft + ev.clientX - startX, window.innerWidth - hostRect.left - state.width));
       state.y = Math.max(-hostRect.top, Math.min(startTop + ev.clientY - startY, window.innerHeight - hostRect.top - state.height));
       leaf.style.left = `${state.x}px`;
@@ -1462,7 +1636,7 @@ export class PaneHost {
     this.bringFloatingPaneToFront(paneId);
     leaf.classList.add("pane-leaf--floating-resizing");
 
-    const hostRect = this.root.getBoundingClientRect();
+    const hostRect = this.floatBoundsRect(paneId);
     const startX = e.clientX;
     const startY = e.clientY;
     const startLeft = leaf.offsetLeft;
@@ -1694,7 +1868,7 @@ export class PaneHost {
       const wrap = document.createElement("div");
       wrap.className = "pane-leaf";
       wrap.dataset.paneId = node.id;
-      if (node.id === this.focusedId) {
+      if (node.id === this.focusedId && !this.opts.applyPaneFocusClasses) {
         wrap.classList.add("pane-leaf--focused");
       }
       for (const [cls, edgeX, edgeY] of [

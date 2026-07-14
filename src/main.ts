@@ -39,6 +39,7 @@ import {
 import {
   findPaneLeaf,
   collectLeafIds,
+  directionalAdjacentLeafId,
   type PaneHostInit,
   type PaneTerminal,
   type SplitLayoutStyle,
@@ -1445,9 +1446,9 @@ async function boot(): Promise<void> {
   const backendReplayRestoredPanes = new Set<string>();
 
   function getFocusedTerm(): Terminal | null {
-    const id = paneHost?.getFocusedPaneId();
+    const id = lastFocusedPaneId || paneHost?.getFocusedPaneId();
     if (!id) return null;
-    return paneHost?.getPaneTerminal(id)?.term ?? null;
+    return getPaneTerminalById(id)?.term ?? null;
   }
 
   function getPaneTerminalById(paneId: string): PaneTerminal | null {
@@ -1469,30 +1470,43 @@ async function boot(): Promise<void> {
   }
 
   function focusActiveTerminal(): void {
-    const id = paneHost?.getFocusedPaneId();
+    const id = lastFocusedPaneId || paneHost?.getFocusedPaneId();
     if (!id) return;
-    const term = paneHost?.getPaneTerminal(id)?.term ?? null;
+    const term = getPaneTerminalById(id)?.term ?? null;
     if (!term) return;
     term.focus();
     void ptyFocusPane(id).catch(() => {});
   }
 
+  function focusedPaneId(): string | null {
+    return lastFocusedPaneId || paneHost?.getFocusedPaneId() || null;
+  }
+
+  function tabIdForHost(host: PaneHost): string | null {
+    for (const [tabId, h] of tabPaneHosts) if (h === host) return tabId;
+    return null;
+  }
+
+  function persistHostLayout(host: PaneHost): void {
+    const tabId = tabIdForHost(host);
+    const pl = layoutForPaneHost(host);
+    if (tabId && pl) persistLayoutForTab(tabId, pl);
+  }
+
   function focusAdjacentPaneByArrow(
     key: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown",
   ): boolean {
-    const host = paneHost;
-    if (host) {
-      const currentId = host.getFocusedPaneId();
-      if (currentId) {
-        const next = host.getDirectionalAdjacentLeafId(currentId, key);
-        if (next) {
-          host.setFocusedPaneId(next);
-          scheduleCursorWarpToPane(next, { force: true });
-          return true;
-        }
-      }
-    }
-    return false;
+    const currentId = focusedPaneId();
+    if (!currentId) return false;
+    const next = directionalAdjacentLeafId(
+      collectFocusHopGeometries(),
+      currentId,
+      key,
+    );
+    if (!next) return false;
+    focusPaneGlobal(next);
+    scheduleCursorWarpToPane(next, { force: true });
+    return true;
   }
 
   function swapFocusedPaneWithAdjacent(
@@ -1702,9 +1716,53 @@ async function boot(): Promise<void> {
   }
 
   function toggleFocusedPaneFloating(): boolean {
-    const changed = paneHost?.toggleFocusedFloating() ?? false;
+    const id = focusedPaneId();
+    if (!id || !paneHost) return false;
+    const ownerHost = getPaneHostByPaneId(id);
+    if (!ownerHost) return false;
+
+    if (!ownerHost.isPaneFloating(id)) {
+      if (ownerHost !== paneHost || paneHost.getFocusedPaneId() !== id) {
+        return false;
+      }
+      const changed = paneHost.toggleFocusedFloating();
+      if (!changed) return false;
+      persistCurrentWorkspaceTabLayout();
+      scheduleResizeImmediate();
+      return true;
+    }
+
+    if (ownerHost.isPaneFollowing(id) && ownerHost !== paneHost) {
+      const pt = takePaneForTransfer(ownerHost, id);
+      if (!pt) return false;
+      if (!receiveTransferredPane(paneHost, id, pt)) {
+        ownerHost.restoreTakenPane(id, pt);
+        return false;
+      }
+      ownerHost.clearPaneMoveRollback();
+      persistHostLayout(ownerHost);
+      persistCurrentWorkspaceTabLayout();
+      paneHost.setFocusedPaneId(id);
+      scheduleCreationReflow(id);
+      scheduleResizeImmediate();
+      return true;
+    }
+
+    const changed = ownerHost.togglePaneFloating(id);
     if (!changed) return false;
-    persistCurrentWorkspaceTabLayout();
+    persistHostLayout(ownerHost);
+    scheduleResizeImmediate();
+    return true;
+  }
+
+  function toggleFocusedPaneFollow(): boolean {
+    const id = focusedPaneId();
+    if (!id) return false;
+    const ownerHost = getPaneHostByPaneId(id);
+    if (!ownerHost?.isPaneFloating(id)) return false;
+    const changed = ownerHost.togglePaneFollow(id);
+    if (!changed) return false;
+    persistHostLayout(ownerHost);
     scheduleResizeImmediate();
     return true;
   }
@@ -1928,6 +1986,7 @@ async function boot(): Promise<void> {
         "pane_move_to_tab",
         "pane_float_toggle",
         "pane_float_new",
+        "pane_float_follow",
         "pane_swap_left", "pane_swap_right", "pane_swap_up", "pane_swap_down",
         "pane_close",
 
@@ -1991,6 +2050,10 @@ async function boot(): Promise<void> {
           case "pane_float_new":
             e.preventDefault();
             createFloatingPaneWithCwd();
+            return false;
+          case "pane_float_follow":
+            e.preventDefault();
+            toggleFocusedPaneFollow();
             return false;
           case "pane_swap_left":
           case "pane_swap_right":
@@ -2157,6 +2220,15 @@ async function boot(): Promise<void> {
     layoutForceRefresh = false;
     if (!paneHost) return;
     runLayoutPassForHost(paneHost, shouldForceRefresh);
+    for (const host of tabPaneHosts.values()) {
+      if (host === paneHost) continue;
+      for (const state of Object.values(host.getFloatingState())) {
+        if (state.follow) {
+          runLayoutPassForHost(host, shouldForceRefresh);
+          break;
+        }
+      }
+    }
   }
 
   /** PTY + xterm stay aligned after pane/window refocus (TUIs need SIGWINCH-sized PTY + refresh). */
@@ -2484,6 +2556,48 @@ async function boot(): Promise<void> {
   saveTabsState(tabsState);
   const tabPaneHosts = new Map<string, PaneHost>();
   const tabPaneShells = new Map<string, HTMLElement>();
+  const paneRootEl = document.getElementById("terminal-pane-root");
+  if (!paneRootEl) throw new Error("#terminal-pane-root missing");
+  const terminalPaneRoot = paneRootEl;
+  const floatFollowLayer = document.createElement("div");
+  floatFollowLayer.id = "term-float-follow-layer";
+  floatFollowLayer.className = "term-float-follow-layer";
+  terminalPaneRoot.appendChild(floatFollowLayer);
+
+  function syncGlobalPaneFocus(focusedId: string): void {
+    for (const root of [terminalPaneRoot, floatFollowLayer]) {
+      root.querySelectorAll(".pane-leaf").forEach((el) => {
+        const pid = (el as HTMLElement).dataset.paneId;
+        el.classList.toggle("pane-leaf--focused", pid === focusedId);
+      });
+    }
+  }
+
+  function isFollowingPaneFocused(): boolean {
+    const id = lastFocusedPaneId;
+    if (!id) return false;
+    return getPaneHostByPaneId(id)?.isPaneFollowing(id) ?? false;
+  }
+
+  function collectFocusHopGeometries() {
+    const geometries = [];
+    if (paneHost) geometries.push(...paneHost.getLeafGeometries());
+    for (const host of tabPaneHosts.values()) {
+      if (host === paneHost) continue;
+      geometries.push(...host.getFollowingLeafGeometries());
+    }
+    return geometries;
+  }
+
+  function focusPaneGlobal(paneId: string): void {
+    const owner = getPaneHostByPaneId(paneId);
+    if (!owner) return;
+    if (owner.isPaneFollowing(paneId)) {
+      owner.focusPane(paneId, { retainHostFocus: true });
+      return;
+    }
+    owner.setFocusedPaneId(paneId);
+  }
 
   type CursorWarpOptions = {
     /** Warp even when pointer-follow-focus is enabled. */
@@ -2633,13 +2747,16 @@ async function boot(): Promise<void> {
         getPaneCssVars: (paneId) => cssVarsForPane(paneId),
         getSplitLayoutStyle: () => splitLayoutStyleRef.v,
         focusFollowsCursor: () => focusFollowsRef.v,
+        followMount: floatFollowLayer,
+        applyPaneFocusClasses: syncGlobalPaneFocus,
+        getGlobalFocusedPaneId: focusedPaneId,
         suppressEnterAnimation: () =>
           document.documentElement.classList.contains("partty-booting"),
         onPaneFocus: (id) => {
           lastFocusedPaneId = id;
           if (paneRenamePanel?.isOpen())
             paneRenamePanel.setPane(id, paneNames.get(id) ?? "");
-          const pt = paneHost?.getPaneTerminal(id);
+          const pt = getPaneTerminalById(id);
           // Sync hot path only: terminal focus + PTY focus IPC.
           // Fit / WebGL / CWD / bridge scroll are coalesced to the next frame
           // so Ctrl+Arrow hops stay visually instant.
@@ -2790,12 +2907,10 @@ async function boot(): Promise<void> {
     init: PaneHostInit,
     rootPaneId?: string,
   ): PaneHost {
-    const paneRoot = document.getElementById("terminal-pane-root");
-    if (!paneRoot) throw new Error("#terminal-pane-root missing");
     const shell = document.createElement("div");
     shell.className = "term-tab-pane-shell";
     shell.dataset.tabId = tabId;
-    paneRoot.appendChild(shell);
+    terminalPaneRoot.appendChild(shell);
     const rid = rootPaneId ?? workspaceRootPaneId(tabId);
     const host = createPaneHost(shell, init, rid);
     tabPaneHosts.set(tabId, host);
@@ -2844,6 +2959,7 @@ async function boot(): Promise<void> {
   }
   paneHost = tabPaneHosts.get(activeWorkspaceTabId)!;
   lastFocusedPaneId = paneHost.getFocusedPaneId();
+  syncGlobalPaneFocus(lastFocusedPaneId);
   scheduleDeferredCustomThemes();
   void ensureProfilesLoaded().then(() => scheduleDeferredCustomThemes());
   installPaneControlSurface();
@@ -2924,7 +3040,10 @@ async function boot(): Promise<void> {
     }
 
     paneHost = nextHost;
-    lastFocusedPaneId = paneHost.getFocusedPaneId();
+    if (!isFollowingPaneFocused()) {
+      lastFocusedPaneId = paneHost.getFocusedPaneId();
+    }
+    syncGlobalPaneFocus(lastFocusedPaneId);
 
     if (nextShell) {
       nextShell.classList.remove("term-tab-pane-shell--hidden");
@@ -4487,7 +4606,7 @@ async function boot(): Promise<void> {
   window.addEventListener(
     "keydown",
     (e) => {
-      const m = k.match(e, "pane_float_toggle", "pane_float_new", "settings_open");
+      const m = k.match(e, "pane_float_toggle", "pane_float_new", "pane_float_follow", "settings_open");
       if (!m) return;
       const t = e.target as HTMLElement | null;
       if (
@@ -4503,6 +4622,9 @@ async function boot(): Promise<void> {
           break;
         case "pane_float_new":
           createFloatingPaneWithCwd();
+          break;
+        case "pane_float_follow":
+          toggleFocusedPaneFollow();
           break;
         case "settings_open":
           settingsApi?.open();
@@ -5359,6 +5481,15 @@ async function boot(): Promise<void> {
         keywords: "float pop out new terminal overlay profile picker alias",
         hotkey: k.label("profile_float_new"),
         run: () => openProfileFloatPicker(),
+      },
+      {
+        id: "pane-toggle-floating-follow",
+        label: "Toggle floating follow",
+        keywords: "float follow tab overlay sticky pin across tabs",
+        hotkey: k.label("pane_float_follow"),
+        run: () => {
+          toggleFocusedPaneFollow();
+        },
       },
       {
         id: "pane-rename",

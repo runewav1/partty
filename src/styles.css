@@ -846,6 +846,21 @@ html.term-tabs-multiple .term-toolbar {
   will-change: opacity, transform;
 }
 
+.term-float-follow-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.term-float-follow-layer .pane-leaf--floating {
+  pointer-events: auto;
+}
+
+.pane-leaf--floating-follow {
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.28);
+}
+
 .pane-host {
   display: flex;
   flex: 1;
@@ -1041,6 +1056,10 @@ html.pane-variable-opacity .pane-leaf:not(.pane-leaf--focused) {
 
 html.pane-variable-opacity .pane-leaf.pane-leaf--focused {
   opacity: var(--pane-opacity-focused, 1);
+}
+
+html.pane-blur-unfocused .term-float-follow-layer .pane-leaf:not(.pane-leaf--focused) {
+  filter: blur(calc(var(--pane-blur-radius, 1.6) * 1px)) saturate(0.92);
 }
 
 html.pane-blur-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--focused) {
