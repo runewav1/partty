@@ -685,6 +685,7 @@ export class PaneHost {
     }
     this.terminals.delete(paneId);
     this.floating.delete(paneId);
+    this.removeFollowMountLeaf(paneId);
     this.mountTree();
     this.opts.onPaneLayout?.();
     if (this.focusedId === paneId) {
@@ -718,6 +719,7 @@ export class PaneHost {
     } catch {
       /* ignore */
     }
+    this.removeFollowMountLeaf(paneId);
     this.terminals.delete(paneId);
     this.floating.delete(paneId);
     return pt;
@@ -1014,14 +1016,13 @@ export class PaneHost {
     if (ids.length <= 1) return false;
     if (!findPaneLeaf(this.tree, paneId)) return false;
 
-    const leafEl = this.root.querySelector(
-      `.pane-leaf[data-pane-id="${CSS.escape(paneId)}"]`,
-    ) as HTMLElement | null;
+    const leafEl = this.leafEl(paneId);
 
     const notifyDisposed = opts?.notifyDisposed !== false;
     const run = (): void => {
       if (!this.detachLeafFromTree(paneId)) return;
       this.floating.delete(paneId);
+      this.removeFollowMountLeaf(paneId);
       const pt = this.terminals.get(paneId);
       if (pt) {
         try {
@@ -1035,10 +1036,13 @@ export class PaneHost {
       }
       this.mountTree();
       this.opts.onPaneLayout?.();
-      if (this.focusedId === paneId) {
+      const globalId = this.opts.getGlobalFocusedPaneId?.();
+      if (globalId === paneId || this.focusedId === paneId) {
         const rest: string[] = [];
         collectLeafIds(this.tree, rest);
         this.setFocusedPaneId(rest[0] ?? this.rootPaneId);
+      } else if (this.opts.applyPaneFocusClasses && globalId) {
+        this.opts.applyPaneFocusClasses(globalId);
       } else {
         this.updateFocusClass();
       }
@@ -1306,6 +1310,23 @@ export class PaneHost {
     return state.follow && this.opts.followMount ? this.opts.followMount : this.root;
   }
 
+  private removeFollowMountLeaf(paneId: string): void {
+    this.opts.followMount
+      ?.querySelector(`.pane-leaf[data-pane-id="${CSS.escape(paneId)}"]`)
+      ?.remove();
+  }
+
+  /** Drop follow-layer shells before re-mounting (root is cleared; followMount is not). */
+  private prepareFollowMount(): void {
+    if (!this.opts.followMount) return;
+    const ids: string[] = [];
+    collectLeafIds(this.tree, ids);
+    for (const id of ids) {
+      if (this.floating.get(id)?.follow) continue;
+      this.removeFollowMountLeaf(id);
+    }
+  }
+
   private floatingLeafEl(paneId: string): HTMLElement | null {
     const state = this.floating.get(paneId);
     if (!state) return null;
@@ -1381,6 +1402,7 @@ export class PaneHost {
       const el = this.renderNode(tiledTree);
       this.root.appendChild(el);
     }
+    this.prepareFollowMount();
     for (const paneId of this.getFloatingIdsInTreeOrder()) {
       const el = this.renderNode({ kind: "leaf", id: paneId });
       const state = this.floating.get(paneId);

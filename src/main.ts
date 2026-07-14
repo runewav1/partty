@@ -1529,18 +1529,32 @@ async function boot(): Promise<void> {
     return swapped;
   }
 
-  async function closeFocusedPane(): Promise<void> {
-    const host = paneHost;
-    const id = host?.getFocusedPaneId();
-    if (!host || !id) return;
-    if (host.isPristineRootTab()) {
+  async function closeFocusedPane(paneId?: string): Promise<void> {
+    const id = paneId ?? focusedPaneId();
+    if (!id) return;
+    const ownerHost = getPaneHostByPaneId(id);
+    const activeHost = paneHost;
+    if (!ownerHost || !activeHost) return;
+
+    if (
+      ownerHost === activeHost &&
+      ownerHost.isPristineRootTab() &&
+      !ownerHost.isPaneFloating(id)
+    ) {
       closeWorkspaceTab(activeWorkspaceTabId);
       return;
     }
+
+    const treeIds: string[] = [];
+    collectLeafIds(ownerHost.getTree(), treeIds);
+    if (treeIds.length <= 1) return;
+
     try {
       await ptyKillPane(id);
-      host.removePane(id);
+      if (!ownerHost.removePane(id)) return;
       parttyPerf.resetPane(id);
+      persistHostLayout(ownerHost);
+      scheduleResizeImmediate();
     } catch (e) {
       console.warn("pty_kill_pane", e);
     }
@@ -2063,7 +2077,7 @@ async function boot(): Promise<void> {
             return swapFocusedPaneWithAdjacent(e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown");
           case "pane_close":
             e.preventDefault();
-            void closeFocusedPane();
+            void closeFocusedPane(paneId);
             return false;
         }
         return true;
