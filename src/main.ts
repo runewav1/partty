@@ -1924,6 +1924,7 @@ async function boot(): Promise<void> {
         "pane_split_down",
         "profile_split_right",
         "profile_split_down",
+        "profile_float_new",
         "pane_move_to_tab",
         "pane_float_toggle",
         "pane_float_new",
@@ -1971,6 +1972,7 @@ async function boot(): Promise<void> {
             return false;
           case "profile_split_right":
           case "profile_split_down":
+          case "profile_float_new":
             e.preventDefault();
             return false;
           case "pane_move_to_tab": {
@@ -5120,6 +5122,9 @@ async function boot(): Promise<void> {
       case "split-v":
         splitFocusedWithCwd("v", id);
         return;
+      case "float":
+        createFloatingPaneWithCwd(id);
+        return;
       default: {
         const _exhaustive: never = action;
         void _exhaustive;
@@ -5131,6 +5136,7 @@ async function boot(): Promise<void> {
     "new-tab": "New tab",
     "split-h": "Split right",
     "split-v": "Split down",
+    float: "New floating pane",
   };
 
   /** Active profile-picker session (hotkey / Tab). Input is filter-only; no `@profile:` prefix. */
@@ -5199,8 +5205,8 @@ async function boot(): Promise<void> {
           labelHtml:
             `<span class="cp-label-prefix">@profile:</span>` +
             `<span class="cp-label-name">new-tab</span>` +
-            `<span class="cp-label-kind"> · split-h · split-v</span>`,
-          keywords: "@profile new-tab split-h split-v",
+            `<span class="cp-label-kind"> · split-h · split-v · float</span>`,
+          keywords: "@profile new-tab split-h split-v float",
           run: () => {},
         },
       ];
@@ -5210,6 +5216,10 @@ async function boot(): Promise<void> {
 
   function openProfileSplitPicker(action: "split-h" | "split-v"): void {
     beginProfilePicker(action);
+  }
+
+  function openProfileFloatPicker(): void {
+    beginProfilePicker("float");
   }
 
   function quickSelectProfileByAlias(
@@ -5342,6 +5352,13 @@ async function boot(): Promise<void> {
         run: () => {
           createFloatingPaneWithCwd();
         },
+      },
+      {
+        id: "pane-profile-float-new",
+        label: "New floating pane with profile…",
+        keywords: "float pop out new terminal overlay profile picker alias",
+        hotkey: k.label("profile_float_new"),
+        run: () => openProfileFloatPicker(),
       },
       {
         id: "pane-rename",
@@ -5881,7 +5898,12 @@ async function boot(): Promise<void> {
     window.addEventListener(
       "keydown",
       (e) => {
-        const m = k.match(e, "profile_split_right", "profile_split_down");
+        const m = k.match(
+          e,
+          "profile_split_right",
+          "profile_split_down",
+          "profile_float_new",
+        );
         if (!m) return;
         const t = e.target as HTMLElement | null;
         if (
@@ -5903,6 +5925,10 @@ async function boot(): Promise<void> {
           return;
         e.preventDefault();
         e.stopPropagation();
+        if (m === "profile_float_new") {
+          openProfileFloatPicker();
+          return;
+        }
         openProfileSplitPicker(
           m === "profile_split_right" ? "split-h" : "split-v",
         );

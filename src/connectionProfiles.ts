@@ -11,7 +11,7 @@ export const LOCAL_DEFAULT_PROFILE_ID = "local-default";
 export type ProfileKind = "local" | "wsl" | "ssh";
 
 /** Palette / split actions that support Tab → profile picker. */
-export type ProfilePaletteAction = "new-tab" | "split-h" | "split-v";
+export type ProfilePaletteAction = "new-tab" | "split-h" | "split-v" | "float";
 
 export type ConnectionProfile = {
   version: number;
@@ -182,6 +182,8 @@ export function profileActionForPaletteCommandId(
     return "split-h";
   if (commandId === "pane-split-h" || commandId === "pane-profile-split-h")
     return "split-v";
+  if (commandId === "pane-new-floating" || commandId === "pane-profile-float-new")
+    return "float";
   return null;
 }
 
@@ -190,7 +192,7 @@ export function parseProfilePickerQuery(
 ): { action: ProfilePaletteAction; filter: string } | null {
   const m = query
     .trimStart()
-    .match(/^@profile:(new-tab|split-h|split-v)(?:\s+(.*))?$/i);
+    .match(/^@profile:(new-tab|split-h|split-v|float)(?:\s+(.*))?$/i);
   if (!m) return null;
   const action = m[1]!.toLowerCase() as ProfilePaletteAction;
   return { action, filter: (m[2] ?? "").trim() };
