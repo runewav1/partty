@@ -1,7 +1,5 @@
 /**
- * Connection profiles — spawn identity for panes/tabs.
- * Definitions live in ~/.partty/profiles/*.toml (seeded from detected local
- * shells and WSL distros via `wsl.exe -l -q`, same as Windows Terminal).
+ * Connection profiles — spawn identity for panes/tabs (`~/.partty/profiles/*.toml`).
  */
 
 import { invoke } from "@tauri-apps/api/core";
@@ -10,19 +8,13 @@ export const LOCAL_DEFAULT_PROFILE_ID = "local-default";
 
 export type ProfileKind = "local" | "wsl" | "ssh";
 
-/** Palette / split actions that support Tab → profile picker. */
 export type ProfilePaletteAction = "new-tab" | "split-h" | "split-v" | "float";
 
 export type ConnectionProfile = {
   version: number;
   id: string;
-  /** Friendly display name (UI / palette). Independent of shell/distro/SSH. */
   name: string;
   kind: ProfileKind;
-  /**
-   * Shell executable override for local profiles. Null/empty → use global
-   * `[profiles].shell` (local-default profile).
-   */
   shell?: string | null;
   initialCwd?: string | null;
   wslDistro?: string | null;
@@ -31,14 +23,15 @@ export type ConnectionProfile = {
   sshPort?: number | null;
   sshIdentityFile?: string | null;
   sshArgs?: string[];
-  /** Full OpenSSH commandline override (Windows Terminal style). */
   commandline?: string | null;
+  /** After shell ready (local/WSL) or remote command for SSH. */
   startupCommand?: string | null;
-  /** Optional icon path override (`.ico` / `.png` / `.exe`). */
+  /** Spawn settings from another profile (chainable). */
+  base?: string | null;
+  /** Overrides global split cwd inheritance for this profile. */
+  inheritCwd?: boolean | null;
   icon?: string | null;
-  /** Pane color theme: `id`, `id/variant`, or custom theme slug (colors only). */
   theme?: string | null;
-  /** Cached `data:` URL from the backend when palette icons are enabled. */
   iconDataUrl?: string | null;
   builtin?: boolean;
 };
@@ -49,9 +42,7 @@ export type ProfileBehaviorPrefs = {
   inherit_cwd_on_split: boolean;
   palette_tab_profile_picker: boolean;
   new_tab_uses_default_profile: boolean;
-  /** Show cached exe icons in the `@profile` palette. */
   palette_profile_icons: boolean;
-  /** Case-sensitive single-char → profile id (`[profiles.selection_aliases]`). */
   profile_selection_aliases: Record<string, string>;
 };
 
@@ -67,6 +58,26 @@ export const DEFAULT_PROFILE_BEHAVIOR: ProfileBehaviorPrefs = {
 
 function normalizeKind(v: unknown): ProfileKind {
   return v === "wsl" || v === "ssh" ? v : "local";
+}
+
+function readOptionalString(
+  o: Record<string, unknown>,
+  ...keys: string[]
+): string | undefined {
+  for (const key of keys) {
+    if (typeof o[key] === "string") return o[key] as string;
+  }
+  return undefined;
+}
+
+function readOptionalBool(
+  o: Record<string, unknown>,
+  ...keys: string[]
+): boolean | undefined {
+  for (const key of keys) {
+    if (typeof o[key] === "boolean") return o[key] as boolean;
+  }
+  return undefined;
 }
 
 function normalizeProfile(raw: unknown): ConnectionProfile | null {
@@ -101,7 +112,15 @@ function normalizeProfile(raw: unknown): ConnectionProfile | null {
       ? o.sshArgs.filter((a): a is string => typeof a === "string")
       : undefined,
     commandline: typeof o.commandline === "string" ? o.commandline : undefined,
-    startupCommand: typeof o.startupCommand === "string" ? o.startupCommand : undefined,
+    startupCommand: readOptionalString(o, "startupCommand", "startup_command"),
+    base: readOptionalString(o, "base", "baseProfileId", "base_profile_id"),
+    inheritCwd: readOptionalBool(
+      o,
+      "inheritCwd",
+      "inheritCwdOnSplit",
+      "inherit_cwd",
+      "inherit_cwd_on_split",
+    ),
     icon: typeof o.icon === "string" ? o.icon : undefined,
     theme: typeof o.theme === "string" ? o.theme : o.theme === null ? null : undefined,
     iconDataUrl: typeof o.iconDataUrl === "string" ? o.iconDataUrl : undefined,
@@ -145,15 +164,50 @@ export function getProfileById(
   return profiles.find((p) => p.id === id) ?? null;
 }
 
-/** Effective shell for spawn: profile override, else global prefs shell. */
+export function resolveEffectiveSpawnProfile(
+  profileId: string,
+  profiles: readonly ConnectionProfile[],
+): ConnectionProfile | null {
+  let id = profileId.trim();
+  if (!id) return null;
+  const seen = new Set<string>();
+  let current = getProfileById(id, profiles);
+  if (!current) return null;
+
+  for (let i = 0; i < 8; i++) {
+    seen.add(id);
+    const baseId = current.base?.trim();
+    if (!baseId) return current;
+    if (seen.has(baseId)) return null;
+    const next = getProfileById(baseId, profiles);
+    if (!next) return current;
+    id = baseId;
+    current = next;
+  }
+  return current;
+}
+
+export function profileUsesFrontendStartup(
+  profile: ConnectionProfile | null | undefined,
+  profiles: readonly ConnectionProfile[],
+): boolean {
+  if (!profile?.startupCommand?.trim()) return false;
+  const spawn = resolveEffectiveSpawnProfile(profile.id, profiles) ?? profile;
+  return spawn.kind === "local" || spawn.kind === "wsl";
+}
+
 export function resolveProfileShell(
   profile: ConnectionProfile | null | undefined,
   globalShell: string,
+  profiles: readonly ConnectionProfile[] = [],
 ): string | null {
-  const override = profile?.shell?.trim();
+  const spawn =
+    profile && profiles.length > 0
+      ? resolveEffectiveSpawnProfile(profile.id, profiles) ?? profile
+      : profile;
+  const override = spawn?.shell?.trim();
   if (override) return override;
-  // null → backend uses prefs.shell
-  if (profile?.id === LOCAL_DEFAULT_PROFILE_ID || !profile?.shell) return null;
+  if (spawn?.id === LOCAL_DEFAULT_PROFILE_ID || !spawn?.shell) return null;
   return globalShell.trim() || null;
 }
 
@@ -172,7 +226,6 @@ export function profileKindLabel(kind: ProfileKind): string {
   }
 }
 
-/** Map palette command ids → profile picker action. */
 export function profileActionForPaletteCommandId(
   commandId: string | undefined | null,
 ): ProfilePaletteAction | null {
@@ -198,13 +251,11 @@ export function parseProfilePickerQuery(
   return { action, filter: (m[2] ?? "").trim() };
 }
 
-/** True when `@profile:…` filter is empty (alias keys apply). */
 export function isProfilePickerAliasContext(query: string): boolean {
   const parsed = parseProfilePickerQuery(query);
   return parsed != null && parsed.filter.length === 0;
 }
 
-/** Resolve alias map: single-char keys, case preserved; conflicting keys dropped. */
 export function resolveSelectionAliases(
   aliases: Record<string, string>,
 ): Record<string, string> {
@@ -226,7 +277,6 @@ export function resolveSelectionAliases(
   return Object.fromEntries(provisional);
 }
 
-/** profile id → single-letter alias (first alias wins if duplicates). */
 export function profileIdAliasMap(
   aliases: Record<string, string>,
 ): Map<string, string> {

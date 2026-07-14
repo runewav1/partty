@@ -61,10 +61,14 @@ pub struct ConnectionProfile {
     /// When set, structured `ssh_*` fields are ignored.
     #[serde(default)]
     pub commandline: Option<String>,
-    /// Remote command after connect (`ssh -t host <startup_command>`).
     #[serde(default)]
     pub startup_command: Option<String>,
-    /// Optional icon path (`.ico` / `.png` / `.exe`). Overrides auto-extract.
+    /// Spawn using another profile (chainable). TOML key: `base`.
+    #[serde(default, alias = "base_profile_id")]
+    pub base: Option<String>,
+    /// Overrides `[profiles].inherit_cwd_on_split` for splits into this profile.
+    #[serde(default, alias = "inherit_cwd_on_split")]
+    pub inherit_cwd: Option<bool>,
     #[serde(default)]
     pub icon: Option<String>,
     /// Pane color theme (`id`, `id/variant`, or custom slug). Colors only.
@@ -97,6 +101,8 @@ pub struct ProfileDto {
     pub ssh_args: Vec<String>,
     pub commandline: Option<String>,
     pub startup_command: Option<String>,
+    pub base: Option<String>,
+    pub inherit_cwd: Option<bool>,
     pub icon: Option<String>,
     pub theme: Option<String>,
     pub builtin: bool,
@@ -125,6 +131,8 @@ impl From<&ConnectionProfile> for ProfileDto {
             ssh_args: p.ssh_args.clone(),
             commandline: p.commandline.clone(),
             startup_command: p.startup_command.clone(),
+            base: p.base.clone(),
+            inherit_cwd: p.inherit_cwd,
             icon: p.icon.clone(),
             theme: p.theme.clone(),
             builtin: p.builtin,
@@ -175,6 +183,8 @@ fn builtin_local_default() -> ConnectionProfile {
         ssh_args: Vec::new(),
         commandline: None,
         startup_command: None,
+        base: None,
+        inherit_cwd: None,
         icon: None,
         theme: None,
         builtin: true,
@@ -428,6 +438,8 @@ fn seed_local_shell_profiles() -> Result<(), String> {
             ssh_args: Vec::new(),
             commandline: None,
             startup_command: None,
+            base: None,
+            inherit_cwd: None,
             icon: None,
             theme: None,
             builtin: true,
@@ -460,6 +472,8 @@ fn seed_wsl_profiles() -> Result<(), String> {
             ssh_args: Vec::new(),
             commandline: None,
             startup_command: None,
+            base: None,
+            inherit_cwd: None,
             icon: None,
             theme: None,
             builtin: true,
@@ -507,6 +521,8 @@ fn merge_detected_ephemeral(mut profiles: Vec<ConnectionProfile>) -> Vec<Connect
             ssh_args: Vec::new(),
             commandline: None,
             startup_command: None,
+            base: None,
+            inherit_cwd: None,
             icon: None,
             theme: None,
             builtin: true,
@@ -535,6 +551,8 @@ fn merge_detected_ephemeral(mut profiles: Vec<ConnectionProfile>) -> Vec<Connect
             ssh_args: Vec::new(),
             commandline: None,
             startup_command: None,
+            base: None,
+            inherit_cwd: None,
             icon: None,
             theme: None,
             builtin: true,
@@ -602,6 +620,50 @@ pub fn get_profile(id: &str) -> Result<ConnectionProfile, String> {
             Err(format!("profile not found: {id}"))
         }
     }
+}
+
+const MAX_BASE_PROFILE_DEPTH: usize = 8;
+
+/// Follow `base` chain to the profile that owns spawn settings.
+pub fn resolve_effective_spawn_profile(assigned_id: &str) -> Result<ConnectionProfile, String> {
+    use std::collections::HashSet;
+
+    let mut id = assigned_id.trim().to_string();
+    if id.is_empty() {
+        return Err("profile id is empty".into());
+    }
+    let mut seen = HashSet::new();
+    let mut profile = get_profile(&id)?;
+
+    for _ in 0..MAX_BASE_PROFILE_DEPTH {
+        seen.insert(id);
+        let Some(base_id) = profile
+            .base
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            return Ok(profile);
+        };
+        if seen.contains(base_id) {
+            return Err(format!("profile base chain cycle at `{base_id}`"));
+        }
+        id = base_id.to_string();
+        profile = get_profile(&id)?;
+    }
+    Err(format!(
+        "profile base chain exceeds depth {MAX_BASE_PROFILE_DEPTH} (started at `{assigned_id}`)"
+    ))
+}
+
+/// SSH startup from the assigned profile (overrides base when `base` is set).
+pub fn resolve_ssh_startup_command(assigned: &ConnectionProfile) -> Option<String> {
+    assigned
+        .startup_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 /// Resolve effective shell for a local profile against global prefs.

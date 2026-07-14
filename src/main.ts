@@ -31,6 +31,7 @@ import {
   profileActionForPaletteCommandId,
   resolveDefaultProfileId,
   resolveProfileShell,
+  profileUsesFrontendStartup,
   type ConnectionProfile,
   type ProfileBehaviorPrefs,
   type ProfilePaletteAction,
@@ -571,7 +572,42 @@ async function boot(): Promise<void> {
     const resolved = resolveDefaultProfileId(raw, profilesList);
     paneProfileIds.set(paneId, resolved);
     ensurePaneThemeFromProfile(paneId, resolved);
+    queueProfileStartupCommand(paneId, resolved);
     return resolved;
+  }
+
+  function queueProfileStartupCommand(paneId: string, profileId: string): void {
+    const profile = getProfileById(profileId, profilesList);
+    if (!profileUsesFrontendStartup(profile, profilesList)) return;
+    const cmd = profile!.startupCommand!.trim();
+    pendingPaneStartupCommands.set(paneId, cmd);
+  }
+
+  function resolvePendingSpawnContext(
+    parentId: string,
+    explicitProfileId?: string | null,
+  ): { profileId: string; cwd: string | null } {
+    let profileId: string;
+    if (explicitProfileId) {
+      profileId = resolveDefaultProfileId(explicitProfileId, profilesList);
+    } else if (profileBehaviorRef.v.inherit_profile_on_split) {
+      profileId = resolveDefaultProfileId(
+        paneProfileIds.get(parentId) ??
+          profileBehaviorRef.v.default_profile_id,
+        profilesList,
+      );
+    } else {
+      profileId = resolveDefaultProfileId(
+        profileBehaviorRef.v.default_profile_id,
+        profilesList,
+      );
+    }
+
+    const profile = getProfileById(profileId, profilesList);
+    const inheritCwd =
+      profile?.inheritCwd ?? profileBehaviorRef.v.inherit_cwd_on_split;
+    const cwd = inheritCwd ? paneCwdHints.get(parentId) ?? null : null;
+    return { profileId, cwd };
   }
 
   async function refreshProfilesList(): Promise<void> {
@@ -1775,23 +1811,9 @@ async function boot(): Promise<void> {
   function createFloatingPaneWithCwd(profileId?: string | null): string | null {
     const parentId = paneHost?.getFocusedPaneId();
     if (!parentId) return null;
-    if (profileBehaviorRef.v.inherit_cwd_on_split) {
-      pendingNewPaneCwd.v = paneCwdHints.get(parentId) ?? null;
-    } else {
-      pendingNewPaneCwd.v = null;
-    }
-    if (profileId) {
-      pendingNewPaneProfile.v = resolveDefaultProfileId(profileId, profilesList);
-    } else if (profileBehaviorRef.v.inherit_profile_on_split) {
-      pendingNewPaneProfile.v =
-        paneProfileIds.get(parentId) ??
-        resolveDefaultProfileId(profileBehaviorRef.v.default_profile_id, profilesList);
-    } else {
-      pendingNewPaneProfile.v = resolveDefaultProfileId(
-        profileBehaviorRef.v.default_profile_id,
-        profilesList,
-      );
-    }
+    const pending = resolvePendingSpawnContext(parentId, profileId);
+    pendingNewPaneCwd.v = pending.cwd;
+    pendingNewPaneProfile.v = pending.profileId;
     const newId = paneHost?.createFloatingPane() ?? null;
     if (!newId) {
       pendingNewPaneCwd.v = null;
@@ -1808,23 +1830,9 @@ async function boot(): Promise<void> {
   function splitFocusedWithCwd(dir: "h" | "v", profileId?: string | null): string | null {
     const parentId = paneHost?.getFocusedPaneId();
     if (!parentId) return null;
-    if (profileBehaviorRef.v.inherit_cwd_on_split) {
-      pendingNewPaneCwd.v = paneCwdHints.get(parentId) ?? null;
-    } else {
-      pendingNewPaneCwd.v = null;
-    }
-    if (profileId) {
-      pendingNewPaneProfile.v = resolveDefaultProfileId(profileId, profilesList);
-    } else if (profileBehaviorRef.v.inherit_profile_on_split) {
-      pendingNewPaneProfile.v =
-        paneProfileIds.get(parentId) ??
-        resolveDefaultProfileId(profileBehaviorRef.v.default_profile_id, profilesList);
-    } else {
-      pendingNewPaneProfile.v = resolveDefaultProfileId(
-        profileBehaviorRef.v.default_profile_id,
-        profilesList,
-      );
-    }
+    const pending = resolvePendingSpawnContext(parentId, profileId);
+    pendingNewPaneCwd.v = pending.cwd;
+    pendingNewPaneProfile.v = pending.profileId;
     const newId = paneHost?.splitFocused(dir) ?? null;
     if (!newId) {
       pendingNewPaneCwd.v = null;
@@ -2428,7 +2436,7 @@ async function boot(): Promise<void> {
     const globalShell =
       ((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
       "pwsh";
-    const shellOverride = resolveProfileShell(profile, globalShell);
+    const shellOverride = resolveProfileShell(profile, globalShell, profilesList);
     const ensureStarted = performance.now();
     pt.fit.fit();
     let d = ptyDims(pt.fit);
@@ -3443,6 +3451,7 @@ async function boot(): Promise<void> {
       const resolved = resolveDefaultProfileId(profileId, profilesList);
       paneProfileIds.set(paneId, resolved);
       pendingPaneSpawnProfile.set(paneId, resolved);
+      queueProfileStartupCommand(paneId, resolved);
     }
   }
 
@@ -3838,6 +3847,7 @@ async function boot(): Promise<void> {
     const rootId = empty.focusedId;
     paneProfileIds.set(rootId, resolvedProfile);
     pendingPaneSpawnProfile.set(rootId, resolvedProfile);
+    queueProfileStartupCommand(rootId, resolvedProfile);
     ensurePaneThemeFromProfile(rootId, resolvedProfile);
     tabsState = {
       ...tabsState,

@@ -135,7 +135,7 @@ fn resolve_spawn(
     shell: Option<&str>,
     initial_cwd: Option<String>,
 ) -> Result<(prefs::Prefs, Option<profiles::ConnectionProfile>, String), String> {
-    let profile = match profile_id.map(str::trim).filter(|s| !s.is_empty()) {
+    let assigned = match profile_id.map(str::trim).filter(|s| !s.is_empty()) {
         Some(id) => match profiles::get_profile(id) {
             Ok(p) => Some(p),
             Err(e) => {
@@ -146,6 +146,28 @@ fn resolve_spawn(
         None => None,
     };
 
+    let spawn_profile = match assigned.as_ref() {
+        Some(p) => match profiles::resolve_effective_spawn_profile(&p.id) {
+            Ok(sp) => Some(sp),
+            Err(e) => {
+                eprintln!("partty: profile `{}`: {e}; using assigned profile for spawn", p.id);
+                assigned.clone()
+            }
+        },
+        None => None,
+    };
+
+    let mut spawn_for_pty = spawn_profile.clone();
+    if let Some(ref assigned_p) = assigned {
+        if let Some(ref mut sp) = spawn_for_pty {
+            if matches!(sp.kind, profiles::ProfileKind::Ssh) {
+                if let Some(cmd) = profiles::resolve_ssh_startup_command(assigned_p) {
+                    sp.startup_command = Some(cmd);
+                }
+            }
+        }
+    }
+
     let mut cwd = initial_cwd;
     if cwd
         .as_deref()
@@ -153,7 +175,7 @@ fn resolve_spawn(
         .filter(|s| !s.is_empty())
         .is_none()
     {
-        if let Some(pc) = profile
+        if let Some(pc) = assigned
             .as_ref()
             .and_then(|p| p.initial_cwd.as_deref())
             .map(str::trim)
@@ -163,7 +185,7 @@ fn resolve_spawn(
         }
     }
 
-    let shell_from_profile = profile.as_ref().and_then(|p| match p.kind {
+    let shell_from_profile = spawn_profile.as_ref().and_then(|p| match p.kind {
         profiles::ProfileKind::Local => p
             .shell
             .as_deref()
@@ -180,7 +202,7 @@ fn resolve_spawn(
 
     let spawn_prefs = prefs_for_spawn(base, shell_override.as_deref(), cwd.clone());
 
-    let backend_key = match profile.as_ref() {
+    let backend_key = match spawn_profile.as_ref() {
         Some(p) if matches!(p.kind, profiles::ProfileKind::Wsl) => {
             format!(
                 "wsl:{}",
@@ -208,16 +230,16 @@ fn resolve_spawn(
         }
         _ => spawn_prefs.shell.trim().to_lowercase(),
     };
-    // Identity is profile + backend only. Cwd is an initial-spawn parameter;
+    // Identity is assigned profile + backend only. Cwd is an initial-spawn parameter;
     // including it here killed live TUIs on summon after the user `cd`'d
     // (restored paneCwds ≠ spawn-time cwd → false mismatch → kill+respawn).
     let want = format!(
         "{}\0{}",
-        profile.as_ref().map(|p| p.id.as_str()).unwrap_or(""),
+        assigned.as_ref().map(|p| p.id.as_str()).unwrap_or(""),
         backend_key,
     );
 
-    Ok((spawn_prefs, profile, want))
+    Ok((spawn_prefs, spawn_for_pty, want))
 }
 
 fn window_effect_config(prefs: &prefs::Prefs) -> Option<tauri::utils::config::WindowEffectsConfig> {

@@ -5,7 +5,7 @@
 
 One file per profile. Local and WSL profiles are seeded when missing (detected shells + `wsl.exe -l -q`). SSH profiles are manual only.
 
-File name stem must match `id` (letters, numbers, `-`, `_` only), e.g. `ssh-prod.toml` → `id = "ssh-prod"`.
+File name stem must match `id` (letters, numbers, `-`, `_` only), e.g. `my-profile.toml` → `id = "my-profile"`. Seeded profiles use prefixes like `local-` and `wsl-`; custom ids are not required to follow that pattern.
 
 ## Kinds
 
@@ -29,6 +29,21 @@ File name stem must match `id` (letters, numbers, `-`, `_` only), e.g. `ssh-prod
 | `icon` | string | Path to `.ico` / `.png` / `.exe`; overrides auto icon |
 | `theme` | string | Pane color theme: `id`, `id/variant`, or custom theme slug (see below) |
 | `builtin` | bool | Seeded profile (still editable) |
+| `base` | string | Spawn using another profile (chainable). Legacy key: `base_profile_id` |
+| `startup_command` | string | Command after the shell is ready (local/WSL), or remote command for SSH |
+| `inherit_cwd` | bool | When set, overrides `[profiles].inherit_cwd_on_split` for splits into this profile. Legacy key: `inherit_cwd_on_split` |
+
+Set `base` to reuse another profile’s shell, distro, or SSH target while keeping a separate id, theme, and startup command. Workspace per-pane `startup_commands` override profile `startup_command` when both apply.
+
+```toml
+version = 1
+id = "my-env"
+name = "My env"
+kind = "local"
+base = "local-pwsh"
+startup_command = "./scripts/enter-env.ps1"
+inherit_cwd = false
+```
 
 ### Profile theme
 
