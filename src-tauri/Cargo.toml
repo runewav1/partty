@@ -1,7 +1,7 @@
 [package]
 name = "partty"
 version = "0.1.0"
-description = "Raycast-style terminal overlay for Windows"
+description = "A fast, fun, QoL focused terminal workspace"
 authors = ["you"]
 edition = "2021"
 
