@@ -27,6 +27,7 @@ All configurable actions and their defaults:
 | `profile_split_right` | `Alt+Shift+V` |
 | `pane_close` | `Ctrl+Shift+W` |
 | `pane_float_toggle` | `Ctrl+Shift+O` |
+| `pane_float_new` | `Alt+O` |
 | `pane_focus_left` | `Ctrl+ArrowLeft` |
 | `pane_focus_right` | `Ctrl+ArrowRight` |
 | `pane_focus_up` | `Ctrl+ArrowUp` |

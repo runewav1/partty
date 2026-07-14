@@ -496,6 +496,89 @@ export class PaneHost {
     return this.insertPaneNearFocused(newId, dir, true);
   }
 
+  /** Insert a new leaf already floated (no split-then-toggle). */
+  createFloatingPane(dir: "h" | "v" = "v"): string | null {
+    const paneId = crypto.randomUUID();
+    const anchor = this.tiledInsertAnchor();
+    if (!this.graftPaneAtAnchor(paneId, anchor, dir)) return null;
+
+    const { x, y, width, height } = this.defaultFloatingGeometry();
+    this.floating.set(paneId, { x, y, width, height, z: this.floatingZ++ });
+    this.justFloated.add(paneId);
+    this.mountTree();
+    this.setFocusedPaneId(paneId);
+    this.opts.onPaneLayout?.();
+    this.opts.onPaneReorder?.();
+    return paneId;
+  }
+
+  /** Tiled leaf to split when focus is on a float or for explicit float create. */
+  private tiledInsertAnchor(): string {
+    if (
+      !this.floating.has(this.focusedId) &&
+      findPaneLeaf(this.tree, this.focusedId)
+    ) {
+      return this.focusedId;
+    }
+    for (const id of this.getLeafIdsInOrder()) {
+      if (!this.floating.has(id)) return id;
+    }
+    return this.rootPaneId;
+  }
+
+  private defaultFloatingGeometry(): {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } {
+    const hostRect = this.root.getBoundingClientRect();
+    const fallbackW = Math.max(320, Math.floor(hostRect.width * 0.48));
+    const fallbackH = Math.max(220, Math.floor(hostRect.height * 0.48));
+    const width = Math.max(220, Math.min(fallbackW, hostRect.width));
+    const height = Math.max(160, Math.min(fallbackH, hostRect.height));
+    const cascade = this.floating.size;
+    const baseX = 24 + cascade * 24;
+    const baseY = 24 + cascade * 24;
+    const x = Math.max(
+      -hostRect.left,
+      Math.min(baseX, window.innerWidth - hostRect.left - width),
+    );
+    const y = Math.max(
+      -hostRect.top,
+      Math.min(baseY, window.innerHeight - hostRect.top - height),
+    );
+    return { x, y, width, height };
+  }
+
+  /** Graft `paneId` beside `anchorId` without mounting (caller sets float + mountTree). */
+  private graftPaneAtAnchor(
+    paneId: string,
+    anchorId: string,
+    dir: "h" | "v",
+  ): boolean {
+    if (!findPaneLeaf(this.tree, anchorId)) return false;
+    const style = this.layoutStyle();
+
+    if (style === "master" && this.insertIntoMasterStack(paneId)) {
+      return true;
+    }
+
+    const resolvedDir =
+      style === "dwindle" ? this.dwindleDirForPane(anchorId, dir) : dir;
+    const rep: PaneSplit = {
+      kind: "split",
+      dir: resolvedDir,
+      ratio: 0.5,
+      a: { kind: "leaf", id: anchorId },
+      b: { kind: "leaf", id: paneId },
+    };
+    const next = replaceLeaf(this.tree, anchorId, rep);
+    if (!next) return false;
+    this.tree = next;
+    return true;
+  }
+
   takePane(paneId: string, opts?: { saveRollback?: boolean }): PaneTerminal | null {
     const pt = this.terminals.get(paneId);
     if (!pt) return null;

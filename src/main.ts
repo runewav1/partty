@@ -1709,6 +1709,39 @@ async function boot(): Promise<void> {
     return true;
   }
 
+  function createFloatingPaneWithCwd(profileId?: string | null): string | null {
+    const parentId = paneHost?.getFocusedPaneId();
+    if (!parentId) return null;
+    if (profileBehaviorRef.v.inherit_cwd_on_split) {
+      pendingNewPaneCwd.v = paneCwdHints.get(parentId) ?? null;
+    } else {
+      pendingNewPaneCwd.v = null;
+    }
+    if (profileId) {
+      pendingNewPaneProfile.v = resolveDefaultProfileId(profileId, profilesList);
+    } else if (profileBehaviorRef.v.inherit_profile_on_split) {
+      pendingNewPaneProfile.v =
+        paneProfileIds.get(parentId) ??
+        resolveDefaultProfileId(profileBehaviorRef.v.default_profile_id, profilesList);
+    } else {
+      pendingNewPaneProfile.v = resolveDefaultProfileId(
+        profileBehaviorRef.v.default_profile_id,
+        profilesList,
+      );
+    }
+    const newId = paneHost?.createFloatingPane() ?? null;
+    if (!newId) {
+      pendingNewPaneCwd.v = null;
+      pendingNewPaneProfile.v = null;
+      return null;
+    }
+    persistCurrentWorkspaceTabLayout();
+    if (!document.documentElement.classList.contains("partty-booting")) {
+      scheduleCreationReflow(newId);
+    }
+    return newId;
+  }
+
   function splitFocusedWithCwd(dir: "h" | "v", profileId?: string | null): string | null {
     const parentId = paneHost?.getFocusedPaneId();
     if (!parentId) return null;
@@ -1893,6 +1926,7 @@ async function boot(): Promise<void> {
         "profile_split_down",
         "pane_move_to_tab",
         "pane_float_toggle",
+        "pane_float_new",
         "pane_swap_left", "pane_swap_right", "pane_swap_up", "pane_swap_down",
         "pane_close",
 
@@ -1951,6 +1985,10 @@ async function boot(): Promise<void> {
           case "pane_float_toggle":
             e.preventDefault();
             toggleFocusedPaneFloating();
+            return false;
+          case "pane_float_new":
+            e.preventDefault();
+            createFloatingPaneWithCwd();
             return false;
           case "pane_swap_left":
           case "pane_swap_right":
@@ -4447,7 +4485,7 @@ async function boot(): Promise<void> {
   window.addEventListener(
     "keydown",
     (e) => {
-      const m = k.match(e, "pane_float_toggle", "settings_open");
+      const m = k.match(e, "pane_float_toggle", "pane_float_new", "settings_open");
       if (!m) return;
       const t = e.target as HTMLElement | null;
       if (
@@ -4460,6 +4498,9 @@ async function boot(): Promise<void> {
       switch (m) {
         case "pane_float_toggle":
           toggleFocusedPaneFloating();
+          break;
+        case "pane_float_new":
+          createFloatingPaneWithCwd();
           break;
         case "settings_open":
           settingsApi?.open();
@@ -5288,9 +5329,18 @@ async function boot(): Promise<void> {
         id: "pane-toggle-floating",
         label: "Float pane",
         keywords: "float pop out pop in tile hyprland layout",
-        hotkey: "Ctrl+Shift+O",
+        hotkey: k.label("pane_float_toggle"),
         run: () => {
           toggleFocusedPaneFloating();
+        },
+      },
+      {
+        id: "pane-new-floating",
+        label: "New floating pane",
+        keywords: "float pop out new terminal overlay window",
+        hotkey: k.label("pane_float_new"),
+        run: () => {
+          createFloatingPaneWithCwd();
         },
       },
       {
