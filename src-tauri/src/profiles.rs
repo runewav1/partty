@@ -5,7 +5,7 @@
 //! is display-only — spawn uses `shell` / `wsl_distro` / etc.
 
 use crate::prefs::{ensure_config_dir, Prefs};
-use crate::pty::detect_available_shells;
+use crate::pty::{detect_available_shells, detected_shell_profile_field};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -407,7 +407,6 @@ fn seed_local_shell_profiles() -> Result<(), String> {
                         "PowerShell 7"
                             | "Windows PowerShell"
                             | "Command Prompt"
-                            | "Git Bash"
                             | "Zsh"
                             | "pwsh"
                             | "powershell"
@@ -428,7 +427,7 @@ fn seed_local_shell_profiles() -> Result<(), String> {
             id,
             name: want_name,
             kind: ProfileKind::Local,
-            shell: Some(shell.name.clone()),
+            shell: Some(detected_shell_profile_field(&shell.name, &shell.path)),
             initial_cwd: None,
             wsl_distro: None,
             ssh_host: None,
@@ -511,7 +510,7 @@ fn merge_detected_ephemeral(mut profiles: Vec<ConnectionProfile>) -> Vec<Connect
             id,
             name: display_name_for_shell(&shell.name),
             kind: ProfileKind::Local,
-            shell: Some(shell.name),
+            shell: Some(detected_shell_profile_field(&shell.name, &shell.path)),
             initial_cwd: None,
             wsl_distro: None,
             ssh_host: None,
@@ -722,6 +721,7 @@ mod tests {
     #[test]
     fn shell_slug() {
         assert_eq!(profile_id_for_shell("pwsh"), "local-pwsh");
+        assert_eq!(profile_id_for_shell("bash"), "local-bash");
         assert_eq!(profile_id_for_shell("PowerShell"), "local-powershell");
     }
 

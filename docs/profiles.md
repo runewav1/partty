@@ -5,7 +5,7 @@
 
 One file per profile. Local and WSL profiles are seeded when missing (detected shells + `wsl.exe -l -q`). SSH profiles are manual only.
 
-File name stem must match `id` (letters, numbers, `-`, `_` only), e.g. `my-profile.toml` → `id = "my-profile"`. Seeded profiles use prefixes like `local-` and `wsl-`; custom ids are not required to follow that pattern.
+File name stem must match `id` (letters, numbers, `-`, `_` only).
 
 ## Kinds
 
@@ -29,21 +29,11 @@ File name stem must match `id` (letters, numbers, `-`, `_` only), e.g. `my-profi
 | `icon` | string | Path to `.ico` / `.png` / `.exe`; overrides auto icon |
 | `theme` | string | Pane color theme: `id`, `id/variant`, or custom theme slug (see below) |
 | `builtin` | bool | Seeded profile (still editable) |
-| `base` | string | Spawn using another profile (chainable). Legacy key: `base_profile_id` |
-| `startup_command` | string | Run after shell integration at spawn (local/WSL), or remote command for SSH (`ssh -t`) |
-| `inherit_cwd` | bool | When set, overrides `[profiles].inherit_cwd_on_split` for splits into this profile. Legacy key: `inherit_cwd_on_split` |
+| `base` | string | Spawn using another profile |
+| `startup_command` | string | Command to run after the shell is ready |
+| `inherit_cwd` | bool | Override `[profiles].inherit_cwd_on_split` for splits into this profile |
 
-Set `base` to reuse another profile’s shell, distro, or SSH target while keeping a separate id, theme, and startup command. Workspace per-pane `startup_commands` override profile `startup_command` when both apply.
-
-```toml
-version = 1
-id = "my-env"
-name = "My env"
-kind = "local"
-base = "local-pwsh"
-startup_command = "./scripts/enter-env.ps1"
-inherit_cwd = false
-```
+Workspace per-pane `startup_commands` override profile `startup_command` when both apply.
 
 ### Profile theme
 
@@ -119,7 +109,6 @@ Used when `commandline` is unset:
 | `ssh_port` | u16 | Optional (`-p`) |
 | `ssh_identity_file` | string | Private key path (`-i`). OpenSSH formats only (e.g. ed25519, RSA, PEM) |
 | `ssh_args` | string[] | Extra client args |
-| `startup_command` | string | Remote command after connect (`ssh -t host …`) |
 
 ```toml
 version = 1

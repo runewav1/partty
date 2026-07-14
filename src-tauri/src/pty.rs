@@ -820,30 +820,102 @@ fn resolve_pwsh_executable() -> Option<PathBuf> {
     where_exe_first_line("pwsh.exe").filter(|p| p.is_file())
 }
 
-fn resolve_windows_bash_executable() -> Result<CommandBuilder, String> {
+/// Standard Git for Windows `bin\bash.exe` locations (not `sh.exe`).
+fn git_bash_standard_paths() -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    for pf_var in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Ok(pf) = std::env::var(pf_var) {
+            v.push(
+                PathBuf::from(&pf)
+                    .join("Git")
+                    .join("bin")
+                    .join("bash.exe"),
+            );
+        }
+    }
+    if let Ok(la) = std::env::var("LOCALAPPDATA") {
+        v.push(
+            PathBuf::from(la)
+                .join("Programs")
+                .join("Git")
+                .join("bin")
+                .join("bash.exe"),
+        );
+    }
+    v
+}
+
+pub fn resolve_git_bash_executable() -> Option<PathBuf> {
+    git_bash_standard_paths()
+        .into_iter()
+        .find(|p| p.is_file())
+}
+
+fn is_git_bash_path(path: &Path) -> bool {
+    let Some(path_str) = path.to_str() else {
+        return false;
+    };
+    let normalized = path_str.replace('/', "\\").to_ascii_lowercase();
+    normalized.contains("\\git\\bin\\bash.exe")
+        || normalized.contains("\\git\\usr\\bin\\bash.exe")
+}
+
+fn is_wsl_bash_shim(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|n| n.eq_ignore_ascii_case("bash.exe"))
+        && path
+            .parent()
+            .and_then(|p| p.file_name())
+            .is_some_and(|n| n.eq_ignore_ascii_case("System32"))
+}
+
+fn is_bash_executable_path(path: &Path) -> bool {
+    path.is_file()
+        && path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| s.eq_ignore_ascii_case("bash.exe"))
+}
+
+fn resolve_bash_executable(prefs: &Prefs) -> Result<CommandBuilder, String> {
+    let trimmed = prefs
+        .shell
+        .trim()
+        .trim_matches(|c| c == '"' || c == '\'');
+    if !trimmed.is_empty() {
+        let path = Path::new(trimmed);
+        if (trimmed.contains('\\') || trimmed.contains('/') || trimmed.ends_with(".exe"))
+            && is_bash_executable_path(path)
+        {
+            return Ok(CommandBuilder::new(path));
+        }
+    }
+    if let Some(p) = resolve_git_bash_executable() {
+        return Ok(CommandBuilder::new(p));
+    }
     if has_exe_on_path("bash.exe") {
         if let Some(p) = where_exe_first_line("bash.exe") {
-            if p.is_file() {
+            if p.is_file() && !is_wsl_bash_shim(&p) {
                 return Ok(CommandBuilder::new(p));
             }
         }
         return Ok(CommandBuilder::new("bash.exe"));
     }
-    for pf_var in ["ProgramFiles", "ProgramFiles(x86)"] {
-        if let Ok(pf) = std::env::var(pf_var) {
-            let p = PathBuf::from(&pf).join("Git").join("bin").join("bash.exe");
-            if p.is_file() {
-                return Ok(CommandBuilder::new(p));
-            }
-        }
-    }
-    Err("bash.exe not found. Install Git Bash or set prefs.shell to a full path.".to_string())
+    Err("bash.exe not found. Set the profile `shell` to a full path.".to_string())
 }
 
 #[derive(serde::Serialize, Clone)]
 pub struct DetectedShell {
     pub name: String,
     pub path: String,
+}
+
+pub fn detected_shell_profile_field(name: &str, path: &str) -> String {
+    if is_git_bash_path(Path::new(path)) {
+        path.to_string()
+    } else {
+        name.to_string()
+    }
 }
 
 fn push_shell_unique(shells: &mut Vec<DetectedShell>, name: &str, path: String) {
@@ -883,12 +955,8 @@ fn detect_available_shells_uncached() -> Vec<DetectedShell> {
     // keeps thread closures free of env-access races on Windows).
     let sys_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
     let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into());
-    let pf = std::env::var("ProgramFiles").ok();
-    let pf_x86 = std::env::var("ProgramFiles(x86)").ok();
 
-    // Run all five shell detections concurrently. Each may spawn a `where.exe`
-    // child process; running them in parallel cuts total wall time from
-    // O(n × process-spawn-overhead) down to O(1 × slowest-detection).
+    // Run shell detections concurrently.
     let (pwsh_result, powershell_result, cmd_result, bash_result, wsl_result) =
         std::thread::scope(|s| {
             // PowerShell 7 (pwsh)
@@ -930,22 +998,9 @@ fn detect_available_shells_uncached() -> Vec<DetectedShell> {
                 None
             });
 
-            // bash (Git Bash via ProgramFiles, then PATH fallback)
-            let bash = s.spawn(move || -> Option<String> {
-                for base in [pf.as_deref(), pf_x86.as_deref()].into_iter().flatten() {
-                    let p = PathBuf::from(base).join("Git").join("bin").join("bash.exe");
-                    if p.is_file() {
-                        return Some(p.to_string_lossy().into_owned());
-                    }
-                }
-                if has_exe_on_path("bash.exe") {
-                    return Some(
-                        where_exe_first_line("bash.exe")
-                            .map(|p| p.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| "bash.exe".into()),
-                    );
-                }
-                None
+            // bash — Git for Windows install only (not PATH / WSL shim / sh.exe).
+            let bash = s.spawn(|| {
+                resolve_git_bash_executable().map(|p| p.to_string_lossy().into_owned())
             });
 
             // WSL
@@ -1464,7 +1519,7 @@ fn windows_shell_command(
             apply_cwd(c, prefs)
         }
         ShellKind::Bash => {
-            let bash = resolve_windows_bash_executable()?;
+            let bash = resolve_bash_executable(prefs)?;
             let script = write_shell_integration_script(
                 "partty-shell-integration.bash",
                 SHELL_INTEGRATION_BASH,
@@ -1588,9 +1643,12 @@ fn detect_shell_kind(prefs: &Prefs) -> ShellKind {
 
 #[cfg(test)]
 mod tests {
-    use super::{osc633_normalize_cwd, split_commandline, windows_path_to_wsl_mnt};
+    use super::{
+        detected_shell_profile_field, is_git_bash_path, is_wsl_bash_shim, osc633_normalize_cwd,
+        split_commandline, windows_path_to_wsl_mnt,
+    };
     use std::collections::HashMap;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn split_ssh_commandline() {
@@ -1646,6 +1704,31 @@ mod tests {
         assert_eq!(
             windows_path_to_wsl_mnt(&p).unwrap(),
             "/mnt/c/Users/me/AppData/Local/Temp/partty-shell-integration/x.bash"
+        );
+    }
+
+    #[test]
+    fn git_bash_path_detection() {
+        assert!(is_git_bash_path(Path::new(
+            r"C:\Program Files\Git\bin\bash.exe"
+        )));
+        assert!(is_wsl_bash_shim(Path::new(
+            r"C:\Windows\System32\bash.exe"
+        )));
+        assert!(!is_git_bash_path(Path::new(
+            r"C:\Windows\System32\bash.exe"
+        )));
+    }
+
+    #[test]
+    fn detected_bash_profile_shell_field() {
+        assert_eq!(
+            detected_shell_profile_field("bash", r"C:\Program Files\Git\bin\bash.exe"),
+            r"C:\Program Files\Git\bin\bash.exe"
+        );
+        assert_eq!(
+            detected_shell_profile_field("pwsh", r"C:\Tools\pwsh.exe"),
+            "pwsh"
         );
     }
 }
