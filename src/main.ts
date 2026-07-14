@@ -31,7 +31,6 @@ import {
   profileActionForPaletteCommandId,
   resolveDefaultProfileId,
   resolveProfileShell,
-  profileUsesFrontendStartup,
   type ConnectionProfile,
   type ProfileBehaviorPrefs,
   type ProfilePaletteAction,
@@ -572,15 +571,7 @@ async function boot(): Promise<void> {
     const resolved = resolveDefaultProfileId(raw, profilesList);
     paneProfileIds.set(paneId, resolved);
     ensurePaneThemeFromProfile(paneId, resolved);
-    queueProfileStartupCommand(paneId, resolved);
     return resolved;
-  }
-
-  function queueProfileStartupCommand(paneId: string, profileId: string): void {
-    const profile = getProfileById(profileId, profilesList);
-    if (!profileUsesFrontendStartup(profile, profilesList)) return;
-    const cmd = profile!.startupCommand!.trim();
-    pendingPaneStartupCommands.set(paneId, cmd);
   }
 
   function resolvePendingSpawnContext(
@@ -3451,7 +3442,6 @@ async function boot(): Promise<void> {
       const resolved = resolveDefaultProfileId(profileId, profilesList);
       paneProfileIds.set(paneId, resolved);
       pendingPaneSpawnProfile.set(paneId, resolved);
-      queueProfileStartupCommand(paneId, resolved);
     }
   }
 
@@ -3847,7 +3837,6 @@ async function boot(): Promise<void> {
     const rootId = empty.focusedId;
     paneProfileIds.set(rootId, resolvedProfile);
     pendingPaneSpawnProfile.set(rootId, resolvedProfile);
-    queueProfileStartupCommand(rootId, resolvedProfile);
     ensurePaneThemeFromProfile(rootId, resolvedProfile);
     tabsState = {
       ...tabsState,

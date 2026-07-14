@@ -30,7 +30,7 @@ File name stem must match `id` (letters, numbers, `-`, `_` only), e.g. `my-profi
 | `theme` | string | Pane color theme: `id`, `id/variant`, or custom theme slug (see below) |
 | `builtin` | bool | Seeded profile (still editable) |
 | `base` | string | Spawn using another profile (chainable). Legacy key: `base_profile_id` |
-| `startup_command` | string | Command after the shell is ready (local/WSL), or remote command for SSH |
+| `startup_command` | string | Run after shell integration at spawn (local/WSL), or remote command for SSH (`ssh -t`) |
 | `inherit_cwd` | bool | When set, overrides `[profiles].inherit_cwd_on_split` for splits into this profile. Legacy key: `inherit_cwd_on_split` |
 
 Set `base` to reuse another profile’s shell, distro, or SSH target while keeping a separate id, theme, and startup command. Workspace per-pane `startup_commands` override profile `startup_command` when both apply.

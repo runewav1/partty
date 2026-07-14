@@ -1025,8 +1025,26 @@ fn apply_cwd(mut cmd: CommandBuilder, prefs: &Prefs) -> Result<CommandBuilder, S
 
 /// ConPTY session always starts the Windows host shell (`COMSPEC`, usually `cmd.exe`), then we
 /// launch the resolved interactive shell directly so integration is active on the first prompt.
+#[allow(dead_code)]
 fn shell_command(prefs: &Prefs) -> Result<CommandBuilder, String> {
-    windows_shell_command(prefs)
+    windows_shell_command(prefs, None)
+}
+
+fn profile_startup(profile: Option<&ConnectionProfile>) -> Option<&str> {
+    profile?
+        .startup_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
+fn append_ps_command(mut command: String, startup: Option<&str>) -> String {
+    if let Some(cmd) = startup {
+        command.push(';');
+        command.push(' ');
+        command.push_str(cmd);
+    }
+    command
 }
 
 /// Build a PTY command for a connection profile (local shell, WSL distro, SSH).
@@ -1041,19 +1059,24 @@ pub fn shell_command_for_profile(
                 .map(str::trim)
                 .filter(|s| !s.is_empty())
                 .ok_or_else(|| "WSL profile is missing wsl_distro".to_string())?;
-            wsl_distro_command(prefs, distro)
+            wsl_distro_command(prefs, distro, profile)
         }
         Some(ProfileKind::Ssh) => {
             let p = profile.ok_or_else(|| "SSH profile missing".to_string())?;
             ssh_profile_command(p)
         }
-        Some(ProfileKind::Local) | None => shell_command(prefs),
+        Some(ProfileKind::Local) | None => windows_shell_command(prefs, profile),
     }
 }
 
 /// Launch an installed WSL distribution (`wsl.exe -d <name>`), injecting bash/zsh
 /// shell integration when the distro's login shell supports it.
-fn wsl_distro_command(prefs: &Prefs, distro: &str) -> Result<CommandBuilder, String> {
+fn wsl_distro_command(
+    prefs: &Prefs,
+    distro: &str,
+    profile: Option<&ConnectionProfile>,
+) -> Result<CommandBuilder, String> {
+    let startup = profile_startup(profile);
     let mut c = CommandBuilder::new("wsl.exe");
     c.arg("-d");
     c.arg(distro);
@@ -1079,7 +1102,7 @@ fn wsl_distro_command(prefs: &Prefs, distro: &str) -> Result<CommandBuilder, Str
                 SHELL_INTEGRATION_ZSH,
             )?;
             let script_wsl = windows_path_to_wsl_mnt(&script)?;
-            let zdot = ensure_zsh_zdot(&script_wsl)?;
+            let zdot = ensure_zsh_zdot(&script_wsl, startup)?;
             let zdot_wsl = windows_path_to_wsl_mnt(&zdot)?;
             // Pass ZDOTDIR inside Linux via `env` (Windows env is not forwarded by default).
             c.arg("--exec");
@@ -1102,20 +1125,7 @@ fn wsl_distro_command(prefs: &Prefs, distro: &str) -> Result<CommandBuilder, Str
             let script_wsl = windows_path_to_wsl_mnt(&script)?;
             let init = write_shell_integration_script(
                 "partty-wsl-bash-init.sh",
-                &format!(
-                    r#"# Partty WSL bash init — login-style rc cascade, then integrate.
-if [[ -f ~/.bash_profile ]]; then
-  . ~/.bash_profile
-elif [[ -f ~/.bash_login ]]; then
-  . ~/.bash_login
-elif [[ -f ~/.profile ]]; then
-  . ~/.profile
-elif [[ -f ~/.bashrc ]]; then
-  . ~/.bashrc
-fi
-source "{script_wsl}"
-"#
-                ),
+                &wsl_bash_init_contents(&script_wsl, startup),
             )?;
             let init_wsl = windows_path_to_wsl_mnt(&init)?;
             c.arg("--exec");
@@ -1126,7 +1136,12 @@ source "{script_wsl}"
             c.env("PARTTY_SHELL_INTEGRATION", "1");
         }
         WslLoginShell::Other => {
-            // fish / csh / etc. — launch default shell without injection.
+            if let Some(cmd) = startup {
+                c.arg("--exec");
+                c.arg("bash");
+                c.arg("-lic");
+                c.arg(cmd);
+            }
             c.env("PARTTY_SHELL_INTEGRATION", "0");
         }
     }
@@ -1219,13 +1234,54 @@ fn windows_path_to_wsl_mnt(path: &Path) -> Result<String, String> {
 }
 
 /// ZDOTDIR wrapper so integration survives interactive zsh startup (user `.zshrc` still loads).
-fn ensure_zsh_zdot(integration_script_unix: &str) -> Result<PathBuf, String> {
+fn host_bash_init_contents(script_unix: &str, startup: Option<&str>) -> String {
+    let mut contents = format!(
+        r#"[[ -f ~/.bashrc ]] && source ~/.bashrc
+source "{script_unix}"
+"#
+    );
+    if let Some(cmd) = startup {
+        contents.push('\n');
+        contents.push_str(cmd);
+        if !cmd.ends_with('\n') {
+            contents.push('\n');
+        }
+    }
+    contents
+}
+
+fn wsl_bash_init_contents(script_wsl: &str, startup: Option<&str>) -> String {
+    let mut contents = format!(
+        r#"# Partty WSL bash init — login-style rc cascade, then integrate.
+if [[ -f ~/.bash_profile ]]; then
+  . ~/.bash_profile
+elif [[ -f ~/.bash_login ]]; then
+  . ~/.bash_login
+elif [[ -f ~/.profile ]]; then
+  . ~/.profile
+elif [[ -f ~/.bashrc ]]; then
+  . ~/.bashrc
+fi
+source "{script_wsl}"
+"#
+    );
+    if let Some(cmd) = startup {
+        contents.push('\n');
+        contents.push_str(cmd);
+        if !cmd.ends_with('\n') {
+            contents.push('\n');
+        }
+    }
+    contents
+}
+
+fn ensure_zsh_zdot(integration_script_unix: &str, startup: Option<&str>) -> Result<PathBuf, String> {
     let dir = std::env::temp_dir()
         .join("partty-shell-integration")
         .join("zdot");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let zshrc = dir.join(".zshrc");
-    let contents = format!(
+    let mut contents = format!(
         r#"# Partty zsh ZDOTDIR wrapper — load user rc, then shell integration.
 if [[ -n "${{PARTTY_ORIGINAL_ZDOTDIR}}" && -f "${{PARTTY_ORIGINAL_ZDOTDIR}}/.zshrc" ]]; then
   source "${{PARTTY_ORIGINAL_ZDOTDIR}}/.zshrc"
@@ -1235,6 +1291,13 @@ fi
 source "{integration_script_unix}"
 "#
     );
+    if let Some(cmd) = startup {
+        contents.push('\n');
+        contents.push_str(cmd);
+        if !cmd.ends_with('\n') {
+            contents.push('\n');
+        }
+    }
     std::fs::write(&zshrc, contents).map_err(|e| e.to_string())?;
     Ok(dir)
 }
@@ -1366,7 +1429,11 @@ fn write_shell_integration_script(name: &str, contents: &str) -> Result<PathBuf,
     Ok(path)
 }
 
-fn windows_shell_command(prefs: &Prefs) -> Result<CommandBuilder, String> {
+fn windows_shell_command(
+    prefs: &Prefs,
+    profile: Option<&ConnectionProfile>,
+) -> Result<CommandBuilder, String> {
+    let startup = profile_startup(profile);
     let kind = detect_shell_kind(prefs);
     match kind {
         ShellKind::Pwsh | ShellKind::PowerShell => {
@@ -1380,7 +1447,10 @@ fn windows_shell_command(prefs: &Prefs) -> Result<CommandBuilder, String> {
                 "partty-shell-integration.ps1",
                 SHELL_INTEGRATION_PWSH,
             )?;
-            let command = format!(". '{}'", script.to_string_lossy().replace('\'', "''"));
+            let command = append_ps_command(
+                format!(". '{}'", script.to_string_lossy().replace('\'', "''")),
+                startup,
+            );
             let mut c = CommandBuilder::new(exe);
             c.args([
                 "-NoLogo".to_string(),
@@ -1399,14 +1469,10 @@ fn windows_shell_command(prefs: &Prefs) -> Result<CommandBuilder, String> {
                 "partty-shell-integration.bash",
                 SHELL_INTEGRATION_BASH,
             )?;
+            let script_unix = script.to_string_lossy().replace('\\', "/");
             let init = write_shell_integration_script(
                 "partty-bash-init.sh",
-                &format!(
-                    r#"[[ -f ~/.bashrc ]] && source ~/.bashrc
-source "{}"
-"#,
-                    script.to_string_lossy().replace('\\', "/")
-                ),
+                &host_bash_init_contents(&script_unix, startup),
             )?;
             let mut c = bash;
             c.args([
@@ -1426,7 +1492,7 @@ source "{}"
             )?;
             // Use forward slashes so zsh (often MSYS-based) can source the script.
             let script_unix = script.to_string_lossy().replace('\\', "/");
-            let zdot = ensure_zsh_zdot(&script_unix)?;
+            let zdot = ensure_zsh_zdot(&script_unix, startup)?;
             let original_zdot = std::env::var("ZDOTDIR").unwrap_or_default();
             let mut c = CommandBuilder::new("zsh.exe");
             c.arg("-i");
@@ -1437,14 +1503,23 @@ source "{}"
             c.env("PARTTY_SHELL_INTEGRATION", "1");
             apply_cwd(c, prefs)
         }
-        ShellKind::Cmd => windows_host_shell(prefs),
+        ShellKind::Cmd => {
+            if let Some(cmd) = startup {
+                let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into());
+                let mut c = CommandBuilder::new(comspec);
+                c.arg("/k");
+                c.arg(cmd);
+                return apply_cwd(c, prefs);
+            }
+            windows_host_shell(prefs)
+        }
         ShellKind::Other => {
             let trimmed = prefs.shell.trim().trim_matches(|c| c == '"' || c == '\'');
             if trimmed.is_empty() {
                 return windows_host_shell(prefs);
             }
             let path_candidate = Path::new(trimmed);
-            let cmd =
+            let mut builder =
                 if (trimmed.contains('\\') || trimmed.contains('/') || trimmed.ends_with(".exe"))
                     && path_candidate.is_file()
                 {
@@ -1459,7 +1534,11 @@ source "{}"
                         return windows_host_shell(prefs);
                     }
                 };
-            apply_cwd(cmd, prefs)
+            if let Some(startup_cmd) = startup {
+                builder.arg("-c");
+                builder.arg(startup_cmd);
+            }
+            apply_cwd(builder, prefs)
         }
     }
 }

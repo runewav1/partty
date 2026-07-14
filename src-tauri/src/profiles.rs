@@ -656,8 +656,8 @@ pub fn resolve_effective_spawn_profile(assigned_id: &str) -> Result<ConnectionPr
     ))
 }
 
-/// SSH startup from the assigned profile (overrides base when `base` is set).
-pub fn resolve_ssh_startup_command(assigned: &ConnectionProfile) -> Option<String> {
+/// Startup command from the assigned profile (overrides base when `base` is set).
+pub fn resolve_assigned_startup_command(assigned: &ConnectionProfile) -> Option<String> {
     assigned
         .startup_command
         .as_deref()

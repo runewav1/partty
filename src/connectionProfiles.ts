@@ -187,15 +187,6 @@ export function resolveEffectiveSpawnProfile(
   return current;
 }
 
-export function profileUsesFrontendStartup(
-  profile: ConnectionProfile | null | undefined,
-  profiles: readonly ConnectionProfile[],
-): boolean {
-  if (!profile?.startupCommand?.trim()) return false;
-  const spawn = resolveEffectiveSpawnProfile(profile.id, profiles) ?? profile;
-  return spawn.kind === "local" || spawn.kind === "wsl";
-}
-
 export function resolveProfileShell(
   profile: ConnectionProfile | null | undefined,
   globalShell: string,

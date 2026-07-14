@@ -160,10 +160,8 @@ fn resolve_spawn(
     let mut spawn_for_pty = spawn_profile.clone();
     if let Some(ref assigned_p) = assigned {
         if let Some(ref mut sp) = spawn_for_pty {
-            if matches!(sp.kind, profiles::ProfileKind::Ssh) {
-                if let Some(cmd) = profiles::resolve_ssh_startup_command(assigned_p) {
-                    sp.startup_command = Some(cmd);
-                }
+            if let Some(cmd) = profiles::resolve_assigned_startup_command(assigned_p) {
+                sp.startup_command = Some(cmd);
             }
         }
     }
