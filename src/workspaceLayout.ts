@@ -1,17 +1,8 @@
-import type { PaneNode } from "./paneHost";
+import { collectLeafIds, type PaneNode } from "./paneHost";
 import type { PersistedPaneLayout } from "./paneLayout";
 import type { PaneThemePrefs } from "./uiTheme";
 import { workspaceRootPaneId } from "./workspacePaneIds";
 import type { WorkspaceLayout } from "./workspaces";
-
-function collectLeafIds(node: PaneNode, out: string[]): void {
-  if (node.kind === "leaf") {
-    out.push(node.id);
-    return;
-  }
-  collectLeafIds(node.a, out);
-  collectLeafIds(node.b, out);
-}
 
 function portableRootId(ids: string[]): string {
   const wsroot = ids.find((id) => id.startsWith("wsroot_"));

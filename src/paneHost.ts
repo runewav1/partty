@@ -1,7 +1,7 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { ImageAddon } from "@xterm/addon-image";
-import { LigaturesAddon } from "@xterm/addon-ligatures";
-import { SerializeAddon } from "@xterm/addon-serialize";
+import type { LigaturesAddon } from "@xterm/addon-ligatures";
+import type { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { Terminal, type ITheme } from "@xterm/xterm";
@@ -25,8 +25,8 @@ export type PaneTerminal = {
   term: Terminal;
   fit: FitAddon;
   image: ImageAddon;
-  ligatures: LigaturesAddon;
-  serialize: SerializeAddon;
+  ligatures?: LigaturesAddon;
+  serialize?: SerializeAddon;
   host: HTMLElement;
   /** Row wrapping the terminal host element. */
   row: HTMLElement;
@@ -215,6 +215,39 @@ export function collectLeafIds(tree: PaneNode, out: string[]): void {
   }
   collectLeafIds(tree.a, out);
   collectLeafIds(tree.b, out);
+}
+
+let serializeModule: typeof import("@xterm/addon-serialize") | null = null;
+
+/** Load SerializeAddon on demand (hide/stash path only). */
+export async function ensurePaneSerialize(
+  pt: PaneTerminal,
+): Promise<SerializeAddon> {
+  if (pt.serialize) return pt.serialize;
+  if (!serializeModule) {
+    serializeModule = await import("@xterm/addon-serialize");
+  }
+  const serializeAddon = new serializeModule.SerializeAddon();
+  pt.term.loadAddon(serializeAddon);
+  pt.serialize = serializeAddon;
+  return serializeAddon;
+}
+
+function scheduleLigaturesAddon(pt: PaneTerminal): void {
+  const attach = (): void => {
+    if (pt.ligatures) return;
+    void import("@xterm/addon-ligatures").then(({ LigaturesAddon }) => {
+      if (pt.ligatures) return;
+      const ligaturesAddon = new LigaturesAddon();
+      pt.term.loadAddon(ligaturesAddon);
+      pt.ligatures = ligaturesAddon;
+    });
+  };
+  if (typeof requestIdleCallback !== "undefined") {
+    requestIdleCallback(() => attach(), { timeout: 2000 });
+  } else {
+    queueMicrotask(attach);
+  }
 }
 
 function overlapLen(a0: number, a1: number, b0: number, b1: number): number {
@@ -1939,24 +1972,18 @@ export class PaneHost {
         term.unicode.activeVersion = "11";
         const graphemes = new UnicodeGraphemesAddon();
         term.loadAddon(graphemes);
-        const serializeAddon = new SerializeAddon();
-        term.loadAddon(serializeAddon);
-        // LigaturesAddon must be loaded after open(); before open it does nothing.
-        // WebGL mounts later in ensureWebglOnPane — character joiners stay active across remounts.
+        // LigaturesAddon must be loaded after open(); SerializeAddon only for hide/stash.
         term.open(host);
-        const ligaturesAddon = new LigaturesAddon();
-        term.loadAddon(ligaturesAddon);
         parttyPerf.mark("pane.terminal.create");
         parttyPerf.time("pane.terminal.create.ms", performance.now() - createStarted);
         pt = {
           term,
           fit,
           image: imageAddon,
-          ligatures: ligaturesAddon,
-          serialize: serializeAddon,
           host,
           row,
         };
+        scheduleLigaturesAddon(pt);
         this.terminals.set(node.id, pt);
         this.opts.onPaneCreated(node.id, pt);
       }

@@ -7,8 +7,7 @@ import {
   LogicalPosition,
   PhysicalPosition,
 } from "@tauri-apps/api/window";
-import { readText } from "@tauri-apps/plugin-clipboard-manager";
-import { FitAddon } from "@xterm/addon-fit";
+import type { FitAddon } from "@xterm/addon-fit";
 
 import type { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
@@ -40,6 +39,7 @@ import {
   findPaneLeaf,
   collectLeafIds,
   directionalAdjacentLeafId,
+  ensurePaneSerialize,
   type PaneHostInit,
   type PaneTerminal,
   type SplitLayoutStyle,
@@ -105,21 +105,15 @@ import { motionDisabled, animateClass, cancelElementAnimations } from "./motion"
 import { filterAndRankLexical, normalizeQuery } from "./lexicalSearch";
 import pkg from "../package.json";
 import { normalizeFsPathKey } from "./oscCwd";
-import { createSettingsPanel, type ParttyPrefs } from "./settingsPanel";
-import { createExtensionManager } from "./extensionManager";
-import {
-  createThemeBuilderModal,
-  type ThemeBuilderApi,
-} from "./themeBuilderModal";
-import { createThemeModal, type ThemeModalApi } from "./themeModal";
-import {
-  createWorkspacesModal,
-  type WorkspacesModalApi,
-} from "./workspacesModal";
-import {
-  createWorkspaceEditorModal,
-  type WorkspaceEditorApi,
-  type WorkspaceLoadTarget,
+import { lazyCell, runLazy } from "./lazyOnce";
+import type { ParttyPrefs, SettingsPanelApi } from "./settingsPanel";
+import type { ExtensionManagerApi } from "./extensionManager";
+import type { ThemeBuilderApi } from "./themeBuilderModal";
+import type { ThemeModalApi } from "./themeModal";
+import type { WorkspacesModalApi } from "./workspacesModal";
+import type {
+  WorkspaceEditorApi,
+  WorkspaceLoadTarget,
 } from "./workspaceEditorModal";
 import {
   normalizeLayoutForWorkspace,
@@ -792,9 +786,6 @@ async function boot(): Promise<void> {
     () => mouseCursorController?.notifyActivity(),
     { passive: true },
   );
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") mouseCursorController?.sync();
-  });
 
   const activeProcesses = new Map<string, ActiveProcessEntry>();
   /** Latest OSC 633;E line per pane, merged until pre-exec or finish. */
@@ -2570,6 +2561,35 @@ async function boot(): Promise<void> {
   saveTabsState(tabsState);
   const tabPaneHosts = new Map<string, PaneHost>();
   const tabPaneShells = new Map<string, HTMLElement>();
+  type DeferredTabInit = { init: PaneHostInit; rootPaneId: string };
+  const deferredTabInits = new Map<string, DeferredTabInit>();
+
+  function layoutNeedsLiveHost(layout: PersistedPaneLayout): boolean {
+    for (const state of Object.values(layout.floating ?? {})) {
+      if (state.follow) return true;
+    }
+    return false;
+  }
+
+  function applyTabLayoutMetadata(layout: PersistedPaneLayout): void {
+    for (const [paneId, theme] of Object.entries(layout.paneThemes ?? {})) {
+      paneThemes.set(paneId, normalizePaneThemePrefs(theme));
+    }
+    for (const [paneId, name] of Object.entries(layout.paneNames ?? {})) {
+      const cleaned = name.trim().replace(/\s+/g, "_");
+      if (cleaned) paneNames.set(paneId, cleaned);
+    }
+    if (retainSessionStateRef.v) {
+      for (const [paneId, cwd] of Object.entries(layout.paneCwds ?? {})) {
+        paneCwdHints.set(paneId, cwd);
+      }
+    }
+    for (const [paneId, profileId] of Object.entries(
+      layout.paneProfileIds ?? {},
+    )) {
+      paneProfileIds.set(paneId, profileId);
+    }
+  }
   const paneRootEl = document.getElementById("terminal-pane-root");
   if (!paneRootEl) throw new Error("#terminal-pane-root missing");
   const terminalPaneRoot = paneRootEl;
@@ -2964,6 +2984,19 @@ async function boot(): Promise<void> {
     return host;
   }
 
+  function ensureTabPaneHost(tabId: string): PaneHost | null {
+    const existing = tabPaneHosts.get(tabId);
+    if (existing) return existing;
+    const deferred = deferredTabInits.get(tabId);
+    if (!deferred) return null;
+    deferredTabInits.delete(tabId);
+    return createTabPaneShellAndHost(
+      tabId,
+      deferred.init,
+      deferred.rootPaneId,
+    );
+  }
+
   void ensureProfilesLoaded();
 
   for (let i = 0; i < tabsState.tabs.length; i++) {
@@ -2972,32 +3005,20 @@ async function boot(): Promise<void> {
     if (!isWorkspaceLayoutUsable(layout, tab.id)) {
       layout = emptyWorkspaceLayout(tab.id);
     }
-    for (const [paneId, theme] of Object.entries(layout.paneThemes ?? {})) {
-      paneThemes.set(paneId, normalizePaneThemePrefs(theme));
-    }
-    for (const [paneId, name] of Object.entries(layout.paneNames ?? {})) {
-      const cleaned = name.trim().replace(/\s+/g, "_");
-      if (cleaned) paneNames.set(paneId, cleaned);
-    }
-    if (retainSessionStateRef.v) {
-      for (const [paneId, cwd] of Object.entries(layout.paneCwds ?? {})) {
-        paneCwdHints.set(paneId, cwd);
+    applyTabLayoutMetadata(layout);
+    const init: PaneHostInit = {
+      initialTree: layout.tree,
+      initialFocusedId: layout.focusedId,
+      initialFloating: layout.floating,
+    };
+    const rootId = resolveTabRootPaneId(layout, tab.id);
+    if (tab.id === activeWorkspaceTabId || layoutNeedsLiveHost(layout)) {
+      createTabPaneShellAndHost(tab.id, init, rootId);
+      if (tab.id !== activeWorkspaceTabId) {
+        tabPaneShells.get(tab.id)?.classList.add("term-tab-pane-shell--hidden");
       }
-    }
-    for (const [paneId, profileId] of Object.entries(layout.paneProfileIds ?? {})) {
-      paneProfileIds.set(paneId, profileId);
-    }
-    createTabPaneShellAndHost(
-      tab.id,
-      {
-        initialTree: layout.tree,
-        initialFocusedId: layout.focusedId,
-        initialFloating: layout.floating,
-      },
-      resolveTabRootPaneId(layout, tab.id),
-    );
-    if (tab.id !== activeWorkspaceTabId) {
-      tabPaneShells.get(tab.id)?.classList.add("term-tab-pane-shell--hidden");
+    } else {
+      deferredTabInits.set(tab.id, { init, rootPaneId: rootId });
     }
   }
   paneHost = tabPaneHosts.get(activeWorkspaceTabId)!;
@@ -3053,7 +3074,7 @@ async function boot(): Promise<void> {
 
   function switchWorkspaceTab(tabId: string): void {
     if (tabId === activeWorkspaceTabId) return;
-    const nextHost = tabPaneHosts.get(tabId);
+    const nextHost = ensureTabPaneHost(tabId);
     if (!nextHost) return;
     persistCurrentWorkspaceTabLayout();
 
@@ -3301,7 +3322,7 @@ async function boot(): Promise<void> {
 
     if (existing) {
       targetTabId = existing.id;
-      const host = tabPaneHosts.get(targetTabId);
+      const host = ensureTabPaneHost(targetTabId);
       if (!host || !receiveTransferredPane(host, paneId, pt)) {
         sourceHost.restoreTakenPane(paneId, pt);
         return;
@@ -3641,6 +3662,7 @@ async function boot(): Promise<void> {
   }
 
   function disposeTabPaneHost(tabId: string): void {
+    deferredTabInits.delete(tabId);
     const h = tabPaneHosts.get(tabId);
     if (h) {
       h.dispose();
@@ -4438,19 +4460,6 @@ async function boot(): Promise<void> {
   renderWorkspaceTabsBar();
   initParttyScrollFade();
 
-  window.addEventListener("beforeunload", () => {
-    try {
-      persistCurrentWorkspaceTabLayout();
-      if (!retainSessionStateRef.v) {
-        shedSessionLocalState();
-      } else if (shouldShedSessionOnExitSilent()) {
-        shedSessionLocalState();
-      }
-    } catch {
-      /* ignore */
-    }
-  });
-
   void (async () => {
     const appWin = getCurrentWindow();
     await appWin.onCloseRequested(async (event) => {
@@ -4526,64 +4535,85 @@ async function boot(): Promise<void> {
       })
     : null;
 
+  const settingsPanelEl = document.getElementById("settings-panel");
   const themeBuilderRoot = document.getElementById("theme-builder-root");
-  let themeBuilder: ThemeBuilderApi | null = null;
-  if (themeBuilderRoot) {
-    themeBuilder = createThemeBuilderModal(
-      themeBuilderRoot as HTMLElement,
-      (prefs) => {
-        currentUiPrefs = prefs;
-        applyUiTheme(prefs);
-        refreshAllTerminalThemes();
-      },
-    );
-  }
-
   const themeModalRoot = document.getElementById("theme-modal-root");
-  let themeModal: ThemeModalApi | null = null;
-  let openFocusedPaneTheme = (): void => {};
+  const workspacesModalRoot = document.getElementById("workspaces-modal-root");
+  const workspaceEditorRoot = document.getElementById("workspace-editor-root");
+  const extManagerEl = document.getElementById(
+    "extension-manager",
+  ) as HTMLElement | null;
+
+  const themeBuilderLazy = lazyCell<ThemeBuilderApi>();
+  const themeModalLazy = lazyCell<ThemeModalApi>();
   let themeTargetPaneId: string | null = null;
   let paneThemeRestore: { id: string; theme: PaneThemePrefs | null } | null =
     null;
-  if (themeModalRoot) {
-    const resetThemeModalTarget = (): void => {
-      if (paneThemeRestore) {
-        applyPaneTheme(paneThemeRestore.id, paneThemeRestore.theme);
-        paneThemeRestore = null;
-      }
-      themeTargetPaneId = null;
+
+  function resetThemeModalTarget(): void {
+    if (paneThemeRestore) {
+      applyPaneTheme(paneThemeRestore.id, paneThemeRestore.theme);
+      paneThemeRestore = null;
+    }
+    themeTargetPaneId = null;
+  }
+
+  const ensureThemeBuilder = (): Promise<ThemeBuilderApi | null> =>
+    !themeBuilderRoot
+      ? Promise.resolve(null)
+      : themeBuilderLazy.ensure(async () => {
+          const { createThemeBuilderModal } = await import("./themeBuilderModal");
+          return createThemeBuilderModal(
+            themeBuilderRoot as HTMLElement,
+            (prefs) => {
+              currentUiPrefs = prefs;
+              applyUiTheme(prefs);
+              refreshAllTerminalThemes();
+            },
+          );
+        });
+
+  const ensureThemeModal = (): Promise<ThemeModalApi | null> =>
+    !themeModalRoot
+      ? Promise.resolve(null)
+      : themeModalLazy.ensure(async () => {
+          const { createThemeModal } = await import("./themeModal");
+          return createThemeModal(
+            themeModalRoot as HTMLElement,
+            (prefs) => {
+              if (themeTargetPaneId) {
+                applyPaneTheme(themeTargetPaneId, prefs);
+                return;
+              }
+              currentUiPrefs = prefs;
+              applyUiTheme(prefs);
+              refreshAllTerminalThemes();
+            },
+            (request) => {
+              runLazy(ensureThemeBuilder, (tb) => tb.open(request));
+            },
+            resetThemeModalTarget,
+          );
+        });
+
+  function openFocusedPaneTheme(): void {
+    const paneId = paneHost?.getFocusedPaneId();
+    if (!paneId) return;
+    themeTargetPaneId = paneId;
+    const existing = paneThemes.get(paneId);
+    paneThemeRestore = {
+      id: paneId,
+      theme: existing ? { ...existing } : null,
     };
-    themeModal = createThemeModal(
-      themeModalRoot as HTMLElement,
-      (prefs) => {
-        if (themeTargetPaneId) {
-          applyPaneTheme(themeTargetPaneId, prefs);
-          return;
-        }
-        currentUiPrefs = prefs;
-        applyUiTheme(prefs);
-        refreshAllTerminalThemes();
-      },
-      (request) => themeBuilder?.open(request),
-      resetThemeModalTarget,
-    );
-    openFocusedPaneTheme = () => {
-      const paneId = paneHost?.getFocusedPaneId();
-      if (!paneId) return;
-      themeTargetPaneId = paneId;
-      const existing = paneThemes.get(paneId);
-      paneThemeRestore = {
-        id: paneId,
-        theme: existing ? { ...existing } : null,
-      };
-      const appPrefs = currentUiPrefs;
-      const initialPrefs: UiThemePrefs = {
-        ...appPrefs,
-        ui_theme: existing?.ui_theme ?? appPrefs.ui_theme,
-        ui_theme_variant:
-          existing?.ui_theme_variant ?? appPrefs.ui_theme_variant,
-      };
-      themeModal?.open({
+    const appPrefs = currentUiPrefs;
+    const initialPrefs: UiThemePrefs = {
+      ...appPrefs,
+      ui_theme: existing?.ui_theme ?? appPrefs.ui_theme,
+      ui_theme_variant:
+        existing?.ui_theme_variant ?? appPrefs.ui_theme_variant,
+    };
+    runLazy(ensureThemeModal, (tm) => {
+      tm.open({
         title: "Pane Theme",
         initialPrefs,
         onCommit: (prefs) => {
@@ -4592,60 +4622,287 @@ async function boot(): Promise<void> {
           persistCurrentWorkspaceTabLayout();
         },
       });
-    };
-  }
-
-  const workspacesModalRoot = document.getElementById("workspaces-modal-root");
-  const workspaceEditorRoot = document.getElementById("workspace-editor-root");
-  let workspacesModal: WorkspacesModalApi | null = null;
-  let workspaceEditor: WorkspaceEditorApi | null = null;
-
-  if (workspaceEditorRoot) {
-    workspaceEditor = createWorkspaceEditorModal({
-      root: workspaceEditorRoot as HTMLElement,
-      getProfiles: () => profilesList,
-      onApply: async (workspace, target) => {
-        await applyWorkspace(workspace, target);
-      },
     });
   }
 
-  if (workspacesModalRoot) {
-    workspacesModal = createWorkspacesModal({
-      root: workspacesModalRoot as HTMLElement,
-      onSave: async (name) => {
-        const captured = await workspaceFromCurrentTab(name);
-        if (!captured) return null;
-        const fileId = workspaceIdFromName(name);
-        try {
-          const prev = await readWorkspace(fileId);
-          if (prev.layout.startupCommands) {
-            captured.layout.startupCommands = {
-              ...prev.layout.startupCommands,
-            };
-          }
-        } catch {}
-        try {
-          await writeWorkspace(captured);
-          return fileId;
-        } catch (e) {
-          console.error("save workspace", e);
-          return null;
-        }
-      },
-      onLoad: async (workspace, target) => {
-        await applyWorkspace(workspace, target);
-      },
-      onEdit: (workspace) => {
-        workspaceEditor?.open(workspace);
-      },
-      onCapture: () => {
-        void workspaceFromCurrentTab().then((captured) => {
-          if (captured) workspaceEditor?.openCapture(captured);
+  const workspaceEditorLazy = lazyCell<WorkspaceEditorApi>();
+  const workspacesModalLazy = lazyCell<WorkspacesModalApi>();
+
+  const ensureWorkspaceEditor = (): Promise<WorkspaceEditorApi | null> =>
+    !workspaceEditorRoot
+      ? Promise.resolve(null)
+      : workspaceEditorLazy.ensure(async () => {
+          const { createWorkspaceEditorModal } = await import(
+            "./workspaceEditorModal"
+          );
+          return createWorkspaceEditorModal({
+            root: workspaceEditorRoot as HTMLElement,
+            getProfiles: () => profilesList,
+            onApply: async (workspace, target) => {
+              await applyWorkspace(workspace, target);
+            },
+          });
         });
-      },
-    });
-  }
+
+  const ensureWorkspacesModal = (): Promise<WorkspacesModalApi | null> =>
+    !workspacesModalRoot
+      ? Promise.resolve(null)
+      : workspacesModalLazy.ensure(async () => {
+          const { createWorkspacesModal } = await import("./workspacesModal");
+          return createWorkspacesModal({
+            root: workspacesModalRoot as HTMLElement,
+            onSave: async (name) => {
+              const captured = await workspaceFromCurrentTab(name);
+              if (!captured) return null;
+              const fileId = workspaceIdFromName(name);
+              try {
+                const prev = await readWorkspace(fileId);
+                if (prev.layout.startupCommands) {
+                  captured.layout.startupCommands = {
+                    ...prev.layout.startupCommands,
+                  };
+                }
+              } catch {}
+              try {
+                await writeWorkspace(captured);
+                return fileId;
+              } catch (e) {
+                console.error("save workspace", e);
+                return null;
+              }
+            },
+            onLoad: async (workspace, target) => {
+              await applyWorkspace(workspace, target);
+            },
+            onEdit: (workspace) => {
+              runLazy(ensureWorkspaceEditor, (ed) => ed.open(workspace));
+            },
+            onCapture: () => {
+              void workspaceFromCurrentTab().then((captured) => {
+                if (captured) {
+                  runLazy(ensureWorkspaceEditor, (ed) =>
+                    ed.openCapture(captured),
+                  );
+                }
+              });
+            },
+          });
+        });
+
+  const settingsLazy = lazyCell<SettingsPanelApi>();
+
+  const ensureSettingsPanel = (): Promise<SettingsPanelApi | null> =>
+    !settingsPanelEl
+      ? Promise.resolve(null)
+      : settingsLazy.ensure(async () => {
+          const { createSettingsPanel } = await import("./settingsPanel");
+          const card = settingsPanelEl.querySelector(".settings-panel-card");
+          const head = settingsPanelEl.querySelector(".settings-panel-head");
+          if (card instanceof HTMLElement && head instanceof HTMLElement) {
+            card.style.position = "fixed";
+            attachDraggablePanel(card, head, "partty.settingsPanel.pos");
+          }
+          return createSettingsPanel(
+            settingsPanelEl,
+            async (saved: ParttyPrefs, previous: ParttyPrefs) => {
+            syncRuntimeShedFromPrefs(saved);
+            configureDevPerfPrefs(saved);
+            focusFollowsRef.v = saved.focus_follows_cursor;
+            persisted.prefs = saved as unknown as Record<string, unknown>;
+            Object.assign(lp, mergeLifecyclePrefs(persisted.prefs));
+            autoCopySelectionRef.v = saved.auto_copy_selection;
+            rightClickPasteRef.v = saved.right_click_paste ?? true;
+            retainSessionStateRef.v = saved.retain_session_state ?? true;
+            splitLayoutStyleRef.v = normalizeSplitLayoutStyle(
+              saved.split_layout_style,
+            );
+            profileBehaviorRef.v = {
+              default_profile_id: resolveDefaultProfileId(
+                saved.default_profile_id,
+                profilesList,
+              ),
+              inherit_profile_on_split: saved.inherit_profile_on_split ?? true,
+              inherit_cwd_on_split: saved.inherit_cwd_on_split ?? true,
+              palette_tab_profile_picker:
+                saved.palette_tab_profile_picker ?? true,
+              new_tab_uses_default_profile:
+                saved.new_tab_uses_default_profile ?? true,
+              palette_profile_icons: saved.palette_profile_icons ?? true,
+              profile_selection_aliases: resolveSelectionAliases(
+                saved.profile_selection_aliases ??
+                  previous.profile_selection_aliases ??
+                  {},
+              ),
+            };
+            void (profilesReady = refreshProfilesList());
+            disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
+            altClickCursorRef.v = saved.terminal_alt_click_moves_cursor ?? true;
+            cursorBlinkRef.v = saved.terminal_cursor_blink ?? true;
+            cursorInactiveStyleRef.v =
+              ((saved as Partial<ParttyPrefs>).terminal_cursor_inactive_style as
+                | "outline"
+                | "block"
+                | "bar"
+                | "underline"
+                | "none"
+                | undefined) ?? "outline";
+            cursorWidthRef.v =
+              (saved as Partial<ParttyPrefs>).terminal_cursor_width ?? 1;
+            fontSizeRef.v =
+              (saved as Partial<ParttyPrefs>).terminal_font_size ?? 12;
+            fontWeightRef.v =
+              (saved as Partial<ParttyPrefs>).terminal_font_weight ?? "normal";
+            fontWeightBoldRef.v =
+              (saved as Partial<ParttyPrefs>).terminal_font_weight_bold ??
+              "bold";
+            lineHeightRef.v =
+              (saved as Partial<ParttyPrefs>).terminal_line_height ?? 1;
+            letterSpacingRef.v =
+              (saved as Partial<ParttyPrefs>).terminal_letter_spacing ?? 0;
+            drawBoldBrightRef.v =
+              (saved as Partial<ParttyPrefs>).terminal_draw_bold_bright ?? true;
+            customGlyphsRef.v =
+              (saved as Partial<ParttyPrefs>).terminal_custom_glyphs ?? true;
+            smoothScrollRef.v =
+              (saved as Partial<ParttyPrefs>).terminal_smooth_scroll_duration ??
+              0;
+            scrollSensitivityRef.v =
+              (saved as Partial<ParttyPrefs>).terminal_scroll_sensitivity ?? 1;
+            fastScrollSensitivityRef.v =
+              (saved as Partial<ParttyPrefs>)
+                .terminal_fast_scroll_sensitivity ?? 5;
+            applyTerminalDisplayOptions();
+            backspaceDeleteSelectionRef.v =
+              saved.terminal_backspace_delete_selection ?? true;
+            if ((saved.terminal_cursor_style ?? "block") !== cursorStyleRef.v) {
+              cursorStyleRef.v =
+                (saved.terminal_cursor_style as
+                  | "block"
+                  | "underline"
+                  | "bar") ?? "block";
+              for (const host of tabPaneHosts.values()) {
+                host.setCursorStyle(cursorStyleRef.v);
+              }
+            }
+            const threshold = (saved as Partial<ParttyPrefs>)
+              .process_notification_threshold;
+            if (typeof threshold === "number" && Number.isFinite(threshold)) {
+              processNotificationThresholdRef.v = Math.max(0.1, threshold);
+            }
+            const showFor = (saved as Partial<ParttyPrefs>)
+              .process_notification_show_for;
+            if (typeof showFor === "number" && Number.isFinite(showFor)) {
+              processNotificationShowForRef.v = Math.max(
+                1000,
+                Math.min(30000, showFor),
+              );
+            }
+            processNotificationShowMsRef.v =
+              (saved as Partial<ParttyPrefs>).process_notification_show_ms ??
+              false;
+            processNotificationTransparentRef.v =
+              (saved as Partial<ParttyPrefs>)
+                .process_notification_transparent ?? false;
+            processNotificationEnabledRef.v =
+              (saved as Partial<ParttyPrefs>).process_notification_enabled ??
+              false;
+            syncKeystrokeProcessTracking();
+            cursorFollowWindowMoveRef.v = Boolean(
+              (saved as Partial<ParttyPrefs>).cursor_follow_window_move,
+            );
+            cursorFollowPaneFocusRef.v =
+              (saved as Partial<ParttyPrefs>).cursor_follow_pane_focus ?? true;
+            mouseHiddenRef.v = Boolean(
+              (saved as Partial<ParttyPrefs>).mouse_hidden,
+            );
+            mouseHideOnIdleRef.v = Boolean(
+              (saved as Partial<ParttyPrefs>).mouse_hide_on_idle,
+            );
+            mouseIdleSecondsRef.v = Math.max(
+              0.5,
+              Math.min(
+                300,
+                (saved as Partial<ParttyPrefs>).mouse_idle_seconds ?? 3,
+              ),
+            );
+            mouseCursorController?.sync();
+            windowMotionRef.v =
+              (saved as Partial<ParttyPrefs>).terminal_window_motion ?? true;
+            quietPaneDeferralRef.v = Boolean(
+              (saved as Partial<ParttyPrefs>).quiet_pane_deferral,
+            );
+            applyTerminalDisplayPrefs(saved);
+            if (saved.scrollback_lines !== previous.scrollback_lines) {
+              for (const host of tabPaneHosts.values()) {
+                host.setScrollbackLines(saved.scrollback_lines);
+              }
+            }
+            applyTooltipPolicy(document);
+            document.documentElement.classList.toggle(
+              "pane-blur-unfocused",
+              saved.blur_unfocused_panes,
+            );
+            document.documentElement.style.setProperty(
+              "--pane-blur-radius",
+              String((saved as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6),
+            );
+            document.documentElement.style.setProperty(
+              "--pane-opacity-focused",
+              String(
+                (saved as Partial<ParttyPrefs>).pane_opacity_focused ?? 1.0,
+              ),
+            );
+            document.documentElement.style.setProperty(
+              "--pane-opacity-unfocused",
+              String(
+                (saved as Partial<ParttyPrefs>).pane_opacity_unfocused ?? 1.0,
+              ),
+            );
+            document.documentElement.classList.toggle(
+              "pane-variable-opacity",
+              Boolean((saved as Partial<ParttyPrefs>).pane_variable_opacity),
+            );
+            applyPaneFocusScalePrefs(saved);
+            scheduleResizeImmediate(true);
+            if (saved.always_open_in_zen_mode) {
+              setZenMode(true);
+            }
+            const prevUi = pickUiPrefs(
+              previous as unknown as Record<string, unknown>,
+            );
+            const nextUi = pickUiPrefs(
+              saved as unknown as Record<string, unknown>,
+            );
+            if (uiPrefsChanged(prevUi, nextUi)) {
+              currentUiPrefs = nextUi;
+              applyUiTheme(nextUi);
+              refreshAllTerminalThemes();
+            }
+            const shellChanged =
+              shellPrefKey(saved.shell) !== shellPrefKey(previous.shell);
+            const cwdChanged =
+              (saved.initial_cwd ?? "").trim() !==
+              (previous.initial_cwd ?? "").trim();
+            if (shellChanged || cwdChanged) {
+              localStorage.setItem(DEFER_PTY_REINIT_KEY, "1");
+            }
+          },
+        );
+      });
+
+  const extManagerLazy = lazyCell<ExtensionManagerApi>();
+
+  const ensureExtensionManager = (): Promise<ExtensionManagerApi | null> =>
+    !extManagerEl
+      ? Promise.resolve(null)
+      : extManagerLazy.ensure(async () => {
+          const { createExtensionManager } = await import("./extensionManager");
+          const api = createExtensionManager(extManagerEl);
+          extManagerEl
+            .querySelector("#ext-close")
+            ?.addEventListener("click", () => api.close());
+          return api;
+        });
 
   window.addEventListener(
     "keydown",
@@ -4671,7 +4928,7 @@ async function boot(): Promise<void> {
           toggleFocusedPaneFollow();
           break;
         case "settings_open":
-          settingsApi?.open();
+          runLazy(ensureSettingsPanel, (api) => api.open());
           break;
       }
     },
@@ -4680,6 +4937,7 @@ async function boot(): Promise<void> {
 
   async function pasteFromClipboard(): Promise<void> {
     try {
+      const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
       const text = await readText();
       if (!text) return;
       const pid = paneHost?.getFocusedPaneId();
@@ -4747,7 +5005,6 @@ async function boot(): Promise<void> {
   ) as HTMLInputElement | null;
   const cpList = document.getElementById("command-palette-list");
   const helpPanelEl = document.getElementById("help-panel");
-  const settingsPanelEl = document.getElementById("settings-panel");
   function shellPrefKey(s: string): string {
     return s.trim().replace(/\\/g, "/").toLowerCase();
   }
@@ -4777,204 +5034,11 @@ async function boot(): Promise<void> {
     }
   };
 
-  const settingsApi = settingsPanelEl
-    ? createSettingsPanel(
-        settingsPanelEl,
-        async (saved: ParttyPrefs, previous: ParttyPrefs) => {
-          syncRuntimeShedFromPrefs(saved);
-          configureDevPerfPrefs(saved);
-          focusFollowsRef.v = saved.focus_follows_cursor;
-          persisted.prefs = saved as unknown as Record<string, unknown>;
-          Object.assign(lp, mergeLifecyclePrefs(persisted.prefs));
-          autoCopySelectionRef.v = saved.auto_copy_selection;
-          rightClickPasteRef.v = saved.right_click_paste ?? true;
-          retainSessionStateRef.v = saved.retain_session_state ?? true;
-          splitLayoutStyleRef.v = normalizeSplitLayoutStyle(
-            saved.split_layout_style,
-          );
-          profileBehaviorRef.v = {
-            default_profile_id: resolveDefaultProfileId(
-              saved.default_profile_id,
-              profilesList,
-            ),
-            inherit_profile_on_split: saved.inherit_profile_on_split ?? true,
-            inherit_cwd_on_split: saved.inherit_cwd_on_split ?? true,
-            palette_tab_profile_picker:
-              saved.palette_tab_profile_picker ?? true,
-            new_tab_uses_default_profile:
-              saved.new_tab_uses_default_profile ?? true,
-            palette_profile_icons: saved.palette_profile_icons ?? true,
-            profile_selection_aliases: resolveSelectionAliases(
-              saved.profile_selection_aliases ??
-                previous.profile_selection_aliases ??
-                {},
-            ),
-          };
-          void (profilesReady = refreshProfilesList());
-          disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
-          altClickCursorRef.v = saved.terminal_alt_click_moves_cursor ?? true;
-          cursorBlinkRef.v = saved.terminal_cursor_blink ?? true;
-          cursorInactiveStyleRef.v =
-            ((saved as Partial<ParttyPrefs>).terminal_cursor_inactive_style as
-              | "outline"
-              | "block"
-              | "bar"
-              | "underline"
-              | "none"
-              | undefined) ?? "outline";
-          cursorWidthRef.v =
-            (saved as Partial<ParttyPrefs>).terminal_cursor_width ?? 1;
-          fontSizeRef.v =
-            (saved as Partial<ParttyPrefs>).terminal_font_size ?? 12;
-          fontWeightRef.v =
-            (saved as Partial<ParttyPrefs>).terminal_font_weight ?? "normal";
-          fontWeightBoldRef.v =
-            (saved as Partial<ParttyPrefs>).terminal_font_weight_bold ?? "bold";
-          lineHeightRef.v =
-            (saved as Partial<ParttyPrefs>).terminal_line_height ?? 1;
-          letterSpacingRef.v =
-            (saved as Partial<ParttyPrefs>).terminal_letter_spacing ?? 0;
-          drawBoldBrightRef.v =
-            (saved as Partial<ParttyPrefs>).terminal_draw_bold_bright ?? true;
-          customGlyphsRef.v =
-            (saved as Partial<ParttyPrefs>).terminal_custom_glyphs ?? true;
-          smoothScrollRef.v =
-            (saved as Partial<ParttyPrefs>).terminal_smooth_scroll_duration ??
-            0;
-          scrollSensitivityRef.v =
-            (saved as Partial<ParttyPrefs>).terminal_scroll_sensitivity ?? 1;
-          fastScrollSensitivityRef.v =
-            (saved as Partial<ParttyPrefs>).terminal_fast_scroll_sensitivity ??
-            5;
-          applyTerminalDisplayOptions();
-          backspaceDeleteSelectionRef.v =
-            saved.terminal_backspace_delete_selection ?? true;
-          if ((saved.terminal_cursor_style ?? "block") !== cursorStyleRef.v) {
-            cursorStyleRef.v =
-              (saved.terminal_cursor_style as "block" | "underline" | "bar") ??
-              "block";
-            for (const host of tabPaneHosts.values()) {
-              host.setCursorStyle(cursorStyleRef.v);
-            }
-          }
-          const threshold = (saved as Partial<ParttyPrefs>)
-            .process_notification_threshold;
-          if (typeof threshold === "number" && Number.isFinite(threshold)) {
-            processNotificationThresholdRef.v = Math.max(0.1, threshold);
-          }
-          const showFor = (saved as Partial<ParttyPrefs>)
-            .process_notification_show_for;
-          if (typeof showFor === "number" && Number.isFinite(showFor)) {
-            processNotificationShowForRef.v = Math.max(
-              1000,
-              Math.min(30000, showFor),
-            );
-          }
-          processNotificationShowMsRef.v =
-            (saved as Partial<ParttyPrefs>).process_notification_show_ms ??
-            false;
-          processNotificationTransparentRef.v =
-            (saved as Partial<ParttyPrefs>).process_notification_transparent ??
-            false;
-          processNotificationEnabledRef.v =
-            (saved as Partial<ParttyPrefs>).process_notification_enabled ??
-            false;
-          syncKeystrokeProcessTracking();
-          cursorFollowWindowMoveRef.v = Boolean(
-            (saved as Partial<ParttyPrefs>).cursor_follow_window_move,
-          );
-          cursorFollowPaneFocusRef.v =
-            (saved as Partial<ParttyPrefs>).cursor_follow_pane_focus ?? true;
-          mouseHiddenRef.v = Boolean(
-            (saved as Partial<ParttyPrefs>).mouse_hidden,
-          );
-          mouseHideOnIdleRef.v = Boolean(
-            (saved as Partial<ParttyPrefs>).mouse_hide_on_idle,
-          );
-          mouseIdleSecondsRef.v = Math.max(
-            0.5,
-            Math.min(
-              300,
-              (saved as Partial<ParttyPrefs>).mouse_idle_seconds ?? 3,
-            ),
-          );
-          mouseCursorController?.sync();
-          windowMotionRef.v =
-            (saved as Partial<ParttyPrefs>).terminal_window_motion ?? true;
-          quietPaneDeferralRef.v = Boolean(
-            (saved as Partial<ParttyPrefs>).quiet_pane_deferral,
-          );
-          applyTerminalDisplayPrefs(saved);
-          if (saved.scrollback_lines !== previous.scrollback_lines) {
-            for (const host of tabPaneHosts.values()) {
-              host.setScrollbackLines(saved.scrollback_lines);
-            }
-          }
-          applyTooltipPolicy(document);
-          document.documentElement.classList.toggle(
-            "pane-blur-unfocused",
-            saved.blur_unfocused_panes,
-          );
-          document.documentElement.style.setProperty(
-            "--pane-blur-radius",
-            String((saved as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6),
-          );
-          document.documentElement.style.setProperty(
-            "--pane-opacity-focused",
-            String((saved as Partial<ParttyPrefs>).pane_opacity_focused ?? 1.0),
-          );
-          document.documentElement.style.setProperty(
-            "--pane-opacity-unfocused",
-            String((saved as Partial<ParttyPrefs>).pane_opacity_unfocused ?? 1.0),
-          );
-          document.documentElement.classList.toggle(
-            "pane-variable-opacity",
-            Boolean((saved as Partial<ParttyPrefs>).pane_variable_opacity),
-          );
-          applyPaneFocusScalePrefs(saved);
-          // Gap / sandbox padding changes resize each pane's content box but not the
-          // observed container, so re-fit explicitly to apply them live.
-          scheduleResizeImmediate(true);
-          if (saved.always_open_in_zen_mode) {
-            setZenMode(true);
-          }
-          const prevUi = pickUiPrefs(
-            previous as unknown as Record<string, unknown>,
-          );
-          const nextUi = pickUiPrefs(
-            saved as unknown as Record<string, unknown>,
-          );
-          if (uiPrefsChanged(prevUi, nextUi)) {
-            currentUiPrefs = nextUi;
-            applyUiTheme(nextUi);
-            refreshAllTerminalThemes();
-          }
-          const shellChanged =
-            shellPrefKey(saved.shell) !== shellPrefKey(previous.shell);
-          const cwdChanged =
-            (saved.initial_cwd ?? "").trim() !==
-            (previous.initial_cwd ?? "").trim();
-          if (shellChanged || cwdChanged) {
-            localStorage.setItem(DEFER_PTY_REINIT_KEY, "1");
-          }
-        },
-      )
-    : null;
-
   const cpPanel = document.querySelector(".command-palette-panel");
   const cpToolbar = document.querySelector(".command-palette-toolbar");
   if (cpPanel instanceof HTMLElement && cpToolbar instanceof HTMLElement) {
     cpPanel.style.position = "fixed";
     attachDraggablePanel(cpPanel, cpToolbar, "partty.commandPalette.pos");
-  }
-
-  if (settingsPanelEl) {
-    const card = settingsPanelEl.querySelector(".settings-panel-card");
-    const head = settingsPanelEl.querySelector(".settings-panel-head");
-    if (card instanceof HTMLElement && head instanceof HTMLElement) {
-      card.style.position = "fixed";
-      attachDraggablePanel(card, head, "partty.settingsPanel.pos");
-    }
   }
 
   if (helpPanelEl) {
@@ -5575,9 +5639,11 @@ async function boot(): Promise<void> {
         run: () => {
           themeTargetPaneId = null;
           paneThemeRestore = null;
-          themeModal?.open({
-            title: "App Theme",
-            initialPrefs: currentUiPrefs,
+          runLazy(ensureThemeModal, (tm) => {
+            tm.open({
+              title: "App Theme",
+              initialPrefs: currentUiPrefs,
+            });
           });
         },
       },
@@ -5593,7 +5659,9 @@ async function boot(): Promise<void> {
         keywords: "workspace layout save snapshot tab panes edit",
         run: () => {
           void workspaceFromCurrentTab().then((captured) => {
-            if (captured) workspaceEditor?.openCapture(captured);
+            if (captured) {
+              runLazy(ensureWorkspaceEditor, (ed) => ed.openCapture(captured));
+            }
           });
         },
       },
@@ -5601,15 +5669,17 @@ async function boot(): Promise<void> {
         id: "workspaces-open",
         label: "Open workspace",
         keywords: "workspace layout preset load snapshot tab panes",
-        run: () => workspacesModal?.open(),
+        run: () => runLazy(ensureWorkspacesModal, (wm) => wm.open()),
       },
       {
         id: "open-theme-builder",
         label: "Theme builder…",
         keywords: "theme custom colors editor create css variables",
         run: () => {
-          themeModal?.close();
-          themeBuilder?.open();
+          runLazy(ensureThemeModal, (tm) => {
+            tm.close();
+            runLazy(ensureThemeBuilder, (tb) => tb.open());
+          });
         },
       },
       // --- Terminal / session ---
@@ -5684,13 +5754,13 @@ async function boot(): Promise<void> {
         label: "Settings",
         keywords: "preferences config options",
         hotkey: "Ctrl+,",
-        run: () => settingsApi?.open(),
+        run: () => runLazy(ensureSettingsPanel, (api) => api.open()),
       },
       {
         id: "open-extensions",
         label: "Extensions",
         keywords: "plugins addons extensions manager",
-        run: () => extManagerApi?.open(),
+        run: () => runLazy(ensureExtensionManager, (api) => api.open()),
       },
       {
         id: "help-hotkeys",
@@ -5827,7 +5897,7 @@ async function boot(): Promise<void> {
   openHelpPanel = () => {
     if (!helpPanelEl) return;
     commandPalette?.close();
-    settingsApi?.close();
+    settingsLazy.get()?.close();
     renderHelpShortcuts();
     helpPanelEl.classList.remove("help-panel--hidden");
     helpPanelEl.setAttribute("aria-hidden", "false");
@@ -5870,15 +5940,6 @@ async function boot(): Promise<void> {
       if (e.target === e.currentTarget) closeZenRenameModal(false);
     });
   // Escape is handled by the shared overlay stack.
-  const extManagerEl = document.getElementById(
-    "extension-manager",
-  ) as HTMLElement | null;
-  const extManagerApi = extManagerEl
-    ? createExtensionManager(extManagerEl)
-    : null;
-  extManagerEl
-    ?.querySelector("#ext-close")
-    ?.addEventListener("click", () => extManagerApi?.close());
   const appWindow = getCurrentWindow();
   async function syncMaximizeButtonTitle(): Promise<void> {
     const btn = document.getElementById("window-maximize");
@@ -6124,22 +6185,29 @@ async function boot(): Promise<void> {
 
     const buffers: Record<string, string> = {};
     if (!lp.discard_buffer_on_hide) {
+      const jobs: Promise<void>[] = [];
       for (const host of tabPaneHosts.values()) {
         host.forEachPane((id, pt) => {
-          try {
-            const start = firstContentScrollbackLine(pt.term);
-            const end = Math.max(0, pt.term.buffer.normal.length - 1);
-            const payload: StashedPaneBuffer = {
-              data: pt.serialize.serialize({ range: { start, end } }),
-              cols: pt.term.cols,
-              rows: pt.term.rows,
-            };
-            buffers[id] = JSON.stringify(payload);
-          } catch (e) {
-            console.warn("serialize pane", id, e);
-          }
+          jobs.push(
+            (async () => {
+              try {
+                const serialize = await ensurePaneSerialize(pt);
+                const start = firstContentScrollbackLine(pt.term);
+                const end = Math.max(0, pt.term.buffer.normal.length - 1);
+                const payload: StashedPaneBuffer = {
+                  data: serialize.serialize({ range: { start, end } }),
+                  cols: pt.term.cols,
+                  rows: pt.term.rows,
+                };
+                buffers[id] = JSON.stringify(payload);
+              } catch (e) {
+                console.warn("serialize pane", id, e);
+              }
+            })(),
+          );
         });
       }
+      await Promise.all(jobs);
     } else {
       for (const host of tabPaneHosts.values()) {
         host.forEachPane((_id, pt) => {
@@ -6482,6 +6550,10 @@ async function boot(): Promise<void> {
     /* ignore */
   });
 
+  scheduleIdle(() => {
+    void import("./settingsPanel");
+  });
+
   window.addEventListener("resize", () => scheduleResizeDebounced());
   void appWindow.onResized(() => scheduleResizeImmediate());
   void appWindow.onScaleChanged(() => scheduleResizeImmediate());
@@ -6522,22 +6594,16 @@ async function boot(): Promise<void> {
     }
   });
 
-  scheduleIdle(() => {
-    void (async () => {
-      scheduleResizeImmediate();
-    })();
-  });
-
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") {
-      // prepare-show already reflowed; a second pass here (from commit_show)
-      // causes a post-reveal layout bounce.
-      if (summonInProgress || summonPreparedByDefer) return;
-      scheduleResizeDebounced();
-      scheduleCwdSync();
-      reflowAllPanes();
-      getFocusedTerm()?.focus();
-    }
+    if (document.visibilityState !== "visible") return;
+    mouseCursorController?.sync();
+    // prepare-show already reflowed; a second pass here (from commit_show)
+    // causes a post-reveal layout bounce.
+    if (summonInProgress || summonPreparedByDefer) return;
+    scheduleResizeDebounced();
+    scheduleCwdSync();
+    reflowAllPanes();
+    getFocusedTerm()?.focus();
   });
 
   // ── Extensions ──────────────────────────────────────────────
@@ -6710,7 +6776,9 @@ async function boot(): Promise<void> {
         },
         switchTab(tabId: string) {
           if (typeof tabId !== "string" || !tabId) return;
-          if (tabPaneHosts.has(tabId)) switchWorkspaceTab(tabId);
+          if (tabPaneHosts.has(tabId) || deferredTabInits.has(tabId)) {
+            switchWorkspaceTab(tabId);
+          }
         },
 
         // ── Events ──
@@ -6833,6 +6901,16 @@ async function boot(): Promise<void> {
   }
 
   window.addEventListener("beforeunload", () => {
+    try {
+      persistCurrentWorkspaceTabLayout();
+      if (!retainSessionStateRef.v) {
+        shedSessionLocalState();
+      } else if (shouldShedSessionOnExitSilent()) {
+        shedSessionLocalState();
+      }
+    } catch {
+      /* ignore */
+    }
     mouseCursorController?.dispose();
     bridgeScrollCleanup?.();
     paneHost = null;
