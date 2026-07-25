@@ -275,11 +275,6 @@ fn refill_warm_pty(
     let app = app.clone();
     let prefs = prefs.clone();
     thread::spawn(move || {
-        // Small delay so the warm spawn doesn't compete with the just-completed
-        // pane spawn for CPU/IO on the same shell binary.
-        thread::sleep(Duration::from_millis(150));
-        // Give the warm session a well-known placeholder ID; it is updated to
-        // the real pane_id atomically when the session is adopted.
         let warm_id = "__partty_warm__".to_string();
         match PtySession::spawn_with_profile(
             app.clone(),
