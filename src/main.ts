@@ -2835,7 +2835,13 @@ async function boot(): Promise<void> {
           // Sync hot path only: terminal focus + PTY focus IPC.
           // Fit / WebGL / CWD / bridge scroll are coalesced to the next frame
           // so Ctrl+Arrow hops stay visually instant.
-          if (pt) pt.term.focus();
+          if (pt) {
+            pt.term.focus();
+            requestAnimationFrame(() => {
+              const tr = pt.term.buffer.active.cursorY;
+              if (tr >= 0 && tr < pt.term.rows) pt.term.refresh(tr, tr);
+            });
+          }
           void ptyFocusPane(id).catch(() => {});
           const hint = paneCwdHints.get(id);
           if (hint) {
