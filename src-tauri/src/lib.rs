@@ -725,7 +725,22 @@ fn pty_ensure(
         old.kill();
     }
     state.pty_spawn_identity.lock().remove(&pane_id);
-    let session = Arc::new(PtySession::spawn_with_profile(
+
+    // Try to adopt a pre-warmed session before paying the cold-spawn cost.
+    let session = match {
+        let mut g = state.warm_pty.lock();
+        if g.as_ref().map(|w| w.identity.as_str()) == Some(want.as_str()) {
+            g.take()
+        } else {
+            None
+        }
+    } {
+        Some(warm) => {
+            *warm.session.pane_id.lock() = pane_id.clone();
+            let _ = warm.session.resize(cols, rows);
+            warm.session
+        }
+        None => Arc::new(PtySession::spawn_with_profile(
         app.clone(),
         pane_id.clone(),
         cols,
@@ -733,7 +748,8 @@ fn pty_ensure(
         &spawn_prefs,
         None,
         profile.as_ref(),
-    )?);
+    )?),
+    };
     state.pty_panes.lock().insert(pane_id.clone(), session);
     state
         .pty_spawn_identity
@@ -1200,6 +1216,17 @@ pub fn run() {
             apply_window_effects(&win, &st.prefs);
 
             register_main_window_events(&handle, &win);
+
+            // Eagerly prime the warm PTY on boot so the very first pane
+            // opens instantly instead of paying a cold-shell spawn cost.
+            if st.prefs.preload_pty_on_startup {
+                let default_identity = format!(
+                    "{}\0{}",
+                    "",
+                    st.prefs.shell.trim().to_lowercase()
+                );
+                refill_warm_pty(&handle, &st.prefs, default_identity, None);
+            }
 
             // Register the summon/dismiss global shortcut from keybinds config.
             let toggle_sc = Shortcut::new(Some(toggle_mods), toggle_code);
