@@ -2634,9 +2634,22 @@ async function boot(): Promise<void> {
 
   let pointerFocusRaf = 0;
   let pendingPointerFocusId: string | null = null;
+  let lastPointerPos: { x: number; y: number } | null = null;
+
+  function focusPaneUnderPointer(): void {
+    if (!focusFollowsRef.v || !lastPointerPos) return;
+    const leaf = document
+      .elementFromPoint(lastPointerPos.x, lastPointerPos.y)
+      ?.closest(".pane-leaf") as HTMLElement | null;
+    const id = leaf?.dataset.paneId;
+    if (id && getPaneHostByPaneId(id) && id !== focusedPaneId()) {
+      focusPaneGlobal(id);
+    }
+  }
 
   function installPointerFocusFollow(): void {
     const onMove = (ev: PointerEvent): void => {
+      lastPointerPos = { x: ev.clientX, y: ev.clientY };
       if (!focusFollowsRef.v) return;
       for (const host of tabPaneHosts.values()) {
         if (host.isPaneInteractionActive()) return;
@@ -3029,6 +3042,18 @@ async function boot(): Promise<void> {
   installPaneControlSurface();
   cursorWarpReady = true;
 
+  // Prevent the Alt key from focusing the system menu bar on release,
+  // which would steal focus from the terminal after Alt+scroll.
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (e.key === "Alt" && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+        e.preventDefault();
+      }
+    },
+    true,
+  );
+
   function persistCurrentWorkspaceTabLayout(): void {
     if (!paneHost) return;
     const pl = layoutForPaneHost(paneHost);
@@ -3108,6 +3133,11 @@ async function boot(): Promise<void> {
       lastFocusedPaneId = paneHost.getFocusedPaneId();
     }
     syncGlobalPaneFocus(lastFocusedPaneId);
+
+    // When focus-follows-cursor is on, refocus to whichever pane the
+    // mouse is already hovering over after the tab switch. Defer one
+    // frame so the incoming tab's DOM is laid out and visible.
+    requestAnimationFrame(() => focusPaneUnderPointer());
 
     if (nextShell) {
       nextShell.classList.remove("term-tab-pane-shell--hidden");
