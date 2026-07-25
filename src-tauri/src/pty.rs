@@ -1,9 +1,11 @@
 use crate::prefs::Prefs;
 use crate::profiles::{ConnectionProfile, ProfileKind};
+use parking_lot::Mutex as ParkingMutex;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, RecvTimeoutError};
 use std::sync::Arc;
@@ -1484,19 +1486,51 @@ fn write_shell_integration_script(name: &str, contents: &str) -> Result<PathBuf,
     Ok(path)
 }
 
+fn resolve_on_path(name: &str) -> Option<PathBuf> {
+    let path_var = std::env::var_os("PATH")?;
+    let exts = std::env::var_os("PATHEXT").unwrap_or_else(|| ".EXE".into());
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        for ext in std::env::split_paths(&exts) {
+            let with_ext = dir.join(name).with_extension(
+                ext.to_str()?.strip_prefix('.')?,
+            );
+            if with_ext.is_file() {
+                return Some(with_ext);
+            }
+        }
+    }
+    None
+}
+
 fn windows_shell_command(
     prefs: &Prefs,
     profile: Option<&ConnectionProfile>,
 ) -> Result<CommandBuilder, String> {
+    static EXE_CACHE: OnceLock<ParkingMutex<HashMap<String, PathBuf>>> = OnceLock::new();
+    fn cached_resolve(key: &str, resolve: impl FnOnce() -> Option<PathBuf>) -> Option<PathBuf> {
+        let cache = EXE_CACHE.get_or_init(|| ParkingMutex::new(HashMap::new()));
+        if let Some(cached) = cache.lock().get(key) {
+            return Some(cached.clone());
+        }
+        let found = resolve()?;
+        cache.lock().insert(key.to_string(), found.clone());
+        Some(found)
+    }
+
     let startup = profile_startup(profile);
     let kind = detect_shell_kind(prefs);
     match kind {
         ShellKind::Pwsh | ShellKind::PowerShell => {
             let exe = if matches!(kind, ShellKind::Pwsh) {
-                resolve_pwsh_executable()
+                cached_resolve("pwsh", || resolve_pwsh_executable())
                     .ok_or_else(|| "PowerShell 7 (pwsh) not found.".to_string())?
             } else {
-                PathBuf::from("powershell.exe")
+                cached_resolve("powershell", || resolve_on_path("powershell.exe"))
+                    .unwrap_or_else(|| PathBuf::from("powershell.exe"))
             };
             let script = write_shell_integration_script(
                 "partty-shell-integration.ps1",
