@@ -726,21 +726,36 @@ fn pty_ensure(
     }
     state.pty_spawn_identity.lock().remove(&pane_id);
 
-    // Try to adopt a pre-warmed session before paying the cold-spawn cost.
-    let session = match {
-        let mut g = state.warm_pty.lock();
-        if g.as_ref().map(|w| w.identity.as_str()) == Some(want.as_str()) {
-            g.take()
-        } else {
-            None
+    // Only adopt the warm pool for the very first pane after a fresh boot
+    // (empty pool). Splits carry profile and working-directory context from
+    // their parent that the warm session does not have.
+    let first_pane = state.pty_panes.lock().is_empty();
+    let session = if first_pane {
+        match {
+            let mut g = state.warm_pty.lock();
+            if g.as_ref().map(|w| w.identity.as_str()) == Some(want.as_str()) {
+                g.take()
+            } else {
+                None
+            }
+        } {
+            Some(warm) => {
+                *warm.session.pane_id.lock() = pane_id.clone();
+                let _ = warm.session.resize(cols, rows);
+                warm.session
+            }
+            None => Arc::new(PtySession::spawn_with_profile(
+            app.clone(),
+            pane_id.clone(),
+            cols,
+            rows,
+            &spawn_prefs,
+            None,
+            profile.as_ref(),
+        )?),
         }
-    } {
-        Some(warm) => {
-            *warm.session.pane_id.lock() = pane_id.clone();
-            let _ = warm.session.resize(cols, rows);
-            warm.session
-        }
-        None => Arc::new(PtySession::spawn_with_profile(
+    } else {
+        Arc::new(PtySession::spawn_with_profile(
         app.clone(),
         pane_id.clone(),
         cols,
@@ -748,7 +763,7 @@ fn pty_ensure(
         &spawn_prefs,
         None,
         profile.as_ref(),
-    )?),
+    )?)
     };
     state.pty_panes.lock().insert(pane_id.clone(), session);
     state
