@@ -1,0 +1,4 @@
+# Force Windows x86_64 builds to use LLVM's highly parallel LLD linker
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"
+
