@@ -94,6 +94,7 @@ export type TabGroup = {
 export type TabRecord = {
   id: string;
   name: string;
+  userName?: string | null;
   groupId: string | null;
   color: string | null;
   order: number;
@@ -165,7 +166,7 @@ function loadRawTabs(): TabsStateV1 {
   } catch {
     return {
       v: 1,
-      tabs: [{ id: "tab-1", name: "1", groupId: null, color: null, order: 0 }],
+      tabs: [{ id: "tab-1", name: "1", userName: null, groupId: null, color: null, order: 0 }],
       activeTabId: "tab-1",
       groups: [],
     };

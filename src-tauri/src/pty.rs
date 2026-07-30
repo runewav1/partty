@@ -46,6 +46,14 @@ pub enum ShellEventKind {
     CommandLine { text: String },
 }
 
+/// Terminal title change extracted from OSC 0 / 1 / 2.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PtyTitleEvent {
+    pub pane_id: String,
+    pub title: String,
+}
+
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PtyShellEvent {
@@ -68,6 +76,7 @@ pub struct PtyShellEvent {
 
 enum OscSideEvent {
     Cwd(String),
+    Title(String),
     PromptStart,
     PromptEnd,
     PreExec,
@@ -151,6 +160,13 @@ impl OscStripper {
             None => (s, ""),
         };
         match osc_num {
+            "0" | "1" | "2" => {
+                let title = rest.trim().to_string();
+                if !title.is_empty() {
+                    events.push(OscSideEvent::Title(title));
+                }
+                true
+            }
             "7" => {
                 if let Some(cwd) = osc7_parse_cwd(rest) {
                     events.push(OscSideEvent::Cwd(cwd));
@@ -565,6 +581,15 @@ impl PtySession {
                                     PtyCwdEvent {
                                         pane_id: pane.clone(),
                                         cwd,
+                                    },
+                                );
+                            }
+                            OscSideEvent::Title(title) => {
+                                let _ = app_emit.emit(
+                                    "pty-title",
+                                    PtyTitleEvent {
+                                        pane_id: pane.clone(),
+                                        title,
                                     },
                                 );
                             }
