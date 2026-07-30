@@ -4116,8 +4116,6 @@ async function boot(): Promise<void> {
         "window_move_prev_monitor",
         "window_maximize",
         "window_restore",
-        "focus_terminal",
-        "focus_pane_up", "focus_pane_down",
       );
 
       if (m === "window_toggle") {
@@ -4151,12 +4149,6 @@ async function boot(): Promise<void> {
         return;
       }
 
-      if (m === "focus_pane_up" || m === "focus_terminal" || m === "focus_pane_down") {
-        if (focusAdjacentPaneByArrow(e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown")) {
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      }
     },
     true,
   );
