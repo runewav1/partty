@@ -3244,6 +3244,11 @@ async function boot(): Promise<void> {
         }
       }
     }
+    requestAnimationFrame(() => {
+      nextHost.forEachPane((id, pt) => {
+        void ensurePtyForPane(id, pt);
+      });
+    });
   }
 
   function visibleWorkspaceTabsInOrder(): TabRecord[] {
