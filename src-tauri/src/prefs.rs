@@ -191,8 +191,6 @@ pub struct Prefs {
     #[serde(default = "default_session_shed_on_exit")]
     pub session_shed_on_exit: String,
     #[serde(default)]
-    pub always_summon_maximized: bool,
-    #[serde(default)]
     pub summon_spawn_at_cursor: bool,
     #[serde(default)]
     pub cursor_follow_window_move: bool,
@@ -341,7 +339,6 @@ impl Default for Prefs {
             right_click_paste: true,
             retain_session_state: true,
             session_shed_on_exit: "keep".to_string(),
-            always_summon_maximized: false,
             summon_spawn_at_cursor: false,
             cursor_follow_window_move: false,
             cursor_follow_pane_focus: true,
@@ -813,8 +810,6 @@ pub struct WindowSection {
     #[serde(default)]
     pub always_on_top: bool,
     #[serde(default)]
-    pub summon_maximized: bool,
-    #[serde(default)]
     pub summon_at_cursor: bool,
     #[serde(default)]
     pub hidden_from_taskbar: bool,
@@ -830,7 +825,6 @@ impl Default for WindowSection {
     fn default() -> Self {
         Self {
             always_on_top: false,
-            summon_maximized: false,
             summon_at_cursor: false,
             hidden_from_taskbar: false,
             effect: default_window_effect_mode(),
@@ -1093,7 +1087,6 @@ impl From<ConfigToml> for Prefs {
             palette_profile_icons: c.profiles.palette_icons,
             profile_selection_aliases: normalize_selection_aliases(&c.profiles.selection_aliases),
             always_on_top: c.window.always_on_top,
-            always_summon_maximized: c.window.summon_maximized,
             summon_spawn_at_cursor: c.window.summon_at_cursor,
             hidden_from_taskbar: c.window.hidden_from_taskbar,
             window_effect_mode: c.window.effect,
@@ -1201,7 +1194,6 @@ impl From<&Prefs> for ConfigToml {
             },
             window: WindowSection {
                 always_on_top: p.always_on_top,
-                summon_maximized: p.always_summon_maximized,
                 summon_at_cursor: p.summon_spawn_at_cursor,
                 hidden_from_taskbar: p.hidden_from_taskbar,
                 effect: p.window_effect_mode.clone(),

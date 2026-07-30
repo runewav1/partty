@@ -167,7 +167,3 @@ pub fn apply_saved_window_bounds(window: &WebviewWindow, ws: &WindowState) {
     let _ = window.set_size(tauri::PhysicalSize::new(ws.width, ws.height));
     suppress_snapshot_for(500);
 }
-
-pub fn should_maximize_on_show(always_summon_maximized: bool, ws: &WindowState) -> bool {
-    always_summon_maximized || ws.maximized
-}

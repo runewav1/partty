@@ -37,7 +37,6 @@ export type ParttyPrefs = {
   font_terminal: string;
   font_ui: string;
   session_shed_on_exit: string;
-  always_summon_maximized: boolean;
   summon_spawn_at_cursor: boolean;
   cursor_follow_window_move: boolean;
   /** Warp OS cursor onto the focused pane when focus context changes. */
@@ -212,7 +211,7 @@ export function createSettingsPanel(
       right_click_paste: gc("right_click_paste"),
       session_shed_on_exit,
       retain_session_state: gc("retain_session_state"),
-      always_summon_maximized: gc("always_summon_maximized"), summon_spawn_at_cursor: gc("summon_spawn_at_cursor"),
+      summon_spawn_at_cursor: gc("summon_spawn_at_cursor"),
       cursor_follow_window_move: gc("cursor_follow_window_move"),
       cursor_follow_pane_focus: gc("cursor_follow_pane_focus"),
       hidden_from_taskbar: gc("hidden_from_taskbar"),
@@ -502,7 +501,6 @@ export function createSettingsPanel(
     setChk("auto_copy_selection", pr.auto_copy_selection ?? false);
     setChk("right_click_paste", pr.right_click_paste ?? true);
     setChk("retain_session_state", pr.retain_session_state ?? true);
-    setChk("always_summon_maximized", pr.always_summon_maximized ?? false);
     setChk("summon_spawn_at_cursor", pr.summon_spawn_at_cursor ?? false);
     setChk("cursor_follow_window_move", pr.cursor_follow_window_move ?? false);
     setChk("cursor_follow_pane_focus", pr.cursor_follow_pane_focus ?? true);

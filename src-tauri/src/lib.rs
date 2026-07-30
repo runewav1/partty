@@ -451,14 +451,14 @@ async fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
 
     // Always start un-maximized — show then maximize gives Windows
     // a clean visible rect to compute the maximized bounds from.
-    if window_state::should_maximize_on_show(st.prefs.always_summon_maximized, &st.window) {
+    if st.window.maximized {
         let _ = win.unmaximize();
     }
 
     apply_window_effects(&win, &st.prefs);
-    if !st.window.maximized && !st.prefs.always_summon_maximized {
-        window_state::apply_saved_window_bounds(&win, &st.window);
-    }
+            if !st.window.maximized {
+                window_state::apply_saved_window_bounds(&win, &st.window);
+            }
     // Maximize deferred to spawn_show_main_window — calling maximize()
     // before show() causes Windows to miscalculate the maximized client
     // rect, leaving a white bar at the bottom.
@@ -514,8 +514,7 @@ fn spawn_show_main_window(app: AppHandle) {
             // is visible causes Windows to miscompute the maximized client rect.
             let app_state = app.state::<AppState>();
             let st = app_state.persisted.lock();
-            let should_max =
-                window_state::should_maximize_on_show(st.prefs.always_summon_maximized, &st.window);
+            let should_max = st.window.maximized;
             drop(st);
             if should_max {
                 let _ = w.maximize();
@@ -555,37 +554,21 @@ fn toggle_window(app: &AppHandle) {
         // Cancel pending destroy; live xterm still has scrollback.
         state.hide_destroy_generation.fetch_add(1, Ordering::SeqCst);
         state.pty_output_unlocked.store(true, Ordering::SeqCst);
-        let (defer, summon) = {
-            let p = state.persisted.lock();
-            (
-                p.prefs.defer_window_show_until_prepared,
-                p.prefs.always_summon_maximized,
-            )
-        };
+        let defer = state.persisted.lock().prefs.defer_window_show_until_prepared;
         if defer {
             state
                 .defer_prepare_show_until_webview_ready
                 .store(true, Ordering::SeqCst);
             let _ = win.emit("partty-prepare-show", ());
         } else {
-            if !summon {
-                position_main_at_cursor_if_prefs(app);
-            }
+            position_main_at_cursor_if_prefs(app);
             let _ = win.show();
             // Show → unmaximize → maximize forces Windows to recalculate
             // the client rect from scratch. maximize() on an already-maximized
             // hidden window is a no-op — the OS won't recompute the bounds.
-            if summon || win.is_maximized().unwrap_or(false) {
-                let st = state.persisted.lock();
-                let restore_max = window_state::should_maximize_on_show(
-                    st.prefs.always_summon_maximized,
-                    &st.window,
-                );
-                drop(st);
-                if restore_max {
-                    let _ = win.unmaximize();
-                    let _ = win.maximize();
-                }
+            if state.persisted.lock().window.maximized {
+                let _ = win.unmaximize();
+                let _ = win.maximize();
             }
             let _ = win.set_focus();
             let _ = win.emit("partty-show", ());
@@ -638,12 +621,6 @@ fn commit_show_window(app: AppHandle) -> Result<(), String> {
     let Some(win) = app.get_webview_window("main") else {
         return Err("main window missing".into());
     };
-    let summon = app
-        .state::<AppState>()
-        .persisted
-        .lock()
-        .prefs
-        .always_summon_maximized;
     let saved_maximized = app.state::<AppState>().persisted.lock().window.maximized;
     app.state::<AppState>()
         .hide_destroy_generation
@@ -651,11 +628,9 @@ fn commit_show_window(app: AppHandle) -> Result<(), String> {
     app.state::<AppState>()
         .defer_prepare_show_until_webview_ready
         .store(false, Ordering::SeqCst);
-    if !summon {
-        position_main_at_cursor_if_prefs(&app);
-    }
+    position_main_at_cursor_if_prefs(&app);
     let _ = win.show();
-    if summon || saved_maximized {
+    if saved_maximized {
         let _ = win.unmaximize();
         let _ = win.maximize();
     }
@@ -1215,7 +1190,7 @@ pub fn run() {
 
             let mut st = loaded.clone();
             window_state::sanitize_window_state(&mut st.window);
-            if !st.window.maximized && !st.prefs.always_summon_maximized {
+    if !st.window.maximized {
                 window_state::apply_saved_window_bounds(&win, &st.window);
             }
             // Maximize is deferred to spawn_show_main_window (after show).
