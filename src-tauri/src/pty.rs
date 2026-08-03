@@ -85,6 +85,15 @@ enum OscSideEvent {
     CommandLine(String),
 }
 
+/// A cleaned output batch that could not be delivered yet (webview down or
+/// channel not subscribed).  `replayed` marks batches already appended to the
+/// replay buffer — batches are appended *before* sending so a failed delivery
+/// can be reconstructed from the replay tail instead of cloning the buffer.
+struct HeldBatch {
+    bytes: Vec<u8>,
+    replayed: bool,
+}
+
 struct OscStripper {
     /// Bytes held over from the previous chunk that ended mid-sequence.
     partial: Vec<u8>,
@@ -103,12 +112,17 @@ impl OscStripper {
         }
     }
 
-    /// Process one chunk.  Returns `(cleaned_bytes, side_events)`.
-    fn process(&mut self, input: &[u8]) -> (Vec<u8>, Vec<OscSideEvent>) {
+    /// Process one chunk.  Takes ownership so escape-free chunks can be
+    /// handed through untouched (zero-copy fast path).
+    fn process(&mut self, input: Vec<u8>) -> (Vec<u8>, Vec<OscSideEvent>) {
+        if self.partial.is_empty() && !input.contains(&0x1b) {
+            // No escape sequences at all: nothing to strip, return as-is.
+            return (input, Vec::new());
+        }
         if self.partial.is_empty() {
-            self.process_slice(input)
+            self.process_slice(&input)
         } else {
-            self.partial.extend_from_slice(input);
+            self.partial.extend_from_slice(&input);
             let combined = std::mem::take(&mut self.partial);
             self.process_slice(&combined)
         }
@@ -118,35 +132,46 @@ impl OscStripper {
         let mut events = Vec::new();
         self.scratch.clear();
         let mut i = 0;
+        // Start of the current plain-text run; bulk-copied on the next ESC.
+        let mut run_start = 0;
 
         while i < buf.len() {
-            // ESC ] → OSC start
-            if i + 1 < buf.len() && buf[i] == 0x1b && buf[i + 1] == 0x5d {
-                match osc_find_end(buf, i + 2) {
-                    Some((payload_end, seq_end)) => {
-                        let payload = &buf[i + 2..payload_end];
-                        if !self.dispatch_osc(payload, &mut events) {
-                            // Unknown OSC: pass through for xterm.js
-                            self.scratch.extend_from_slice(&buf[i..seq_end]);
+            if buf[i] == 0x1b {
+                // Flush the plain run up to this escape.
+                self.scratch.extend_from_slice(&buf[run_start..i]);
+
+                if i + 1 < buf.len() && buf[i + 1] == 0x5d {
+                    match osc_find_end(buf, i + 2) {
+                        Some((payload_end, seq_end)) => {
+                            let payload = &buf[i + 2..payload_end];
+                            if !self.dispatch_osc(payload, &mut events) {
+                                // Unknown OSC: pass through for xterm.js
+                                self.scratch.extend_from_slice(&buf[i..seq_end]);
+                            }
+                            run_start = seq_end;
+                            i = seq_end;
+                            continue;
                         }
-                        i = seq_end;
+                        None => {
+                            // Incomplete: carry remainder to next chunk
+                            self.partial.extend_from_slice(&buf[i..]);
+                            return (std::mem::take(&mut self.scratch), events);
+                        }
                     }
-                    None => {
-                        // Incomplete: carry remainder to next chunk
-                        self.partial.extend_from_slice(&buf[i..]);
-                        return (std::mem::take(&mut self.scratch), events);
-                    }
+                } else if i + 1 == buf.len() {
+                    // Lone ESC at end — might be ESC ] split across chunks
+                    self.partial.push(0x1b);
+                    return (std::mem::take(&mut self.scratch), events);
                 }
-            } else if buf[i] == 0x1b && i + 1 == buf.len() {
-                // Lone ESC at end — might be ESC ] split across chunks
-                self.partial.push(0x1b);
-                return (std::mem::take(&mut self.scratch), events);
-            } else {
-                self.scratch.push(buf[i]);
-                i += 1;
+                // ESC followed by something else (e.g. ESC [ ...): the escape
+                // byte starts the next plain run and passes through as-is.
+                run_start = i;
             }
+            i += 1;
         }
 
+        // Flush the trailing plain run (includes lone ESC-[ sequences).
+        self.scratch.extend_from_slice(&buf[run_start..]);
         (std::mem::take(&mut self.scratch), events)
     }
 
@@ -476,7 +501,7 @@ impl PtySession {
         let pane_id_reader = Arc::clone(&pane_id_arc);
         let _reader = thread::spawn(move || {
             let mut reader = reader;
-            let mut buf = [0u8; 8192];
+            let mut buf = [0u8; 65536];
             let mut notify_exit = false;
             while !stop_reader.load(Ordering::SeqCst) {
                 match reader.read(&mut buf) {
@@ -527,10 +552,13 @@ impl PtySession {
             let mut stripper = OscStripper::new();
             // Batch that was stripped but could not be delivered (webview down
             // or channel not subscribed yet); retried on the next iteration.
-            let mut held: Option<Vec<u8>> = None;
+            let mut held: Option<HeldBatch> = None;
             while !stop_emitter.load(Ordering::SeqCst) {
+                // Whether the batch held from the previous iteration was
+                // already appended to the replay buffer.
+                let held_replayed = held.as_ref().is_some_and(|h| h.replayed);
                 if let Some(h) = held.take() {
-                    pending = h;
+                    pending = h.bytes;
                 }
                 if pending.is_empty() {
                     match rx.recv() {
@@ -574,8 +602,10 @@ impl PtySession {
                     }
 
                     // Strip OSC 7 / 133 / 633 in Rust; emit side-channel events.
-                    let (cleaned_bytes, osc_events) = stripper.process(&pending);
-                    pending.clear();
+                    // `process` takes ownership of the batch: escape-free
+                    // batches come back untouched (zero-copy fast path).
+                    let (cleaned_bytes, osc_events) =
+                        stripper.process(std::mem::take(&mut pending));
 
                     for ev in osc_events {
                         match ev {
@@ -651,22 +681,49 @@ impl PtySession {
                     // and retry so no output is lost across a rebuild.
                     let channel: Option<Channel<InvokeResponseBody>> =
                         output_channel_emitter.lock().clone();
-                    let delivered = match channel {
-                        Some(ch) => ch
-                            .send(InvokeResponseBody::Raw(cleaned_bytes.clone()))
-                            .is_ok(),
-                        None => false,
+                    let Some(ch) = channel else {
+                        let mut h = HeldBatch {
+                            bytes: cleaned_bytes,
+                            replayed: held_replayed,
+                        };
+                        if h.bytes.len() > PTY_PENDING_HOLD_MAX_BYTES {
+                            h.bytes.drain(..(h.bytes.len() - PTY_PENDING_HOLD_MAX_BYTES));
+                        }
+                        held = Some(h);
+                        thread::sleep(Duration::from_millis(20));
+                        continue;
                     };
-                    if !delivered {
-                        let mut h = cleaned_bytes;
-                        if h.len() > PTY_PENDING_HOLD_MAX_BYTES {
-                            h.drain(..(h.len() - PTY_PENDING_HOLD_MAX_BYTES));
+                    // Append to replay before sending, so a failed delivery can
+                    // be reconstructed from the replay tail without cloning.
+                    if !held_replayed {
+                        append_replay_buffer(&replay_emitter, &cleaned_bytes);
+                    }
+                    let batch_len = cleaned_bytes.len();
+                    if ch
+                        .send(InvokeResponseBody::Raw(cleaned_bytes))
+                        .is_err()
+                    {
+                        // The batch is exactly the replay tail (it was the last
+                        // append); recover it byte-for-byte for the retry.
+                        let tail = {
+                            let r = replay_emitter.lock();
+                            let start = r.len().saturating_sub(batch_len);
+                            r[start..].to_vec()
+                        };
+                        let mut h = HeldBatch {
+                            bytes: tail,
+                            replayed: true,
+                        };
+                        if h.bytes.len() > PTY_PENDING_HOLD_MAX_BYTES {
+                            h.bytes.drain(..(h.bytes.len() - PTY_PENDING_HOLD_MAX_BYTES));
                         }
                         held = Some(h);
                         thread::sleep(Duration::from_millis(20));
                         continue;
                     }
-                    append_replay_buffer(&replay_emitter, &cleaned_bytes);
+                    // Fresh accumulator for the next batch (the old one was
+                    // moved into the channel).
+                    pending = Vec::with_capacity(32 * 1024);
                 }
 
                 if disconnected {

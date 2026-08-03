@@ -43,6 +43,12 @@ export function peekByteChunkBytes(buf: ByteChunkBuffer): number {
 
 export function drainByteChunks(buf: ByteChunkBuffer): Uint8Array {
   if (buf.totalBytes === 0) return new Uint8Array(0);
+  if (buf.chunks.length === 1) {
+    const single = buf.chunks[0]!;
+    buf.chunks.length = 0;
+    buf.totalBytes = 0;
+    return single;
+  }
   const out = new Uint8Array(buf.totalBytes);
   let offset = 0;
   for (const chunk of buf.chunks) {
