@@ -835,7 +835,12 @@ async function boot(): Promise<void> {
     (proc: { paneId: string; command: string; cwd: string }) => void
   > = [];
   const extProcEndSubs: Array<
-    (proc: { paneId: string; command: string; durationMs: number }) => void
+    (proc: {
+      paneId: string;
+      command: string;
+      durationMs: number;
+      exitCode: number | null;
+    }) => void
   > = [];
   /** Extension pane lifecycle subscribers. */
   const extPaneCreatedSubs: Array<(paneId: string) => void> = [];
@@ -1045,7 +1050,11 @@ async function boot(): Promise<void> {
     pendingPtyWriteRaf = requestAnimationFrame(flushPendingPtyWrites);
   };
 
-  function finishActiveProcess(paneId: string, endedAt: number): void {
+  function finishActiveProcess(
+    paneId: string,
+    endedAt: number,
+    exitCode: number | null = null,
+  ): void {
     const entry = activeProcesses.get(paneId);
     if (!entry) return;
     const command = displayProcessCommand(entry.command);
@@ -1066,7 +1075,7 @@ async function boot(): Promise<void> {
       );
     }
     if (extProcEndSubs.length > 0) {
-      const proc = { paneId, command, durationMs: durMs };
+      const proc = { paneId, command, durationMs: durMs, exitCode };
       for (const fn of extProcEndSubs) {
         try {
           fn(proc);
@@ -6385,7 +6394,7 @@ async function boot(): Promise<void> {
       exitCode?: number | null;
       text?: string;
     }>("pty-shell-event", (event) => {
-      const { paneId, kind, text } = event.payload;
+      const { paneId, kind, text, exitCode } = event.payload;
       switch (kind) {
         case "commandLine": {
           if (!text) break;
@@ -6430,7 +6439,9 @@ async function boot(): Promise<void> {
           break;
         }
         case "commandDone": {
-          finishActiveProcess(paneId, Date.now());
+          // OSC 133 shell integration carries the real exit code; the
+          // heuristic end path (below) passes null when it's unavailable.
+          finishActiveProcess(paneId, Date.now(), exitCode ?? null);
           break;
         }
         case "promptStart": {
@@ -6649,6 +6660,8 @@ async function boot(): Promise<void> {
             paneId: string;
             command: string;
             durationMs: number;
+            /** OSC 133 exit code, or null when the shell didn't report one. */
+            exitCode: number | null;
           }) => void,
         ) {
           extProcEndSubs.push(fn);
