@@ -168,6 +168,7 @@ async function discoverFontFamilies(): Promise<string[]> {
 export function createSettingsPanel(
   root: HTMLElement,
   onSaved?: (next: ParttyPrefs, previous: ParttyPrefs) => void | Promise<void>,
+  onClosed?: () => void,
 ): SettingsPanelApi {
   let open = false;
   let saving = false;
@@ -534,6 +535,7 @@ export function createSettingsPanel(
     root.classList.add("settings-panel--hidden");
     root.setAttribute("aria-hidden", "true");
     if (save) void doSave();
+    onClosed?.();
   }
 
   let listenersInstalled = false;

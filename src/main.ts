@@ -4594,6 +4594,9 @@ async function boot(): Promise<void> {
       paneThemeRestore = null;
     }
     themeTargetPaneId = null;
+    // The theme modal is the last surface in its flow; give focus back to
+    // the pane (the theme builder, when opened from it, re-focuses itself).
+    focusActiveTerminal();
   }
 
   const ensureThemeBuilder = (): Promise<ThemeBuilderApi | null> =>
@@ -4809,19 +4812,15 @@ async function boot(): Promise<void> {
             fastScrollSensitivityRef.v =
               (saved as Partial<ParttyPrefs>)
                 .terminal_fast_scroll_sensitivity ?? 5;
+            cursorStyleRef.v =
+              (saved.terminal_cursor_style as
+                | "block"
+                | "underline"
+                | "bar"
+                | undefined) ?? "block";
             applyTerminalDisplayOptions();
             backspaceDeleteSelectionRef.v =
               saved.terminal_backspace_delete_selection ?? true;
-            if ((saved.terminal_cursor_style ?? "block") !== cursorStyleRef.v) {
-              cursorStyleRef.v =
-                (saved.terminal_cursor_style as
-                  | "block"
-                  | "underline"
-                  | "bar") ?? "block";
-              for (const host of tabPaneHosts.values()) {
-                host.setCursorStyle(cursorStyleRef.v);
-              }
-            }
             const threshold = (saved as Partial<ParttyPrefs>)
               .process_notification_threshold;
             if (typeof threshold === "number" && Number.isFinite(threshold)) {
@@ -4901,7 +4900,6 @@ async function boot(): Promise<void> {
               Boolean((saved as Partial<ParttyPrefs>).pane_variable_opacity),
             );
             applyPaneFocusScalePrefs(saved);
-            scheduleResizeImmediate(true);
             if (saved.always_open_in_zen_mode) {
               setZenMode(true);
             }
@@ -4925,6 +4923,9 @@ async function boot(): Promise<void> {
               localStorage.setItem(DEFER_PTY_REINIT_KEY, "1");
             }
           },
+          // Restore pane focus when the settings modal closes (mirrors the
+          // tab-switch focus approach; settings never changes tabs/panes).
+          focusActiveTerminal,
         );
       });
 
@@ -5046,12 +5047,13 @@ async function boot(): Promise<void> {
     return s.trim().replace(/\\/g, "/").toLowerCase();
   }
 
-  /** Apply live-updatable xterm.js options to all active terminals. */
+  /** Apply live-updatable xterm.js options to every terminal — all tabs,
+   *  tiled and floating (forEachPane, not leaf-order) — then force a layout
+   *  pass so char-size changes (font size, line height, letter spacing) both
+   *  re-fit every pane and repaint it immediately. */
   const applyTerminalDisplayOptions = (): void => {
     for (const host of tabPaneHosts.values()) {
-      for (const leafId of host.getLeafIdsInOrder()) {
-        const pt = host.getPaneTerminal(leafId);
-        if (!pt) continue;
+      host.forEachPane((_leafId, pt) => {
         const t = pt.term;
         t.options.cursorBlink = cursorBlinkRef.v;
         t.options.cursorInactiveStyle = cursorInactiveStyleRef.v;
@@ -5067,8 +5069,12 @@ async function boot(): Promise<void> {
         t.options.smoothScrollDuration = smoothScrollRef.v;
         t.options.scrollSensitivity = scrollSensitivityRef.v;
         t.options.fastScrollSensitivity = fastScrollSensitivityRef.v;
-      }
+        t.options.cursorStyle = cursorStyleRef.v;
+      });
+      host.setCursorStyle(cursorStyleRef.v);
     }
+    lastPtyDims.clear();
+    scheduleResizeImmediate(true);
   };
 
   const cpPanel = document.querySelector(".command-palette-panel");
