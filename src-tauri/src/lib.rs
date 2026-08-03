@@ -111,6 +111,53 @@ fn open_external_url(url: String) -> Result<(), String> {
     open_url_in_default_browser(trimmed)
 }
 
+/// Read UTF-16 text from the system clipboard (replaces `tauri-plugin-clipboard-manager`).
+#[tauri::command]
+fn clipboard_read_text() -> Result<String, String> {
+    // CF_UNICODETEXT (13) — stable Win32 format id; not exposed by the
+    // DataExchange feature in windows-sys 0.61 (lives under Ole).
+    const CF_UNICODETEXT: u32 = 13;
+
+    use windows_sys::Win32::System::DataExchange::{
+        CloseClipboard, GetClipboardData, OpenClipboard,
+    };
+    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+
+    // SAFETY: clipboard access is process-wide; we open, read, and close in a
+    // tight sequence. `GetClipboardData` returns a handle we lock for reading;
+    // the data is NUL-terminated UTF-16 and we cap the scan defensively.
+    unsafe {
+        if OpenClipboard(std::ptr::null_mut()) == 0 {
+            return Err("clipboard unavailable".to_string());
+        }
+        let result = (|| {
+            let handle = GetClipboardData(CF_UNICODETEXT);
+            if handle.is_null() {
+                return Ok(String::new());
+            }
+            let ptr = GlobalLock(handle);
+            if ptr.is_null() {
+                return Ok(String::new());
+            }
+            let mut end = 0usize;
+            while *ptr.cast::<u16>().add(end) != 0 {
+                end += 1;
+                if end > (1 << 20) {
+                    break;
+                }
+            }
+            let text = String::from_utf16_lossy(std::slice::from_raw_parts(
+                ptr.cast::<u16>(),
+                end,
+            ));
+            GlobalUnlock(handle);
+            Ok(text)
+        })();
+        CloseClipboard();
+        result
+    }
+}
+
 /// Open an http(s) URL with the default browser (ShellExecuteW; replaces `opener`).
 fn open_url_in_default_browser(url: &str) -> Result<(), String> {
     use std::ffi::OsStr;
@@ -1099,7 +1146,6 @@ pub fn run() {
                 })
                 .build(),
         )
-        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(AppState {
             pty_panes: Mutex::new(HashMap::new()),
             persisted: Mutex::new(loaded.clone()),
@@ -1125,6 +1171,7 @@ pub fn run() {
             pty_kill_pane,
             pty_ack_exit,
             pty_focus_pane,
+            clipboard_read_text,
             get_persisted_state,
             get_app_session_id,
             stash_terminal_buffers,

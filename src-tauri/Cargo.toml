@@ -26,7 +26,6 @@ serde_json = "1"
 toml = "1"
 portable-pty = "0.9"
 parking_lot = "0.12"
-tauri-plugin-clipboard-manager = "2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
@@ -35,6 +34,8 @@ windows-sys = { version = "0.61", features = [
     "Win32_UI_Shell",
     "Win32_Graphics_Gdi",
     "Win32_System_Registry",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
 ] }
 
 [patch.crates-io]

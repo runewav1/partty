@@ -4972,8 +4972,7 @@ async function boot(): Promise<void> {
 
   async function pasteFromClipboard(): Promise<void> {
     try {
-      const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
-      const text = await readText();
+      const text = await invoke<string>("clipboard_read_text");
       if (!text) return;
       const pid = paneHost?.getFocusedPaneId();
       if (!pid) return;
