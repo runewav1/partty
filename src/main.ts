@@ -841,10 +841,15 @@ async function boot(): Promise<void> {
   const extPaneCreatedSubs: Array<(paneId: string) => void> = [];
   const extPaneClosedSubs: Array<(paneId: string) => void> = [];
   const extFocusSubs: Array<(paneId: string) => void> = [];
+  /** Extension cwd / rename subscribers (fired on live OSC7 + rename commits). */
+  const extCwdChangeSubs: Array<(paneId: string, cwd: string) => void> = [];
+  const extPaneRenamedSubs: Array<(paneId: string, name: string | null) => void> =
+    [];
   /** Extension palette commands. */
   const extPaletteCommands: Array<{
     id: string;
     label: string;
+    keywords?: string;
     run: () => void;
   }> = [];
   /** Extension tab lifecycle subscribers. */
@@ -4568,6 +4573,15 @@ async function boot(): Promise<void> {
           const trimmed = name.trim().replace(/\s+/g, "_");
           if (trimmed) paneNames.set(paneId, trimmed);
           else paneNames.delete(paneId);
+          if (extPaneRenamedSubs.length > 0) {
+            for (const fn of extPaneRenamedSubs) {
+              try {
+                fn(paneId, trimmed || null);
+              } catch {
+                /* ignore */
+              }
+            }
+          }
           persistCurrentWorkspaceTabLayout();
         },
       })
@@ -5577,81 +5591,8 @@ async function boot(): Promise<void> {
         run: () => closeWorkspaceTab(activeWorkspaceTabId),
       },
       // --- Panes ---
-      {
-        id: "pane-split-v",
-        label: "Split right",
-        keywords: "split vertical columns side by side layout profile",
-        hotkey: k.label("pane_split_right"),
-        run: () => {
-          splitFocusedWithCwd("h");
-        },
-      },
-      {
-        id: "pane-split-h",
-        label: "Split down",
-        keywords: "split horizontal rows stacked layout profile",
-        hotkey: k.label("pane_split_down"),
-        run: () => {
-          splitFocusedWithCwd("v");
-        },
-      },
-      {
-        id: "pane-profile-split-v",
-        label: "Split right with profile…",
-        keywords: "split vertical profile picker alias",
-        hotkey: k.label("profile_split_right"),
-        run: () => openProfileSplitPicker("split-h"),
-      },
-      {
-        id: "pane-profile-split-h",
-        label: "Split down with profile…",
-        keywords: "split horizontal profile picker alias",
-        hotkey: k.label("profile_split_down"),
-        run: () => openProfileSplitPicker("split-v"),
-      },
-      {
-        id: "pane-close",
-        label: "Close pane",
-        keywords: "remove split focused",
-        hotkey: "Ctrl+Shift+W",
-        run: () => {
-          void closeFocusedPane();
-        },
-      },
-      {
-        id: "pane-toggle-floating",
-        label: "Float pane",
-        keywords: "float pop out pop in tile hyprland layout",
-        hotkey: k.label("pane_float_toggle"),
-        run: () => {
-          toggleFocusedPaneFloating();
-        },
-      },
-      {
-        id: "pane-new-floating",
-        label: "New floating pane",
-        keywords: "float pop out new terminal overlay window",
-        hotkey: k.label("pane_float_new"),
-        run: () => {
-          createFloatingPaneWithCwd();
-        },
-      },
-      {
-        id: "pane-profile-float-new",
-        label: "New floating pane with profile…",
-        keywords: "float pop out new terminal overlay profile picker alias",
-        hotkey: k.label("profile_float_new"),
-        run: () => openProfileFloatPicker(),
-      },
-      {
-        id: "pane-toggle-floating-follow",
-        label: "Toggle floating follow",
-        keywords: "float follow tab overlay sticky pin across tabs",
-        hotkey: k.label("pane_float_follow"),
-        run: () => {
-          toggleFocusedPaneFollow();
-        },
-      },
+      // Split/float/close commands are keybind-driven (see help modal);
+      // only discovery via a keybind-free action stays in the palette.
       {
         id: "pane-rename",
         label: "Rename pane",
@@ -5765,50 +5706,8 @@ async function boot(): Promise<void> {
           "background keep alive pty buffer webview shed hide memory agent logs tui session",
         run: () => void setBackgroundWorkMode(!isBackgroundWorkMode()),
       },
-      // --- Window ---
-      {
-        id: "window-maximize",
-        label: "Maximize",
-        keywords: "window maximize fullscreen grow zoom",
-        hotkey: "Alt+Shift+Up",
-        run: () => void setWindowMaximized(true),
-      },
-      {
-        id: "window-restore",
-        label: "Restore",
-        keywords: "window restore unmaximize shrink",
-        hotkey: "Alt+Shift+Down",
-        run: () => void setWindowMaximized(false),
-      },
-      {
-        id: "window-next-monitor",
-        label: "Next monitor",
-        keywords: "window monitor screen display move next",
-        hotkey: "Alt+Shift+Right",
-        run: () => void moveWindowToAdjacentMonitor(1),
-      },
-      {
-        id: "window-prev-monitor",
-        label: "Previous monitor",
-        keywords: "window monitor screen display move previous prev",
-        hotkey: "Alt+Shift+Left",
-        run: () => void moveWindowToAdjacentMonitor(-1),
-      },
-      {
-        id: "hide-overlay",
-        label: "Hide",
-        keywords: "close overlay tray background hotkey dismiss",
-        hotkey: "Alt+Shift+T",
-        run: () => void invoke("toggle_overlay").catch(() => {}),
-      },
       // --- App ---
-      {
-        id: "open-settings",
-        label: "Settings",
-        keywords: "preferences config options",
-        hotkey: "Ctrl+,",
-        run: () => runLazy(ensureSettingsPanel, (api) => api.open()),
-      },
+      // Settings and the window operations are keybind-driven (help modal).
       {
         id: "open-extensions",
         label: "Extensions",
@@ -5831,7 +5730,7 @@ async function boot(): Promise<void> {
       ...extPaletteCommands.map((c) => ({
         id: `ext-${c.id}`,
         label: c.label,
-        keywords: "extension",
+        keywords: c.keywords ? `extension ${c.keywords}` : "extension",
         run: c.run,
       })),
     ];
@@ -5854,6 +5753,7 @@ async function boot(): Promise<void> {
       rows.push({ hotkey, label: cmd.label.replace(/…$/, "") });
     }
     // Keyboard + mouse shortcuts that aren't palette commands.
+    // Keybind labels resolve live so custom rebinds show here too.
     rows.push(
       { hotkey: "Tab", label: "New tab / Split → pick profile" },
       { hotkey: "@profile", label: "New tab or split with a profile" },
@@ -5861,10 +5761,40 @@ async function boot(): Promise<void> {
         hotkey: "a / A",
         label: "In profile picker: selection alias (case-sensitive; config.toml)",
       },
-      { hotkey: "Ctrl+Arrows", label: "Focus adjacent pane" },
+      { hotkey: k.label("pane_split_right"), label: "Split right" },
+      { hotkey: k.label("pane_split_down"), label: "Split down" },
+      {
+        hotkey: k.label("profile_split_right"),
+        label: "Split right with profile…",
+      },
+      {
+        hotkey: k.label("profile_split_down"),
+        label: "Split down with profile…",
+      },
+      { hotkey: k.label("pane_close"), label: "Close pane" },
+      { hotkey: k.label("pane_float_toggle"), label: "Float pane" },
+      { hotkey: k.label("pane_float_new"), label: "New floating pane" },
+      {
+        hotkey: k.label("profile_float_new"),
+        label: "New floating pane with profile…",
+      },
+      { hotkey: k.label("pane_float_follow"), label: "Toggle floating follow" },
+      { hotkey: "Alt+Arrows", label: "Focus adjacent pane" },
       { hotkey: "Ctrl+Shift+Arrows", label: "Swap pane with neighbor" },
       { hotkey: "Alt+1–9", label: "Switch to tab" },
       { hotkey: "Ctrl+Shift+1–9, 0", label: "Move pane to tab" },
+      { hotkey: k.label("window_maximize"), label: "Maximize window" },
+      { hotkey: k.label("window_restore"), label: "Restore window" },
+      {
+        hotkey: k.label("window_move_next_monitor"),
+        label: "Window to next monitor",
+      },
+      {
+        hotkey: k.label("window_move_prev_monitor"),
+        label: "Window to previous monitor",
+      },
+      { hotkey: k.label("window_toggle"), label: "Hide / show overlay" },
+      { hotkey: k.label("settings_open"), label: "Settings" },
       { hotkey: "Shift+Enter", label: "Insert newline" },
       { hotkey: "Ctrl+Wheel", label: "Zoom focused pane" },
       { hotkey: "Alt+Drag", label: "Move floating pane or swap tiled panes" },
@@ -6426,6 +6356,15 @@ async function boot(): Promise<void> {
     listen<{ paneId: string; cwd: string }>("pty-cwd", (event) => {
       const { paneId, cwd } = event.payload;
       paneCwdHints.set(paneId, cwd);
+      if (extCwdChangeSubs.length > 0) {
+        for (const fn of extCwdChangeSubs) {
+          try {
+            fn(paneId, cwd);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
       if (paneId !== paneHost?.getFocusedPaneId()) return;
       if (normalizeFsPathKey(cwd) === normalizeFsPathKey(liveCwd ?? "")) return;
       liveCwd = cwd;
@@ -6788,12 +6727,40 @@ async function boot(): Promise<void> {
           const override = paneThemes.get(paneId);
           return { theme, override: override ?? null };
         },
-        getFocusedPaneId: () => paneHost?.getFocusedPaneId() ?? null,
+        getFocusedPaneId: () => focusedPaneId(),
         getPaneIds: () => {
           const ids: string[] = [];
-          for (const host of tabPaneHosts.values())
-            ids.push(...host.getLeafIdsInOrder());
+          for (const host of tabPaneHosts.values()) {
+            host.forEachPane((id) => ids.push(id));
+          }
           return ids;
+        },
+        getPaneInfo(paneId: string) {
+          if (typeof paneId !== "string" || !paneId) return null;
+          const host = getPaneHostByPaneId(paneId);
+          if (!host) return null;
+          const floatState = host.getFloatingState()[paneId];
+          return {
+            id: paneId,
+            name: paneEffectiveName(paneId),
+            userName: paneNames.get(paneId) ?? null,
+            programName: paneProgramNames.get(paneId) ?? null,
+            cwd: paneCwdHints.get(paneId) ?? null,
+            tabId: tabIdForPaneHost(host) ?? null,
+            floating: floatState !== undefined,
+            focused: focusedPaneId() === paneId,
+          };
+        },
+        getPaneTerminalDims(paneId: string) {
+          const pt = getPaneTerminalById(paneId);
+          if (!pt) return null;
+          return { cols: pt.term.cols, rows: pt.term.rows };
+        },
+        getWindowState() {
+          return {
+            visible: document.visibilityState === "visible",
+            zenMode: document.documentElement.classList.contains("zen-mode"),
+          };
         },
         getPaneCwd: (paneId: string) => paneCwdHints.get(paneId) ?? null,
         getPaneName: (paneId: string) => paneNames.get(paneId) ?? null,
@@ -6859,10 +6826,39 @@ async function boot(): Promise<void> {
             if (idx !== -1) extFocusSubs.splice(idx, 1);
           };
         },
+        onCwdChanged(fn: (paneId: string, cwd: string) => void) {
+          extCwdChangeSubs.push(fn);
+          return () => {
+            const idx = extCwdChangeSubs.indexOf(fn);
+            if (idx !== -1) extCwdChangeSubs.splice(idx, 1);
+          };
+        },
+        onPaneRenamed(fn: (paneId: string, name: string | null) => void) {
+          extPaneRenamedSubs.push(fn);
+          return () => {
+            const idx = extPaneRenamedSubs.indexOf(fn);
+            if (idx !== -1) extPaneRenamedSubs.splice(idx, 1);
+          };
+        },
 
         // ── Command palette ──
-        registerCommand(id: string, label: string, run: () => void) {
-          extPaletteCommands.push({ id, label, run });
+        registerCommand(
+          id: string,
+          label:
+            | string
+            | { label: string; keywords?: string; run: () => void },
+          run?: () => void,
+        ) {
+          const def =
+            typeof label === "string"
+              ? { id, label, run: run ?? (() => {}) }
+              : { id, ...label };
+          extPaletteCommands.push({
+            id: def.id,
+            label: def.label,
+            keywords: def.keywords,
+            run: def.run,
+          });
           return () => {
             const idx = extPaletteCommands.findIndex((c) => c.id === id);
             if (idx !== -1) extPaletteCommands.splice(idx, 1);
