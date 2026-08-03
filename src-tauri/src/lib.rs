@@ -110,7 +110,37 @@ fn open_external_url(url: String) -> Result<(), String> {
     if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
         return Err("only http/https links are allowed".to_string());
     }
-    opener::open(trimmed).map_err(|e| e.to_string())?;
+    open_url_in_default_browser(trimmed)
+}
+
+/// Open an http(s) URL with the default browser (ShellExecuteW; replaces `opener`).
+fn open_url_in_default_browser(url: &str) -> Result<(), String> {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    let wide: Vec<u16> = OsStr::new(url)
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+    // SAFETY: `wide` stays alive and NUL-terminated for the duration of the
+    // call; all other parameters are null (current window, default verb,
+    // no arguments, no directory).
+    let result = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            wide.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // Return values <= 32 are SE_ERR_* failures.
+    if (result as isize) <= 32 {
+        return Err(format!("ShellExecuteW failed: {}", result as isize));
+    }
     Ok(())
 }
 

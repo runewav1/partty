@@ -1282,8 +1282,9 @@ impl Default for PersistedState {
 // ===========================================================================
 
 fn config_dir() -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    Some(home.join(".partty"))
+    // Windows-only app: `%USERPROFILE%` (dirs::home_dir on Windows).
+    let home = std::env::var_os("USERPROFILE")?;
+    Some(PathBuf::from(home).join(".partty"))
 }
 
 pub(crate) fn ensure_config_dir() -> Option<PathBuf> {
