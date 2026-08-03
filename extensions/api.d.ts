@@ -50,6 +50,9 @@ export type CursorPosition = {
   x: number;
   /** View-relative cell row (0 = top visible row). */
   y: number;
+  /** "move" = the cursor actually moved; "sync" = view-relative re-emission
+   *  (scroll/resize) where the cursor teleports. */
+  kind: "move" | "sync";
 };
 
 export type OverlayHandle = {
@@ -132,7 +135,7 @@ export type ExtensionApi = {
   // ── Metadata ──
   getAppVersion(): string;
 
-  // ── Rendering & cursor (planned — in development) ──
+  // ── Rendering & cursor (pane overlay surface) ──
   /** Per-pane canvas overlay above the terminal surface. */
   createOverlay(
     paneId: string,

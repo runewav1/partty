@@ -863,6 +863,78 @@ async function boot(): Promise<void> {
   const extWindowShowSubs: Array<() => void> = [];
   const extWindowHideSubs: Array<() => void> = [];
 
+  // ── Extension cursor subscriptions (per-pane, lazy; zero-cost when unused) ──
+  type ExtCursorSubEntry = {
+    subs: Array<
+      (
+        pos: { x: number; y: number; kind: "move" | "sync" },
+      ) => void
+    >;
+    dispose: (() => void) | null;
+  };
+  const extCursorMoveSubs = new Map<string, ExtCursorSubEntry>();
+  /** Panes whose terminal cursor is hidden by an extension overlay. */
+  const extCursorHiddenPanes = new Set<string>();
+  /** Original cursor colors of panes with a hidden cursor, so the extension
+   *  surface reports the real theme (not the transparent hide hack). */
+  const extCursorHiddenOriginal = new Map<
+    string,
+    { cursor?: string; cursorAccent?: string }
+  >();
+
+  function ensureExtCursorSubs(paneId: string): ExtCursorSubEntry | null {
+    const pt = getPaneTerminalById(paneId);
+    if (!pt) return null;
+    let entry = extCursorMoveSubs.get(paneId);
+    if (entry) return entry;
+    // xterm reports the event without a payload and only fires it from the
+    // input parser — the cursor's VIEW row also changes on viewport scroll
+    // and terminal resize, so re-emit on those too. Deliver the
+    // view-relative row the drawing surface needs, tagged with the source:
+    // "move" = the cursor actually moved, "sync" = a view-relative
+    // re-emission (scroll/resize) where the cursor teleports.
+    const emit =
+      (kind: "move" | "sync") =>
+      (): void => {
+        const buf = pt.term.buffer.active;
+        const viewY = buf.cursorY - buf.viewportY;
+        const cur = extCursorMoveSubs.get(paneId);
+        if (!cur) return;
+        for (const fn of cur.subs) {
+          try {
+            fn({ x: buf.cursorX, y: viewY, kind });
+          } catch {
+            /* ignore */
+          }
+        }
+      };
+    const d1 = pt.term.onCursorMove(emit("move"));
+    const d2 = pt.term.onScroll(emit("sync"));
+    const d3 = pt.term.onResize(emit("sync"));
+    const dispose = (): void => {
+      d1.dispose();
+      d2.dispose();
+      d3.dispose();
+    };
+    entry = { subs: [], dispose };
+    extCursorMoveSubs.set(paneId, entry);
+    return entry;
+  }
+
+  function removeExtCursorSub(
+    paneId: string,
+    fn: (pos: { x: number; y: number; kind: "move" | "sync" }) => void,
+  ): void {
+    const entry = extCursorMoveSubs.get(paneId);
+    if (!entry) return;
+    const idx = entry.subs.indexOf(fn);
+    if (idx !== -1) entry.subs.splice(idx, 1);
+    if (entry.subs.length === 0) {
+      entry.dispose?.();
+      extCursorMoveSubs.delete(paneId);
+    }
+  }
+
   const syncKeystrokeProcessTracking = (): void => {
     keystrokeProcessTrackingEnabled = needsKeystrokeProcessTracking(
       processNotificationEnabledRef.v,
@@ -2175,6 +2247,17 @@ async function boot(): Promise<void> {
   const stage = document.getElementById("terminal-stage");
 
 
+  /** Force the transparent cursor on panes whose extension overlay hides it.
+   *  Theme re-applies rebuild `options.theme` and would otherwise clobber
+   *  the hide (double cursor next to the extension's own rendering). */
+  function applyExtCursorHides(paneId: string, pt: PaneTerminal): void {
+    if (!extCursorHiddenPanes.has(paneId)) return;
+    pt.term.options.theme = {
+      ...pt.term.options.theme,
+      cursor: "rgba(0, 0, 0, 0)",
+    };
+  }
+
   function refreshAllTerminalThemes(): void {
     // Refresh all tabs so theme changes don't drift on inactive tabs
     for (const host of tabPaneHosts.values()) {
@@ -2185,6 +2268,7 @@ async function boot(): Promise<void> {
           ...th,
           cursorAccent: th.background ?? TERM_BG_FALLBACK,
         };
+        applyExtCursorHides(id, pt);
         pt.term.refresh(0, pt.term.rows - 1);
       });
     }
@@ -2201,6 +2285,7 @@ async function boot(): Promise<void> {
         ...th,
         cursorAccent: th.background ?? TERM_BG_FALLBACK,
       };
+      applyExtCursorHides(paneId, pt);
       pt.term.refresh(0, pt.term.rows - 1);
     }
   }
@@ -6737,6 +6822,14 @@ async function boot(): Promise<void> {
           const theme = pt
             ? { ...pt.term.options.theme }
             : buildXtermThemeFromPrefs(persisted.prefs as PaneThemePrefs);
+          // Don't leak the hideCursor implementation detail (a transparent
+          // cursor) — report the pane's real cursor color.
+          const original = extCursorHiddenOriginal.get(paneId);
+          if (original) {
+            if (original.cursor !== undefined) theme.cursor = original.cursor;
+            if (original.cursorAccent !== undefined)
+              theme.cursorAccent = original.cursorAccent;
+          }
           const override = paneThemes.get(paneId);
           return { theme, override: override ?? null };
         },
@@ -6768,6 +6861,188 @@ async function boot(): Promise<void> {
           const pt = getPaneTerminalById(paneId);
           if (!pt) return null;
           return { cols: pt.term.cols, rows: pt.term.rows };
+        },
+
+        // ── Rendering & cursor (pane overlay surface) ──
+        createOverlay(paneId: string, opts?: { hideCursor?: boolean }) {
+          if (typeof paneId !== "string" || !paneId) return null;
+          const found = getPaneTerminalById(paneId);
+          const element = found?.term.element;
+          if (!found || !element) return null;
+          // Non-nullable locals so closures keep their types.
+          const term = found.term;
+
+          // Anchor to the screen box (exactly the rendered canvas area;
+          // excludes the scrollbar). Falls back to the terminal root.
+          const screen = element.querySelector(".xterm-screen");
+          const parent = screen instanceof HTMLElement ? screen : element;
+          parent.classList.add("partty-ext-overlay-anchor");
+
+          const layer = document.createElement("div");
+          layer.className = "partty-ext-overlay-layer";
+          const canvas = document.createElement("canvas");
+          canvas.className = "partty-ext-overlay-canvas";
+          layer.appendChild(canvas);
+          parent.appendChild(layer);
+
+          const maybeCtx = canvas.getContext("2d");
+          if (!maybeCtx) {
+            layer.remove();
+            return null;
+          }
+          const ctx = maybeCtx;
+
+          let destroyed = false;
+          let drawFn: ((t: number) => void) | null = null;
+          let raf = 0;
+          let pendingHidden = false;
+          let hiddenObserver: MutationObserver | null = null;
+          let cssW = 0;
+          let cssH = 0;
+
+          const isHidden = (): boolean =>
+            getComputedStyle(element).visibility === "hidden";
+
+          const handle = {
+            canvas,
+            ctx,
+            cellWidth: 0,
+            cellHeight: 0,
+            cols: 0,
+            rows: 0,
+            requestRender(draw: (t: number) => void): void {
+              if (destroyed) return;
+              drawFn = draw;
+              if (raf) return;
+              if (isHidden()) {
+                pendingHidden = true;
+                ensureHiddenObserver();
+                return;
+              }
+              raf = requestAnimationFrame(onFrame);
+            },
+            destroy(): void {
+              if (destroyed) return;
+              destroyed = true;
+              if (raf) cancelAnimationFrame(raf);
+              raf = 0;
+              hiddenObserver?.disconnect();
+              hiddenObserver = null;
+              ro.disconnect();
+              if (savedCursorTheme) {
+                extCursorHiddenPanes.delete(paneId);
+                extCursorHiddenOriginal.delete(paneId);
+                term.options.theme = {
+                  ...term.options.theme,
+                  ...savedCursorTheme,
+                };
+              }
+              layer.remove();
+              if (!parent.querySelector(".partty-ext-overlay-layer")) {
+                parent.classList.remove("partty-ext-overlay-anchor");
+              }
+            },
+          };
+
+          function measure(): void {
+            const rect = parent.getBoundingClientRect();
+            cssW = Math.max(1, Math.round(rect.width));
+            cssH = Math.max(1, Math.round(rect.height));
+            const dpr = window.devicePixelRatio || 1;
+            const pw = Math.max(1, Math.round(cssW * dpr));
+            const ph = Math.max(1, Math.round(cssH * dpr));
+            if (canvas.width !== pw) canvas.width = pw;
+            if (canvas.height !== ph) canvas.height = ph;
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            handle.cellWidth = term.cols > 0 ? cssW / term.cols : 0;
+            handle.cellHeight = term.rows > 0 ? cssH / term.rows : 0;
+            handle.cols = term.cols;
+            handle.rows = term.rows;
+          }
+
+          function ensureHiddenObserver(): void {
+            if (hiddenObserver) return;
+            const host = getPaneHostByPaneId(paneId);
+            const tabId = host ? tabIdForPaneHost(host) : null;
+            const shell = tabId ? (tabPaneShells.get(tabId) ?? null) : null;
+            if (!shell) return;
+            hiddenObserver = new MutationObserver(() => {
+              if (!isHidden() && pendingHidden && !destroyed) {
+                pendingHidden = false;
+                raf = requestAnimationFrame(onFrame);
+              }
+            });
+            hiddenObserver.observe(shell, {
+              attributes: true,
+              attributeFilter: ["class"],
+            });
+          }
+
+          function onFrame(t: number): void {
+            raf = 0;
+            if (destroyed) return;
+            if (isHidden()) {
+              pendingHidden = true;
+              ensureHiddenObserver();
+              return;
+            }
+            measure();
+            const fn = drawFn;
+            if (!fn) return;
+            // The API owns the clear: extensions draw only.
+            ctx.clearRect(0, 0, cssW, cssH);
+            try {
+              fn(t);
+            } catch {
+              /* ignore */
+            }
+          }
+
+          const ro = new ResizeObserver(() => {
+            if (destroyed) return;
+            measure();
+            if (!raf && drawFn) raf = requestAnimationFrame(onFrame);
+          });
+          ro.observe(parent);
+
+          // The WebGL renderer paints the cursor into its canvas, so CSS
+          // cannot hide it; a transparent theme cursor does. The registry
+          // lets theme re-applies (refreshAllTerminalThemes/applyPaneTheme)
+          // keep the hide in force; the immediate value is restored on
+          // destroy.
+          let savedCursorTheme: { cursor?: string; cursorAccent?: string } | null =
+            null;
+          if (opts?.hideCursor) {
+            const th = { ...term.options.theme };
+            savedCursorTheme = {
+              cursor: th.cursor,
+              cursorAccent: th.cursorAccent,
+            };
+            extCursorHiddenPanes.add(paneId);
+            extCursorHiddenOriginal.set(paneId, savedCursorTheme);
+            term.options.theme = { ...th, cursor: "rgba(0, 0, 0, 0)" };
+          }
+
+          measure();
+          const cleanups = paneHostCleanups.get(paneId) ?? [];
+          cleanups.push(() => handle.destroy());
+          paneHostCleanups.set(paneId, cleanups);
+          return handle;
+        },
+        onCursorMove(
+          paneId: string,
+          fn: (pos: { x: number; y: number; kind: "move" | "sync" }) => void,
+        ) {
+          const entry = ensureExtCursorSubs(paneId);
+          if (!entry) return () => {};
+          entry.subs.push(fn);
+          return () => removeExtCursorSub(paneId, fn);
+        },
+        getCursorPos(paneId: string) {
+          const pt = getPaneTerminalById(paneId);
+          if (!pt) return null;
+          const buf = pt.term.buffer.active;
+          return { x: buf.cursorX, y: buf.cursorY - buf.viewportY };
         },
         getWindowState() {
           return {

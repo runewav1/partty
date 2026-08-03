@@ -1234,6 +1234,27 @@ html.terminal-motion-off *::after {
   flex: 0 0 auto;
 }
 
+/* Extension overlay layer (rendered above the terminal canvas, below UI chrome).
+   `createOverlay` marks its anchor element with the overlay-anchor class. */
+.partty-ext-overlay-anchor {
+  position: relative;
+}
+
+.partty-ext-overlay-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.partty-ext-overlay-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
 /* Invisible resize gutters between panes. */
 .pane-gutter {
   flex-shrink: 0;
