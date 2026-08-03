@@ -391,10 +391,14 @@ fn extract_associated_icon_bmp(source: &Path, dest: &Path) -> Option<()> {
 unsafe fn cleanup_iconinfo(info: &windows_sys::Win32::UI::WindowsAndMessaging::ICONINFO) {
     use windows_sys::Win32::Graphics::Gdi::DeleteObject;
     if !info.hbmColor.is_null() {
-        DeleteObject(info.hbmColor);
+        unsafe {
+            DeleteObject(info.hbmColor);
+        }
     }
     if !info.hbmMask.is_null() {
-        DeleteObject(info.hbmMask);
+        unsafe {
+            DeleteObject(info.hbmMask);
+        }
     }
 }
 
