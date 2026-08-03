@@ -1410,8 +1410,7 @@ fn split_commandline(raw: &str) -> Result<(String, Vec<String>), String> {
     let mut tokens: Vec<String> = Vec::new();
     let mut cur = String::new();
     let mut in_quotes = false;
-    let mut chars = raw.chars().peekable();
-    while let Some(c) = chars.next() {
+    for c in raw.chars() {
         match c {
             '"' => in_quotes = !in_quotes,
             c if c.is_whitespace() && !in_quotes => {
@@ -1572,7 +1571,7 @@ fn windows_shell_command(
     match kind {
         ShellKind::Pwsh | ShellKind::PowerShell => {
             let exe = if matches!(kind, ShellKind::Pwsh) {
-                cached_resolve("pwsh", || resolve_pwsh_executable())
+                cached_resolve("pwsh", resolve_pwsh_executable)
                     .ok_or_else(|| "PowerShell 7 (pwsh) not found.".to_string())?
             } else {
                 cached_resolve("powershell", || resolve_on_path("powershell.exe"))

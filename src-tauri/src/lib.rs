@@ -456,14 +456,15 @@ fn schedule_destroy_webview_after_hide(app: &AppHandle) {
     thread::spawn(move || {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            let st = app.state::<AppState>();
-            if st.hide_destroy_generation.load(Ordering::SeqCst) != generation {
-                return;
+            {
+                let st = app.state::<AppState>();
+                if st.hide_destroy_generation.load(Ordering::SeqCst) != generation {
+                    return;
+                }
+                if st.hide_buffers_ready.load(Ordering::SeqCst) || Instant::now() >= deadline {
+                    break;
+                }
             }
-            if st.hide_buffers_ready.load(Ordering::SeqCst) || Instant::now() >= deadline {
-                break;
-            }
-            drop(st);
             thread::sleep(Duration::from_millis(5));
         }
         thread::sleep(Duration::from_millis(20));
@@ -480,11 +481,8 @@ fn schedule_destroy_webview_after_hide(app: &AppHandle) {
             app2.state::<AppState>()
                 .webview_destroyed_for_hide
                 .store(true, Ordering::SeqCst);
-            match app2.get_webview_window("main") {
-                Some(w) => {
-                    let _ = w.destroy();
-                }
-                None => {}
+            if let Some(w) = app2.get_webview_window("main") {
+                let _ = w.destroy();
             }
         });
     });
@@ -739,6 +737,9 @@ async fn request_destroy_webview_for_hide(app: AppHandle) -> Result<(), String> 
 }
 
 #[tauri::command]
+// Command signature mirrors the IPC surface; grouping the args would churn
+// the frontend contract for no functional gain.
+#[allow(clippy::too_many_arguments)]
 fn pty_ensure(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -780,15 +781,16 @@ fn pty_ensure(
     // (empty pool). Splits carry profile and working-directory context from
     // their parent that the warm session does not have.
     let first_pane = state.pty_panes.lock().is_empty();
+    let warm = {
+        let mut g = state.warm_pty.lock();
+        if g.as_ref().map(|w| w.identity.as_str()) == Some(want.as_str()) {
+            g.take()
+        } else {
+            None
+        }
+    };
     let session = if first_pane {
-        match {
-            let mut g = state.warm_pty.lock();
-            if g.as_ref().map(|w| w.identity.as_str()) == Some(want.as_str()) {
-                g.take()
-            } else {
-                None
-            }
-        } {
+        match warm {
             Some(warm) => {
                 *warm.session.pane_id.lock() = pane_id.clone();
                 let _ = warm.session.resize(cols, rows);
@@ -828,6 +830,9 @@ fn pty_ensure(
 }
 
 #[tauri::command]
+// Command signature mirrors the IPC surface; grouping the args would churn
+// the frontend contract for no functional gain.
+#[allow(clippy::too_many_arguments)]
 fn pty_spawn(
     app: AppHandle,
     state: State<'_, AppState>,

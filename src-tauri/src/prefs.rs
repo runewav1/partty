@@ -48,9 +48,6 @@ fn default_pane_opacity_unfocused() -> f64 {
 fn default_pane_focus_scale_intensity() -> f64 {
     0.45
 }
-fn default_ui_disable_tooltips() -> bool {
-    false
-}
 fn default_terminal_backspace_delete_selection() -> bool {
     true
 }
@@ -960,24 +957,15 @@ impl Default for MouseSection {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UiSection {
-    #[serde(default = "default_ui_disable_tooltips")]
+    #[serde(default)]
     pub hide_tooltips: bool,
     #[serde(default)]
     pub zen_on_start: bool,
 }
 
-impl Default for UiSection {
-    fn default() -> Self {
-        Self {
-            hide_tooltips: false,
-            zen_on_start: false,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ThemeSection {
     #[serde(default = "default_ui_theme")]
     pub active: String,
@@ -985,27 +973,10 @@ pub struct ThemeSection {
     pub variant: String,
 }
 
-impl Default for ThemeSection {
-    fn default() -> Self {
-        Self {
-            active: default_ui_theme(),
-            variant: default_ui_theme_variant(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct FontFamilySection {
     #[serde(default)]
     pub family: String,
-}
-
-impl Default for FontFamilySection {
-    fn default() -> Self {
-        Self {
-            family: String::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1014,7 +985,7 @@ pub struct TerminalSection {
     pub experimental: TerminalExperimentalSection,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TerminalExperimentalSection {
     /// Use a sideloaded `conpty.dll` / `OpenConsole.exe` deployed next to the
     /// binary as the ConPTY host (Windows Terminal's approach). Enables image
@@ -1024,14 +995,6 @@ pub struct TerminalExperimentalSection {
     /// first spawn). Falls back to the inbox host when the DLLs are absent.
     #[serde(default)]
     pub sideload_openconsole: bool,
-}
-
-impl Default for TerminalExperimentalSection {
-    fn default() -> Self {
-        Self {
-            sideload_openconsole: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1298,20 +1261,11 @@ impl From<&Prefs> for ConfigToml {
 // PersistedState — convenience wrapper returned to frontend over IPC
 // ===========================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct PersistedState {
     pub window: WindowState,
     pub prefs: Prefs,
-}
-
-impl Default for PersistedState {
-    fn default() -> Self {
-        Self {
-            window: WindowState::default(),
-            prefs: Prefs::default(),
-        }
-    }
 }
 
 // ===========================================================================

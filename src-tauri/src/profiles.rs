@@ -13,18 +13,13 @@ use std::process::Command;
 
 pub const LOCAL_DEFAULT_ID: &str = "local-default";
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ProfileKind {
+    #[default]
     Local,
     Wsl,
     Ssh,
-}
-
-impl Default for ProfileKind {
-    fn default() -> Self {
-        Self::Local
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
