@@ -144,7 +144,6 @@ import {
   ptyKillPane,
   ptyReplaySnapshot,
   ptyResizeBatch,
-  ptyShellCwd,
   ptyWrite,
 } from "./ptyIpc";
 import { createTabCloseIcon } from "./toolbarIcons";
@@ -891,7 +890,6 @@ async function boot(): Promise<void> {
   let pendingPtyOutputRaf = 0;
   let pendingPtyOutputTimer = 0;
   let liveCwd: string | null = null;
-  let lastLiveCwdSignalAt = 0;
   let lastFocusedPaneId = "";
   let tooltipObserver: MutationObserver | null = null;
   let bridgeScrollCleanup: (() => void) | null = null;
@@ -1624,7 +1622,6 @@ async function boot(): Promise<void> {
       void ptyFocusPane(r).catch(() => {});
     }
     scheduleResizeImmediate();
-    scheduleCwdSync();
   }
 
   function disposeWebglForPane(paneId: string): void {
@@ -2196,7 +2193,6 @@ async function boot(): Promise<void> {
 
   let debounceTimer = 0;
   let layoutRaf = 0;
-  let cwdSyncTimer = 0;
   let layoutForceRefresh = false;
   let terminalLayoutSuspended = false;
   let pendingSuspendedLayout = false;
@@ -2362,34 +2358,11 @@ async function boot(): Promise<void> {
     scheduleCreationReflowForHost(host);
   }
 
-  async function syncCwdFromBackend(): Promise<void> {
-    try {
-      if (Date.now() - lastLiveCwdSignalAt < 1500) return;
-      const paneId = paneHost?.getFocusedPaneId() ?? null;
-      const p = await ptyShellCwd(paneId);
-      if (p == null || !p.trim()) return;
-      const next = p.trim();
-      if (normalizeFsPathKey(next) === normalizeFsPathKey(liveCwd ?? ""))
-        return;
-      liveCwd = next;
-    } catch {
-      /* ignore */
-    }
-  }
-
   function setZenMode(next: boolean): void {
     document.documentElement.classList.toggle("zen-mode", next);
     localStorage.setItem(ZEN_MODE_STORAGE_KEY, next ? "1" : "0");
     applyTooltipPolicy(document);
     scheduleResizeImmediate();
-  }
-
-  function scheduleCwdSync(): void {
-    if (cwdSyncTimer) window.clearTimeout(cwdSyncTimer);
-    cwdSyncTimer = window.setTimeout(() => {
-      cwdSyncTimer = 0;
-      void syncCwdFromBackend();
-    }, 120);
   }
 
   function requestLayoutPass(forceRefresh = false): void {
@@ -2506,7 +2479,6 @@ async function boot(): Promise<void> {
         lastPtyDims.set(paneId, safe);
         parttyPerf.mark("pty.ensure.success");
         parttyPerf.time("pty.ensure.ms", performance.now() - ensureStarted);
-        if (paneId === paneHost?.getFocusedPaneId()) scheduleCwdSync();
         flushPaneStartupCommand(paneId);
         return;
       } catch (e) {
@@ -2553,7 +2525,6 @@ async function boot(): Promise<void> {
         scheduleResizeImmediate(true);
       }
       void remountAuxiliaryForFocus(id);
-      void syncCwdFromBackend();
     });
   }
 
@@ -2923,9 +2894,6 @@ async function boot(): Promise<void> {
                 }
               }
             }
-            if (data.includes("\r") || data.includes("\n")) {
-              scheduleCwdSync();
-            }
           });
           const onHostClick = (ev: MouseEvent) => {
             if (handleCtrlClickToken(pt.term, pt.host, ev)) return;
@@ -3239,7 +3207,6 @@ async function boot(): Promise<void> {
       tabsState.tabs.length > 1,
     );
     renderWorkspaceTabsBar();
-    scheduleCwdSync();
     getFocusedTerm()?.focus();
     const tabMotionOn =
       !document.documentElement.classList.contains("terminal-motion-off") &&
@@ -3573,17 +3540,6 @@ async function boot(): Promise<void> {
     )?.trim();
     for (const id of ids) {
       let cwd = paneCwdHints.get(id)?.trim();
-      if (!cwd) {
-        try {
-          const fromPty = await ptyShellCwd(id);
-          if (fromPty?.trim()) {
-            cwd = fromPty.trim();
-            paneCwdHints.set(id, cwd);
-          }
-        } catch {
-          /* ignore */
-        }
-      }
       if (!cwd) {
         const profileId = resolveDefaultProfileId(
           paneProfileIds.get(id) ?? profileBehaviorRef.v.default_profile_id,
@@ -6440,7 +6396,6 @@ async function boot(): Promise<void> {
       if (ft) ft.refresh(0, ft.rows - 1);
       if (paneHost) scheduleHostGeometryRepair(paneHost);
       scheduleResizeImmediate(true);
-      scheduleCwdSync();
       await waitAnimationFrames(2);
 
       await unlockSummonSurface();
@@ -6463,7 +6418,6 @@ async function boot(): Promise<void> {
     listen<{ paneId: string; cwd: string }>("pty-cwd", (event) => {
       const { paneId, cwd } = event.payload;
       paneCwdHints.set(paneId, cwd);
-      lastLiveCwdSignalAt = Date.now();
       if (paneId !== paneHost?.getFocusedPaneId()) return;
       if (normalizeFsPathKey(cwd) === normalizeFsPathKey(liveCwd ?? "")) return;
       liveCwd = cwd;
@@ -6569,7 +6523,6 @@ async function boot(): Promise<void> {
       paneHost?.forEachPane((_id, p) => {
         p.term.reset();
       });
-      scheduleCwdSync();
     }),
     listen("partty-hide", () => {
       void (async () => {
@@ -6623,7 +6576,6 @@ async function boot(): Promise<void> {
         await mountWebglForActivePanes();
         getFocusedTerm()?.focus();
         scheduleResizeImmediate();
-        scheduleCwdSync();
         await waitAnimationFrames(2);
         await unlockSummonSurface();
         mouseCursorController?.sync();
@@ -6688,8 +6640,6 @@ async function boot(): Promise<void> {
       paneHost?.forEachPane((id) => {
         void ensurePtyForPane(id);
       });
-    } else {
-      scheduleCwdSync();
     }
   });
 
@@ -6700,7 +6650,6 @@ async function boot(): Promise<void> {
     // causes a post-reveal layout bounce.
     if (summonInProgress || summonPreparedByDefer) return;
     scheduleResizeDebounced();
-    scheduleCwdSync();
     reflowAllPanes();
     getFocusedTerm()?.focus();
   });

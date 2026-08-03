@@ -428,8 +428,6 @@ pub struct PtySession {
     master: Arc<parking_lot::Mutex<Box<dyn MasterPty + Send>>>,
     writer: Arc<parking_lot::Mutex<Box<dyn Write + Send>>>,
     child: Arc<parking_lot::Mutex<Option<Box<dyn Child + Send + Sync>>>>,
-    /// Root shell process (pwsh/cmd/…); used to query real cwd (with pwsh, OSC 7 is also injected on each prompt).
-    shell_pid: Option<u32>,
     stop: Arc<AtomicBool>,
     replay_buffer: Arc<parking_lot::Mutex<Vec<u8>>>,
     /// Live binary output channel.  Swapped on each `pty_ensure` so a rebuilt
@@ -480,7 +478,6 @@ impl PtySession {
 
         let cmd = shell_command_for_profile(&prefs, profile)?;
         let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
-        let shell_pid = child.process_id();
 
         let master = pair.master;
         let reader = master.try_clone_reader().map_err(|e| e.to_string())?;
@@ -736,7 +733,6 @@ impl PtySession {
             master,
             writer,
             child,
-            shell_pid,
             stop,
             replay_buffer,
             output_channel,
@@ -744,24 +740,6 @@ impl PtySession {
             _reader,
             _emitter,
         })
-    }
-
-    /// Best-effort cwd: uses the foreground console process on Windows when nested shells share the PTY.
-    pub fn shell_cwd(&self) -> Option<String> {
-        let pid = self.cwd_target_pid()?;
-        query_cwd_for_pid(pid)
-    }
-
-    /// Shell executable token for palette context (nested shell when detectable on Windows).
-    pub fn shell_exe_token(&self) -> Option<String> {
-        let pid = self.cwd_target_pid()?;
-        query_exe_token_for_pid(pid)
-    }
-
-    /// PID to query for cwd/exe (ConPTY root or deepest nested shell attached to the same console).
-    fn cwd_target_pid(&self) -> Option<u32> {
-        let root = self.shell_pid?;
-        Some(crate::win_console::effective_cwd_target_pid(root))
     }
 
     pub fn write(&self, data: &[u8]) -> Result<(), String> {
@@ -818,52 +796,6 @@ impl Drop for PtySession {
     fn drop(&mut self) {
         self.kill();
     }
-}
-
-fn query_cwd_for_pid(pid: u32) -> Option<String> {
-    if let Some(cwd) = crate::peb_cwd_windows::cwd_from_pid(pid) {
-        return Some(cwd);
-    }
-    query_cwd_for_pid_sysinfo(pid)
-}
-
-fn query_cwd_for_pid_sysinfo(pid: u32) -> Option<String> {
-    use std::sync::Mutex;
-    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
-    static SYS: Mutex<Option<System>> = Mutex::new(None);
-    let mut sys_opt = SYS.lock().unwrap();
-    let sys = sys_opt.get_or_insert_with(System::new);
-    let p = Pid::from_u32(pid);
-    sys.refresh_processes_specifics(
-        ProcessesToUpdate::Some(&[p]),
-        false,
-        ProcessRefreshKind::nothing().with_cwd(UpdateKind::Always),
-    );
-    sys.process(p)
-        .and_then(|proc| proc.cwd())
-        .map(|path| path.to_string_lossy().into_owned())
-}
-
-fn query_exe_token_for_pid(pid: u32) -> Option<String> {
-    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
-    let mut sys = System::new();
-    let p = Pid::from_u32(pid);
-    sys.refresh_processes_specifics(
-        ProcessesToUpdate::Some(&[p]),
-        false,
-        ProcessRefreshKind::nothing().with_exe(UpdateKind::Always),
-    );
-    sys.process(p).map(|proc| {
-        let name = proc.name().to_string_lossy();
-        normalize_shell_exe_token(&name)
-    })
-}
-
-fn normalize_shell_exe_token(name: &str) -> String {
-    let n = name.trim();
-    let n = n.rsplit(['/', '\\']).next().unwrap_or(n);
-    let n = n.strip_suffix(".exe").unwrap_or(n);
-    n.to_lowercase()
 }
 
 fn has_exe_on_path(name: &str) -> bool {

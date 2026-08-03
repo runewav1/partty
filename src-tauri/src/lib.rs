@@ -1,12 +1,10 @@
 mod keybinds;
-mod peb_cwd_windows;
 mod prefs;
 mod profile_icons;
 mod profiles;
 mod pty;
 mod subprocess;
 mod theme;
-mod win_console;
 mod window_state;
 mod workspaces;
 
@@ -916,62 +914,6 @@ fn pty_focus_pane(state: State<'_, AppState>, pane_id: String) -> Result<(), Str
     Ok(())
 }
 
-/// Live cwd from the focused (or named) PTY.
-pub(crate) fn effective_cwd_for_ui(state: &AppState, pane_id: Option<&str>) -> Option<String> {
-    let resolved = pane_id
-        .map(|s| s.to_string())
-        .or_else(|| state.focused_pane_id.lock().clone())
-        .or_else(|| state.pty_panes.lock().keys().next().cloned());
-    let Some(id) = resolved else {
-        return None;
-    };
-    let g = state.pty_panes.lock();
-    let Some(s) = g.get(&id) else {
-        return None;
-    };
-    if let Some(cwd) = s.shell_cwd() {
-        let t = cwd.trim().to_string();
-        if !t.is_empty() {
-            return Some(t);
-        }
-    }
-    None
-}
-
-#[tauri::command]
-fn pty_shell_cwd(
-    state: State<'_, AppState>,
-    pane_id: Option<String>,
-) -> Result<Option<String>, String> {
-    if let Some(pid) = pane_id {
-        let g = state.pty_panes.lock();
-        let Some(s) = g.get(&pid) else {
-            return Ok(None);
-        };
-        if let Some(cwd) = s.shell_cwd() {
-            let t = cwd.trim().to_string();
-            if !t.is_empty() {
-                return Ok(Some(t));
-            }
-        }
-        return Ok(None);
-    }
-    Ok(effective_cwd_for_ui(&state, None))
-}
-
-/// Foreground shell executable token for a pane (nested shell when detectable), for palette `>` commands.
-#[tauri::command]
-fn pty_shell_exe_token(
-    state: State<'_, AppState>,
-    pane_id: String,
-) -> Result<Option<String>, String> {
-    let g = state.pty_panes.lock();
-    let Some(s) = g.get(&pane_id) else {
-        return Ok(None);
-    };
-    Ok(s.shell_exe_token())
-}
-
 #[tauri::command]
 fn get_persisted_state(state: State<'_, AppState>) -> PersistedState {
     state.persisted.lock().clone()
@@ -1183,8 +1125,6 @@ pub fn run() {
             pty_kill_pane,
             pty_ack_exit,
             pty_focus_pane,
-            pty_shell_cwd,
-            pty_shell_exe_token,
             get_persisted_state,
             get_app_session_id,
             stash_terminal_buffers,

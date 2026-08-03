@@ -1,5 +1,5 @@
 /**
- * Best-effort cwd hints from plain shell output (complements OSC 7 and backend pty_shell_cwd).
+ * Best-effort cwd hints from plain shell output (complements OSC 7).
  * Uses a rolling tail per pane so paths split across PTY chunks still match.
  */
 

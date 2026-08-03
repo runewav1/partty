@@ -70,12 +70,3 @@ export function ptyAckExit(paneId: string): Promise<void> {
 export function ptyFocusPane(paneId: string): Promise<void> {
   return invoke("pty_focus_pane", { paneId });
 }
-
-export function ptyShellCwd(paneId: string | null): Promise<string | null> {
-  return invoke("pty_shell_cwd", { paneId });
-}
-
-/** Foreground shell exe token (e.g. pwsh, bash) for palette `>` commands. */
-export function ptyShellExeToken(paneId: string): Promise<string | null> {
-  return invoke<string | null>("pty_shell_exe_token", { paneId });
-}
