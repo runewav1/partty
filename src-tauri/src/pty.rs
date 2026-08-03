@@ -11,6 +11,7 @@ use std::sync::mpsc::{sync_channel, RecvTimeoutError};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager};
 
 const SHELL_INTEGRATION_PWSH: &str = include_str!("../scripts/partty-shell-integration.ps1");
@@ -405,7 +406,10 @@ pub struct PtySession {
     /// Root shell process (pwsh/cmd/…); used to query real cwd (with pwsh, OSC 7 is also injected on each prompt).
     shell_pid: Option<u32>,
     stop: Arc<AtomicBool>,
-    replay_buffer: Arc<parking_lot::Mutex<String>>,
+    replay_buffer: Arc<parking_lot::Mutex<Vec<u8>>>,
+    /// Live binary output channel.  Swapped on each `pty_ensure` so a rebuilt
+    /// webview re-subscribes without restarting the reader/emitter threads.
+    output_channel: Arc<parking_lot::Mutex<Option<Channel<InvokeResponseBody>>>>,
     /// Emitted on `pty-output` / `pty-exit` for multi-pane routing.
     /// Stored behind a Mutex so that pre-warmed sessions can be adopted
     /// by a real pane without restarting the reader/emitter threads.
@@ -461,7 +465,8 @@ impl PtySession {
         let writer = Arc::new(parking_lot::Mutex::new(writer));
         let child = Arc::new(parking_lot::Mutex::new(Some(child)));
         let stop = Arc::new(AtomicBool::new(false));
-        let replay_buffer = Arc::new(parking_lot::Mutex::new(String::with_capacity(256 * 1024)));
+        let replay_buffer = Arc::new(parking_lot::Mutex::new(Vec::with_capacity(256 * 1024)));
+        let output_channel = Arc::new(parking_lot::Mutex::new(None));
 
         let pane_id_arc = Arc::new(parking_lot::Mutex::new(pane_id.clone()));
 
@@ -506,20 +511,27 @@ impl PtySession {
         let replay_emitter = Arc::clone(&replay_buffer);
         let app_emit = app.clone();
         let pane_id_emitter = Arc::clone(&pane_id_arc);
+        let output_channel_emitter = Arc::clone(&output_channel);
         // NOTE: do NOT capture a `WebviewWindow` here.  When
         // `destroy_webview_on_hide` is enabled (the default), the main webview
         // is torn down on hide and rebuilt on summon; a handle captured at PTY
         // spawn time would point at the dead webview and silently lose every
-        // `eval` after the first dismiss.  Instead we re-resolve the live
-        // "main" window from the `AppHandle` on every batch and, while it is
-        // absent, retain `pending` so the live shell process simply back-
-        // pressures until the next webview is ready — letting the session
-        // transparently reattach on resummon.
+        // `eval` after the first dismiss.  Instead the frontend re-subscribes
+        // an output `Channel` on every `pty_ensure` and, while no live channel
+        // is attached, `pending` is retained so the live shell process simply
+        // back-pressures until the next subscription is ready — letting the
+        // session transparently reattach on resummon.
         let _emitter = thread::spawn(move || {
             let batch_window = Duration::from_millis(PTY_OUTPUT_BATCH_MS);
             let mut pending = Vec::<u8>::with_capacity(16 * 1024);
             let mut stripper = OscStripper::new();
+            // Batch that was stripped but could not be delivered (webview down
+            // or channel not subscribed yet); retried on the next iteration.
+            let mut held: Option<Vec<u8>> = None;
             while !stop_emitter.load(Ordering::SeqCst) {
+                if let Some(h) = held.take() {
+                    pending = h;
+                }
                 if pending.is_empty() {
                     match rx.recv() {
                         Ok(chunk) => pending.extend_from_slice(&chunk),
@@ -547,32 +559,24 @@ impl PtySession {
                 if !pending.is_empty() {
                     let pane = pane_id_emitter.lock().clone();
 
-                    // Hold while webview is down or JS has not finished scrollback restore.
-                    let win = app_emit.get_webview_window("main");
+                    // Hold while JS has not finished scrollback restore.
                     let unlocked = app_emit
                         .state::<crate::AppState>()
                         .pty_output_unlocked
                         .load(Ordering::SeqCst);
-                    let Some(win) = win.filter(|_| unlocked) else {
+                    if !unlocked {
                         if pending.len() > PTY_PENDING_HOLD_MAX_BYTES {
                             let excess = pending.len() - PTY_PENDING_HOLD_MAX_BYTES;
                             pending.drain(..excess);
                         }
                         thread::sleep(Duration::from_millis(20));
                         continue;
-                    };
+                    }
 
                     // Strip OSC 7 / 133 / 633 in Rust; emit side-channel events.
                     let (cleaned_bytes, osc_events) = stripper.process(&pending);
                     pending.clear();
 
-                    let text = match String::from_utf8(cleaned_bytes) {
-                        Ok(s) => s,
-                        Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
-                    };
-                    append_replay_buffer(&replay_emitter, &text);
-
-                    // Emit CWD and shell-integration side events first (before output).
                     for ev in osc_events {
                         match ev {
                             OscSideEvent::Cwd(cwd) => {
@@ -641,10 +645,28 @@ impl PtySession {
                         }
                     }
 
-                    let pane_json = serde_json::to_string(&pane).unwrap();
-                    let data_json = serde_json::to_string(&text).unwrap();
-                    let _ = win
-                        .eval(&format!("window.__partty_out({},{})", pane_json, data_json));
+                    // Deliver raw bytes over the live output channel.  When no
+                    // channel is attached (webview torn down / not yet
+                    // subscribed) or the send fails, hold the cleaned batch
+                    // and retry so no output is lost across a rebuild.
+                    let channel: Option<Channel<InvokeResponseBody>> =
+                        output_channel_emitter.lock().clone();
+                    let delivered = match channel {
+                        Some(ch) => ch
+                            .send(InvokeResponseBody::Raw(cleaned_bytes.clone()))
+                            .is_ok(),
+                        None => false,
+                    };
+                    if !delivered {
+                        let mut h = cleaned_bytes;
+                        if h.len() > PTY_PENDING_HOLD_MAX_BYTES {
+                            h.drain(..(h.len() - PTY_PENDING_HOLD_MAX_BYTES));
+                        }
+                        held = Some(h);
+                        thread::sleep(Duration::from_millis(20));
+                        continue;
+                    }
+                    append_replay_buffer(&replay_emitter, &cleaned_bytes);
                 }
 
                 if disconnected {
@@ -660,6 +682,7 @@ impl PtySession {
             shell_pid,
             stop,
             replay_buffer,
+            output_channel,
             pane_id: pane_id_arc,
             _reader,
             _emitter,
@@ -690,7 +713,13 @@ impl PtySession {
         w.flush().map_err(|e| e.to_string())
     }
 
-    pub fn replay_snapshot(&self) -> String {
+    /// Attach (or replace) the live output channel.  Called on every
+    /// `pty_ensure` so a freshly built webview re-subscribes.
+    pub fn set_output_channel(&self, channel: Channel<InvokeResponseBody>) {
+        *self.output_channel.lock() = Some(channel);
+    }
+
+    pub fn replay_snapshot(&self) -> Vec<u8> {
         self.replay_buffer.lock().clone()
     }
 
@@ -714,18 +743,18 @@ impl PtySession {
     }
 }
 
-fn append_replay_buffer(buf: &Arc<parking_lot::Mutex<String>>, text: &str) {
+fn append_replay_buffer(buf: &Arc<parking_lot::Mutex<Vec<u8>>>, bytes: &[u8]) {
     let mut replay = buf.lock();
-    replay.push_str(text);
-    if replay.len() <= PTY_REPLAY_BUFFER_BYTES {
-        return;
+    if replay.len() + bytes.len() > PTY_REPLAY_BUFFER_BYTES {
+        let excess = replay.len() + bytes.len() - PTY_REPLAY_BUFFER_BYTES;
+        let mut drain_to = excess.min(replay.len());
+        // Never cut a UTF-8 sequence in half at the start of the buffer.
+        while drain_to < replay.len() && (replay[drain_to] & 0xC0) == 0x80 {
+            drain_to += 1;
+        }
+        replay.drain(..drain_to);
     }
-    let excess = replay.len() - PTY_REPLAY_BUFFER_BYTES;
-    let mut drain_to = excess;
-    while drain_to < replay.len() && !replay.is_char_boundary(drain_to) {
-        drain_to += 1;
-    }
-    replay.drain(..drain_to);
+    replay.extend_from_slice(bytes);
 }
 
 impl Drop for PtySession {

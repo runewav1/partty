@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   availableMonitors,
@@ -127,10 +127,14 @@ import {
 } from "./workspaces";
 
 import {
+  createByteChunkBuffer,
   createStringChunkBuffer,
+  drainByteChunks,
   drainStringChunks,
-  peekStringChunkChars,
+  peekByteChunkBytes,
+  pushByteChunk,
   pushStringChunk,
+  type ByteChunkBuffer,
   type StringChunkBuffer,
 } from "./chunkBuffer";
 import {
@@ -173,7 +177,7 @@ const TERM_BG_FALLBACK = "#2e2e32";
 const RESIZE_DEBOUNCE_MS = 100;
 const PTY_OUTPUT_FLUSH_MS = 4;
 const PTY_OUTPUT_BACKGROUND_FLUSH_MS = 33;
-const PTY_OUTPUT_MAX_BATCH_CHARS = 128 * 1024;
+const PTY_OUTPUT_MAX_BATCH_BYTES = 128 * 1024;
 
 const ZEN_MODE_STORAGE_KEY = "partty.zen.enabled";
 const TOOLTIP_STASH_ATTR = "data-partty-tooltip-title";
@@ -388,7 +392,7 @@ type PaneWebglState = {
   contextLossDispose?: { dispose(): void };
 };
 type PendingPtyOutput = {
-  chunks: StringChunkBuffer;
+  chunks: ByteChunkBuffer;
   eventCount: number;
   queuedAt: number;
 };
@@ -825,6 +829,8 @@ async function boot(): Promise<void> {
   const extPtyInputSubs: Array<(paneId: string, data: string) => void> = [];
   /** Extension PTY output subscribers — zero-cost when empty. */
   const extPtyOutputSubs: Array<(paneId: string, data: string) => void> = [];
+  /** Decodes raw PTY bytes only when extension output subscribers exist. */
+  const ptyOutputDecoder = new TextDecoder("utf-8");
   /** Extension process lifecyle subscribers — zero-cost when empty. */
   const extProcStartSubs: Array<
     (proc: { paneId: string; command: string; cwd: string }) => void
@@ -1072,7 +1078,7 @@ async function boot(): Promise<void> {
 
   function processPtyOutputBatch(
     paneId: string,
-    data: string,
+    data: Uint8Array,
     eventCount: number,
     queuedAt: number,
   ): void {
@@ -1122,14 +1128,14 @@ async function boot(): Promise<void> {
       if (
         !isFocused &&
         age < PTY_OUTPUT_BACKGROUND_FLUSH_MS &&
-        peekStringChunkChars(batch.chunks) < PTY_OUTPUT_MAX_BATCH_CHARS
+        peekByteChunkBytes(batch.chunks) < PTY_OUTPUT_MAX_BATCH_BYTES
       ) {
         pendingPtyOutputByPane.set(paneId, batch);
         continue;
       }
       processPtyOutputBatch(
         paneId,
-        drainStringChunks(batch.chunks),
+        drainByteChunks(batch.chunks),
         batch.eventCount,
         batch.queuedAt,
       );
@@ -1149,8 +1155,8 @@ async function boot(): Promise<void> {
     }
   }
 
-  function queuePtyOutput(paneId: string, data: string): void {
-    if (!data) return;
+  function queuePtyOutput(paneId: string, data: Uint8Array): void {
+    if (!data || data.byteLength === 0) return;
     if (
       !pendingPtyOutputByPane.has(paneId) &&
       paneId === paneHost?.getFocusedPaneId()
@@ -1164,11 +1170,11 @@ async function boot(): Promise<void> {
     parttyPerf.mark("pty.output.queued.chars", data.length);
     const existing = pendingPtyOutputByPane.get(paneId);
     if (existing) {
-      pushStringChunk(existing.chunks, data);
+      pushByteChunk(existing.chunks, data);
       existing.eventCount++;
     } else {
-      const chunks = createStringChunkBuffer();
-      pushStringChunk(chunks, data);
+      const chunks = createByteChunkBuffer();
+      pushByteChunk(chunks, data);
       pendingPtyOutputByPane.set(paneId, {
         chunks,
         eventCount: 1,
@@ -1178,7 +1184,7 @@ async function boot(): Promise<void> {
     const batch = pendingPtyOutputByPane.get(paneId);
     if (
       batch &&
-      peekStringChunkChars(batch.chunks) >= PTY_OUTPUT_MAX_BATCH_CHARS
+      peekByteChunkBytes(batch.chunks) >= PTY_OUTPUT_MAX_BATCH_BYTES
     ) {
       flushPendingPtyOutputs();
       return;
@@ -1187,15 +1193,17 @@ async function boot(): Promise<void> {
   }
 
   /**
-   * Direct-eval PTY output from Rust (`window.__partty_out`). Rust holds
-   * output until `set_pty_output_unlocked` after scrollback restore.
+   * Binary PTY output from Rust, delivered over the pane's output `Channel`
+   * (`InvokeResponseBody::Raw` → `ArrayBuffer`). Rust holds output until
+   * `set_pty_output_unlocked` after scrollback restore.
    */
-  function deliverDirectPtyOut(paneId: string, data: string): void {
+  function deliverDirectPtyOut(paneId: string, data: Uint8Array): void {
     queuePtyOutput(paneId, data);
     if (extPtyOutputSubs.length > 0) {
+      const text = ptyOutputDecoder.decode(data);
       for (const fn of extPtyOutputSubs) {
         try {
-          fn(paneId, data);
+          fn(paneId, text);
         } catch {
           /* ignore */
         }
@@ -1210,10 +1218,6 @@ async function boot(): Promise<void> {
       console.warn("set_pty_output_unlocked", e);
     }
   }
-
-  (window as any).__partty_out = (paneId: string, data: string) => {
-    deliverDirectPtyOut(paneId, data);
-  };
 
   const getTerminalClickCell = (
     term: Terminal,
@@ -1767,7 +1771,9 @@ async function boot(): Promise<void> {
     if (!isTerminalVisiblyEmpty(pt.term)) return;
     try {
       const snapshot = await ptyReplaySnapshot(paneId);
-      if (snapshot) pt.term.write(snapshot);
+      if (snapshot && snapshot.byteLength > 0) {
+        pt.term.write(new Uint8Array(snapshot));
+      }
     } catch (e) {
       console.warn("pty_replay_snapshot", e);
     }
@@ -2480,6 +2486,13 @@ async function boot(): Promise<void> {
         safe = clampPtyColsRows(raw.cols, raw.rows);
       }
       try {
+        // Fresh output channel per ensure: on resummon after a webview
+        // rebuild Rust swaps it in (`session.set_output_channel`), which is
+        // how live output re-attaches without restarting the shell.
+        const output = new Channel<ArrayBuffer>();
+        output.onmessage = (buf: ArrayBuffer) => {
+          deliverDirectPtyOut(paneId, new Uint8Array(buf));
+        };
         await ptyEnsure(
           paneId,
           safe.cols,
@@ -2487,6 +2500,7 @@ async function boot(): Promise<void> {
           effectiveCwd,
           shellOverride,
           profileId,
+          output,
         );
         await replayBackendSnapshotOnce(paneId, pt);
         lastPtyDims.set(paneId, safe);
@@ -6536,7 +6550,7 @@ async function boot(): Promise<void> {
         pendingPtyOutputByPane.delete(pane_id);
         processPtyOutputBatch(
           pane_id,
-          drainStringChunks(pending.chunks),
+          drainByteChunks(pending.chunks),
           pending.eventCount,
           pending.queuedAt,
         );

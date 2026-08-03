@@ -19,6 +19,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tauri::ipc::{Channel, InvokeResponseBody, Response};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -672,6 +673,7 @@ fn pty_ensure(
     initial_cwd: Option<String>,
     shell: Option<String>,
     profile_id: Option<String>,
+    output: Channel<InvokeResponseBody>,
 ) -> Result<(), String> {
     let base = state.persisted.lock().prefs.clone();
     let (spawn_prefs, profile, want) =
@@ -688,6 +690,9 @@ fn pty_ensure(
         }
     };
     if let Some(session) = existing {
+        // Session already live (resummon after webview rebuild): re-subscribe
+        // the output channel and resize.
+        session.set_output_channel(output);
         let _ = session.resize(cols, rows);
         return Ok(());
     }
@@ -735,6 +740,7 @@ fn pty_ensure(
         profile.as_ref(),
     )?)
     };
+    session.set_output_channel(output);
     state.pty_panes.lock().insert(pane_id.clone(), session);
     state
         .pty_spawn_identity
@@ -819,17 +825,14 @@ fn pty_write(state: State<'_, AppState>, pane_id: String, data: String) -> Resul
 }
 
 #[tauri::command]
-fn pty_replay_snapshot(
-    state: State<'_, AppState>,
-    pane_id: String,
-) -> Result<Option<String>, String> {
+fn pty_replay_snapshot(state: State<'_, AppState>, pane_id: String) -> Result<Response, String> {
     let session = {
         let g = state.pty_panes.lock();
         g.get(&pane_id).cloned()
     };
-    Ok(session
-        .map(|s| s.replay_snapshot())
-        .filter(|s| !s.is_empty()))
+    Ok(Response::new(
+        session.map(|s| s.replay_snapshot()).unwrap_or_default(),
+    ))
 }
 
 #[derive(serde::Deserialize)]
