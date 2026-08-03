@@ -284,6 +284,16 @@
               </div>
             </div>
 
+            <div class="settings-section" data-section="terminal">
+              <div class="settings-section-hd settings-section-hd--experimental">Experimental</div>
+              <div class="settings-section-bd">
+                <div class="settings-toggles">
+                  <label class="settings-checkbox-label" title="Use a sideloaded conpty.dll / OpenConsole.exe deployed next to the binary as the ConPTY host (Windows Terminal's approach), enabling image protocols (sixel / kitty / iTerm) that the inbox host filters out"><span>Sideload OpenConsole host</span><input class="settings-checkbox-input" type="checkbox" name="terminal_sideload_openconsole" /></label>
+                  <div class="settings-toggle-desc">Unstable. Requires conpty.dll + OpenConsole.exe next to partty.exe and a restart; without them the inbox host is used.</div>
+                </div>
+              </div>
+            </div>
+
             <div class="settings-section" data-section="ui">
               <div class="settings-section-hd">Transparency</div>
               <div class="settings-section-bd">

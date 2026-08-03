@@ -15,6 +15,8 @@ pub mod conpty;
 mod procthreadattr;
 mod psuedocon;
 
+pub use psuedocon::set_sideload_openconsole;
+
 use filedescriptor::OwnedHandle;
 
 #[derive(Debug)]

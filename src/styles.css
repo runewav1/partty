@@ -1831,6 +1831,11 @@ html.zen-mode #main-workspace {
   border-bottom: 1px solid var(--panel-divider);
 }
 
+/* Experimental sections: warm gold tint to signal unstable/advanced config. */
+.settings-section-hd--experimental {
+  color: color-mix(in srgb, #e2b053 72%, var(--ui-chrome-fg) 28%);
+}
+
 .settings-section-bd {
   padding: 6px 14px 10px;
 }

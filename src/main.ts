@@ -2815,6 +2815,9 @@ async function boot(): Promise<void> {
         smoothScrollDuration: smoothScrollRef.v,
         scrollSensitivity: scrollSensitivityRef.v,
         fastScrollSensitivity: fastScrollSensitivityRef.v,
+        sideloadOpenconsole: Boolean(
+          (persisted.prefs as Partial<ParttyPrefs>).terminal_sideload_openconsole,
+        ),
         linkHandler: {
           activate: (_event, uri) => {
             if (

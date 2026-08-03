@@ -1,5 +1,5 @@
 import { FitAddon } from "@xterm/addon-fit";
-import { ImageAddon } from "@xterm/addon-image";
+import type { ImageAddon } from "@xterm/addon-image";
 import type { LigaturesAddon } from "@xterm/addon-ligatures";
 import type { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
@@ -24,7 +24,7 @@ export type PaneNode = PaneLeaf | PaneSplit;
 export type PaneTerminal = {
   term: Terminal;
   fit: FitAddon;
-  image: ImageAddon;
+  image?: ImageAddon;
   ligatures?: LigaturesAddon;
   serialize?: SerializeAddon;
   host: HTMLElement;
@@ -64,6 +64,8 @@ const MASTER_SPLIT_RATIO = 0.68;
 export type PaneHostOptions = {
   scrollbackLines: number;
   fontStack: string;
+  /** Load the image addon (requires the OpenConsole-sideloaded PTY host). */
+  sideloadOpenconsole: boolean;
   cursorStyle: "block" | "underline" | "bar";
   cursorBlink: boolean;
   cursorInactiveStyle?: "outline" | "block" | "bar" | "underline" | "none";
@@ -241,6 +243,29 @@ function scheduleLigaturesAddon(pt: PaneTerminal): void {
       const ligaturesAddon = new LigaturesAddon();
       pt.term.loadAddon(ligaturesAddon);
       pt.ligatures = ligaturesAddon;
+    });
+  };
+  if (typeof requestIdleCallback !== "undefined") {
+    requestIdleCallback(() => attach(), { timeout: 2000 });
+  } else {
+    queueMicrotask(attach);
+  }
+}
+
+/**
+ * Loads the image addon lazily, only when the OpenConsole-sideloaded PTY
+ * host is enabled (`terminal.experimental.sideload_openconsole`) — the only
+ * configuration where image protocols survive the PTY layer.
+ */
+function scheduleImageAddon(pt: PaneTerminal, enabled: boolean): void {
+  if (!enabled) return;
+  const attach = (): void => {
+    if (pt.image) return;
+    void import("@xterm/addon-image").then(({ ImageAddon }) => {
+      if (pt.image) return;
+      const imageAddon = new ImageAddon();
+      pt.term.loadAddon(imageAddon);
+      pt.image = imageAddon;
     });
   };
   if (typeof requestIdleCallback !== "undefined") {
@@ -1964,8 +1989,6 @@ export class PaneHost {
         });
         const fit = new FitAddon();
         term.loadAddon(fit);
-        const imageAddon = new ImageAddon();
-        term.loadAddon(imageAddon);
         const unicode11 = new Unicode11Addon();
         term.loadAddon(unicode11);
         // Addon only registers the version; activate it explicitly.
@@ -1979,11 +2002,11 @@ export class PaneHost {
         pt = {
           term,
           fit,
-          image: imageAddon,
           host,
           row,
         };
         scheduleLigaturesAddon(pt);
+        scheduleImageAddon(pt, this.opts.sideloadOpenconsole);
         this.terminals.set(node.id, pt);
         this.opts.onPaneCreated(node.id, pt);
       }

@@ -466,6 +466,9 @@ impl PtySession {
         if let Some(cwd) = initial_cwd {
             prefs.initial_cwd = Some(cwd);
         }
+        // Opt-in sideloaded OpenConsole host (see `terminal.experimental`.
+        // sideload_openconsole). Must be set before the first PsuedoCon.
+        portable_pty::win::set_sideload_openconsole(prefs.terminal_sideload_openconsole);
         let system = native_pty_system();
         let pair = system
             .openpty(PtySize {

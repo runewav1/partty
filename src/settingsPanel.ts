@@ -30,6 +30,12 @@ export type ParttyPrefs = {
   auto_copy_selection: boolean;
   /** Right-click in the terminal pastes from the clipboard. */
   right_click_paste?: boolean;
+  /**
+   * Use a sideloaded `conpty.dll`/`OpenConsole.exe` next to the binary as the
+   * ConPTY host, enabling image protocols (sixel/kitty/iTerm) that the inbox
+   * conhost filters out. Also loads the terminal image addon.
+   */
+  terminal_sideload_openconsole?: boolean;
   /** Retain pane layouts, working directories, and tab state when the window closes. */
   retain_session_state?: boolean;
   ui_theme: string;
@@ -224,6 +230,7 @@ export function createSettingsPanel(
       terminal_no_gap: terminal_pane_gap <= 0, terminal_pane_gap, terminal_sandbox_padding,
       terminal_no_round: gc("terminal_no_round"), terminal_no_pane_border: gc("terminal_no_pane_border"),
       terminal_no_focus_border: gc("terminal_no_focus_border"), split_layout_style,
+      terminal_sideload_openconsole: gc("terminal_sideload_openconsole"),
       quiet_pane_deferral: gc("quiet_pane_deferral"),
       default_profile_id: g("default_profile_id") || previous.default_profile_id || "local-default",
       inherit_profile_on_split: gc("inherit_profile_on_split"),
@@ -512,6 +519,7 @@ export function createSettingsPanel(
     setChk("terminal_no_round", pr.terminal_no_round ?? false);
     setChk("terminal_no_pane_border", pr.terminal_no_pane_border ?? false);
     setChk("terminal_no_focus_border", pr.terminal_no_focus_border ?? false);
+    setChk("terminal_sideload_openconsole", pr.terminal_sideload_openconsole ?? false);
 
     applySettingsTree();
     applySettingsSearch();

@@ -221,6 +221,8 @@ pub struct Prefs {
     pub terminal_animation_speed: String,
     #[serde(default = "default_terminal_animation_style")]
     pub terminal_animation_style: String,
+    #[serde(default)]
+    pub terminal_sideload_openconsole: bool,
     #[serde(default = "default_true")]
     pub terminal_window_motion: bool,
     #[serde(default = "default_split_layout_style")]
@@ -360,6 +362,7 @@ impl Default for Prefs {
             terminal_animation_speed: default_terminal_animation_speed(),
             terminal_animation_style: default_terminal_animation_style(),
             terminal_window_motion: true,
+            terminal_sideload_openconsole: false,
             split_layout_style: default_split_layout_style(),
             quiet_pane_deferral: false,
             default_profile_id: default_default_profile_id(),
@@ -445,6 +448,8 @@ pub struct ConfigToml {
     pub font_terminal: FontFamilySection,
     #[serde(default)]
     pub font_ui: FontFamilySection,
+    #[serde(default)]
+    pub terminal: TerminalSection,
     pub dev: DevSection,
 }
 
@@ -1004,6 +1009,32 @@ impl Default for FontFamilySection {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TerminalSection {
+    #[serde(default)]
+    pub experimental: TerminalExperimentalSection,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerminalExperimentalSection {
+    /// Use a sideloaded `conpty.dll` / `OpenConsole.exe` deployed next to the
+    /// binary as the ConPTY host (Windows Terminal's approach). Enables image
+    /// protocols (sixel/kitty/iTerm) that the inbox conhost filters out; the
+    /// frontend also loads the image addon only when this is set. Takes
+    /// effect for PTYs spawned after the first one (the host is pinned at
+    /// first spawn). Falls back to the inbox host when the DLLs are absent.
+    #[serde(default)]
+    pub sideload_openconsole: bool,
+}
+
+impl Default for TerminalExperimentalSection {
+    fn default() -> Self {
+        Self {
+            sideload_openconsole: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DevSection {
     #[serde(default)]
     pub perf: DevPerfSection,
@@ -1076,6 +1107,7 @@ impl From<ConfigToml> for Prefs {
             terminal_animation_speed: c.animation.speed,
             terminal_animation_style: c.animation.easing,
             terminal_window_motion: c.animation.window_motion,
+            terminal_sideload_openconsole: c.terminal.experimental.sideload_openconsole,
             split_layout_style: c.split.layout,
             quiet_pane_deferral: c.split.quiet_defer,
             default_profile_id: c.profiles.default,
@@ -1130,6 +1162,11 @@ impl From<ConfigToml> for Prefs {
 impl From<&Prefs> for ConfigToml {
     fn from(p: &Prefs) -> Self {
         Self {
+            terminal: TerminalSection {
+                experimental: TerminalExperimentalSection {
+                    sideload_openconsole: p.terminal_sideload_openconsole,
+                },
+            },
             cursor: CursorSection {
                 style: p.terminal_cursor_style.clone(),
                 blink: p.terminal_cursor_blink,

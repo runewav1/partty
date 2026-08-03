@@ -9,8 +9,9 @@ use std::ffi::OsString;
 use std::io::Error as IoError;
 use std::os::windows::ffi::OsStringExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{mem, ptr};
 use winapi::shared::minwindef::DWORD;
 use winapi::shared::winerror::{HRESULT, S_OK};
@@ -42,6 +43,17 @@ shared_library!(ConPtyFuncs,
     pub fn ClosePseudoConsole(hpc: HPCON),
 );
 
+/// Opt-in sideloading of a `conpty.dll` / `OpenConsole.exe` host (the
+/// Windows Terminal approach), which forwards DCS/APC/unknown sequences the
+/// inbox conhost filters out. Set before the first PTY is spawned; the host
+/// is pinned at first use.
+static SIDELOAD_OPENCONSOLE: AtomicBool = AtomicBool::new(false);
+
+/// Enable (or disable) preferring a sideloaded conpty.dll host.
+pub fn set_sideload_openconsole(enabled: bool) {
+    SIDELOAD_OPENCONSOLE.store(enabled, Ordering::SeqCst);
+}
+
 fn load_conpty() -> ConPtyFuncs {
     // If the kernel doesn't export these functions then their system is
     // too old and we cannot run.
@@ -49,14 +61,27 @@ fn load_conpty() -> ConPtyFuncs {
         "this system does not support conpty.  Windows 10 October 2018 or newer is required",
     );
 
-    // We prefer to use a sideloaded conpty.dll and openconsole.exe host deployed
-    // alongside the application.  We check for this after checking for kernel
-    // support so that we don't try to proceed and do something crazy.
-    if let Ok(sideloaded) = ConPtyFuncs::open(Path::new("conpty.dll")) {
-        sideloaded
-    } else {
-        kernel
+    // Sideloading is opt-in: only when enabled do we prefer a conpty.dll
+    // (which hosts its own OpenConsole.exe) deployed alongside the app.
+    if !SIDELOAD_OPENCONSOLE.load(Ordering::SeqCst) {
+        return kernel;
     }
+
+    // Look next to the executable first (works regardless of CWD), then CWD.
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("conpty.dll"));
+        }
+    }
+    candidates.push(PathBuf::from("conpty.dll"));
+
+    for candidate in candidates {
+        if let Ok(sideloaded) = ConPtyFuncs::open(&candidate) {
+            return sideloaded;
+        }
+    }
+    kernel
 }
 
 lazy_static! {
