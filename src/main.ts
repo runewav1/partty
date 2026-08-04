@@ -1091,8 +1091,9 @@ async function boot(): Promise<void> {
   ): void => {
     if (!data) return;
     parttyPerf.recordPtyInputBytes(paneId, data.length);
-    if (lastKeydownTs) {
-      parttyPerf.time("input.keydown.to.onData.ms", performance.now() - lastKeydownTs);
+    const keydownTs = lastKeydownTs;
+    if (keydownTs) {
+      parttyPerf.time("input.keydown.to.onData.ms", performance.now() - keydownTs);
       lastKeydownTs = 0;
     }
     // Pastes / large bursts: don't RAF-coalesce into one oversized ConPTY write.
@@ -1112,6 +1113,7 @@ async function boot(): Promise<void> {
       flushPendingPtyWriteForPane(paneId);
       parttyPerf.mark("pty.input.immediate.calls");
       parttyPerf.mark("pty.input.immediate.chars", data.length);
+      parttyPerf.beginPtyRoundtrip(paneId, keydownTs);
       void writePtyPayload(paneId, data);
       parttyPerf.mark("pty.input.immediate");
       return;
@@ -1180,6 +1182,7 @@ async function boot(): Promise<void> {
     // pre-cleaned bytes directly — no character-by-character JS parsing needed.
     const writeStarted = performance.now();
     try {
+      parttyPerf.beginTermWrite(paneId);
       pt.term.write(data);
       const elapsed = performance.now() - writeStarted;
       parttyPerf.time("xterm.write.ms", elapsed);
@@ -1283,6 +1286,7 @@ async function boot(): Promise<void> {
    * `set_pty_output_unlocked` after scrollback restore.
    */
   function deliverDirectPtyOut(paneId: string, data: Uint8Array): void {
+    parttyPerf.completePtyRoundtrip(paneId);
     queuePtyOutput(paneId, data);
     if (extPtyOutputSubs.length > 0) {
       const text = ptyOutputDecoder.decode(data);
@@ -2981,6 +2985,9 @@ async function boot(): Promise<void> {
         onPaneCreated: (id, pt) => {
           attachTermKeyHandler(pt.term, id);
           attachTermWheelHandler(pt.term, id);
+          pt.term.onRender(() => {
+            parttyPerf.finishTermRender(id);
+          });
           pt.term.onData((data) => {
             parttyPerf.recordInputEvent();
             queuePtyWrite(id, data);

@@ -91,6 +91,21 @@ export function createDevMetricsOverlay(opts: DevMetricsOverlayOptions): DevMetr
       html += `<span class="ov-metric">Latency: <strong>${(inputLatency.totalMs / inputLatency.count).toFixed(1)}ms</strong> avg</span>`;
     }
 
+    const ptyRtt = snap.timings["input.pty.roundtrip.ms"];
+    if (ptyRtt) {
+      html += `<span class="ov-metric">PTY RTT: <strong>${(ptyRtt.totalMs / ptyRtt.count).toFixed(1)}ms</strong> avg (last ${ptyRtt.lastMs.toFixed(1)})</span>`;
+    }
+
+    const keyToArrival = snap.timings["input.keydown.to.arrival.ms"];
+    if (keyToArrival) {
+      html += `<span class="ov-metric">Key→Arr: <strong>${(keyToArrival.totalMs / keyToArrival.count).toFixed(1)}ms</strong></span>`;
+    }
+
+    const writeToRender = snap.timings["xterm.write.to.render.ms"];
+    if (writeToRender) {
+      html += `<span class="ov-metric">W→R: <strong>${(writeToRender.totalMs / writeToRender.count).toFixed(1)}ms</strong> (last ${writeToRender.lastMs.toFixed(1)})</span>`;
+    }
+
     const long50 = snap.counters["frame.long_50ms"] ?? 0;
     const long100 = snap.counters["frame.long_100ms"] ?? 0;
     html += `<span class="ov-metric">Long: <strong>${long50}</strong> (&gt;50ms) <strong>${long100}</strong> (&gt;100ms)</span>`;
@@ -148,6 +163,14 @@ export function createDevMetricsOverlay(opts: DevMetricsOverlayOptions): DevMetr
         const resizeTiming = snap.timings["xterm.resize.ms"];
         if (resizeTiming) {
           html += `<span class="ov-metric">Resize: <strong>${resizeTiming.lastMs.toFixed(2)}ms</strong></span>`;
+        }
+        const ptyRtt = snap.timings["input.pty.roundtrip.ms"];
+        if (ptyRtt) {
+          html += `<span class="ov-metric">PTY RTT: <strong>${(ptyRtt.totalMs / ptyRtt.count).toFixed(1)}ms</strong></span>`;
+        }
+        const writeToRender = snap.timings["xterm.write.to.render.ms"];
+        if (writeToRender) {
+          html += `<span class="ov-metric">W→R: <strong>${(writeToRender.totalMs / writeToRender.count).toFixed(1)}ms</strong></span>`;
         }
       }
 

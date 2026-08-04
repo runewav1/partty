@@ -149,6 +149,22 @@ function installPerformanceObservers(): void {
 
 const inputEventTimes: number[] = [];
 
+type PtyRoundtripProbe = {
+  paneId: string;
+  ts: number;
+  keydownTs: number | null;
+};
+
+/**
+ * Earliest-first probes of latency-sensitive PTY writes still awaiting their
+ * echo. Completed by the first output arrival for the same pane.
+ */
+const ptyRoundtripProbes: PtyRoundtripProbe[] = [];
+/** Per-pane timestamp of the last `term.write`, awaiting the next render. */
+const termRenderProbes = new Map<string, number>();
+const PTY_PROBE_MAX = 64;
+const PTY_PROBE_EXPIRE_MS = 500;
+
 export const parttyPerf = {
   enabled: readEnabled(),
   consoleEnabled: readConsoleEnabled(),
@@ -268,6 +284,10 @@ export const parttyPerf = {
     paneTimings.delete(paneId);
     ptyInputThroughput.delete(paneId);
     ptyOutputThroughput.delete(paneId);
+    termRenderProbes.delete(paneId);
+    for (let i = ptyRoundtripProbes.length - 1; i >= 0; i--) {
+      if (ptyRoundtripProbes[i].paneId === paneId) ptyRoundtripProbes.splice(i, 1);
+    }
   },
   recordPtyInputBytes(paneId: string, bytes: number): void {
     if (!this.enabled || bytes <= 0) return;
@@ -326,6 +346,62 @@ export const parttyPerf = {
     const recent = inputEventTimes.filter((t) => t >= cutoff);
     return recent.length;
   },
+  /**
+   * Mark a latency-sensitive PTY write that is expected to be echoed back.
+   * `keydownTs` (when provided) anchors the full keydown→arrival chain.
+   */
+  beginPtyRoundtrip(paneId: string, keydownTs: number | null = null): void {
+    if (!this.enabled) return;
+    if (ptyRoundtripProbes.length >= PTY_PROBE_MAX) ptyRoundtripProbes.shift();
+    ptyRoundtripProbes.push({ paneId, ts: performance.now(), keydownTs });
+  },
+  /** Complete the oldest live roundtrip probe for a pane on output arrival. */
+  completePtyRoundtrip(paneId: string): void {
+    if (!this.enabled || ptyRoundtripProbes.length === 0) return;
+    const now = performance.now();
+    const cutoff = now - PTY_PROBE_EXPIRE_MS;
+    let earliest: PtyRoundtripProbe | null = null;
+    let earliestIdx = -1;
+    for (let i = 0; i < ptyRoundtripProbes.length; i++) {
+      const p = ptyRoundtripProbes[i];
+      if (p.paneId !== paneId) continue;
+      if (p.ts < cutoff) {
+        ptyRoundtripProbes.splice(i, 1);
+        i--;
+        continue;
+      }
+      if (!earliest || p.ts < earliest.ts) {
+        earliest = p;
+        earliestIdx = i;
+      }
+    }
+    if (!earliest || earliestIdx < 0) return;
+    ptyRoundtripProbes.splice(earliestIdx, 1);
+    const delta = now - earliest.ts;
+    this.time("input.pty.roundtrip.ms", delta);
+    this.paneTime(paneId, "input.pty.roundtrip.ms", delta);
+    if (earliest.keydownTs !== null && earliest.keydownTs >= cutoff) {
+      const keyToArrival = now - earliest.keydownTs;
+      this.time("input.keydown.to.arrival.ms", keyToArrival);
+      this.paneTime(paneId, "input.keydown.to.arrival.ms", keyToArrival);
+    }
+  },
+  /** Mark the start of a `term.write`; the next render for the pane completes it. */
+  beginTermWrite(paneId: string): void {
+    if (!this.enabled) return;
+    termRenderProbes.set(paneId, performance.now());
+  },
+  /** Called from the pane's `onRender`; records write→drawn latency. */
+  finishTermRender(paneId: string): void {
+    if (!this.enabled || termRenderProbes.size === 0) return;
+    const started = termRenderProbes.get(paneId);
+    if (started === undefined) return;
+    const delta = performance.now() - started;
+    termRenderProbes.delete(paneId);
+    if (delta > PTY_PROBE_EXPIRE_MS) return;
+    this.time("xterm.write.to.render.ms", delta);
+    this.paneTime(paneId, "xterm.write.to.render.ms", delta);
+  },
   reset(): void {
     for (const key of Object.keys(counters)) delete counters[key];
     for (const key of Object.keys(gauges)) delete gauges[key];
@@ -336,6 +412,8 @@ export const parttyPerf = {
     ptyInputThroughput.clear();
     ptyOutputThroughput.clear();
     inputEventTimes.length = 0;
+    ptyRoundtripProbes.length = 0;
+    termRenderProbes.clear();
   },
 };
 

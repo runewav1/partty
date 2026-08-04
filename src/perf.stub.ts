@@ -48,5 +48,9 @@ export const parttyPerf = {
   getInputRate(): number {
     return 0;
   },
+  beginPtyRoundtrip(): void {},
+  completePtyRoundtrip(): void {},
+  beginTermWrite(): void {},
+  finishTermRender(): void {},
   reset(): void {},
 };
