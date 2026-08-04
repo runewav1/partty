@@ -1,5 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   availableMonitors,
   currentMonitor,
@@ -6696,6 +6697,93 @@ async function boot(): Promise<void> {
     reflowAllPanes();
     getFocusedTerm()?.focus();
   });
+
+  // ── Drag & drop ──────────────────────────────────────────────────────────
+  // Native pipeline: wry delivers extracted paths via onDragDropEvent (the
+  // DOM drop never fires with dragDropEnabled: true). The pane's spawn
+  // profile tells us the path format its shell expects: WSL profiles take
+  // Linux paths (/mnt/c/...), local bash (msys/git-bash) takes /c/... style,
+  // everything else takes Windows paths as-is.
+
+  type DropPathStyle = "windows" | "msys" | "wsl";
+
+  function paneDropPathStyle(paneId: string): DropPathStyle {
+    const profileId = paneProfileIds.get(paneId);
+    const profile = profileId
+      ? profilesList.find((p) => p.id === profileId)
+      : undefined;
+    if (profile?.kind === "wsl") return "wsl";
+    const shell = shellPrefKey(
+      profile?.shell ??
+        ((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
+        "",
+    );
+    return /(^|[\\/])(bash|sh|zsh|ksh|dash)(\.exe)?$/.test(shell) ||
+      /git[- ]?bash|msys|cygwin/.test(shell)
+      ? "msys"
+      : "windows";
+  }
+
+  /** Translate a dropped Windows path into the pane shell's path format. */
+  function translateDroppedPath(raw: string, style: DropPathStyle): string {
+    if (style === "windows") return raw;
+    const fwd = raw.replace(/\\/g, "/");
+    if (style === "wsl") {
+      // \\wsl$\<distro>\home\user\file -> /home/user/file
+      const wsl = fwd.match(/^\/\/wsl\$\/([^/]+)\/(.+)$/);
+      if (wsl) return "/" + wsl[2];
+    }
+    // C:\... -> /c/... (msys) or /mnt/c/... (wsl)
+    const drv = fwd.match(/^([a-zA-Z]):\/(.*)$/);
+    if (drv) {
+      const drive = drv[1].toLowerCase();
+      return style === "wsl" ? `/mnt/${drive}/${drv[2]}` : `/${drive}/${drv[2]}`;
+    }
+    return raw;
+  }
+
+  /** Quote a path for insertion into the pane shell's input. */
+  function quoteDroppedPath(path: string, style: DropPathStyle): string {
+    if (style === "windows") {
+      return /[\s"&|<>^%]/.test(path) ? `"${path.replace(/"/g, '\\"')}"` : path;
+    }
+    return /[\s'"$`\\]/.test(path)
+      ? `'${path.replace(/'/g, `'\\''`)}'`
+      : path;
+  }
+
+  getCurrentWebview()
+    .onDragDropEvent((event) => {
+      const payload = event.payload;
+      if (payload.type !== "drop") return;
+      // Tauri reports physical pixels; elementFromPoint wants CSS pixels.
+      const dpr = window.devicePixelRatio || 1;
+      const el = document.elementFromPoint(
+        payload.position.x / dpr,
+        payload.position.y / dpr,
+      );
+      const paneId =
+        el instanceof HTMLElement
+          ? (
+              el.closest(".pane-leaf[data-pane-id]") as HTMLElement | null
+            )?.dataset.paneId
+          : undefined;
+      if (!paneId || payload.paths.length === 0) return;
+      const style = paneDropPathStyle(paneId);
+      const inserts = payload.paths
+        .map((p) =>
+          quoteDroppedPath(translateDroppedPath(p.trim(), style), style),
+        )
+        .filter(Boolean);
+      if (inserts.length === 0) return;
+      const pt = getPaneTerminalById(paneId);
+      if (!pt) return;
+      pt.term.focus();
+      pt.term.paste(inserts.join(" "));
+    })
+    .catch(() => {
+      /* drag-drop unavailable — feature disabled */
+    });
 
   // ── Extensions ──────────────────────────────────────────────
   const loadExtensions = async (): Promise<void> => {
