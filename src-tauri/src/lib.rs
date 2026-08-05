@@ -1109,7 +1109,20 @@ fn set_extension_enabled(id: String, enabled: bool) {
     save_extension_state(&state);
 }
 
+/// Raise the Windows timer resolution to 1 ms for the process lifetime.
+/// `recv_timeout`/`sleep` in the PTY emitter and reader threads otherwise wake
+/// on the ~15.6 ms system tick, adding ~10 ms of latency to every PTY echo
+/// batch. Windows resets the period when the process exits.
+fn raise_timer_resolution() {
+    use windows_sys::Win32::Media::timeBeginPeriod;
+    // SAFETY: timeBeginPeriod takes a plain u32; period 1 is a documented value.
+    unsafe {
+        let _ = timeBeginPeriod(1);
+    }
+}
+
 pub fn run() {
+    raise_timer_resolution();
     let mut loaded = load_persisted();
     window_state::sanitize_window_state(&mut loaded.window);
 

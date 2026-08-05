@@ -569,13 +569,23 @@ impl PtySession {
 
                 let started = Instant::now();
                 let mut disconnected = false;
+                // Interactive fast-path: probe for queued chunks first. When the
+                // channel is empty (single-chunk echo from a keystroke), flush
+                // immediately instead of waiting out the batch window; once a
+                // second chunk arrives we know it's a stream and fall back to
+                // windowed batching.
+                let mut idle_probe = true;
                 while pending.len() < PTY_OUTPUT_BATCH_BYTES {
                     let elapsed = started.elapsed();
                     if elapsed >= batch_window {
                         break;
                     }
-                    match rx.recv_timeout(batch_window - elapsed) {
-                        Ok(chunk) => pending.extend_from_slice(&chunk),
+                    let wait = if idle_probe { Duration::ZERO } else { batch_window - elapsed };
+                    match rx.recv_timeout(wait) {
+                        Ok(chunk) => {
+                            pending.extend_from_slice(&chunk);
+                            idle_probe = false;
+                        }
                         Err(RecvTimeoutError::Timeout) => break,
                         Err(RecvTimeoutError::Disconnected) => {
                             disconnected = true;
