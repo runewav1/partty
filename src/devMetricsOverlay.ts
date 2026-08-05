@@ -16,7 +16,8 @@ export type DevMetricsOverlayOptions = {
 export function createDevMetricsOverlay(opts: DevMetricsOverlayOptions): DevMetricsOverlayApi {
   const { root, getFocusedPaneId } = opts;
   let visible = false;
-  let raf = 0;
+  let timer = 0;
+  const UPDATE_INTERVAL_MS = 250;
 
   const el = document.createElement("div");
   el.id = "dev-metrics-overlay";
@@ -179,34 +180,36 @@ export function createDevMetricsOverlay(opts: DevMetricsOverlayOptions): DevMetr
     container.innerHTML = html;
   }
 
-  function update(): void {
+  /** 4 Hz refresh: snapshot spreads + innerHTML rebuilds are the overlay's
+   *  only costs, and they must not compete with the frame loop they measure. */
+  function tick(): void {
+    timer = 0;
     if (!visible) return;
     if (!parttyPerf.enabled) {
       hide();
       return;
     }
-    raf = requestAnimationFrame(update);
-
     const globalContainer = el.querySelector<HTMLElement>('[data-metrics="global"]');
     const paneContainer = el.querySelector<HTMLElement>('[data-metrics="panes"]');
     if (globalContainer) updateGlobal(globalContainer);
     if (paneContainer) updatePanes(paneContainer);
+    timer = window.setTimeout(tick, UPDATE_INTERVAL_MS);
   }
 
   function show(): void {
     visible = true;
     el.classList.remove("dev-overlay--hidden");
     el.setAttribute("aria-hidden", "false");
-    if (!raf) raf = requestAnimationFrame(update);
+    if (!timer) tick();
   }
 
   function hide(): void {
     visible = false;
     el.classList.add("dev-overlay--hidden");
     el.setAttribute("aria-hidden", "true");
-    if (raf) {
-      cancelAnimationFrame(raf);
-      raf = 0;
+    if (timer) {
+      window.clearTimeout(timer);
+      timer = 0;
     }
   }
 
