@@ -131,43 +131,43 @@ impl OscStripper {
     fn process_slice(&mut self, buf: &[u8]) -> (Vec<u8>, Vec<OscSideEvent>) {
         let mut events = Vec::new();
         self.scratch.clear();
-        let mut i = 0;
         // Start of the current plain-text run; bulk-copied on the next ESC.
         let mut run_start = 0;
+        let mut search_from = 0;
 
-        while i < buf.len() {
-            if buf[i] == 0x1b {
-                // Flush the plain run up to this escape.
-                self.scratch.extend_from_slice(&buf[run_start..i]);
+        while let Some(esc) = memchr::memchr(0x1b, &buf[search_from..]) {
+            let esc = search_from + esc;
+            // Flush the plain run up to this escape.
+            self.scratch.extend_from_slice(&buf[run_start..esc]);
 
-                if i + 1 < buf.len() && buf[i + 1] == 0x5d {
-                    match osc_find_end(buf, i + 2) {
-                        Some((payload_end, seq_end)) => {
-                            let payload = &buf[i + 2..payload_end];
-                            if !self.dispatch_osc(payload, &mut events) {
-                                // Unknown OSC: pass through for xterm.js
-                                self.scratch.extend_from_slice(&buf[i..seq_end]);
-                            }
-                            run_start = seq_end;
-                            i = seq_end;
-                            continue;
+            if esc + 1 < buf.len() && buf[esc + 1] == 0x5d {
+                match osc_find_end(buf, esc + 2) {
+                    Some((payload_end, seq_end)) => {
+                        let payload = &buf[esc + 2..payload_end];
+                        if !self.dispatch_osc(payload, &mut events) {
+                            // Unknown OSC: pass through for xterm.js
+                            self.scratch.extend_from_slice(&buf[esc..seq_end]);
                         }
-                        None => {
-                            // Incomplete: carry remainder to next chunk
-                            self.partial.extend_from_slice(&buf[i..]);
-                            return (std::mem::take(&mut self.scratch), events);
-                        }
+                        run_start = seq_end;
+                        search_from = seq_end;
+                        continue;
                     }
-                } else if i + 1 == buf.len() {
-                    // Lone ESC at end — might be ESC ] split across chunks
-                    self.partial.push(0x1b);
-                    return (std::mem::take(&mut self.scratch), events);
+                    None => {
+                        // Incomplete: carry remainder to next chunk
+                        self.partial.extend_from_slice(&buf[esc..]);
+                        return (std::mem::take(&mut self.scratch), events);
+                    }
                 }
-                // ESC followed by something else (e.g. ESC [ ...): the escape
-                // byte starts the next plain run and passes through as-is.
-                run_start = i;
             }
-            i += 1;
+            if esc + 1 == buf.len() {
+                // Lone ESC at end — might be ESC ] split across chunks
+                self.partial.push(0x1b);
+                return (std::mem::take(&mut self.scratch), events);
+            }
+            // ESC followed by something else (e.g. ESC [ ...): the escape
+            // byte starts the next plain run and passes through as-is.
+            run_start = esc;
+            search_from = esc + 1;
         }
 
         // Flush the trailing plain run (includes lone ESC-[ sequences).
@@ -244,15 +244,365 @@ impl OscStripper {
 fn osc_find_end(buf: &[u8], from: usize) -> Option<(usize, usize)> {
     let mut i = from;
     while i < buf.len() {
-        match buf[i] {
-            0x07 => return Some((i, i + 1)), // BEL
-            0x1b if i + 1 < buf.len() && buf[i + 1] == 0x5c => {
-                return Some((i, i + 2)); // ESC \
+        match memchr::memchr2(0x07, 0x1b, &buf[i..]) {
+            Some(off) => {
+                let pos = i + off;
+                match buf[pos] {
+                    0x07 => return Some((pos, pos + 1)), // BEL
+                    _ => {
+                        if pos + 1 < buf.len() && buf[pos + 1] == 0x5c {
+                            return Some((pos, pos + 2)); // ESC \
+                        }
+                        i = pos + 1;
+                    }
+                }
             }
-            _ => i += 1,
+            None => return None,
         }
     }
     None
+}
+
+#[cfg(test)]
+mod stripper_tests {
+    use super::*;
+
+    // ─── Spec-based whole-stream oracle ─────────────────────────────────────
+    // Written as a separate, deliberately naive algorithm: no chunk state, no
+    // scratch buffer, no run tracking. It walks the stream, finds complete
+    // `ESC ]` sequences, and drops exactly the ones whose OSC number the
+    // stripper must remove. Independent from the implementation's structure
+    // so the two cannot share the same bug.
+
+    const STRIPPED_OSC_NUMBERS: [&str; 6] = ["0", "1", "2", "7", "133", "633"];
+
+    /// Naive terminator search: BEL or `ESC \`. Returns (payload_end, seq_end).
+    fn oracle_terminator(buf: &[u8], from: usize) -> Option<(usize, usize)> {
+        let mut i = from;
+        while i < buf.len() {
+            if buf[i] == 0x07 {
+                return Some((i, i + 1));
+            }
+            if buf[i] == 0x1b && i + 1 < buf.len() && buf[i + 1] == 0x5c {
+                return Some((i, i + 2));
+            }
+            i += 1;
+        }
+        None
+    }
+
+    /// True when the payload's OSC number is one the stripper must remove.
+    fn oracle_should_strip(payload: &[u8]) -> bool {
+        let Ok(s) = std::str::from_utf8(payload) else {
+            return false;
+        };
+        let number = s.split(';').next().unwrap_or("");
+        STRIPPED_OSC_NUMBERS.contains(&number)
+    }
+
+    /// Whole-stream reference: kept bytes plus the payloads of every OSC the
+    /// stripper must remove, in stream order.
+    fn oracle_strip(stream: &[u8]) -> (Vec<u8>, Vec<&[u8]>) {
+        let mut out = Vec::with_capacity(stream.len());
+        let mut stripped_payloads = Vec::new();
+        let mut i = 0;
+        while i < stream.len() {
+            if stream[i] == 0x1b
+                && i + 1 < stream.len()
+                && stream[i + 1] == 0x5d
+                && let Some((payload_end, seq_end)) = oracle_terminator(stream, i + 2)
+            {
+                let payload = &stream[i + 2..payload_end];
+                if oracle_should_strip(payload) {
+                    stripped_payloads.push(payload);
+                    i = seq_end;
+                    continue;
+                }
+                // Unknown OSC: pass the whole sequence through untouched.
+                out.extend_from_slice(&stream[i..seq_end]);
+                i = seq_end;
+                continue;
+            }
+            out.push(stream[i]);
+            i += 1;
+        }
+        (out, stripped_payloads)
+    }
+
+    // ─── Implementation runner ──────────────────────────────────────────────
+
+    fn event_key(ev: &OscSideEvent) -> String {
+        match ev {
+            OscSideEvent::Cwd(s) => format!("Cwd({s})"),
+            OscSideEvent::Title(s) => format!("Title({s})"),
+            OscSideEvent::PromptStart => "PromptStart".into(),
+            OscSideEvent::PromptEnd => "PromptEnd".into(),
+            OscSideEvent::PreExec => "PreExec".into(),
+            OscSideEvent::CommandDone(c) => format!("CommandDone({c:?})"),
+            OscSideEvent::CommandLine(s) => format!("CommandLine({s})"),
+        }
+    }
+
+    /// Feed `chunks` through the real stripper and return the fully flushed
+    /// result (cleaned bytes + event keys). Deferred tail bytes (dangling ESC
+    /// / incomplete OSC) are passthrough by contract, so they are flushed
+    /// before returning, making results comparable to the whole-stream oracle.
+    fn run_impl(chunks: &[&[u8]]) -> (Vec<u8>, Vec<String>) {
+        let mut s = OscStripper::new();
+        let mut acc = Vec::new();
+        let mut keys = Vec::new();
+        for c in chunks {
+            let (clean, events) = s.process(c.to_vec());
+            acc.extend_from_slice(&clean);
+            for e in events {
+                keys.push(event_key(&e));
+            }
+        }
+        acc.extend_from_slice(&s.partial);
+        (acc, keys)
+    }
+
+    // ─── Properties ─────────────────────────────────────────────────────────
+
+    /// Cleaned output must be a byte-exact subsequence of the stream: nothing
+    /// dropped except stripped sequences, nothing reordered, nothing invented.
+    fn is_subsequence(sub: &[u8], of: &[u8]) -> bool {
+        let mut j = 0;
+        for &b in of {
+            if j < sub.len() && sub[j] == b {
+                j += 1;
+            }
+        }
+        j == sub.len()
+    }
+
+    /// No *complete* OSC with a stripped number may survive in cleaned output.
+    /// Incomplete (dangling) sequences are allowed — they are deferred state.
+    fn no_complete_stripped_osc_survives(cleaned: &[u8]) {
+        let mut i = 0;
+        while i < cleaned.len() {
+            if cleaned[i] == 0x1b && i + 1 < cleaned.len() && cleaned[i + 1] == 0x5d {
+                if let Some((payload_end, seq_end)) = oracle_terminator(cleaned, i + 2) {
+                    assert!(
+                        !oracle_should_strip(&cleaned[i + 2..payload_end]),
+                        "complete recognized OSC survived in cleaned output",
+                    );
+                    i = seq_end;
+                    continue;
+                }
+            }
+            i += 1;
+        }
+    }
+
+    // ─── Deterministic generator ────────────────────────────────────────────
+
+    struct Gen {
+        seed: u64,
+    }
+
+    impl Gen {
+        fn next_u64(&mut self) -> u64 {
+            self.seed = self
+                .seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            self.seed
+        }
+        fn below(&mut self, n: usize) -> usize {
+            (self.next_u64() % n.max(1) as u64) as usize
+        }
+        fn pick<'a, T>(&mut self, xs: &'a [T]) -> &'a T {
+            &xs[self.below(xs.len())]
+        }
+    }
+
+    const OSC_NUMS: [&str; 6] = ["0", "1", "2", "7", "133", "633"];
+    const UNKNOWN_OSC_NUMS: [&str; 6] = ["4", "8", "12", "48", "100", "1000"];
+    const PLAIN_BYTES: &[u8] = b"abcXYZ0123 _-.,!?()/\\:~=#*\t\r\n";
+    const UTF8_FRAG: &[u8] = "caf\u{e9} \u{3c0} \u{1f680} \u{5927}".as_bytes();
+
+    fn gen_stream(g: &mut Gen, len_hint: usize) -> Vec<u8> {
+        let mut out = Vec::with_capacity(len_hint);
+        while out.len() < len_hint {
+            match g.below(12) {
+                0..=3 => {
+                    // Plain run; occasionally laced with adversarial bytes.
+                    let n = 1 + g.below(24);
+                    for _ in 0..n {
+                        match g.below(12) {
+                            0 => out.push(0x1b), // stray ESC
+                            1 => out.push(0x07), // stray BEL
+                            _ => out.push(*g.pick(PLAIN_BYTES)),
+                        }
+                    }
+                }
+                4..=5 => {
+                    // CSI passthrough (ESC [ ...).
+                    out.push(0x1b);
+                    out.push(0x5b);
+                    let n = 1 + g.below(4);
+                    for _ in 0..n {
+                        out.push(*g.pick(b"0123456789;?:"))
+                    }
+                    out.push(*g.pick(b"mHhJAnlfsu"));
+                }
+                6..=9 => {
+                    // OSC sequence.
+                    out.push(0x1b);
+                    out.push(0x5d);
+                    out.extend_from_slice(g.pick(&OSC_NUMS).as_bytes());
+                    if g.below(3) != 0 {
+                        out.push(b';');
+                        let n = 1 + g.below(10);
+                        for _ in 0..n {
+                            if g.below(3) == 0 {
+                                out.extend_from_slice(UTF8_FRAG);
+                            } else {
+                                out.push(*g.pick(PLAIN_BYTES));
+                            }
+                        }
+                    }
+                    // Terminator: BEL, ST, ESC alone (resolved next chunk), or
+                    // none at all (dangling incomplete OSC).
+                    match g.below(4) {
+                        0 => out.push(0x07),
+                        1 => {
+                            out.push(0x1b);
+                            out.push(0x5c);
+                        }
+                        2 => out.push(0x1b),
+                        _ => {}
+                    }
+                }
+                10 => {
+                    // Unknown OSC (must pass through).
+                    out.push(0x1b);
+                    out.push(0x5d);
+                    out.extend_from_slice(g.pick(&UNKNOWN_OSC_NUMS).as_bytes());
+                    out.push(b';');
+                    out.extend_from_slice(UTF8_FRAG);
+                    out.push(0x07);
+                }
+                11 => {
+                    // Raw binary blob (may be invalid UTF-8, may contain ESC).
+                    let n = 1 + g.below(48);
+                    for _ in 0..n {
+                        out.push(g.next_u64() as u8);
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+        out
+    }
+
+    fn chunk_random<'a>(g: &mut Gen, stream: &'a [u8], cuts: usize) -> Vec<&'a [u8]> {
+        let mut pts = vec![0usize];
+        for _ in 0..cuts {
+            pts.push(1 + g.below(stream.len().saturating_sub(1)));
+        }
+        pts.push(stream.len());
+        pts.sort_unstable();
+        pts.dedup();
+        pts.windows(2).map(|w| &stream[w[0]..w[1]]).collect()
+    }
+
+    fn chunk_thin(stream: &[u8]) -> Vec<&[u8]> {
+        stream.chunks(3).collect()
+    }
+
+    // ─── Verification driver ────────────────────────────────────────────────
+
+    fn verify_stream(stream: &[u8], g: &mut Gen) {
+        // Spec oracle over the whole stream.
+        let (expected_clean, expected_payloads) = oracle_strip(stream);
+        let mut oracle_stripper = OscStripper::new();
+        let mut expected_keys = Vec::new();
+        for payload in &expected_payloads {
+            let mut evs = Vec::new();
+            let stripped = oracle_stripper.dispatch_osc(payload, &mut evs);
+            assert!(stripped, "oracle marked a payload stripped that dispatch rejects");
+            for e in evs {
+                expected_keys.push(event_key(&e));
+            }
+        }
+
+        // Implementation on the whole stream.
+        let (impl_clean, impl_keys) = run_impl(&[stream]);
+
+        // Property: bytes are conserved (subsequence, order preserved).
+        assert!(
+            is_subsequence(&impl_clean, stream),
+            "impl dropped or reordered bytes",
+        );
+        // Property: no complete recognized OSC survives.
+        no_complete_stripped_osc_survives(&impl_clean);
+        // Property: stripping is idempotent — a second pass is a byte-identical
+        // no-op and produces no events.
+        let (again, again_keys) = run_impl(&[&impl_clean]);
+        assert_eq!(again, impl_clean, "strip is not idempotent");
+        assert!(again_keys.is_empty(), "second strip produced events: {again_keys:?}");
+
+        // The impl must match the spec oracle exactly.
+        assert_eq!(impl_clean, expected_clean, "cleaned bytes differ from oracle");
+        assert_eq!(impl_keys, expected_keys, "events differ from oracle");
+
+        // Property: chunk-boundary invariance — any chunking yields the same
+        // flushed result and the same events.
+        for cuts in [1usize, 3, 9, 31] {
+            let chunks = chunk_random(g, stream, cuts);
+            let (c_clean, c_keys) = run_impl(&chunks);
+            assert_eq!(c_clean, impl_clean, "chunking diverges (cuts={cuts})");
+            assert_eq!(c_keys, impl_keys, "chunked events diverge (cuts={cuts})");
+        }
+        let thin = chunk_thin(stream);
+        let (t_clean, t_keys) = run_impl(&thin);
+        assert_eq!(t_clean, impl_clean, "3-byte chunking diverges");
+        assert_eq!(t_keys, impl_keys, "3-byte chunked events diverge");
+    }
+
+    #[test]
+    fn stripper_matches_spec_and_properties() {
+        let mut g = Gen {
+            seed: 0x5DEECE66D,
+        };
+        for i in 0..384u64 {
+            let mut g2 = Gen {
+                seed: g.seed.wrapping_add(i.wrapping_mul(0x9E3779B97F4A7C15)),
+            };
+            let len = 8 + g2.below(2000);
+            let stream = gen_stream(&mut g2, len);
+            verify_stream(&stream, &mut g2);
+        }
+        // Large streams exercise long no-ESC runs and big batches.
+        for _ in 0..8 {
+            let len = 16 * 1024 + g.below(16 * 1024);
+            let stream = gen_stream(&mut g, len);
+            verify_stream(&stream, &mut g);
+        }
+        // Hand-crafted adversarial cases.
+        let fixed: Vec<Vec<u8>> = vec![
+            b"\x1b\x1b".to_vec(),
+            b"\x1b]0;x\x1b\x1b]1;y\x07".to_vec(),
+            b"\x1b]7;\x07".to_vec(),
+            b"\x1b]133;\x07".to_vec(),
+            b"\x1b];\x07".to_vec(),
+            b"\x1b]".to_vec(),
+            b"\x1b\x1b]0;t\x1b\\".to_vec(),
+            b"\x1b]633;P;Cwd=C:\\x\x07".to_vec(),
+            b"\x1b]0;a\x07\x1b]0;b\x07".to_vec(),
+            b"a\x1b]2;\x1b\\b".to_vec(),
+            b"\x1b]0;partial".to_vec(),
+            b"\x1b]0;t\x07\x1b".to_vec(),
+            b"\x1b]8;;https://x\x07link".to_vec(),
+            b"\x1b[31mred\x1b[0m".to_vec(),
+            b"\x1b\x1b[K".to_vec(),
+        ];
+        for s in &fixed {
+            verify_stream(s, &mut g);
+        }
+    }
 }
 
 /// Decode `\xHH` and `\\` escapes used in OSC payloads.

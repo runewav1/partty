@@ -2389,6 +2389,7 @@ dependencies = [
 name = "partty"
 version = "0.2.0"
 dependencies = [
+ "memchr",
  "parking_lot",
  "portable-pty",
  "serde",
