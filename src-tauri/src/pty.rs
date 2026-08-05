@@ -94,13 +94,37 @@ struct HeldBatch {
     replayed: bool,
 }
 
+/// Fixed-slot shell-integration properties set via OSC 633 P. Only `IsWindows`
+/// is ever read back (during Cwd normalization), so it lives in a dedicated
+/// slot; anything else is kept in a tiny ordered list with overwrite-on-dup
+/// semantics — no HashMap on the per-prompt hot path.
+#[derive(Default)]
+struct OscProperties {
+    is_windows: Option<String>,
+    extra: Vec<(String, String)>,
+}
+
+impl OscProperties {
+    fn insert(&mut self, key: String, value: String) {
+        if key == "IsWindows" {
+            self.is_windows = Some(value);
+            return;
+        }
+        if let Some(entry) = self.extra.iter_mut().find(|(k, _)| *k == key) {
+            entry.1 = value;
+        } else {
+            self.extra.push((key, value));
+        }
+    }
+}
+
 struct OscStripper {
     /// Bytes held over from the previous chunk that ended mid-sequence.
     partial: Vec<u8>,
     /// Reusable scratch buffer for the cleaned output.
     scratch: Vec<u8>,
-    /// Shell-integration properties (e.g. `IsWindows`, `Cwd`) set via OSC 633 P.
-    properties: HashMap<String, String>,
+    /// Shell-integration properties (e.g. `IsWindows`) set via OSC 633 P.
+    properties: OscProperties,
 }
 
 impl OscStripper {
@@ -108,7 +132,7 @@ impl OscStripper {
         Self {
             partial: Vec::new(),
             scratch: Vec::with_capacity(16 * 1024),
-            properties: HashMap::new(),
+            properties: OscProperties::default(),
         }
     }
 
@@ -225,12 +249,14 @@ impl OscStripper {
                 if let Some(eq) = data.find('=') {
                     let key = &data[..eq];
                     let value = osc_unescape(&data[eq + 1..]);
-                    self.properties.insert(key.to_string(), value.clone());
                     if key == "Cwd" {
-                        let cwd = osc633_normalize_cwd(&value, &self.properties);
+                        let cwd =
+                            osc633_normalize_cwd(&value, self.properties.is_windows.as_deref());
                         if !cwd.is_empty() {
                             events.push(OscSideEvent::Cwd(cwd));
                         }
+                    } else {
+                        self.properties.insert(key.to_string(), value);
                     }
                 }
             }
@@ -704,13 +730,12 @@ fn looks_like_unix_root(path: &str) -> bool {
 }
 
 /// Normalise a `Cwd=` value from OSC 633 P to a Windows absolute path when possible.
-fn osc633_normalize_cwd(value: &str, properties: &HashMap<String, String>) -> String {
+fn osc633_normalize_cwd(value: &str, is_windows: Option<&str>) -> String {
     let raw = value.trim();
     if raw.is_empty() {
         return String::new();
     }
-    let is_windows = properties
-        .get("IsWindows")
+    let is_windows = is_windows
         .map(|v| v.eq_ignore_ascii_case("true"))
         .unwrap_or(true); // default to Windows since that's the target platform
 
@@ -2086,7 +2111,6 @@ mod tests {
         detected_shell_profile_field, is_git_bash_path, is_wsl_bash_shim, osc633_normalize_cwd,
         split_commandline, windows_path_to_wsl_mnt,
     };
-    use std::collections::HashMap;
     use std::path::{Path, PathBuf};
 
     #[test]
@@ -2104,35 +2128,29 @@ mod tests {
         assert_eq!(args, vec!["-i", r"C:\Users\me\.ssh\id_rsa", "host"]);
     }
 
-    fn props_windows() -> HashMap<String, String> {
-        HashMap::from([("IsWindows".into(), "True".into())])
+    fn props_windows() -> Option<&'static str> {
+        Some("True")
     }
 
     #[test]
     fn osc633_cwd_drive_and_mnt() {
         let p = props_windows();
-        assert_eq!(
-            osc633_normalize_cwd("C:/Users/me", &p),
-            r"C:\Users\me"
-        );
-        assert_eq!(
-            osc633_normalize_cwd("/mnt/c/Users/me", &p),
-            r"C:\Users\me"
-        );
+        assert_eq!(osc633_normalize_cwd("C:/Users/me", p), r"C:\Users\me");
+        assert_eq!(osc633_normalize_cwd("/mnt/c/Users/me", p), r"C:\Users\me");
     }
 
     #[test]
     fn osc633_cwd_does_not_mangle_unix_home() {
         let p = props_windows();
-        assert_eq!(osc633_normalize_cwd("/home/rune", &p), "/home/rune");
-        assert_eq!(osc633_normalize_cwd("/usr/local", &p), "/usr/local");
+        assert_eq!(osc633_normalize_cwd("/home/rune", p), "/home/rune");
+        assert_eq!(osc633_normalize_cwd("/usr/local", p), "/usr/local");
     }
 
     #[test]
     fn osc633_cwd_unc_wsl() {
         let p = props_windows();
         assert_eq!(
-            osc633_normalize_cwd("//wsl$/Ubuntu/home/rune", &p),
+            osc633_normalize_cwd("//wsl$/Ubuntu/home/rune", p),
             r"\\wsl$\Ubuntu\home\rune"
         );
     }
