@@ -337,13 +337,11 @@ pub fn list_wsl_distros() -> Vec<String> {
     const TTL: Duration = Duration::from_secs(45);
     static CACHE: Mutex<Option<(Instant, Vec<String>)>> = Mutex::new(None);
 
-    if let Ok(guard) = CACHE.lock() {
-        if let Some((at, names)) = guard.as_ref() {
-            if at.elapsed() < TTL {
+    if let Ok(guard) = CACHE.lock()
+        && let Some((at, names)) = guard.as_ref()
+            && at.elapsed() < TTL {
                 return names.clone();
             }
-        }
-    }
 
     let names = list_wsl_distros_uncached();
     if let Ok(mut guard) = CACHE.lock() {
@@ -395,8 +393,8 @@ fn seed_local_shell_profiles() -> Result<(), String> {
         let path = profile_path(&id)?;
         if path.exists() {
             // Refresh default display names for seeded builtins (keep user renames).
-            if let Ok(mut existing) = read_profile(&id) {
-                if existing.builtin && existing.name != want_name {
+            if let Ok(mut existing) = read_profile(&id)
+                && existing.builtin && existing.name != want_name {
                     let is_stock = matches!(
                         existing.name.as_str(),
                         "PowerShell 7"
@@ -414,7 +412,6 @@ fn seed_local_shell_profiles() -> Result<(), String> {
                         write_profile(&existing)?;
                     }
                 }
-            }
             continue;
         }
         let profile = ConnectionProfile {

@@ -424,11 +424,10 @@ pub fn resolve_icon_source(
 
     match kind {
         "wsl" => {
-            if let Some(distro) = wsl_distro.map(str::trim).filter(|s| !s.is_empty()) {
-                if let Some(ico) = find_wsl_distro_icon(distro) {
+            if let Some(distro) = wsl_distro.map(str::trim).filter(|s| !s.is_empty())
+                && let Some(ico) = find_wsl_distro_icon(distro) {
                     return Some(ico);
                 }
-            }
             // WT's default WSL/Tux asset, then wsl.exe as last resort.
             wt_profile_icon_by_guid("9acb9455-ca41-5af7-950f-6bca1bc9722f")
                 .or_else(|| resolve_exe_on_path("wsl.exe"))
@@ -551,18 +550,16 @@ fn find_wsl_icon_in_wt_fragments(distro: &str) -> Option<PathBuf> {
             if path.is_dir() {
                 if let Ok(inner) = fs::read_dir(&path) {
                     for f in inner.flatten() {
-                        if f.path().extension().and_then(|e| e.to_str()) == Some("json") {
-                            if let Some(ico) = parse_wt_fragment_icon(&f.path(), distro) {
+                        if f.path().extension().and_then(|e| e.to_str()) == Some("json")
+                            && let Some(ico) = parse_wt_fragment_icon(&f.path(), distro) {
                                 return Some(ico);
                             }
-                        }
                     }
                 }
-            } else if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                if let Some(ico) = parse_wt_fragment_icon(&path, distro) {
+            } else if path.extension().and_then(|e| e.to_str()) == Some("json")
+                && let Some(ico) = parse_wt_fragment_icon(&path, distro) {
                     return Some(ico);
                 }
-            }
         }
     }
     None

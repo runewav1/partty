@@ -407,8 +407,8 @@ mod stripper_tests {
     fn no_complete_stripped_osc_survives(cleaned: &[u8]) {
         let mut i = 0;
         while i < cleaned.len() {
-            if cleaned[i] == 0x1b && i + 1 < cleaned.len() && cleaned[i + 1] == 0x5d {
-                if let Some((payload_end, seq_end)) = oracle_terminator(cleaned, i + 2) {
+            if cleaned[i] == 0x1b && i + 1 < cleaned.len() && cleaned[i + 1] == 0x5d
+                && let Some((payload_end, seq_end)) = oracle_terminator(cleaned, i + 2) {
                     assert!(
                         !oracle_should_strip(&cleaned[i + 2..payload_end]),
                         "complete recognized OSC survived in cleaned output",
@@ -416,7 +416,6 @@ mod stripper_tests {
                     i = seq_end;
                     continue;
                 }
-            }
             i += 1;
         }
     }
@@ -642,12 +641,11 @@ fn osc_unescape(s: &str) -> String {
                     chars.next();
                     let h1 = chars.next().and_then(|c| c.to_digit(16));
                     let h2 = chars.next().and_then(|c| c.to_digit(16));
-                    if let (Some(a), Some(b)) = (h1, h2) {
-                        if let Some(ch) = char::from_u32(a * 16 + b) {
+                    if let (Some(a), Some(b)) = (h1, h2)
+                        && let Some(ch) = char::from_u32(a * 16 + b) {
                             out.push(ch);
                             continue;
                         }
-                    }
                     out.push('\\');
                 }
                 Some('\\') => {
@@ -758,22 +756,21 @@ fn osc633_normalize_cwd(value: &str, is_windows: Option<&str>) -> String {
     // WSL /mnt/x/... → X:\... (must run before MSYS single-letter conversion)
     if let Some(rest) = raw.strip_prefix("/mnt/") {
         let mut ch = rest.chars();
-        if let Some(drive) = ch.next() {
-            if drive.is_ascii_alphabetic() && rest.as_bytes().get(1) == Some(&b'/') {
+        if let Some(drive) = ch.next()
+            && drive.is_ascii_alphabetic() && rest.as_bytes().get(1) == Some(&b'/') {
                 return format!(
                     "{}:\\{}",
                     drive.to_ascii_uppercase(),
                     &rest[2..].replace('/', "\\")
                 );
             }
-        }
     }
     // MSYS /x/path → X:\path (never rewrite /home, /usr, …)
     if raw.starts_with('/') && !looks_like_unix_root(raw) {
         let rest = &raw[1..];
         let mut chars = rest.chars();
-        if let Some(drive) = chars.next() {
-            if drive.is_ascii_alphabetic() {
+        if let Some(drive) = chars.next()
+            && drive.is_ascii_alphabetic() {
                 match chars.next() {
                     Some('/') => {
                         return format!(
@@ -788,14 +785,12 @@ fn osc633_normalize_cwd(value: &str, is_windows: Option<&str>) -> String {
                     Some(_) => {}
                 }
             }
-        }
     }
     // file:// URI fallback
-    if raw.contains("://") {
-        if let Some(p) = osc7_parse_cwd(raw) {
+    if raw.contains("://")
+        && let Some(p) = osc7_parse_cwd(raw) {
             return p;
         }
-    }
     raw.to_string()
 }
 
@@ -1327,11 +1322,10 @@ fn resolve_bash_executable(prefs: &Prefs) -> Result<CommandBuilder, String> {
         return Ok(CommandBuilder::new(p));
     }
     if has_exe_on_path("bash.exe") {
-        if let Some(p) = where_exe_first_line("bash.exe") {
-            if p.is_file() && !is_wsl_bash_shim(&p) {
+        if let Some(p) = where_exe_first_line("bash.exe")
+            && p.is_file() && !is_wsl_bash_shim(&p) {
                 return Ok(CommandBuilder::new(p));
             }
-        }
         return Ok(CommandBuilder::new("bash.exe"));
     }
     Err("bash.exe not found. Set the profile `shell` to a full path.".to_string())
@@ -1368,13 +1362,11 @@ pub fn detect_available_shells() -> Vec<DetectedShell> {
     const TTL: Duration = Duration::from_secs(45);
     static CACHE: Mutex<Option<(Instant, Vec<DetectedShell>)>> = Mutex::new(None);
 
-    if let Ok(guard) = CACHE.lock() {
-        if let Some((at, shells)) = guard.as_ref() {
-            if at.elapsed() < TTL {
+    if let Ok(guard) = CACHE.lock()
+        && let Some((at, shells)) = guard.as_ref()
+            && at.elapsed() < TTL {
                 return shells.clone();
             }
-        }
-    }
 
     let shells = detect_available_shells_uncached();
     if let Ok(mut guard) = CACHE.lock() {
@@ -1503,11 +1495,10 @@ fn is_pwsh_alias(shell: &str) -> bool {
 }
 
 fn apply_cwd(mut cmd: CommandBuilder, prefs: &Prefs) -> Result<CommandBuilder, String> {
-    if let Some(dir) = prefs.initial_cwd.as_deref() {
-        if Path::new(dir).is_dir() {
+    if let Some(dir) = prefs.initial_cwd.as_deref()
+        && Path::new(dir).is_dir() {
             cmd.cwd(dir);
         }
-    }
     Ok(cmd)
 }
 
@@ -1651,13 +1642,11 @@ fn detect_wsl_login_shell(distro: &str) -> WslLoginShell {
     static CACHE: Mutex<Option<HashMap<String, WslLoginShell>>> = Mutex::new(None);
 
     let key = distro.to_ascii_lowercase();
-    if let Ok(guard) = CACHE.lock() {
-        if let Some(map) = guard.as_ref() {
-            if let Some(kind) = map.get(&key) {
+    if let Ok(guard) = CACHE.lock()
+        && let Some(map) = guard.as_ref()
+            && let Some(kind) = map.get(&key) {
                 return *kind;
             }
-        }
-    }
 
     let kind = detect_wsl_login_shell_uncached(distro);
     if let Ok(mut guard) = CACHE.lock() {

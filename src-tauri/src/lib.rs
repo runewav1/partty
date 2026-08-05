@@ -234,13 +234,11 @@ fn resolve_spawn(
     };
 
     let mut spawn_for_pty = spawn_profile.clone();
-    if let Some(ref assigned_p) = assigned {
-        if let Some(ref mut sp) = spawn_for_pty {
-            if let Some(cmd) = profiles::resolve_assigned_startup_command(assigned_p) {
+    if let Some(ref assigned_p) = assigned
+        && let Some(ref mut sp) = spawn_for_pty
+            && let Some(cmd) = profiles::resolve_assigned_startup_command(assigned_p) {
                 sp.startup_command = Some(cmd);
             }
-        }
-    }
 
     let mut cwd = initial_cwd;
     if cwd
@@ -248,8 +246,7 @@ fn resolve_spawn(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .is_none()
-    {
-        if let Some(pc) = assigned
+        && let Some(pc) = assigned
             .as_ref()
             .and_then(|p| p.initial_cwd.as_deref())
             .map(str::trim)
@@ -257,7 +254,6 @@ fn resolve_spawn(
         {
             cwd = Some(pc.to_string());
         }
-    }
 
     let shell_from_profile = spawn_profile.as_ref().and_then(|p| match p.kind {
         profiles::ProfileKind::Local => p
