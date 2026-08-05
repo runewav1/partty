@@ -26,9 +26,60 @@ const paneGauges = new Map<string, Record<string, number>>();
 const paneTimings = new Map<string, Record<string, TimingBucket>>();
 
 type ThroughputWindow = {
-  entries: Array<{ time: number; bytes: number }>;
-  total: number;
+  totalBytes: number;
+  times: Float64Array;
+  bytes: Float64Array;
+  head: number;
+  count: number;
 };
+
+const THROUGHPUT_SLOTS = 4096;
+
+function createThroughputWindow(): ThroughputWindow {
+  return {
+    totalBytes: 0,
+    times: new Float64Array(THROUGHPUT_SLOTS),
+    bytes: new Float64Array(THROUGHPUT_SLOTS),
+    head: 0,
+    count: 0,
+  };
+}
+
+function recordThroughput(w: ThroughputWindow, now: number, bytes: number): void {
+  w.totalBytes += bytes;
+  if (w.count === THROUGHPUT_SLOTS) {
+    w.head = (w.head + 1) % THROUGHPUT_SLOTS;
+    w.count--;
+  }
+  w.times[w.head] = now;
+  w.bytes[w.head] = bytes;
+  w.head = (w.head + 1) % THROUGHPUT_SLOTS;
+  w.count++;
+}
+
+function pruneThroughput(w: ThroughputWindow, cutoff: number): void {
+  while (w.count > 0) {
+    const oldest = (w.head - w.count + THROUGHPUT_SLOTS) % THROUGHPUT_SLOTS;
+    if (w.times[oldest] >= cutoff) break;
+    w.count--;
+  }
+}
+
+function getThroughputRate(
+  w: ThroughputWindow,
+  now: number,
+): { bytesPerSec: number; totalBytes: number } | null {
+  if (w.count === 0) return null;
+  pruneThroughput(w, now - 1000);
+  if (w.count === 0) return null;
+  let sum = 0;
+  let idx = (w.head - w.count + THROUGHPUT_SLOTS) % THROUGHPUT_SLOTS;
+  for (let i = 0; i < w.count; i++) {
+    sum += w.bytes[idx];
+    idx = (idx + 1) % THROUGHPUT_SLOTS;
+  }
+  return { bytesPerSec: sum, totalBytes: w.totalBytes };
+}
 
 const ptyInputThroughput = new Map<string, ThroughputWindow>();
 const ptyOutputThroughput = new Map<string, ThroughputWindow>();
@@ -293,45 +344,31 @@ export const parttyPerf = {
     if (!this.enabled || bytes <= 0) return;
     let w = ptyInputThroughput.get(paneId);
     if (!w) {
-      w = { entries: [], total: 0 };
+      w = createThroughputWindow();
       ptyInputThroughput.set(paneId, w);
     }
-    const now = performance.now();
-    w.entries.push({ time: now, bytes });
-    w.total += bytes;
+    recordThroughput(w, performance.now(), bytes);
     this.paneMark(paneId, "pty.input.bytes", bytes);
-    const cutoff = now - 1000;
-    while (w.entries.length > 0 && w.entries[0].time < cutoff) w.entries.shift();
   },
   recordPtyOutputBytes(paneId: string, bytes: number): void {
     if (!this.enabled || bytes <= 0) return;
     let w = ptyOutputThroughput.get(paneId);
     if (!w) {
-      w = { entries: [], total: 0 };
+      w = createThroughputWindow();
       ptyOutputThroughput.set(paneId, w);
     }
-    const now = performance.now();
-    w.entries.push({ time: now, bytes });
-    w.total += bytes;
+    recordThroughput(w, performance.now(), bytes);
     this.paneMark(paneId, "pty.output.bytes", bytes);
-    const cutoff = now - 1000;
-    while (w.entries.length > 0 && w.entries[0].time < cutoff) w.entries.shift();
   },
   getPtyInputRate(paneId: string): { bytesPerSec: number; totalBytes: number } | null {
     const w = ptyInputThroughput.get(paneId);
-    if (!w || w.entries.length === 0) return null;
-    const cutoff = performance.now() - 1000;
-    const recent = w.entries.filter((e) => e.time >= cutoff);
-    const bytesPerSec = recent.reduce((s, e) => s + e.bytes, 0);
-    return { bytesPerSec, totalBytes: w.total };
+    if (!w) return null;
+    return getThroughputRate(w, performance.now());
   },
   getPtyOutputRate(paneId: string): { bytesPerSec: number; totalBytes: number } | null {
     const w = ptyOutputThroughput.get(paneId);
-    if (!w || w.entries.length === 0) return null;
-    const cutoff = performance.now() - 1000;
-    const recent = w.entries.filter((e) => e.time >= cutoff);
-    const bytesPerSec = recent.reduce((s, e) => s + e.bytes, 0);
-    return { bytesPerSec, totalBytes: w.total };
+    if (!w) return null;
+    return getThroughputRate(w, performance.now());
   },
   recordInputEvent(): void {
     if (!this.enabled) return;
