@@ -3,45 +3,81 @@ use crate::cmdbuilder::CommandBuilder;
 use crate::win::procthreadattr::ProcThreadAttributeList;
 use anyhow::{bail, ensure, Error};
 use filedescriptor::{FileDescriptor, OwnedHandle};
-use lazy_static::lazy_static;
-use shared_library::shared_library;
 use std::ffi::OsString;
 use std::io::Error as IoError;
-use std::os::windows::ffi::OsStringExt;
+use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{mem, ptr};
-use winapi::shared::minwindef::DWORD;
-use winapi::shared::winerror::{HRESULT, S_OK};
-use winapi::um::handleapi::*;
-use winapi::um::processthreadsapi::*;
-use winapi::um::winbase::{
-    CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, STARTF_USESTDHANDLES, STARTUPINFOEXW,
+use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, S_OK};
+use windows_sys::Win32::System::Console::COORD;
+use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+use windows_sys::Win32::System::Threading::{
+    CreateProcessW, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT,
+    PROCESS_INFORMATION, STARTF_USESTDHANDLES, STARTUPINFOEXW,
 };
-use winapi::um::wincon::COORD;
-use winapi::um::winnt::HANDLE;
+use windows_sys::core::HRESULT;
 
 pub type HPCON = HANDLE;
 
-pub const PSUEDOCONSOLE_INHERIT_CURSOR: DWORD = 0x1;
-pub const PSEUDOCONSOLE_RESIZE_QUIRK: DWORD = 0x2;
-pub const PSEUDOCONSOLE_WIN32_INPUT_MODE: DWORD = 0x4;
+pub const PSUEDOCONSOLE_INHERIT_CURSOR: u32 = 0x1;
+pub const PSEUDOCONSOLE_RESIZE_QUIRK: u32 = 0x2;
+pub const PSEUDOCONSOLE_WIN32_INPUT_MODE: u32 = 0x4;
 #[allow(dead_code)]
-pub const PSEUDOCONSOLE_PASSTHROUGH_MODE: DWORD = 0x8;
+pub const PSEUDOCONSOLE_PASSTHROUGH_MODE: u32 = 0x8;
 
-shared_library!(ConPtyFuncs,
-    pub fn CreatePseudoConsole(
-        size: COORD,
-        hInput: HANDLE,
-        hOutput: HANDLE,
-        flags: DWORD,
-        hpc: *mut HPCON
-    ) -> HRESULT,
-    pub fn ResizePseudoConsole(hpc: HPCON, size: COORD) -> HRESULT,
-    pub fn ClosePseudoConsole(hpc: HPCON),
-);
+/// ConPTY entry points loaded dynamically from a `conpty.dll` (kernel32 by
+/// default, or a sideloaded Windows Terminal host).
+struct ConPtyFuncs {
+    create: unsafe extern "system" fn(COORD, HANDLE, HANDLE, u32, *mut HPCON) -> HRESULT,
+    resize: unsafe extern "system" fn(HPCON, COORD) -> HRESULT,
+    close: unsafe extern "system" fn(HPCON),
+}
+
+impl ConPtyFuncs {
+    /// Load the entry points from `path`. The module is intentionally never
+    /// unloaded (matches the previous shared_library wrapper).
+    fn open(path: &Path) -> Option<ConPtyFuncs> {
+        let wide: Vec<u16> = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let module = unsafe { LoadLibraryW(wide.as_ptr()) };
+        if module.is_null() {
+            return None;
+        }
+        let get = |name: &[u8]| unsafe { GetProcAddress(module, name.as_ptr() as *const u8) };
+        // SAFETY: transmuting between function pointer types of the same
+        // size; the exported signatures are fixed by the ConPTY API.
+        let create = unsafe {
+            std::mem::transmute::<
+                unsafe extern "system" fn() -> isize,
+                unsafe extern "system" fn(COORD, HANDLE, HANDLE, u32, *mut HPCON) -> HRESULT,
+            >(get(b"CreatePseudoConsole\0")?)
+        };
+        let resize = unsafe {
+            std::mem::transmute::<
+                unsafe extern "system" fn() -> isize,
+                unsafe extern "system" fn(HPCON, COORD) -> HRESULT,
+            >(get(b"ResizePseudoConsole\0")?)
+        };
+        let close = unsafe {
+            std::mem::transmute::<
+                unsafe extern "system" fn() -> isize,
+                unsafe extern "system" fn(HPCON),
+            >(get(b"ClosePseudoConsole\0")?)
+        };
+        Some(ConPtyFuncs {
+            create,
+            resize,
+            close,
+        })
+    }
+}
 
 /// Opt-in sideloading of a `conpty.dll` / `OpenConsole.exe` host (the
 /// Windows Terminal approach), which forwards DCS/APC/unknown sequences the
@@ -77,15 +113,17 @@ fn load_conpty() -> ConPtyFuncs {
     candidates.push(PathBuf::from("conpty.dll"));
 
     for candidate in candidates {
-        if let Ok(sideloaded) = ConPtyFuncs::open(&candidate) {
+        if let Some(sideloaded) = ConPtyFuncs::open(&candidate) {
             return sideloaded;
         }
     }
     kernel
 }
 
-lazy_static! {
-    static ref CONPTY: ConPtyFuncs = load_conpty();
+static CONPTY: OnceLock<ConPtyFuncs> = OnceLock::new();
+
+fn conpty() -> &'static ConPtyFuncs {
+    CONPTY.get_or_init(load_conpty)
 }
 
 pub struct PsuedoCon {
@@ -97,7 +135,7 @@ unsafe impl Sync for PsuedoCon {}
 
 impl Drop for PsuedoCon {
     fn drop(&mut self) {
-        unsafe { (CONPTY.ClosePseudoConsole)(self.con) };
+        unsafe { (conpty().close)(self.con) };
     }
 }
 
@@ -105,7 +143,7 @@ impl PsuedoCon {
     pub fn new(size: COORD, input: FileDescriptor, output: FileDescriptor) -> Result<Self, Error> {
         let mut con: HPCON = INVALID_HANDLE_VALUE;
         let result = unsafe {
-            (CONPTY.CreatePseudoConsole)(
+            (conpty().create)(
                 size,
                 input.as_raw_handle() as _,
                 output.as_raw_handle() as _,
@@ -125,7 +163,7 @@ impl PsuedoCon {
     }
 
     pub fn resize(&self, size: COORD) -> Result<(), Error> {
-        let result = unsafe { (CONPTY.ResizePseudoConsole)(self.con, size) };
+        let result = unsafe { (conpty().resize)(self.con, size) };
         ensure!(
             result == S_OK,
             "failed to resize console to {}x{}: HRESULT: {}",
@@ -169,11 +207,11 @@ impl PsuedoCon {
                 ptr::null_mut(),
                 0,
                 EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
-                cmd.environment_block().as_mut_slice().as_mut_ptr() as *mut _,
+                cmd.environment_block().as_mut_slice().as_mut_ptr() as *const _,
                 cwd.as_ref()
                     .map(|c| c.as_slice().as_ptr())
                     .unwrap_or(ptr::null()),
-                &mut si.StartupInfo,
+                &si.StartupInfo,
                 &mut pi,
             )
         };

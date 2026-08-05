@@ -104,91 +104,178 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStringExt;
-        use winapi::um::processenv::ExpandEnvironmentStringsW;
-        use winreg::enums::{RegType, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
-        use winreg::types::FromRegValue;
-        use winreg::{RegKey, RegValue};
+        use windows_sys::Win32::System::Environment::ExpandEnvironmentStringsW;
+        use windows_sys::Win32::System::Registry::{
+            RegCloseKey, RegEnumValueW, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER,
+            HKEY_LOCAL_MACHINE, KEY_READ, REG_EXPAND_SZ, REG_MULTI_SZ, REG_SZ,
+        };
 
-        fn reg_value_to_string(value: &RegValue) -> anyhow::Result<OsString> {
-            match value.vtype {
-                RegType::REG_EXPAND_SZ => {
-                    let src = unsafe {
-                        std::slice::from_raw_parts(
-                            value.bytes.as_ptr() as *const u16,
-                            value.bytes.len() / 2,
-                        )
+        fn open_reg(root: HKEY, subkey: &str) -> Option<HKEY> {
+            let wide: Vec<u16> = subkey.encode_utf16().chain(std::iter::once(0)).collect();
+            let mut key: HKEY = std::ptr::null_mut();
+            let status =
+                unsafe { RegOpenKeyExW(root, wide.as_ptr(), 0, KEY_READ, &mut key) };
+            (status == 0).then_some(key)
+        }
+
+        /// Read a value's type and raw bytes under `key`.
+        fn reg_value(key: HKEY, name: &[u16]) -> Option<(u32, Vec<u8>)> {
+            let mut vtype: u32 = 0;
+            let mut cb: u32 = 0;
+            let status = unsafe {
+                RegQueryValueExW(
+                    key,
+                    name.as_ptr(),
+                    std::ptr::null(),
+                    &mut vtype,
+                    std::ptr::null_mut(),
+                    &mut cb,
+                )
+            };
+            if status != 0 {
+                return None;
+            }
+            let mut buf = vec![0u8; cb as usize];
+            let status = unsafe {
+                RegQueryValueExW(
+                    key,
+                    name.as_ptr(),
+                    std::ptr::null(),
+                    &mut vtype,
+                    buf.as_mut_ptr(),
+                    &mut cb,
+                )
+            };
+            if status != 0 {
+                return None;
+            }
+            buf.truncate(cb as usize);
+            Some((vtype, buf))
+        }
+
+        fn wide_trim_nul(bytes: &[u8]) -> Vec<u16> {
+            let mut v: Vec<u16> = bytes
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect();
+            while let Some(0) = v.last() {
+                v.pop();
+            }
+            v
+        }
+
+        fn reg_value_to_string(vtype: u32, bytes: &[u8]) -> anyhow::Result<OsString> {
+            match vtype {
+                REG_EXPAND_SZ => {
+                    let src = wide_trim_nul(bytes);
+                    let size = unsafe {
+                        ExpandEnvironmentStringsW(src.as_ptr(), std::ptr::null_mut(), 0)
                     };
-                    let size =
-                        unsafe { ExpandEnvironmentStringsW(src.as_ptr(), std::ptr::null_mut(), 0) };
                     let mut buf = vec![0u16; size as usize + 1];
                     unsafe {
                         ExpandEnvironmentStringsW(src.as_ptr(), buf.as_mut_ptr(), buf.len() as u32)
                     };
-
                     let mut buf = buf.as_slice();
                     while let Some(0) = buf.last() {
                         buf = &buf[0..buf.len() - 1];
                     }
                     Ok(OsString::from_wide(buf))
                 }
-                _ => Ok(OsString::from_reg_value(value)?),
+                REG_MULTI_SZ => {
+                    let v = wide_trim_nul(bytes);
+                    let mut out: Vec<u16> = Vec::new();
+                    for (i, part) in v.split(|&c| c == 0).filter(|s| !s.is_empty()).enumerate() {
+                        if i > 0 {
+                            out.push(b';' as u16);
+                        }
+                        out.extend_from_slice(part);
+                    }
+                    Ok(OsString::from_wide(&out))
+                }
+                REG_SZ => Ok(OsString::from_wide(&wide_trim_nul(bytes))),
+                _ => anyhow::bail!("unsupported registry value type {vtype}"),
             }
         }
 
-        if let Ok(sys_env) = RegKey::predef(HKEY_LOCAL_MACHINE)
-            .open_subkey("System\\CurrentControlSet\\Control\\Session Manager\\Environment")
+        /// Enumerate the values of an environment registry key into `env`.
+        fn enumerate_env(
+            key: HKEY,
+            skip_username: bool,
+            merge_path: bool,
+            env: &mut BTreeMap<OsString, EnvEntry>,
+        ) {
+            let mut index: u32 = 0;
+            loop {
+                let mut name_buf = [0u16; 512];
+                let mut name_len = name_buf.len() as u32;
+                let status = unsafe {
+                    RegEnumValueW(
+                        key,
+                        index,
+                        name_buf.as_mut_ptr(),
+                        &mut name_len,
+                        std::ptr::null(),
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut(),
+                    )
+                };
+                if status != 0 {
+                    break;
+                }
+                index += 1;
+                let name_wide = &name_buf[..name_len as usize];
+                let name = OsString::from_wide(name_wide);
+                let name_lower = name.to_string_lossy().to_ascii_lowercase();
+                if skip_username && name_lower == "username" {
+                    continue;
+                }
+                let Some((vtype, bytes)) = reg_value(key, name_wide) else {
+                    continue;
+                };
+                let Ok(value) = reg_value_to_string(vtype, &bytes) else {
+                    continue;
+                };
+                log::trace!("adding SYS env: {:?} {:?}", name, value);
+                // Merge the system and user paths together
+                let value = if merge_path && name_lower == "path" {
+                    match env.get(&EnvEntry::map_key(name.clone().into())) {
+                        Some(entry) => {
+                            let mut result = OsString::new();
+                            result.push(&entry.value);
+                            result.push(";");
+                            result.push(&value);
+                            result
+                        }
+                        None => value,
+                    }
+                } else {
+                    value
+                };
+                env.insert(
+                    EnvEntry::map_key(name.clone().into()),
+                    EnvEntry {
+                        is_from_base_env: true,
+                        preferred_key: name.into(),
+                        value,
+                    },
+                );
+            }
+        }
+
+        if let Some(sys_env) =
+            open_reg(HKEY_LOCAL_MACHINE, "System\\CurrentControlSet\\Control\\Session Manager\\Environment")
         {
-            for res in sys_env.enum_values() {
-                if let Ok((name, value)) = res {
-                    if name.to_ascii_lowercase() == "username" {
-                        continue;
-                    }
-                    if let Ok(value) = reg_value_to_string(&value) {
-                        log::trace!("adding SYS env: {:?} {:?}", name, value);
-                        env.insert(
-                            EnvEntry::map_key(name.clone().into()),
-                            EnvEntry {
-                                is_from_base_env: true,
-                                preferred_key: name.into(),
-                                value,
-                            },
-                        );
-                    }
-                }
+            enumerate_env(sys_env, true, false, &mut env);
+            unsafe {
+                RegCloseKey(sys_env);
             }
         }
 
-        if let Ok(sys_env) = RegKey::predef(HKEY_CURRENT_USER).open_subkey("Environment") {
-            for res in sys_env.enum_values() {
-                if let Ok((name, value)) = res {
-                    if let Ok(value) = reg_value_to_string(&value) {
-                        // Merge the system and user paths together
-                        let value = if name.to_ascii_lowercase() == "path" {
-                            match env.get(&EnvEntry::map_key(name.clone().into())) {
-                                Some(entry) => {
-                                    let mut result = OsString::new();
-                                    result.push(&entry.value);
-                                    result.push(";");
-                                    result.push(&value);
-                                    result
-                                }
-                                None => value,
-                            }
-                        } else {
-                            value
-                        };
-
-                        log::trace!("adding USER env: {:?} {:?}", name, value);
-                        env.insert(
-                            EnvEntry::map_key(name.clone().into()),
-                            EnvEntry {
-                                is_from_base_env: true,
-                                preferred_key: name.into(),
-                                value,
-                            },
-                        );
-                    }
-                }
+        if let Some(user_env) = open_reg(HKEY_CURRENT_USER, "Environment") {
+            enumerate_env(user_env, false, true, &mut env);
+            unsafe {
+                RegCloseKey(user_env);
             }
         }
     }

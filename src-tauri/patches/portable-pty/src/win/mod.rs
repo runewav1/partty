@@ -5,11 +5,10 @@ use std::os::windows::io::{AsRawHandle, RawHandle};
 use std::pin::Pin;
 use std::sync::Mutex;
 use std::task::{Context, Poll};
-use winapi::shared::minwindef::DWORD;
-use winapi::um::minwinbase::STILL_ACTIVE;
-use winapi::um::processthreadsapi::*;
-use winapi::um::synchapi::WaitForSingleObject;
-use winapi::um::winbase::INFINITE;
+use windows_sys::Win32::Foundation::STILL_ACTIVE;
+use windows_sys::Win32::System::Threading::{
+    GetExitCodeProcess, GetProcessId, TerminateProcess, WaitForSingleObject, INFINITE,
+};
 
 pub mod conpty;
 mod procthreadattr;
@@ -26,11 +25,11 @@ pub struct WinChild {
 
 impl WinChild {
     fn is_complete(&mut self) -> IoResult<Option<ExitStatus>> {
-        let mut status: DWORD = 0;
+        let mut status: u32 = 0;
         let proc = self.proc.lock().unwrap().try_clone().unwrap();
         let res = unsafe { GetExitCodeProcess(proc.as_raw_handle() as _, &mut status) };
         if res != 0 {
-            if status == STILL_ACTIVE {
+            if status == STILL_ACTIVE as u32 {
                 Ok(None)
             } else {
                 Ok(Some(ExitStatus::with_exit_code(status)))
@@ -99,7 +98,7 @@ impl Child for WinChild {
         unsafe {
             WaitForSingleObject(proc.as_raw_handle() as _, INFINITE);
         }
-        let mut status: DWORD = 0;
+        let mut status: u32 = 0;
         let res = unsafe { GetExitCodeProcess(proc.as_raw_handle() as _, &mut status) };
         if res != 0 {
             Ok(ExitStatus::with_exit_code(status))
