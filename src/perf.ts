@@ -31,9 +31,11 @@ type ThroughputWindow = {
   bytes: Float64Array;
   head: number;
   count: number;
+  sum: number;
 };
 
 const THROUGHPUT_SLOTS = 4096;
+const THROUGHPUT_MASK = THROUGHPUT_SLOTS - 1;
 
 function createThroughputWindow(): ThroughputWindow {
   return {
@@ -42,25 +44,29 @@ function createThroughputWindow(): ThroughputWindow {
     bytes: new Float64Array(THROUGHPUT_SLOTS),
     head: 0,
     count: 0,
+    sum: 0,
   };
 }
 
 function recordThroughput(w: ThroughputWindow, now: number, bytes: number): void {
   w.totalBytes += bytes;
   if (w.count === THROUGHPUT_SLOTS) {
-    w.head = (w.head + 1) % THROUGHPUT_SLOTS;
+    w.sum -= w.bytes[w.head];
+    w.head = (w.head + 1) & THROUGHPUT_MASK;
     w.count--;
   }
   w.times[w.head] = now;
   w.bytes[w.head] = bytes;
-  w.head = (w.head + 1) % THROUGHPUT_SLOTS;
+  w.head = (w.head + 1) & THROUGHPUT_MASK;
   w.count++;
+  w.sum += bytes;
 }
 
 function pruneThroughput(w: ThroughputWindow, cutoff: number): void {
   while (w.count > 0) {
-    const oldest = (w.head - w.count + THROUGHPUT_SLOTS) % THROUGHPUT_SLOTS;
+    const oldest = (w.head - w.count) & THROUGHPUT_MASK;
     if (w.times[oldest] >= cutoff) break;
+    w.sum -= w.bytes[oldest];
     w.count--;
   }
 }
@@ -72,13 +78,7 @@ function getThroughputRate(
   if (w.count === 0) return null;
   pruneThroughput(w, now - 1000);
   if (w.count === 0) return null;
-  let sum = 0;
-  let idx = (w.head - w.count + THROUGHPUT_SLOTS) % THROUGHPUT_SLOTS;
-  for (let i = 0; i < w.count; i++) {
-    sum += w.bytes[idx];
-    idx = (idx + 1) % THROUGHPUT_SLOTS;
-  }
-  return { bytesPerSec: sum, totalBytes: w.totalBytes };
+  return { bytesPerSec: w.sum, totalBytes: w.totalBytes };
 }
 
 const ptyInputThroughput = new Map<string, ThroughputWindow>();
@@ -199,13 +199,14 @@ function installPerformanceObservers(): void {
 }
 
 const INPUT_EVENT_SLOTS = 4096;
+const INPUT_EVENT_MASK = INPUT_EVENT_SLOTS - 1;
 const inputEventTimes = new Float64Array(INPUT_EVENT_SLOTS);
 let inputEventHead = 0;
 let inputEventCount = 0;
 
 function pruneInputEvents(cutoff: number): void {
   while (inputEventCount > 0) {
-    const oldest = (inputEventHead - inputEventCount + INPUT_EVENT_SLOTS) % INPUT_EVENT_SLOTS;
+    const oldest = (inputEventHead - inputEventCount) & INPUT_EVENT_MASK;
     if (inputEventTimes[oldest] >= cutoff) break;
     inputEventCount--;
   }
@@ -385,11 +386,11 @@ export const parttyPerf = {
     if (!this.enabled) return;
     const now = performance.now();
     if (inputEventCount === INPUT_EVENT_SLOTS) {
-      inputEventHead = (inputEventHead + 1) % INPUT_EVENT_SLOTS;
+      inputEventHead = (inputEventHead + 1) & INPUT_EVENT_MASK;
       inputEventCount--;
     }
     inputEventTimes[inputEventHead] = now;
-    inputEventHead = (inputEventHead + 1) % INPUT_EVENT_SLOTS;
+    inputEventHead = (inputEventHead + 1) & INPUT_EVENT_MASK;
     inputEventCount++;
     pruneInputEvents(now - 200);
     this.gauge("input.events.200ms", inputEventCount);
