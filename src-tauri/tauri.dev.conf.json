@@ -1,8 +1,22 @@
 {
+  "identifier": "com.partty.desktop.dev",
   "app": {
     "windows": [
       {
-        "devtools": true
+        "label": "main",
+        "title": "Partty",
+        "width": 920,
+        "height": 520,
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": "#2e2e32",
+        "shadow": true,
+        "skipTaskbar": false,
+        "visible": false,
+        "dragDropEnabled": true,
+        "devtools": true,
+        "additionalBrowserArgs": "--enable-gpu-rasterization --disable-background-timer-throttling --disable-renderer-backgrounding --js-flags=--max_semi_space_size=64 --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
       }
     ]
   }

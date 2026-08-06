@@ -8,8 +8,9 @@
     "build": "tsc && vite build",
     "build:ext": "vite build --config extensions/vite.config.js",
     "preview": "vite preview",
-    "tauri": "tauri",
-    "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json"
+    "tauri": "node scripts/tauri.js",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
