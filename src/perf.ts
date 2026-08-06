@@ -198,7 +198,18 @@ function installPerformanceObservers(): void {
   }
 }
 
-const inputEventTimes: number[] = [];
+const INPUT_EVENT_SLOTS = 4096;
+const inputEventTimes = new Float64Array(INPUT_EVENT_SLOTS);
+let inputEventHead = 0;
+let inputEventCount = 0;
+
+function pruneInputEvents(cutoff: number): void {
+  while (inputEventCount > 0) {
+    const oldest = (inputEventHead - inputEventCount + INPUT_EVENT_SLOTS) % INPUT_EVENT_SLOTS;
+    if (inputEventTimes[oldest] >= cutoff) break;
+    inputEventCount--;
+  }
+}
 
 type PtyRoundtripProbe = {
   paneId: string;
@@ -373,15 +384,19 @@ export const parttyPerf = {
   recordInputEvent(): void {
     if (!this.enabled) return;
     const now = performance.now();
-    inputEventTimes.push(now);
-    const cutoff = now - 200;
-    while (inputEventTimes.length > 0 && inputEventTimes[0] < cutoff) inputEventTimes.shift();
-    this.gauge("input.events.200ms", inputEventTimes.length);
+    if (inputEventCount === INPUT_EVENT_SLOTS) {
+      inputEventHead = (inputEventHead + 1) % INPUT_EVENT_SLOTS;
+      inputEventCount--;
+    }
+    inputEventTimes[inputEventHead] = now;
+    inputEventHead = (inputEventHead + 1) % INPUT_EVENT_SLOTS;
+    inputEventCount++;
+    pruneInputEvents(now - 200);
+    this.gauge("input.events.200ms", inputEventCount);
   },
   getInputRate(): number {
-    const cutoff = performance.now() - 1000;
-    const recent = inputEventTimes.filter((t) => t >= cutoff);
-    return recent.length;
+    pruneInputEvents(performance.now() - 1000);
+    return inputEventCount;
   },
   /**
    * Mark a latency-sensitive PTY write that is expected to be echoed back.
@@ -448,7 +463,8 @@ export const parttyPerf = {
     paneTimings.clear();
     ptyInputThroughput.clear();
     ptyOutputThroughput.clear();
-    inputEventTimes.length = 0;
+    inputEventHead = 0;
+    inputEventCount = 0;
     ptyRoundtripProbes.length = 0;
     termRenderProbes.clear();
   },
