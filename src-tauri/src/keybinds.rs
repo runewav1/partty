@@ -172,6 +172,24 @@ fn resolve_shifted_char(key: &str) -> (bool, String) {
     (false, key.to_string())
 }
 
+/// Effective `window_toggle` binding: the keybinds-config binding, overridden
+/// by the dev-only pref in dev builds (lets a dev instance coexist with a
+/// running release binary holding the standard binding). Release builds always
+/// use the keybinds binding.
+pub fn window_toggle_binding(prefs: &crate::prefs::Prefs) -> String {
+    #[cfg(debug_assertions)]
+    if let Some(binding) = &prefs.dev_window_toggle_override
+        && !binding.trim().is_empty()
+    {
+        return binding.clone();
+    }
+    load_keybinds()
+        .bind
+        .get("window_toggle")
+        .cloned()
+        .unwrap_or_else(|| "Alt+Shift+T".to_string())
+}
+
 /// Parse a keybind string ("Ctrl+Shift+T") into a Tauri global-shortcut (Modifiers, Code).
 /// Returns the default Alt+Shift+T if the binding is empty or unsupported.
 pub fn parse_global_shortcut(binding: &str) -> (Modifiers, Code) {
@@ -328,10 +346,14 @@ pub fn set_keybind(app: AppHandle, action: String, binding: String) -> Result<()
     save_keybinds(&kb);
 
     if action == "window_toggle" && !binding.is_empty() {
-        let (mods, code) = parse_global_shortcut(&binding);
+        // Register the effective binding so a dev-only override (when set)
+        // stays in force even if the keybinds file changes underneath it.
+        let prefs = crate::prefs::load_persisted().prefs;
+        let effective = window_toggle_binding(&prefs);
+        let (mods, code) = parse_global_shortcut(&effective);
         let sc = Shortcut::new(Some(mods), code);
         if let Err(e) = app.global_shortcut().register(sc) {
-            eprintln!("[partty] global shortcut re-register failed for \"{binding}\": {e}");
+            eprintln!("[partty] global shortcut re-register failed for \"{effective}\": {e}");
         }
     }
 

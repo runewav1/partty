@@ -985,11 +985,32 @@ fn set_prefs(
     state: State<'_, AppState>,
     prefs: prefs::Prefs,
 ) -> Result<(), String> {
+    let prev = state.persisted.lock().prefs.clone();
     {
         let mut p = state.persisted.lock();
         p.prefs = prefs.clone();
     }
     save_prefs(&prefs);
+    // Dev-only: re-register the window toggle global shortcut when the dev
+    // override changed (release builds ignore the override entirely).
+    #[cfg(debug_assertions)]
+    {
+        let old_binding = keybinds::window_toggle_binding(&prev);
+        let new_binding = keybinds::window_toggle_binding(&prefs);
+        if old_binding != new_binding {
+            let (old_mods, old_code) = keybinds::parse_global_shortcut(&old_binding);
+            let (new_mods, new_code) = keybinds::parse_global_shortcut(&new_binding);
+            let _ = app
+                .global_shortcut()
+                .unregister(Shortcut::new(Some(old_mods), old_code));
+            if let Err(e) = app
+                .global_shortcut()
+                .register(Shortcut::new(Some(new_mods), new_code))
+            {
+                eprintln!("[partty] dev toggle re-register failed for \"{new_binding}\": {e}");
+            }
+        }
+    }
     // Invalidate the warm PTY — the shell identity may have changed.
     *state.warm_pty.lock() = None;
     if let Some(w) = app.get_webview_window("main") {
@@ -1122,12 +1143,7 @@ pub fn run() {
     let mut loaded = load_persisted();
     window_state::sanitize_window_state(&mut loaded.window);
 
-    let kb = keybinds::load_keybinds();
-    let toggle_binding = kb
-        .bind
-        .get("window_toggle")
-        .cloned()
-        .unwrap_or_else(|| "Alt+Shift+T".to_string());
+    let toggle_binding = keybinds::window_toggle_binding(&loaded.prefs);
     let (toggle_mods, toggle_code) = keybinds::parse_global_shortcut(&toggle_binding);
 
     tauri::Builder::default()

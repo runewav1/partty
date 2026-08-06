@@ -301,6 +301,9 @@ pub struct Prefs {
     pub dev_perf_console: bool,
     #[serde(default = "default_dev_perf_console_interval_ms")]
     pub dev_perf_console_interval_ms: u32,
+    /// Dev-only `window_toggle` shortcut override; ignored by release builds.
+    #[serde(default)]
+    pub dev_window_toggle_override: Option<String>,
     #[serde(default = "default_ui_theme")]
     pub ui_theme: String,
     #[serde(default = "default_ui_theme_variant")]
@@ -399,6 +402,7 @@ impl Default for Prefs {
             dev_perf_enabled: false,
             dev_perf_console: false,
             dev_perf_console_interval_ms: default_dev_perf_console_interval_ms(),
+            dev_window_toggle_override: None,
         }
     }
 }
@@ -1001,6 +1005,11 @@ pub struct TerminalExperimentalSection {
 pub struct DevSection {
     #[serde(default)]
     pub perf: DevPerfSection,
+    /// Dev-only override for the `window_toggle` global shortcut binding.
+    /// Lets a dev instance coexist with a running release binary that holds
+    /// the standard binding. Ignored by release builds.
+    #[serde(default)]
+    pub window_toggle_override: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1118,6 +1127,7 @@ impl From<ConfigToml> for Prefs {
             dev_perf_enabled: c.dev.perf.enable,
             dev_perf_console: c.dev.perf.console,
             dev_perf_console_interval_ms: c.dev.perf.console_interval_ms,
+            dev_window_toggle_override: c.dev.window_toggle_override.clone(),
         }
     }
 }
@@ -1252,6 +1262,7 @@ impl From<&Prefs> for ConfigToml {
                     console: p.dev_perf_console,
                     console_interval_ms: p.dev_perf_console_interval_ms,
                 },
+                window_toggle_override: p.dev_window_toggle_override.clone(),
             },
         }
     }

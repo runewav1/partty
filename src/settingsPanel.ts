@@ -135,6 +135,8 @@ export type ParttyPrefs = {
   dev_perf_console?: boolean;
   /** Console snapshot interval in ms. */
   dev_perf_console_interval_ms?: number;
+  /** Dev-only `window_toggle` global shortcut override (ignored by release builds). */
+  dev_window_toggle_override?: string | null;
 };
 
 type Persisted = { window: Record<string, unknown>; prefs: ParttyPrefs };
@@ -281,6 +283,11 @@ export function createSettingsPanel(
       dev_perf_console_interval_ms: import.meta.env.DEV
         ? Math.max(1000, Math.min(60000, parseInt(g("dev_perf_console_interval_ms"), 10) || 5000))
         : 5000,
+      // Dev-only: read from the field in dev; release preserves the stored
+      // value untouched so a release save never clears the dev override.
+      dev_window_toggle_override: import.meta.env.DEV
+        ? (g("dev_window_toggle_override") || null)
+        : (previous.dev_window_toggle_override ?? null),
     };
   }
 
@@ -483,6 +490,7 @@ export function createSettingsPanel(
     setChk("dev_perf_enabled", pr.dev_perf_enabled ?? false);
     setChk("dev_perf_console", pr.dev_perf_console ?? false);
     setVal("dev_perf_console_interval_ms", String(pr.dev_perf_console_interval_ms ?? 5000));
+    setVal("dev_window_toggle_override", pr.dev_window_toggle_override ?? "");
     setSel("split_layout_style", ((v?: string) => { v = (v ?? "balanced").toLowerCase(); return v === "dwindle" || v === "master" ? v : "balanced"; })(pr.split_layout_style));
     setChk("quiet_pane_deferral", pr.quiet_pane_deferral ?? false);
     setChk("inherit_profile_on_split", pr.inherit_profile_on_split ?? true);
