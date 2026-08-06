@@ -4,6 +4,7 @@ use parking_lot::Mutex as ParkingMutex;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,6 +14,8 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager};
+use windows_sys::Win32::Foundation::{DuplicateHandle, HANDLE, DUPLICATE_SAME_ACCESS};
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, WaitForSingleObject, INFINITE};
 
 const SHELL_INTEGRATION_PWSH: &str = include_str!("../scripts/partty-shell-integration.ps1");
 const SHELL_INTEGRATION_BASH: &str = include_str!("../scripts/partty-shell-integration.bash");
@@ -809,6 +812,7 @@ pub struct PtySession {
     pub pane_id: Arc<parking_lot::Mutex<String>>,
     _reader: JoinHandle<()>,
     _emitter: JoinHandle<()>,
+    _waiter: JoinHandle<()>,
 }
 
 impl PtySession {
@@ -867,18 +871,12 @@ impl PtySession {
 
         let (tx, rx) = sync_channel::<Vec<u8>>(48);
         let stop_reader = Arc::clone(&stop);
-        let app_reader = app.clone();
-        let pane_id_reader = Arc::clone(&pane_id_arc);
         let _reader = thread::spawn(move || {
             let mut reader = reader;
             let mut buf = [0u8; 65536];
-            let mut notify_exit = false;
             while !stop_reader.load(Ordering::SeqCst) {
                 match reader.read(&mut buf) {
-                    Ok(0) => {
-                        notify_exit = true;
-                        break;
-                    }
+                    Ok(0) => break,
                     Ok(n) => {
                         let chunk = buf[..n].to_vec();
                         if tx.send(chunk).is_err() {
@@ -889,16 +887,9 @@ impl PtySession {
                         if e.kind() == std::io::ErrorKind::Interrupted {
                             continue;
                         }
-                        if !stop_reader.load(Ordering::SeqCst) {
-                            notify_exit = true;
-                        }
                         break;
                     }
                 }
-            }
-            if notify_exit && !stop_reader.load(Ordering::SeqCst) {
-                let pid = pane_id_reader.lock().clone();
-                let _ = app_reader.emit("pty-exit", PtyExitEvent { pane_id: pid });
             }
         });
 
@@ -1112,6 +1103,43 @@ impl PtySession {
             }
         });
 
+        // Stock ConPTY never closes the output pipe on its own, so exit
+        // detection is a blocking wait on the topmost shell's process object
+        // — the kernel signals it exactly when the shell terminates.
+        let exit_handle: Option<OwnedHandle> = child
+            .lock()
+            .as_ref()
+            .and_then(|c| c.as_raw_handle())
+            .and_then(|h| {
+                let mut dup: HANDLE = std::ptr::null_mut();
+                let ok = unsafe {
+                    DuplicateHandle(
+                        GetCurrentProcess(),
+                        h as _,
+                        GetCurrentProcess(),
+                        &mut dup,
+                        0,
+                        0,
+                        DUPLICATE_SAME_ACCESS,
+                    )
+                };
+                (ok != 0).then(|| unsafe { OwnedHandle::from_raw_handle(dup) })
+            });
+        let stop_waiter = Arc::clone(&stop);
+        let app_waiter = app.clone();
+        let pane_id_waiter = Arc::clone(&pane_id_arc);
+        let _waiter = thread::spawn(move || {
+            let Some(handle) = exit_handle else { return; };
+            unsafe { WaitForSingleObject(handle.as_raw_handle() as _, INFINITE) };
+            // One-time grace so the conhost can flush the final output.
+            thread::sleep(Duration::from_millis(60));
+            if stop_waiter.load(Ordering::SeqCst) {
+                return;
+            }
+            let pid = pane_id_waiter.lock().clone();
+            let _ = app_waiter.emit("pty-exit", PtyExitEvent { pane_id: pid });
+        });
+
         Ok(Self {
             master,
             writer,
@@ -1122,6 +1150,7 @@ impl PtySession {
             pane_id: pane_id_arc,
             _reader,
             _emitter,
+            _waiter,
         })
     }
 

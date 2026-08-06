@@ -1703,6 +1703,32 @@ async function boot(): Promise<void> {
     }
   }
 
+  let quitOnShellExitPending = false;
+
+  /**
+   * A pane's shell exiting (its topmost process terminating) means the pane
+   * is obsolete: close it. When the exiting pane was the app's last one,
+   * treat it as a request to quit — like the palette Quit command. The
+   * Ctrl+Shift+W keybind still refuses to close the final pane; this path
+   * is pty-exit only.
+   */
+  async function closePaneOnShellExit(paneId: string): Promise<void> {
+    // Not a live pane (e.g. a parked warm session's shell died) — nothing to close.
+    if (!getPaneHostByPaneId(paneId)) return;
+    let leafCount = 0;
+    for (const [, host] of tabPaneHosts) {
+      const ids: string[] = [];
+      collectLeafIds(host.getTree(), ids);
+      leafCount += ids.length;
+    }
+    if (leafCount <= 1 && !quitOnShellExitPending) {
+      quitOnShellExitPending = true;
+      void appWindow.destroy().catch(() => {});
+      return;
+    }
+    await closeFocusedPane(paneId);
+  }
+
   async function closeAllChildPanes(): Promise<void> {
     const removed = paneHost?.closeAllChildPanes() ?? [];
     for (const id of removed) {
@@ -6566,11 +6592,8 @@ async function boot(): Promise<void> {
         );
       }
       await ptyAckExit(pane_id);
-      const pt = getPaneTerminalById(pane_id);
-      pt?.term.write("\r\n\x1b[90mReconnecting…\x1b[0m\r\n");
-      if (document.visibilityState === "visible") {
-        await ensurePtyForPane(pane_id);
-      }
+      finishActiveProcess(pane_id, Date.now());
+      await closePaneOnShellExit(pane_id);
     }),
     listen("pty-session-shed", () => {
       liveCwd = null;
