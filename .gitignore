@@ -27,8 +27,9 @@ src-tauri/target/
 
 # Personal development files
 TODO.md
-icon-names.txt
 
-src-tauri/icons/.lemon/
-.lime/
-local/
+src-tauri/icons/
+src-tauri/patches/portable-pty/target
+src-tauri/patches/portable-pty/Cargo.lock
+
+
