@@ -163,9 +163,15 @@ import {
   markProcessExecStart,
   mergeProcessCommand,
   needsKeystrokeProcessTracking,
+  NOTIF_COMMAND_MAX,
+  NOTIF_CWD_MAX,
+  NOTIF_DETAIL_MAX,
+  NOTIF_PANE_MAX,
   observeKeystrokeProcessInput,
   processDurationMs,
   shouldEndOnPromptStart,
+  truncateEnd,
+  truncatePathTail,
   type ActiveProcessEntry,
   type KeystrokeProcessObserver,
 } from "./processTracking";
@@ -5365,10 +5371,9 @@ async function boot(): Promise<void> {
       "proc-toast--transparent",
       processNotificationTransparentRef.v,
     );
-    const shortCmd =
-      command.length > 50 ? command.slice(0, 47) + "\u2026" : command;
-    const shortCwd =
-      cwd.split(/[\\/]/).filter(Boolean).slice(-2).join("/") || cwd;
+    const shortCmd = truncateEnd(command, NOTIF_COMMAND_MAX);
+    const shortPaneName = truncateEnd(paneName, NOTIF_PANE_MAX);
+    const shortCwd = truncatePathTail(cwd, NOTIF_CWD_MAX);
     const ms = Math.max(0, endedAt - startedAt);
     let durStr: string;
     if (processNotificationShowMsRef.v) {
@@ -5377,7 +5382,7 @@ async function boot(): Promise<void> {
       durStr = ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
     }
     processToast.dataset.paneId = paneId;
-    processToast.innerHTML = `<span class="proc-toast-cmd">${escapeHtml(shortCmd)}</span> \u00b7 ${durStr} \u00b7 <span class="proc-toast-pane">${escapeHtml(paneName)}</span> <span class="proc-toast-cwd">${escapeHtml(shortCwd)}</span><button class="proc-toast-nav" title="Go to pane">\u2192</button>`;
+    processToast.innerHTML = `<span class="proc-toast-cmd">${escapeHtml(shortCmd)}</span> \u00b7 ${durStr} \u00b7 <span class="proc-toast-pane">${escapeHtml(shortPaneName)}</span> <span class="proc-toast-cwd">${escapeHtml(shortCwd)}</span><button class="proc-toast-nav" title="Go to pane">\u2192</button>`;
     processToast.classList.remove("proc-toast--hidden");
     if (processToastTimer) clearTimeout(processToastTimer);
     processToastTimer = window.setTimeout(() => {
@@ -6886,7 +6891,7 @@ async function boot(): Promise<void> {
           const navArrow = paneId
             ? `<button class="proc-toast-nav" title="Go to pane">\u2192</button>`
             : "";
-          processToast.innerHTML = `<span class="proc-toast-cmd">${escapeHtml(command)}</span> ${escapeHtml(detail)}${navArrow}`;
+          processToast.innerHTML = `<span class="proc-toast-cmd">${escapeHtml(truncateEnd(command, NOTIF_COMMAND_MAX))}</span> ${escapeHtml(truncateEnd(detail, NOTIF_DETAIL_MAX))}${navArrow}`;
           processToast.classList.remove("proc-toast--hidden");
           if (processToastTimer) clearTimeout(processToastTimer);
           processToastTimer = window.setTimeout(() => {

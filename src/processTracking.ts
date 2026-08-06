@@ -61,6 +61,37 @@ export function displayProcessCommand(command: string): string {
   return normalized;
 }
 
+/** Per-component truncation thresholds for process-completion notifications. */
+export const NOTIF_COMMAND_MAX = 50;
+export const NOTIF_PANE_MAX = 40;
+export const NOTIF_CWD_MAX = 60;
+export const NOTIF_DETAIL_MAX = 120;
+
+/** Truncate a single line to `max` chars, appending an ellipsis. */
+export function truncateEnd(text: string, max: number): string {
+  if (text.length <= max) return text;
+  if (max <= 1) return "\u2026";
+  return text.slice(0, max - 1) + "\u2026";
+}
+
+/**
+ * Path-aware truncation that keeps trailing components and only cuts the
+ * head, so the meaningful tail (leaf directory / file) survives.
+ */
+export function truncatePathTail(path: string, max: number): string {
+  if (path.length <= max) return path;
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  if (parts.length < 2) return truncateEnd(path, max);
+  let tail = parts[parts.length - 1];
+  for (let i = parts.length - 2; i >= 0; i--) {
+    const candidate = `${parts[i]}/${tail}`;
+    if (candidate.length + 2 > max) break; // +2 for the "…/" head
+    tail = candidate;
+  }
+  const kept = `\u2026/${tail}`;
+  return kept.length <= max ? kept : `\u2026/${truncateEnd(tail, max - 2)}`;
+}
+
 export function createActiveProcessEntry(command: string, cwd: string): ActiveProcessEntry {
   return {
     command: normalizeCommandLine(command),
