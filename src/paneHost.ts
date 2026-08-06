@@ -1209,7 +1209,11 @@ export class PaneHost {
     const ids: string[] = [];
     collectLeafIds(this.tree, ids);
     if (ids.length < 2) return false;
-    const before = this.captureLeafRects([idA, idB]);
+    // Skip the pre-mount rect capture (forced reflow) entirely when motion
+    // is disabled — the flip is never played.
+    const before = this.shouldAnimatePaneMotion()
+      ? this.captureLeafRects([idA, idB])
+      : new Map<string, DOMRect>();
     const next = swapLeafNodesInTree(this.tree, idA, idB);
     if (!next) return false;
     this.tree = next;
@@ -1252,6 +1256,9 @@ export class PaneHost {
         continue;
       }
       leaf.classList.add("pane-leaf--swapping");
+      // Promote to its own compositor layer for the flip so the transform
+      // never forces re-promotion (and re-raster) mid-animation.
+      leaf.style.willChange = "transform";
       leaf.style.transformOrigin = "0 0";
       leaf.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
       requestAnimationFrame(() => {
@@ -1260,6 +1267,7 @@ export class PaneHost {
             leaf.style.transition = "";
             leaf.style.transform = "";
             leaf.style.transformOrigin = "";
+            leaf.style.willChange = "";
             leaf.classList.remove("pane-leaf--swapping");
             leaf.removeEventListener("transitionend", cleanup);
           };
