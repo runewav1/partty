@@ -176,6 +176,7 @@ fn resolve_shifted_char(key: &str) -> (bool, String) {
 /// by the dev-only pref in dev builds (lets a dev instance coexist with a
 /// running release binary holding the standard binding). Release builds always
 /// use the keybinds binding.
+#[cfg_attr(not(debug_assertions), allow(unused_variables))]
 pub fn window_toggle_binding(prefs: &crate::prefs::Prefs) -> String {
     #[cfg(debug_assertions)]
     if let Some(binding) = &prefs.dev_window_toggle_override

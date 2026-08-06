@@ -985,6 +985,9 @@ fn set_prefs(
     state: State<'_, AppState>,
     prefs: prefs::Prefs,
 ) -> Result<(), String> {
+    // Dev-only snapshot for the re-register diff below (release builds ignore
+    // the dev override entirely, so the clone is compiled out).
+    #[cfg(debug_assertions)]
     let prev = state.persisted.lock().prefs.clone();
     {
         let mut p = state.persisted.lock();
