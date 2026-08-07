@@ -1,6 +1,10 @@
+
+https://github.com/user-attachments/assets/f8c9bac6-8261-4561-82ab-95a7f34034fa
 # Partty
 
-<img src="./assets/partty_2.jpg" alt="a demo screenshot of Partty" width="500">
+<p align="center">
+  <img src="./assets/partty_2.jpg" alt="a demo screenshot of Partty" width="500">
+</p>
 
 A fast, fun, QoL-focused terminal workspace for Windows.
 
@@ -13,6 +17,10 @@ Partty also includes a plethora of quality-of-life (QoL) features.
 ## Features
 
 What does Partty give you?
+Take a look:
+
+https://github.com/user-attachments/assets/50b6efde-94e8-49dc-b8a8-38c7b454d877
+
 
 ### Tabs and Panes
 
