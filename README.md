@@ -1,5 +1,3 @@
-
-https://github.com/user-attachments/assets/f8c9bac6-8261-4561-82ab-95a7f34034fa
 # Partty
 
 <p align="center">
