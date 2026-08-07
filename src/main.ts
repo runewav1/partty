@@ -1099,8 +1099,10 @@ async function boot(): Promise<void> {
     parttyPerf.recordPtyInputBytes(paneId, data.length);
     const keydownTs = lastKeydownTs;
     if (keydownTs) {
-      parttyPerf.time("input.keydown.to.onData.ms", performance.now() - keydownTs);
       lastKeydownTs = 0;
+      if (parttyPerf.enabled) {
+        parttyPerf.time("input.keydown.to.onData.ms", performance.now() - keydownTs);
+      }
     }
     // Pastes / large bursts: don't RAF-coalesce into one oversized ConPTY write.
     if (isBulkPtyInput(data)) {
@@ -1177,22 +1179,26 @@ async function boot(): Promise<void> {
   ): void {
     const pt = getPaneTerminalById(paneId);
     if (!pt) return;
-    parttyPerf.recordPtyOutputBytes(paneId, data.length);
-    parttyPerf.mark("pty.output.flushes");
-    parttyPerf.mark("pty.output.events", eventCount);
-    parttyPerf.mark("pty.output.chars", data.length);
-    parttyPerf.time("pty.output.queue.ms", performance.now() - queuedAt);
-
+    const timing = parttyPerf.enabled;
+    if (timing) {
+      parttyPerf.recordPtyOutputBytes(paneId, data.length);
+      parttyPerf.mark("pty.output.flushes");
+      parttyPerf.mark("pty.output.events", eventCount);
+      parttyPerf.mark("pty.output.chars", data.length);
+      parttyPerf.time("pty.output.queue.ms", performance.now() - queuedAt);
+    }
+    const writeStarted = timing ? performance.now() : 0;
     // OSC 7 / 133 / 633 are stripped and forwarded as structured `pty-cwd` /
     // `pty-shell-event` side-channel events by the Rust emitter.  Write the
     // pre-cleaned bytes directly — no character-by-character JS parsing needed.
-    const writeStarted = performance.now();
     try {
-      parttyPerf.beginTermWrite(paneId);
+      if (timing) parttyPerf.beginTermWrite(paneId);
       pt.term.write(data);
-      const elapsed = performance.now() - writeStarted;
-      parttyPerf.time("xterm.write.ms", elapsed);
-      parttyPerf.paneTime(paneId, "xterm.render.ms", elapsed);
+      if (timing) {
+        const elapsed = performance.now() - writeStarted;
+        parttyPerf.time("xterm.write.ms", elapsed);
+        parttyPerf.paneTime(paneId, "xterm.render.ms", elapsed);
+      }
     } catch (e) {
       console.warn("xterm.write", e);
     }
@@ -1256,7 +1262,7 @@ async function boot(): Promise<void> {
       paneId === paneHost?.getFocusedPaneId()
     ) {
       parttyPerf.mark("pty.output.immediate.chars", data.length);
-      processPtyOutputBatch(paneId, data, 1, performance.now());
+      processPtyOutputBatch(paneId, data, 1, parttyPerf.enabled ? performance.now() : 0);
       parttyPerf.mark("pty.output.immediate");
       return;
     }
@@ -1292,8 +1298,8 @@ async function boot(): Promise<void> {
    * `set_pty_output_unlocked` after scrollback restore.
    */
   function deliverDirectPtyOut(paneId: string, data: Uint8Array): void {
-    parttyPerf.completePtyRoundtrip(paneId);
     queuePtyOutput(paneId, data);
+    parttyPerf.completePtyRoundtrip(paneId);
     if (extPtyOutputSubs.length > 0) {
       const text = ptyOutputDecoder.decode(data);
       for (const fn of extPtyOutputSubs) {
