@@ -28,14 +28,22 @@ export function pathStyleForProfile(
     : "windows";
 }
 
-/** Translate a Windows-origin path into the pane shell's path format. */
+/**
+ * Translate a Windows-origin path into the pane shell's path format.
+ *
+ * Known limitation: Windows drive letters map to `/mnt/<drive>` for WSL —
+ * the default `automount.root` from wsl.conf. Distros configured with a
+ * custom automount root are not detected here.
+ */
 export function translatePath(raw: string, style: PathStyle): string {
   if (style === "windows") return raw;
   const fwd = raw.replace(/\\/g, "/");
-  if (style === "wsl") {
-    // \\wsl$\<distro>\home\user\file -> /home/user/file
-    const wsl = fwd.match(/^\/\/wsl\$\/([^/]+)\/(.+)$/);
-    if (wsl) return "/" + wsl[2];
+  // \\wsl$\<distro>\... or \\wsl.localhost\<distro>\... — Linux filesystem
+  // paths. WSL strips the distro (the target distro's own filesystem); msys
+  // keeps the UNC server form, forward-slashed (//wsl$/distro/...).
+  const wsl = fwd.match(/^\/\/(?:wsl\$|wsl\.localhost)\/([^/]+)\/(.+)$/);
+  if (wsl) {
+    return style === "wsl" ? `/${wsl[2]}` : fwd;
   }
   // C:\... -> /c/... (msys) or /mnt/c/... (wsl)
   const drv = fwd.match(/^([a-zA-Z]):\/(.*)$/);
@@ -43,7 +51,8 @@ export function translatePath(raw: string, style: PathStyle): string {
     const drive = drv[1].toLowerCase();
     return style === "wsl" ? `/mnt/${drive}/${drv[2]}` : `/${drive}/${drv[2]}`;
   }
-  return raw;
+  // Any other UNC/backslash form: forward-slash it for POSIX shells.
+  return fwd;
 }
 
 /** Quote a path for insertion into the pane shell's input. */
@@ -97,4 +106,27 @@ export function translatePasteText(text: string, style: PathStyle): string {
     translatePath(stripMatchingQuotes(text.trim()), style),
     style,
   );
+}
+
+/**
+ * Resolve a relative path against a working directory, yielding a Windows-
+ * oriented absolute path. Handles `.`/`..` segments and preserves UNC roots.
+ */
+export function expandRelativePath(rel: string, cwd: string): string {
+  const isUnc = cwd.startsWith("\\\\");
+  const isPosix = cwd.startsWith("/");
+  const sep = isPosix ? "/" : "\\";
+  const parts = cwd.split(/[\\/]+/).filter(Boolean);
+  for (const seg of rel.split(/[\\/]+/)) {
+    if (!seg || seg === ".") continue;
+    if (seg === "..") {
+      parts.pop();
+    } else {
+      parts.push(seg);
+    }
+  }
+  const joined = parts.join(sep);
+  if (isUnc) return `\\\\${joined}`;
+  if (isPosix) return `/${joined}`;
+  return joined;
 }

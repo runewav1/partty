@@ -148,6 +148,7 @@ import {
   ptyWrite,
 } from "./ptyIpc";
 import {
+  expandRelativePath,
   pathStyleForProfile,
   quotePath,
   translatePasteText,
@@ -1415,7 +1416,38 @@ async function boot(): Promise<void> {
     return null;
   };
 
+  /** Unquoted relative fragments containing a separator (`src/foo.rs`, `../x`), expanded against the pane cwd. */
+  const extractRelativePathAtColumn = (
+    line: string,
+    column: number,
+    cwd: string | null,
+  ): string | null => {
+    if (!cwd) return null;
+    const re = /\S+/g;
+    let m: RegExpExecArray | null = null;
+    while ((m = re.exec(line)) !== null) {
+      const start = m.index;
+      const end = start + m[0].length;
+      if (column < start || column >= end) continue;
+      let raw = m[0].replace(/[),.;:!?\]]+$/g, "");
+      if (!raw) continue;
+      if (!isRelativePathCandidate(raw)) continue;
+      return expandRelativePath(raw, cwd);
+    }
+    return null;
+  };
+
+  const isRelativePathCandidate = (tok: string): boolean => {
+    if (/^[\\/]/.test(tok)) return false; // absolute / UNC — handled elsewhere
+    if (/^[A-Za-z]:[\\/]/.test(tok)) return false; // drive absolute
+    if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(tok)) return false; // URL
+    if (!tok.includes("/") && !tok.includes("\\")) return false; // needs a separator
+    if (/^\.{1,2}$/.test(tok)) return false;
+    return true;
+  };
+
   const handleCtrlClickToken = (
+    paneId: string,
     term: Terminal,
     host: HTMLElement,
     ev: MouseEvent,
@@ -1439,7 +1471,10 @@ async function boot(): Promise<void> {
       return true;
     }
 
-    const path = extractPathAtColumn(line, cell.col);
+    const cwd = paneCwdHints.get(paneId) ?? liveCwd ?? null;
+    const path =
+      extractPathAtColumn(line, cell.col) ??
+      extractRelativePathAtColumn(line, cell.col, cwd);
     if (path) {
       ev.preventDefault();
       ev.stopPropagation();
@@ -1450,6 +1485,7 @@ async function boot(): Promise<void> {
   };
 
   const updateCtrlLinkHover = (
+    paneId: string,
     term: Terminal,
     host: HTMLElement,
     ev: MouseEvent,
@@ -1469,10 +1505,12 @@ async function boot(): Promise<void> {
     const b = term.buffer.active;
     const clickAbsY = b.viewportY + cell.row;
     const line = b.getLine(clickAbsY)?.translateToString(false) ?? "";
+    const cwd = paneCwdHints.get(paneId) ?? liveCwd ?? null;
     const hit =
       !!line &&
       (!!extractUrlAtColumn(line, cell.col) ||
-        !!extractPathAtColumn(line, cell.col));
+        !!extractPathAtColumn(line, cell.col) ||
+        !!extractRelativePathAtColumn(line, cell.col, cwd));
     if (!hit) {
       clear();
       return;
@@ -3051,11 +3089,11 @@ async function boot(): Promise<void> {
             }
           });
           const onHostClick = (ev: MouseEvent) => {
-            if (handleCtrlClickToken(pt.term, pt.host, ev)) return;
+            if (handleCtrlClickToken(id, pt.term, pt.host, ev)) return;
           };
           const onHostWheel = (ev: WheelEvent) => handlePaneHostWheel(id, ev);
           const onHostMouseMove = (ev: MouseEvent) => {
-            updateCtrlLinkHover(pt.term, pt.host, ev);
+            updateCtrlLinkHover(id, pt.term, pt.host, ev);
           };
           const onHostMouseLeave = () => {
             pt.host.classList.remove("pane-terminal-host--ctrl-link-hover");
