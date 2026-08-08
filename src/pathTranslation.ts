@@ -55,3 +55,46 @@ export function quotePath(path: string, style: PathStyle): string {
     ? `'${path.replace(/'/g, `'\\''`)}'`
     : path;
 }
+
+/**
+ * Whether clipboard content looks like a single path (drive letter, UNC, or a
+ * leading separator), optionally wrapped in a matching pair of quotes (as
+ * Explorer's "Copy as path" does). Anything else — multi-line text, prose,
+ * relative fragments without a separator — passes through untranslated.
+ */
+export function isPathLike(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed || /[\r\n]/.test(trimmed)) return false;
+  const inner = stripMatchingQuotes(trimmed);
+  return (
+    /^[a-zA-Z]:[\\/]/.test(inner) || // C:\... or C:/...
+    /^(\\\\|\/\/)/.test(inner) || // \\server\share or //wsl$...
+    /^[\\/]/.test(inner) // \foo or /foo
+  );
+}
+
+/** Strip a matching outer quote pair ("C:\foo" -> C:\foo); else unchanged. */
+function stripMatchingQuotes(text: string): string {
+  const q = text[0];
+  if (
+    (q === '"' || q === "'") &&
+    text.length > 1 &&
+    text[text.length - 1] === q
+  ) {
+    return text.slice(1, -1);
+  }
+  return text;
+}
+
+/**
+ * Translate clipboard content for paste into a pane of the given style:
+ * path-shaped text (quoted or not) is translated and quoted like a drop;
+ * everything else is returned untouched.
+ */
+export function translatePasteText(text: string, style: PathStyle): string {
+  if (!isPathLike(text)) return text;
+  return quotePath(
+    translatePath(stripMatchingQuotes(text.trim()), style),
+    style,
+  );
+}

@@ -150,6 +150,7 @@ import {
 import {
   pathStyleForProfile,
   quotePath,
+  translatePasteText,
   translatePath,
   type PathStyle,
 } from "./pathTranslation";
@@ -5144,8 +5145,10 @@ async function boot(): Promise<void> {
       if (!term) return;
       // Go through xterm so newlines normalize and bracketed paste wraps when
       // the app (TUI) enabled it — raw ptyWrite skipped both and broke OpenCode etc.
+      // Path-shaped clipboard content is translated per the focused pane's
+      // shell (e.g. an NTFS path pasted into a WSL pane) — same layer as drops.
       term.focus();
-      term.paste(text);
+      term.paste(translatePasteText(text, panePathStyle(pid)));
     } catch {
       /* empty clipboard or read failed */
     }
