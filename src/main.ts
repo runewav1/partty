@@ -147,6 +147,12 @@ import {
   ptyResizeBatch,
   ptyWrite,
 } from "./ptyIpc";
+import {
+  pathStyleForProfile,
+  quotePath,
+  translatePath,
+  type PathStyle,
+} from "./pathTranslation";
 import { createTabCloseIcon } from "./toolbarIcons";
 import { parttyPerf } from "./perf";
 import type { DevMetricsOverlayApi } from "./devMetricsOverlay";
@@ -6741,56 +6747,20 @@ async function boot(): Promise<void> {
 
   // ── Drag & drop ──────────────────────────────────────────────────────────
   // Native pipeline: wry delivers extracted paths via onDragDropEvent (the
-  // DOM drop never fires with dragDropEnabled: true). The pane's spawn
-  // profile tells us the path format its shell expects: WSL profiles take
-  // Linux paths (/mnt/c/...), local bash (msys/git-bash) takes /c/... style,
-  // everything else takes Windows paths as-is.
+  // DOM drop never fires with dragDropEnabled: true). Paths are translated
+  // and quoted per the target pane's shell via the shared pathTranslation
+  // module — the same layer paste and cross-pane drag consume.
 
-  type DropPathStyle = "windows" | "msys" | "wsl";
-
-  function paneDropPathStyle(paneId: string): DropPathStyle {
+  function panePathStyle(paneId: string): PathStyle {
     const profileId = paneProfileIds.get(paneId);
     const profile = profileId
       ? profilesList.find((p) => p.id === profileId)
       : undefined;
-    if (profile?.kind === "wsl") return "wsl";
-    const shell = shellPrefKey(
+    const shell =
       profile?.shell ??
-        ((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
-        "",
-    );
-    return /(^|[\\/])(bash|sh|zsh|ksh|dash)(\.exe)?$/.test(shell) ||
-      /git[- ]?bash|msys|cygwin/.test(shell)
-      ? "msys"
-      : "windows";
-  }
-
-  /** Translate a dropped Windows path into the pane shell's path format. */
-  function translateDroppedPath(raw: string, style: DropPathStyle): string {
-    if (style === "windows") return raw;
-    const fwd = raw.replace(/\\/g, "/");
-    if (style === "wsl") {
-      // \\wsl$\<distro>\home\user\file -> /home/user/file
-      const wsl = fwd.match(/^\/\/wsl\$\/([^/]+)\/(.+)$/);
-      if (wsl) return "/" + wsl[2];
-    }
-    // C:\... -> /c/... (msys) or /mnt/c/... (wsl)
-    const drv = fwd.match(/^([a-zA-Z]):\/(.*)$/);
-    if (drv) {
-      const drive = drv[1].toLowerCase();
-      return style === "wsl" ? `/mnt/${drive}/${drv[2]}` : `/${drive}/${drv[2]}`;
-    }
-    return raw;
-  }
-
-  /** Quote a path for insertion into the pane shell's input. */
-  function quoteDroppedPath(path: string, style: DropPathStyle): string {
-    if (style === "windows") {
-      return /[\s"&|<>^%]/.test(path) ? `"${path.replace(/"/g, '\\"')}"` : path;
-    }
-    return /[\s'"$`\\]/.test(path)
-      ? `'${path.replace(/'/g, `'\\''`)}'`
-      : path;
+      ((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
+      "";
+    return pathStyleForProfile(profile, shell);
   }
 
   getCurrentWebview()
@@ -6810,11 +6780,9 @@ async function boot(): Promise<void> {
             )?.dataset.paneId
           : undefined;
       if (!paneId || payload.paths.length === 0) return;
-      const style = paneDropPathStyle(paneId);
+      const style = panePathStyle(paneId);
       const inserts = payload.paths
-        .map((p) =>
-          quoteDroppedPath(translateDroppedPath(p.trim(), style), style),
-        )
+        .map((p) => quotePath(translatePath(p.trim(), style), style))
         .filter(Boolean);
       if (inserts.length === 0) return;
       const pt = getPaneTerminalById(paneId);
