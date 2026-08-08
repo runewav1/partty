@@ -1,7 +1,7 @@
 # Partty
 
 <p align="center">
-  <img src="./assets/partty_2.jpg" alt="a demo screenshot of Partty" width="500">
+  <img src="./assets/partty_1.jpg" alt="a demo screenshot of Partty" width="500">
 </p>
 
 A fast, fun, QoL-focused terminal workspace for Windows.
