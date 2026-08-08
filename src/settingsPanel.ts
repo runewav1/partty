@@ -137,6 +137,12 @@ export type ParttyPrefs = {
   dev_perf_console_interval_ms?: number;
   /** Dev-only `window_toggle` global shortcut override (ignored by release builds). */
   dev_window_toggle_override?: string | null;
+  /** `[editor]` split direction for ctrl+alt+click (`"v"` | `"h"`). */
+  editor_split_type?: string;
+  /** `[editor]` profile id for the editor split (empty → default profile). */
+  editor_profile?: string;
+  /** `[editor]` command template with `~path~` placeholder (empty → ctrl+alt+click disabled). */
+  editor_command?: string;
 };
 
 type Persisted = { window: Record<string, unknown>; prefs: ParttyPrefs };
@@ -243,6 +249,11 @@ export function createSettingsPanel(
       profile_omit: previous.profile_omit ?? [],
       palette_profile_icons: previous.palette_profile_icons ?? true,
       profile_selection_aliases: previous.profile_selection_aliases ?? {},
+      // Config-only `[editor]` — not in the form; carried through unchanged
+      // so a Settings save never clobbers a hand-written section.
+      editor_split_type: previous.editor_split_type ?? "v",
+      editor_profile: previous.editor_profile ?? "",
+      editor_command: previous.editor_command ?? "",
       terminal_animation_speed,
       terminal_animation_style, terminal_window_motion: gc("terminal_window_motion"),
       window_effect_mode, window_effect_opacity: clamp01(g("window_effect_opacity"), 0),

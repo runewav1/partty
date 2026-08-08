@@ -210,6 +210,7 @@ fn resolve_spawn(
     profile_id: Option<&str>,
     shell: Option<&str>,
     initial_cwd: Option<String>,
+    startup_override: Option<&str>,
 ) -> Result<(prefs::Prefs, Option<profiles::ConnectionProfile>, String), String> {
     let assigned = match profile_id.map(str::trim).filter(|s| !s.is_empty()) {
         Some(id) => match profiles::get_profile(id) {
@@ -239,6 +240,19 @@ fn resolve_spawn(
             && let Some(cmd) = profiles::resolve_assigned_startup_command(assigned_p) {
                 sp.startup_command = Some(cmd);
             }
+    // Per-spawn override (e.g. the `[editor]` split) wins over the profile's
+    // own startup command; honored even without a resolvable profile.
+    if let Some(cmd) = startup_override.map(str::trim).filter(|s| !s.is_empty()) {
+        match spawn_for_pty.as_mut() {
+            Some(sp) => sp.startup_command = Some(cmd.to_string()),
+            None => {
+                spawn_for_pty = Some(profiles::ConnectionProfile {
+                    startup_command: Some(cmd.to_string()),
+                    ..Default::default()
+                });
+            }
+        }
+    }
 
     let mut cwd = initial_cwd;
     if cwd
@@ -745,11 +759,17 @@ fn pty_ensure(
     initial_cwd: Option<String>,
     shell: Option<String>,
     profile_id: Option<String>,
+    startup_command: Option<String>,
     output: Channel<InvokeResponseBody>,
 ) -> Result<(), String> {
     let base = state.persisted.lock().prefs.clone();
-    let (spawn_prefs, profile, want) =
-        resolve_spawn(&base, profile_id.as_deref(), shell.as_deref(), initial_cwd)?;
+    let (spawn_prefs, profile, want) = resolve_spawn(
+        &base,
+        profile_id.as_deref(),
+        shell.as_deref(),
+        initial_cwd,
+        startup_command.as_deref(),
+    )?;
     let existing = {
         let panes = state.pty_panes.lock();
         let ids = state.pty_spawn_identity.lock();
@@ -820,8 +840,14 @@ fn pty_ensure(
         .lock()
         .insert(pane_id, want.clone());
 
-    // Prime the warm pool for the first pane split.
-    refill_warm_pty(&app, &spawn_prefs, want, profile);
+    // Prime the warm pool for the first pane split. The warm slot must not
+    // carry per-spawn startup commands — a later adoption would unexpectedly
+    // re-run the editor command.
+    let mut warm_profile = profile.clone();
+    if let Some(sp) = warm_profile.as_mut() {
+        sp.startup_command = None;
+    }
+    refill_warm_pty(&app, &spawn_prefs, want, warm_profile);
     Ok(())
 }
 
@@ -838,14 +864,20 @@ fn pty_spawn(
     initial_cwd: Option<String>,
     shell: Option<String>,
     profile_id: Option<String>,
+    startup_command: Option<String>,
 ) -> Result<(), String> {
     if let Some(old) = state.pty_panes.lock().remove(&pane_id) {
         old.kill();
     }
     state.pty_spawn_identity.lock().remove(&pane_id);
     let base = state.persisted.lock().prefs.clone();
-    let (spawn_prefs, profile, want) =
-        resolve_spawn(&base, profile_id.as_deref(), shell.as_deref(), initial_cwd)?;
+    let (spawn_prefs, profile, want) = resolve_spawn(
+        &base,
+        profile_id.as_deref(),
+        shell.as_deref(),
+        initial_cwd,
+        startup_command.as_deref(),
+    )?;
 
     // Try to adopt a pre-warmed session (identity must match; cwd ignored for warm
     // sessions since they start at the prefs default and the shell will cd via OSC).
@@ -883,8 +915,13 @@ fn pty_spawn(
         .lock()
         .insert(pane_id, want.clone());
 
-    // Refill the warm slot in the background for the next split.
-    refill_warm_pty(&app, &spawn_prefs, want, profile);
+    // Refill the warm slot in the background for the next split. The warm
+    // slot must not carry per-spawn startup commands.
+    let mut warm_profile = profile.clone();
+    if let Some(sp) = warm_profile.as_mut() {
+        sp.startup_command = None;
+    }
+    refill_warm_pty(&app, &spawn_prefs, want, warm_profile);
     Ok(())
 }
 

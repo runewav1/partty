@@ -72,6 +72,9 @@ fn default_terminal_animation_style() -> String {
 fn default_split_layout_style() -> String {
     "balanced".to_string()
 }
+fn default_editor_split_type() -> String {
+    "v".to_string()
+}
 
 fn default_session_shed_on_exit() -> String {
     "keep".to_string()
@@ -304,6 +307,16 @@ pub struct Prefs {
     /// Dev-only `window_toggle` shortcut override; ignored by release builds.
     #[serde(default)]
     pub dev_window_toggle_override: Option<String>,
+    /// Ctrl+Alt+click custom path operation (`[editor]`). Split direction for
+    /// the in-pane editor split: `"v"` (default) | `"h"`.
+    #[serde(default = "default_editor_split_type")]
+    pub editor_split_type: String,
+    /// Profile id for the editor split; empty → `[profiles].default`.
+    #[serde(default)]
+    pub editor_profile: String,
+    /// Shell command template with `~path~` placeholder. Empty → ctrl+alt+click disabled.
+    #[serde(default)]
+    pub editor_command: String,
     #[serde(default = "default_ui_theme")]
     pub ui_theme: String,
     #[serde(default = "default_ui_theme_variant")]
@@ -403,6 +416,9 @@ impl Default for Prefs {
             dev_perf_console: false,
             dev_perf_console_interval_ms: default_dev_perf_console_interval_ms(),
             dev_window_toggle_override: None,
+            editor_split_type: default_editor_split_type(),
+            editor_profile: String::new(),
+            editor_command: String::new(),
         }
     }
 }
@@ -451,6 +467,8 @@ pub struct ConfigToml {
     pub font_ui: FontFamilySection,
     #[serde(default)]
     pub terminal: TerminalSection,
+    #[serde(default)]
+    pub editor: EditorSection,
     pub dev: DevSection,
 }
 
@@ -1001,6 +1019,34 @@ pub struct TerminalExperimentalSection {
     pub sideload_openconsole: bool,
 }
 
+/// Ctrl+Alt+click on a path in a terminal pane opens a new split pane with
+/// `profile` (or `[profiles].default`) and types `command` into it. Without
+/// `command`, ctrl+alt+click does nothing. The `~path~` placeholder inside
+/// `command` is resolved at click time to the path under the cursor, expanded
+/// against the pane's cwd and shell-quoted for the target profile.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EditorSection {
+    /// Split direction for the editor split: `"v"` (default) | `"h"`.
+    #[serde(default = "default_editor_split_type")]
+    pub split_type: String,
+    /// Profile id for the editor split; empty → `[profiles].default`.
+    #[serde(default)]
+    pub profile: String,
+    /// Shell command template with `~path~` placeholder. Empty → ctrl+alt+click disabled.
+    #[serde(default)]
+    pub command: String,
+}
+
+impl Default for EditorSection {
+    fn default() -> Self {
+        Self {
+            split_type: default_editor_split_type(),
+            profile: String::new(),
+            command: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DevSection {
     #[serde(default)]
@@ -1128,6 +1174,9 @@ impl From<ConfigToml> for Prefs {
             dev_perf_console: c.dev.perf.console,
             dev_perf_console_interval_ms: c.dev.perf.console_interval_ms,
             dev_window_toggle_override: c.dev.window_toggle_override.clone(),
+            editor_split_type: c.editor.split_type,
+            editor_profile: c.editor.profile,
+            editor_command: c.editor.command,
         }
     }
 }
@@ -1263,6 +1312,11 @@ impl From<&Prefs> for ConfigToml {
                     console_interval_ms: p.dev_perf_console_interval_ms,
                 },
                 window_toggle_override: p.dev_window_toggle_override.clone(),
+            },
+            editor: EditorSection {
+                split_type: p.editor_split_type.clone(),
+                profile: p.editor_profile.clone(),
+                command: p.editor_command.clone(),
             },
         }
     }

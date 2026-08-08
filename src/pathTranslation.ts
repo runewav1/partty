@@ -96,6 +96,18 @@ function stripMatchingQuotes(text: string): string {
 }
 
 /**
+ * Extract the WSL distro from a pane cwd (`\\wsl$\Ubuntu\...` /
+ * `\\wsl.localhost\Ubuntu\...`); null when the cwd is not a WSL UNC.
+ */
+function wslDistroFromCwd(cwd: string | null): string | null {
+  if (!cwd) return null;
+  const m = cwd
+    .replace(/\\/g, "/")
+    .match(/^\/\/wsl(?:\$|\.localhost)\/([^/]+)\//);
+  return m ? m[1] : null;
+}
+
+/**
  * Translate clipboard content for paste into a pane of the given style:
  * path-shaped text (quoted or not) is translated and quoted like a drop;
  * everything else is returned untouched.
@@ -129,4 +141,61 @@ export function expandRelativePath(rel: string, cwd: string): string {
   if (isUnc) return `\\\\${joined}`;
   if (isPosix) return `/${joined}`;
   return joined;
+}
+
+/**
+ * Translate a path extracted from a pane's buffer into the form a target
+ * shell expects, using the source pane's cwd to resolve reverse mappings.
+ *
+ * The forward direction (Windows → msys/WSL) is `translatePath`. Reverse
+ * mappings — needed when the clicked pane is POSIX but the target is Windows-
+ * native (or a different POSIX flavor) — infer the WSL distro from a
+ * `\\wsl$\<distro>\...` cwd, and only treat a leading `/X/` segment as a msys
+ * drive when the source pane is itself Windows-shell based.
+ *
+ * Known limitation (mirrors `translatePath`): WSL drive-letter paths assume
+ * the default `automount.root = /mnt` (`/mnt/c/...` → `C:\...`).
+ */
+export function translatePathFromSource(
+  raw: string,
+  style: PathStyle,
+  sourceCwd: string | null,
+): string {
+  const fwd = raw.replace(/\\/g, "/");
+  const posixAbs = /^\/(?!\/)/.test(fwd) && !/^[a-zA-Z]:\//.test(fwd);
+  const sourceIsPosix =
+    !!sourceCwd && sourceCwd.replace(/\\/g, "/").startsWith("/");
+
+  if (style === "windows") {
+    if (!posixAbs) return raw;
+    // /mnt/c/... → C:\... (default automount root)
+    const mnt = fwd.match(/^\/mnt\/([a-z])\/(.+)$/);
+    if (mnt) return `${mnt[1].toUpperCase()}:\\${mnt[2].replace(/\//g, "\\")}`;
+    // /home/user/... → \\wsl$\<distro>\home\user\...
+    const distro = wslDistroFromCwd(sourceCwd);
+    if (distro) return `\\\\wsl$\\${distro}${fwd.replace(/\//g, "\\")}`;
+    // /c/... → C:\... — msys drive form, only from a Windows-shell pane
+    const msys = fwd.match(/^\/([a-zA-Z])\/(.+)$/);
+    if (msys && !sourceIsPosix) {
+      return `${msys[1].toUpperCase()}:\\${msys[2].replace(/\//g, "\\")}`;
+    }
+    return raw;
+  }
+
+  if (/^[a-zA-Z]:[\\/]/.test(fwd) || /^(\\\\|\/\/)/.test(fwd)) {
+    return translatePath(fwd, style);
+  }
+
+  // POSIX-form raw: msys → //wsl$/<distro>/... when the source is WSL.
+  if (style === "msys") {
+    const distro = wslDistroFromCwd(sourceCwd);
+    return distro ? `//wsl$/${distro}${fwd}` : fwd;
+  }
+
+  // WSL target: /c/... → /mnt/c/... (msys drive form from a Windows shell).
+  const msys = fwd.match(/^\/([a-zA-Z])\/(.+)$/);
+  if (msys && !sourceIsPosix) {
+    return `/mnt/${msys[1].toLowerCase()}/${msys[2]}`;
+  }
+  return fwd;
 }

@@ -199,6 +199,28 @@ Terminal session behavior (tabs/layouts in localStorage, copy/paste). Not the sa
 |-----|------|---------|
 | `family` | string | `""` (system stack) |
 
+## `[editor]`
+
+Ctrl+Alt+click on a path in a terminal pane opens a new split pane that
+starts directly in the configured editor. The `~path~` placeholder inside `command`
+resolves at click time to the path under the cursor — relative fragments are
+expanded against the pane's cwd, and the path is translated into the target
+shell's dialect (e.g. `/mnt/c/...` in a WSL profile, `/c/...` in git-bash,
+`\\wsl$\...` when a WSL path reaches an NTFS-native profile).
+
+```toml
+[editor]
+split_type = "v"      # "v"/"vertical" | "h"/"horizontal"
+profile = "pwsh"      # profile id; empty → the default profile
+command = "nvim ~path~"
+```
+
+| Key | Type | Default | Notes |
+|-----|------|---------|-------|
+| `split_type` | string | `"v"` | `"v"`/`"vertical"` opens adjacent (side-by-side); `"h"`/`"horizontal"` stacks (top-bottom); anything else falls back to `"v"` |
+| `profile` | string | `""` | Profile id; empty → `[profiles].default` |
+| `command` | string | `""` | Command template with `~path~`, run at shell startup. Empty → Ctrl+Alt+click disabled |
+
 ## `[dev.perf]`
 
 | Key | Type | Default | Range |
@@ -227,4 +249,9 @@ square = true
 [theme]
 active = "tokyonight"
 variant = "moon"
+
+[editor]
+split_type = "v"
+profile = "local-pwsh"
+command = "nvim ~path~"
 ```

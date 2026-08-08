@@ -153,6 +153,7 @@ import {
   quotePath,
   translatePasteText,
   translatePath,
+  translatePathFromSource,
   type PathStyle,
 } from "./pathTranslation";
 import { createTabCloseIcon } from "./toolbarIcons";
@@ -449,7 +450,30 @@ async function boot(): Promise<void> {
     document.querySelectorAll("[data-dev-only]").forEach((el) => el.remove());
   }
   const k = createKeybinds();
+
+  /** `[editor]` section shape consumed by the ctrl+alt+click operation. */
+  type EditorConfig = {
+    splitType: "h" | "v";
+    profile: string;
+    command: string;
+  };
+
+  const editorConfigFromPrefs = (p: Partial<ParttyPrefs>): EditorConfig => {
+    // User-facing vocabulary: "v"/"vertical" = side-by-side (adjacent),
+    // "h"/"horizontal" = stacked (top-bottom). PaneHost represents these
+    // inversely (dir "h" → row, dir "v" → column), so translate here.
+    const dir = String(p.editor_split_type ?? "v").toLowerCase();
+    const splitType: "h" | "v" =
+      dir === "h" || dir === "horizontal" ? "v" : "h";
+    return {
+      splitType,
+      profile: String(p.editor_profile ?? "").trim(),
+      command: String(p.editor_command ?? "").trim(),
+    };
+  };
+
   const persisted = await invoke<PersistedPayload>("get_persisted_state");
+  const editorConfigRef = { v: editorConfigFromPrefs(persisted.prefs as Partial<ParttyPrefs>) };
   syncRuntimeShedFromPrefs(persisted.prefs as ParttyPrefs);
   configureDevPerfPrefs(persisted.prefs as Partial<ParttyPrefs>);
   parttyPerf.mark("boot.start");
@@ -509,6 +533,7 @@ async function boot(): Promise<void> {
   const pendingNewPaneProfile = { v: null as string | null };
   const pendingPaneSpawnProfile = new Map<string, string>();
   const pendingPaneStartupCommands = new Map<string, string>();
+  const pendingPaneSpawnStartup = new Map<string, string>();
   let profilesList: ConnectionProfile[] = [
     {
       version: 1,
@@ -1460,6 +1485,11 @@ async function boot(): Promise<void> {
     const line = b.getLine(clickAbsY)?.translateToString(false) ?? "";
     if (!line) return false;
 
+    // Ctrl+Alt+click runs the `[editor]` custom operation on a path.
+    if (ev.altKey) {
+      return handleCtrlAltClickPath(paneId, line, cell.col, ev);
+    }
+
     // URLs win over paths when both could match.
     const url = extractUrlAtColumn(line, cell.col);
     if (url) {
@@ -1484,6 +1514,52 @@ async function boot(): Promise<void> {
     return false;
   };
 
+  /**
+   * Ctrl+Alt+click on a path opens a new split pane with `[editor].profile`
+   * (or the default) and types `[editor].command` into it. `~path~` resolves
+   * to the path under the cursor (relative fragments expanded against the
+   * pane's cwd), translated into the target shell's dialect — including
+   * reverse mappings like a WSL path reaching an NTFS-native profile.
+   */
+  const handleCtrlAltClickPath = (
+    paneId: string,
+    line: string,
+    col: number,
+    ev: MouseEvent,
+  ): boolean => {
+    const editor = editorConfigRef.v;
+    if (!editor.command) return false;
+    const cwd = paneCwdHints.get(paneId) ?? liveCwd ?? null;
+    const raw =
+      extractPathAtColumn(line, col) ??
+      extractRelativePathAtColumn(line, col, cwd);
+    if (!raw) return false;
+    ev.preventDefault();
+    ev.stopPropagation();
+
+    const profileId = resolveDefaultProfileId(
+      editor.profile || profileBehaviorRef.v.default_profile_id,
+      profilesList,
+    );
+    paneHost?.setFocusedPaneId(paneId);
+    const newId = splitFocusedWithCwd(editor.splitType, profileId);
+    if (!newId) return true;
+    const profile = getProfileById(profileId, profilesList);
+    const globalShell =
+      ((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
+      "pwsh";
+    const shellOverride = resolveProfileShell(profile, globalShell, profilesList);
+    const style = pathStyleForProfile(profile ?? undefined, shellOverride ?? "");
+    const target = quotePath(translatePathFromSource(raw, style, cwd), style);
+    // Run at shell startup (spawn-time startup command) instead of typing it
+    // in after the prompt — the editor pane opens straight into the editor.
+    pendingPaneSpawnStartup.set(
+      newId,
+      editor.command.replace("~path~", target),
+    );
+    return true;
+  };
+
   const updateCtrlLinkHover = (
     paneId: string,
     term: Terminal,
@@ -1493,7 +1569,9 @@ async function boot(): Promise<void> {
     const clear = () => {
       host.classList.remove("pane-terminal-host--ctrl-link-hover");
     };
-    if (!(ev.ctrlKey || ev.metaKey)) {
+    const ctrl = ev.ctrlKey || ev.metaKey;
+    const altEditor = ev.altKey && !!editorConfigRef.v.command;
+    if (!ctrl && !altEditor) {
       clear();
       return;
     }
@@ -1506,11 +1584,11 @@ async function boot(): Promise<void> {
     const clickAbsY = b.viewportY + cell.row;
     const line = b.getLine(clickAbsY)?.translateToString(false) ?? "";
     const cwd = paneCwdHints.get(paneId) ?? liveCwd ?? null;
-    const hit =
+    const pathHit =
       !!line &&
-      (!!extractUrlAtColumn(line, cell.col) ||
-        !!extractPathAtColumn(line, cell.col) ||
+      (!!extractPathAtColumn(line, cell.col) ||
         !!extractRelativePathAtColumn(line, cell.col, cwd));
+    const hit = !!line && ((ctrl && !!extractUrlAtColumn(line, cell.col)) || pathHit);
     if (!hit) {
       clear();
       return;
@@ -2610,6 +2688,7 @@ async function boot(): Promise<void> {
     const pt = ptIn ?? getPaneTerminalById(paneId);
     if (!pt) return;
     const effectiveCwd = initialCwd ?? paneCwdHints.get(paneId) ?? null;
+    const startupOverride = pendingPaneSpawnStartup.get(paneId) ?? null;
     const profileId = assignPaneProfileId(
       paneId,
       paneProfileIds.get(paneId) ??
@@ -2660,8 +2739,10 @@ async function boot(): Promise<void> {
           effectiveCwd,
           shellOverride,
           profileId,
+          startupOverride,
           output,
         );
+        pendingPaneSpawnStartup.delete(paneId);
         await replayBackendSnapshotOnce(paneId, pt);
         lastPtyDims.set(paneId, safe);
         parttyPerf.mark("pty.ensure.success");
@@ -4949,6 +5030,7 @@ async function boot(): Promise<void> {
             configureDevPerfPrefs(saved);
             focusFollowsRef.v = saved.focus_follows_cursor;
             persisted.prefs = saved as unknown as Record<string, unknown>;
+            editorConfigRef.v = editorConfigFromPrefs(saved);
             Object.assign(lp, mergeLifecyclePrefs(persisted.prefs));
             autoCopySelectionRef.v = saved.auto_copy_selection;
             rightClickPasteRef.v = saved.right_click_paste ?? true;
@@ -6777,6 +6859,19 @@ async function boot(): Promise<void> {
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible") return;
+    // Re-read config.toml so config-only sections ([editor], ...) edited by
+    // hand while the app runs apply on the next focus — no modal needed.
+    void (async () => {
+      try {
+        const fresh = await invoke<PersistedPayload>("get_persisted_state");
+        persisted.prefs = fresh.prefs;
+        editorConfigRef.v = editorConfigFromPrefs(
+          fresh.prefs as Partial<ParttyPrefs>,
+        );
+      } catch {
+        // IPC failure or boot ordering: keep the current prefs.
+      }
+    })();
     mouseCursorController?.sync();
     // prepare-show already reflowed; a second pass here (from commit_show)
     // causes a post-reveal layout bounce.

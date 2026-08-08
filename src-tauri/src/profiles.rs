@@ -22,7 +22,7 @@ pub enum ProfileKind {
     Ssh,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConnectionProfile {
     /// Schema version (same key as keybinds/themes: `version = 1`).
     #[serde(default = "default_version", alias = "v")]

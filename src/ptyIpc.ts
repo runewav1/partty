@@ -16,6 +16,7 @@ export function ptyEnsure(
   initialCwd?: string | null,
   shell?: string | null,
   profileId?: string | null,
+  startupCommand?: string | null,
   output?: PtyOutputChannel,
 ): Promise<void> {
   return invoke("pty_ensure", {
@@ -25,6 +26,7 @@ export function ptyEnsure(
     initialCwd: initialCwd || null,
     shell: shell || null,
     profileId: profileId || null,
+    startupCommand: startupCommand || null,
     output,
   });
 }
