@@ -1972,17 +1972,16 @@ html.zen-mode #main-workspace {
   flex: 1;
   min-width: 0;
 }
-.settings-checkbox-label:has(+ .settings-toggle-desc) {
-  padding-bottom: 1px;
-}
 
 .settings-toggle-desc {
   font-size: 10px;
   font-weight: 400;
   color: var(--ui-chrome-muted);
-  line-height: 1.35;
-  padding: 0 0 6px 0;
-  margin-top: -2px;
+  line-height: 1.4;
+  margin: 3px 0 8px 0;
+  padding: 0;
+  /* Keep the text out of the toggle column (toggle + gap ≈ 46px). */
+  padding-right: 48px;
 }
 
 .settings-checkbox-input {
