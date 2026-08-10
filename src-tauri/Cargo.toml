@@ -1,6 +1,6 @@
 [package]
 name = "partty"
-version = "0.2.0"
+version = "0.3.0"
 description = "A fast, fun, QoL focused terminal workspace"
 authors = ["rune"]
 edition = "2024"
