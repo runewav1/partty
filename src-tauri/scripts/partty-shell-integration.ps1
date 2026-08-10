@@ -251,5 +251,5 @@ if ($initialCwd) {
 }
 
 $env:PARTTY_SHELL_INTEGRATION = "1"
-$env:TERM_PROGRAM = "partty"
-$env:TERM_PROGRAM_VERSION = "0.2.0"
+$env:TERM_PROGRAM = "Partty"
+$env:TERM_PROGRAM_VERSION = "0.3.0"
