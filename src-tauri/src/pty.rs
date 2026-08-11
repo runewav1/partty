@@ -67,16 +67,16 @@ pub struct PtyShellEvent {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Rust-side OSC sequence stripper
-//
-// Processes raw PTY bytes before emission.  Strips OSC 7 (cwd), OSC 133 and
-// OSC 633 (shell integration) from the output stream and returns structured
-// side-channel events so the frontend can skip character-by-character JS
-// parsing entirely for these common sequences.
-//
-// All other OSC sequences (OSC 8 hyperlinks, OSC 10/11 colours, etc.) are
-// passed through unchanged for xterm.js to handle.
+// Rust-side OSC stripper: strips OSC 7 (cwd), 133/633 (shell integration),
+// and dead/legacy numbers (50, 1337-1339) from the PTY stream, emitting
+// structured side-channel events instead so the frontend skips JS parsing
+// for them. Everything else passes through for xterm.js. OSCs whose tracked
+// span exceeds `MAX_OSC_LEN` are dropped, not buffered: once the cap is hit
+// the stripper discards until the next BEL/ST, so a runaway unterminated
+// OSC can never grow memory without bound.
 // ────────────────────────────────────────────────────────────────────────────
+
+const MAX_OSC_LEN: usize = 64 * 1024;
 
 enum OscSideEvent {
     Cwd(String),
@@ -122,12 +122,13 @@ impl OscProperties {
 }
 
 struct OscStripper {
-    /// Bytes held over from the previous chunk that ended mid-sequence.
+    /// Bytes held over from a chunk that ended mid-sequence.
     partial: Vec<u8>,
-    /// Reusable scratch buffer for the cleaned output.
+    /// Reusable cleaned-output buffer.
     scratch: Vec<u8>,
-    /// Shell-integration properties (e.g. `IsWindows`) set via OSC 633 P.
     properties: OscProperties,
+    /// Dropping an oversized OSC until the next BEL/ST.
+    discarding: bool,
 }
 
 impl OscStripper {
@@ -136,14 +137,13 @@ impl OscStripper {
             partial: Vec::new(),
             scratch: Vec::with_capacity(16 * 1024),
             properties: OscProperties::default(),
+            discarding: false,
         }
     }
 
-    /// Process one chunk.  Takes ownership so escape-free chunks can be
-    /// handed through untouched (zero-copy fast path).
+    /// Takes ownership so escape-free chunks pass through untouched.
     fn process(&mut self, input: Vec<u8>) -> (Vec<u8>, Vec<OscSideEvent>) {
-        if self.partial.is_empty() && !input.contains(&0x1b) {
-            // No escape sequences at all: nothing to strip, return as-is.
+        if !self.discarding && self.partial.is_empty() && !input.contains(&0x1b) {
             return (input, Vec::new());
         }
         if self.partial.is_empty() {
@@ -156,48 +156,76 @@ impl OscStripper {
     }
 
     fn process_slice(&mut self, buf: &[u8]) -> (Vec<u8>, Vec<OscSideEvent>) {
+        // `partial` is always empty here (folded into `buf` by `process`), so
+        // the cap applies to the whole combined span with a fixed budget.
         let mut events = Vec::new();
         self.scratch.clear();
-        // Start of the current plain-text run; bulk-copied on the next ESC.
-        let mut run_start = 0;
+        let mut run_start = 0; // start of the current plain run
         let mut search_from = 0;
 
-        while let Some(esc) = memchr::memchr(0x1b, &buf[search_from..]) {
+        while search_from < buf.len() {
+            if self.discarding {
+                match memchr::memchr2(0x07, 0x1b, &buf[search_from..]) {
+                    Some(off) => {
+                        let pos = search_from + off;
+                        if let Some(seq_len) = osc_terminator_end(buf, pos) {
+                            self.discarding = false;
+                            let seq_end = pos + seq_len;
+                            run_start = seq_end;
+                            search_from = seq_end;
+                        } else {
+                            search_from = pos + 1;
+                        }
+                    }
+                    None => return (std::mem::take(&mut self.scratch), events),
+                }
+                continue;
+            }
+
+            let Some(esc) = memchr::memchr(0x1b, &buf[search_from..]) else {
+                break;
+            };
             let esc = search_from + esc;
-            // Flush the plain run up to this escape.
             self.scratch.extend_from_slice(&buf[run_start..esc]);
 
             if esc + 1 < buf.len() && buf[esc + 1] == 0x5d {
-                match osc_find_end(buf, esc + 2) {
-                    Some((payload_end, seq_end)) => {
+                match osc_scan(buf, esc + 2, MAX_OSC_LEN) {
+                    OscScan::Ended(payload_end, seq_end) => {
                         let payload = &buf[esc + 2..payload_end];
                         if !self.dispatch_osc(payload, &mut events) {
-                            // Unknown OSC: pass through for xterm.js
                             self.scratch.extend_from_slice(&buf[esc..seq_end]);
                         }
                         run_start = seq_end;
                         search_from = seq_end;
                         continue;
                     }
-                    None => {
-                        // Incomplete: carry remainder to next chunk
-                        self.partial.extend_from_slice(&buf[esc..]);
+                    OscScan::Incomplete => {
+                        let tail = &buf[esc..];
+                        if tail.len() > MAX_OSC_LEN {
+                            self.partial.clear();
+                            self.discarding = true;
+                        } else {
+                            self.partial.extend_from_slice(tail);
+                        }
                         return (std::mem::take(&mut self.scratch), events);
+                    }
+                    OscScan::Oversized => {
+                        self.partial.clear();
+                        self.discarding = true;
+                        search_from = esc + 1;
+                        continue;
                     }
                 }
             }
             if esc + 1 == buf.len() {
-                // Lone ESC at end — might be ESC ] split across chunks
+                // Lone ESC at end — maybe `ESC ]` split across chunks.
                 self.partial.push(0x1b);
                 return (std::mem::take(&mut self.scratch), events);
             }
-            // ESC followed by something else (e.g. ESC [ ...): the escape
-            // byte starts the next plain run and passes through as-is.
             run_start = esc;
             search_from = esc + 1;
         }
 
-        // Flush the trailing plain run (includes lone ESC-[ sequences).
         self.scratch.extend_from_slice(&buf[run_start..]);
         (std::mem::take(&mut self.scratch), events)
     }
@@ -230,6 +258,13 @@ impl OscStripper {
                 self.handle_shell_integration(rest, events);
                 true
             }
+            // Dead/legacy sequences xterm.js would parse and discard: strip
+            // them for the renderer's benefit (and kill the OSC 50 query
+            // echoback vector).
+            "50" | "1337" | "1338" | "1339" => true,
+            // Numberless payload (`ESC ]` / `ESC ];...`): malformed noise,
+            // carried no meaning for any terminal — drop it.
+            "" => true,
             _ => false,
         }
     }
@@ -268,28 +303,45 @@ impl OscStripper {
     }
 }
 
-/// Scan `buf` starting at `from` for an OSC terminator.
-/// Returns `(payload_end, seq_end)` on success.
-fn osc_find_end(buf: &[u8], from: usize) -> Option<(usize, usize)> {
+/// Length of the OSC terminator at `pos` (1 for BEL, 2 for `ESC \`), else None.
+fn osc_terminator_end(buf: &[u8], pos: usize) -> Option<usize> {
+    match buf.get(pos).copied() {
+        Some(0x07) => Some(1),
+        Some(0x1b) if buf.get(pos + 1) == Some(&0x5c) => Some(2),
+        _ => None,
+    }
+}
+
+enum OscScan {
+    Ended(usize, usize), // (payload_end, seq_end)
+    Incomplete,          // terminator in a later chunk
+    Oversized,           // span exceeds the cap
+}
+
+/// Scan `buf` from `from` (first byte after `ESC ]`) for a terminator,
+/// bounded to `budget` bytes. The cap is a memory bound, approximate to
+/// within a few bytes (introducer and terminator count toward it) — not a
+/// byte-exact contract.
+fn osc_scan(buf: &[u8], from: usize, budget: usize) -> OscScan {
+    let limit = from.saturating_add(budget).min(buf.len());
     let mut i = from;
-    while i < buf.len() {
-        match memchr::memchr2(0x07, 0x1b, &buf[i..]) {
+    while i < limit {
+        match memchr::memchr2(0x07, 0x1b, &buf[i..limit]) {
             Some(off) => {
                 let pos = i + off;
-                match buf[pos] {
-                    0x07 => return Some((pos, pos + 1)), // BEL
-                    _ => {
-                        if pos + 1 < buf.len() && buf[pos + 1] == 0x5c {
-                            return Some((pos, pos + 2)); // ESC \
-                        }
-                        i = pos + 1;
-                    }
+                if let Some(seq_len) = osc_terminator_end(buf, pos) {
+                    return OscScan::Ended(pos, pos + seq_len);
                 }
+                i = pos + 1;
             }
-            None => return None,
+            None => break,
         }
     }
-    None
+    if limit < buf.len() {
+        OscScan::Oversized
+    } else {
+        OscScan::Incomplete
+    }
 }
 
 #[cfg(test)]
@@ -303,7 +355,8 @@ mod stripper_tests {
     // stripper must remove. Independent from the implementation's structure
     // so the two cannot share the same bug.
 
-    const STRIPPED_OSC_NUMBERS: [&str; 6] = ["0", "1", "2", "7", "133", "633"];
+    const STRIPPED_OSC_NUMBERS: [&str; 10] =
+        ["0", "1", "2", "7", "50", "133", "633", "1337", "1338", "1339"];
 
     /// Naive terminator search: BEL or `ESC \`. Returns (payload_end, seq_end).
     fn oracle_terminator(buf: &[u8], from: usize) -> Option<(usize, usize)> {
@@ -321,12 +374,13 @@ mod stripper_tests {
     }
 
     /// True when the payload's OSC number is one the stripper must remove.
+    /// Numberless payloads (`ESC ]` / `ESC ];...`) are malformed and stripped.
     fn oracle_should_strip(payload: &[u8]) -> bool {
         let Ok(s) = std::str::from_utf8(payload) else {
             return false;
         };
         let number = s.split(';').next().unwrap_or("");
-        STRIPPED_OSC_NUMBERS.contains(&number)
+        STRIPPED_OSC_NUMBERS.contains(&number) || number.is_empty()
     }
 
     /// Whole-stream reference: kept bytes plus the payloads of every OSC the
@@ -629,6 +683,252 @@ mod stripper_tests {
         ];
         for s in &fixed {
             verify_stream(s, &mut g);
+        }
+    }
+
+    // ─── Adversarial / challenge-derived tests ──────────────────────────────
+    // Written as challenges to break the stripper, then folded in as
+    // permanent coverage: exhaustive split invariance, oversized-sequence
+    // discard semantics, and degenerate input.
+
+    // Every possible chunk split of a stream must yield the same flushed
+    // result as the whole stream — the exhaustive-boundary form of the
+    // property the random-cut tests above sample.
+
+    /// Every possible chunk split of `stream` must yield the same flushed
+    /// result as the whole stream (the exhaustive-boundary form of the
+    /// property the random-cut tests sample).
+    fn assert_split_invariant(stream: &[u8]) {
+        let (whole, whole_keys) = run_impl(&[stream]);
+        let n = stream.len();
+        let mut mask: Vec<u8> = vec![0; n];
+        for split in 1..n {
+            mask[split] = 1;
+            let mut chunks = Vec::new();
+            let mut start = 0;
+            for (idx, &is_cut) in mask.iter().enumerate() {
+                if is_cut != 0 {
+                    chunks.push(&stream[start..idx]);
+                    start = idx;
+                }
+            }
+            chunks.push(&stream[start..]);
+            let (got, got_keys) = run_impl(&chunks);
+            assert_eq!(got, whole, "split at byte {split} diverged (len {n})");
+            assert_eq!(got_keys, whole_keys, "split at byte {split} diverged events");
+            mask[split] = 0;
+        }
+    }
+
+    #[test]
+    fn split_invariant_exhaustive_coverage() {
+        // A stream exercising every stripper feature; every byte boundary
+        // must be chunk-safe.
+        let stream = concat!(
+            "plain \x1b]0;title\x07 text \x1b[31mred\x1b[0m ",
+            "\x1b]7;file:///c:/x\x07 \x1b]633;A\x07 \x1b]133;D;0\x07 ",
+            "\x1b]8;;https://x\x07link\x1b]8;;\x07 \x1b]1337;base64;\x07",
+            "\x1b]50;?\x07 \x1b]2;t2\x1b\\ tail",
+        );
+        assert_split_invariant(stream.as_bytes());
+    }
+
+    #[test]
+    fn split_invariant_utf8_and_terminators() {
+        // Multibyte UTF-8 inside payloads + both terminator kinds, split
+        // at every byte.
+        let stream = "\x1b]7;/home/caf\u{e9}\u{1f680}\x1b\\\x1b]633;P;Cwd=\u{5927}\x07\x1b]0;\u{3c0}\x07".as_bytes();
+        assert_split_invariant(stream);
+    }
+
+
+    #[test]
+    fn strips_legacy_and_dead_osc_numbers() {
+        let stream = b"a\x1b]50;?\x07b\x1b]1337;X\x07c\x1b]1338;\x07d\x1b]1339;1\x1b\\e";
+        let (clean, payloads) = oracle_strip(stream);
+        assert_eq!(
+            std::str::from_utf8(&clean).unwrap(),
+            "abcde",
+            "50/1337/1338/1339 must be stripped"
+        );
+        assert_eq!(payloads.len(), 4);
+        let (got, _) = run_impl(&[stream]);
+        assert_eq!(got, clean);
+        assert_split_invariant(stream);
+    }
+
+    #[test]
+    fn strips_osc50_both_forms() {
+        // The query form is the echoback vector; both forms must vanish.
+        for stream in [
+            b"\x1b]50;?\x07".as_slice(),
+            b"\x1b]50;#aabbcc\x07".as_slice(),
+            b"\x1b]50;?\x1b\\".as_slice(),
+            b"x\x1b]50;\x07y".as_slice(),
+        ] {
+            let (clean, _) = run_impl(&[stream]);
+            assert!(!clean.contains(&0x1b), "OSC 50 leaked: {clean:?}");
+            assert_split_invariant(stream);
+        }
+    }
+
+
+    #[test]
+    fn oversized_unterminated_osc_discarded() {
+        // Unterminated OSC far beyond the cap: everything up to the stream
+        // end must be discarded, and memory must stay bounded (the stripper
+        // must not buffer it).
+        let big = vec![b'x'; MAX_OSC_LEN + 4096];
+        let mut stream = b"head \x1b]0;".to_vec();
+        stream.extend_from_slice(&big);
+        let (clean, _) = run_impl(&[&stream]);
+        assert_eq!(clean, b"head ".to_vec());
+        // Chunked in a pathological way: 1-byte chunks.
+        let chunks: Vec<&[u8]> = stream.iter().map(std::slice::from_ref).collect();
+        let (clean2, _) = run_impl(&chunks);
+        assert_eq!(clean2, b"head ".to_vec(), "1-byte chunking must agree");
+    }
+
+    #[test]
+    fn oversized_osc_with_late_terminator() {
+        // The cap is exceeded, but a BEL eventually arrives: everything up
+        // to and including the BEL is discarded, then normal processing
+        // resumes.
+        let mut stream = b"a\x1b]7;".to_vec();
+        stream.extend_from_slice(&vec![b'y'; MAX_OSC_LEN]);
+        stream.extend_from_slice(b"\x07after\x1b]133;A\x07z");
+        let (clean, _) = run_impl(&[&stream]);
+        assert_eq!(clean, b"aafterz".to_vec());
+        // Split so the BEL straddles chunk boundaries (cuts must stay in
+        // bounds; the BEL sits at MAX_OSC_LEN + 5).
+        for cut in [MAX_OSC_LEN, MAX_OSC_LEN + 1, MAX_OSC_LEN + 4] {
+            let (a, b) = stream.split_at(cut);
+            let (clean2, _) = run_impl(&[a, b]);
+            assert_eq!(clean2, b"aafterz".to_vec(), "cut at {cut}");
+        }
+    }
+
+    #[test]
+    fn oversized_then_sequences_resume_same_chunk() {
+        // After the oversized discard ends, further sequences in the SAME
+        // chunk must still be processed normally.
+        let mut stream = b"\x1b]0;".to_vec();
+        stream.extend_from_slice(&vec![b'p'; MAX_OSC_LEN]);
+        stream.extend_from_slice(b"\x1b\\text\x1b]133;D;42\x07tail");
+        let (clean, keys) = run_impl(&[&stream]);
+        assert_eq!(clean, b"texttail".to_vec());
+        assert!(keys.iter().any(|k| k == "CommandDone(Some(42))"));
+    }
+
+    #[test]
+    fn oversized_osc_split_accumulation() {
+        // The cap must also hold when the payload accumulates across many
+        // small chunks (the partial-buffer growth path). The payload must
+        // actually exceed the cap; chunked and whole-stream runs must agree.
+        let mut chunks = vec![b"\x1b]0;".as_slice()];
+        let payload = vec![b'q'; MAX_OSC_LEN + 4096];
+        chunks.extend(payload.chunks(1024));
+        let (clean, _) = run_impl(&chunks);
+        assert!(clean.is_empty(), "partial must not leak: {clean:?}");
+        let (clean2, _) = run_impl(&[chunks.concat().as_slice()]);
+        assert_eq!(clean2, clean);
+    }
+
+    #[test]
+    fn strips_empty_and_degenerate_oscs() {
+        for stream in [
+            b"\x1b]0;\x1b\\".as_slice(),
+            b"\x1b]7;\x07".as_slice(),
+            b"\x1b]133;\x07".as_slice(),
+            b"\x1b]133\x07".as_slice(),
+            b"\x1b]\x07".as_slice(),
+            b"\x1b]50\x07".as_slice(),
+        ] {
+            let (clean, _) = run_impl(&[stream]);
+            assert!(!clean.contains(&0x1b), "degenerate OSC leaked: {clean:?}");
+            assert_split_invariant(stream);
+        }
+    }
+
+    #[test]
+    fn esc_runs_and_adjacent_sequences() {
+        // Exact expected outputs. Note: `ESC ] ESC ...` is ONE malformed OSC
+        // whose payload contains an ESC (only ST terminates an OSC — same
+        // state-machine semantics as xterm), so it passes through whole.
+        let cases: Vec<(Vec<u8>, Vec<u8>, Vec<&str>)> = vec![
+            (b"\x1b\x1b]0;t\x07".to_vec(), b"\x1b".to_vec(), vec!["Title(t)"]),
+            (b"\x1b\x1b\x1b]7;x\x07".to_vec(), b"\x1b\x1b".to_vec(), vec!["Cwd(x)"]),
+            (
+                b"\x1b]0;a\x07\x1b]133;A\x07\x1b]8;;u\x07".to_vec(),
+                b"\x1b]8;;u\x07".to_vec(),
+                vec!["Title(a)", "PromptStart"],
+            ),
+            // Nested ESC: single OSC with payload `A ESC ]133;B` — the number
+            // still parses as 133, so it is stripped (no event); only when
+            // the ESC lands inside the *number* does the sequence become
+            // unrecognized and pass through (xterm's state machine agrees).
+            (b"\x1b]133;A\x1b]133;B\x07".to_vec(), b"".to_vec(), vec![]),
+            (b"\x1b]\x1b]7;x\x07".to_vec(), b"\x1b]\x1b]7;x\x07".to_vec(), vec![]),
+        ];
+        for (stream, expected, expected_keys) in &cases {
+            assert_split_invariant(stream);
+            let (clean, keys) = run_impl(&[stream]);
+            assert_eq!(clean, *expected, "stream {stream:?}");
+            assert_eq!(keys, *expected_keys, "stream {stream:?}");
+        }
+    }
+
+    #[test]
+    fn control_bytes_inside_payloads() {
+        // CAN/SUB/other control bytes inside an OSC payload must not break
+        // terminator detection (BEL/ST still win).
+        for stream in [
+            b"\x1b]0;a\x18b\x07".as_slice(),
+            b"\x1b]7;c\x1ac\x1b\\".as_slice(),
+            b"\x1b]50;\x18\x1a?\x07".as_slice(),
+        ] {
+            let (clean, _) = run_impl(&[stream]);
+            assert!(!clean.contains(&0x1b), "control-laced OSC leaked: {clean:?}");
+            assert_split_invariant(stream);
+        }
+    }
+
+    #[test]
+    fn invalid_utf8_passthrough_unchanged() {
+        // Non-UTF-8 payloads are not ours to interpret: the complete
+        // sequence passes through byte-for-byte (and chunking must agree).
+        let stream = b"\x1b]0;\xff\xfe\x80\x07".as_slice();
+        let (clean, keys) = run_impl(&[stream]);
+        assert_eq!(clean, stream);
+        assert!(keys.is_empty());
+        assert_split_invariant(stream);
+        // Same for a recognized-number OSC with non-UTF-8 payload.
+        let stream2 = b"\x1b]7;\xff\x07".as_slice();
+        let (clean2, _) = run_impl(&[stream2]);
+        assert_eq!(clean2, stream2);
+    }
+
+    #[test]
+    fn matches_oracle_on_adversarial_cases() {
+        // Reference-vs-impl over a grab-bag of adversarial fragments.
+        let cases: Vec<Vec<u8>> = vec![
+            b"\x1b]0;x\x1b\x1b]1;y\x07".to_vec(),
+            b"\x1b]7;\x07".to_vec(),
+            b"\x1b]133;\x07".to_vec(),
+            b"\x1b];\x07".to_vec(),
+            b"\x1b]".to_vec(),
+            b"\x1b\x1b]0;t\x1b\\".to_vec(),
+            b"a\x1b]2;\x1b\\b".to_vec(),
+            b"\x1b]0;partial".to_vec(),
+            b"\x1b]0;t\x07\x1b".to_vec(),
+            b"\x1b[31mred\x1b[0m".to_vec(),
+            b"\x1b]50;?\x07x\x1b]1337;\x07".to_vec(),
+            b"\x1b]8;;https://x\x07link".to_vec(),
+        ];
+        for case in &cases {
+            let (expected, _) = oracle_strip(case);
+            let (got, _) = run_impl(&[case]);
+            assert_eq!(got, expected, "case {case:?}");
         }
     }
 }
