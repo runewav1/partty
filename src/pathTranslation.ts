@@ -8,13 +8,18 @@
  * translation, and shell-appropriate quoting.
  */
 
-export type PathStyle = "windows" | "msys" | "wsl";
+export type PathStyle = "windows" | "msys" | "wsl" | "remote";
+
+export type PastePathSource = {
+  style: PathStyle;
+  cwd: string | null;
+};
 
 /**
  * Resolve the path style a pane's shell expects from its profile and the
- * resolved shell override: WSL profiles take Linux paths (`/mnt/c/...`),
- * local bash (msys/git-bash) takes `/c/...` style, everything else takes
- * Windows paths as-is.
+ * resolved shell override. SSH path style is resolved per pane (see
+ * `pathStyleForPaneId` in main.ts) from the remote `IsWindows` integration
+ * flag — not from the local host shell that launched `ssh.exe`.
  */
 export function pathStyleForProfile(
   profile: { kind?: unknown; shell?: string | null } | undefined,
@@ -28,6 +33,14 @@ export function pathStyleForProfile(
     : "windows";
 }
 
+function inferPathStyle(path: string): PathStyle {
+  const fwd = path.replace(/\\/g, "/");
+  if (/^[A-Za-z]:\//.test(fwd) || /^\/\/(?!\/)/.test(fwd)) return "windows";
+  if (/^\/mnt\/[a-z]\//.test(fwd)) return "wsl";
+  if (/^\/(?!\/)/.test(fwd)) return "remote";
+  return "windows";
+}
+
 /**
  * Translate a Windows-origin path into the pane shell's path format.
  *
@@ -38,6 +51,7 @@ export function pathStyleForProfile(
 export function translatePath(raw: string, style: PathStyle): string {
   if (style === "windows") return raw;
   const fwd = raw.replace(/\\/g, "/");
+  if (style === "remote") return fwd;
   // \\wsl$\<distro>\... or \\wsl.localhost\<distro>\... — Linux filesystem
   // paths. WSL strips the distro (the target distro's own filesystem); msys
   // keeps the UNC server form, forward-slashed (//wsl$/distro/...).
@@ -60,6 +74,7 @@ export function quotePath(path: string, style: PathStyle): string {
   if (style === "windows") {
     return /[\s"&|<>^%]/.test(path) ? `"${path.replace(/"/g, '\\"')}"` : path;
   }
+  // msys, wsl, remote — POSIX-style quoting
   return /[\s'"$`\\]/.test(path)
     ? `'${path.replace(/'/g, `'\\''`)}'`
     : path;
@@ -112,12 +127,27 @@ function wslDistroFromCwd(cwd: string | null): string | null {
  * path-shaped text (quoted or not) is translated and quoted like a drop;
  * everything else is returned untouched.
  */
-export function translatePasteText(text: string, style: PathStyle): string {
+export function translatePasteText(
+  text: string,
+  targetStyle: PathStyle,
+  source?: PastePathSource | null,
+): string {
   if (!isPathLike(text)) return text;
-  return quotePath(
-    translatePath(stripMatchingQuotes(text.trim()), style),
-    style,
-  );
+  const raw = stripMatchingQuotes(text.trim());
+  const sourceStyle = source?.style ?? inferPathStyle(raw);
+
+  // Remote ↔ local: never rewrite remote POSIX paths into NTFS (or vice versa).
+  if (sourceStyle === "remote" && targetStyle === "windows") {
+    return quotePath(raw.replace(/\\/g, "/"), "windows");
+  }
+  if (sourceStyle === "windows" && targetStyle === "remote") {
+    return quotePath(raw, "remote");
+  }
+  if (sourceStyle === "remote" && targetStyle === "remote") {
+    return quotePath(raw.replace(/\\/g, "/"), "remote");
+  }
+
+  return quotePath(translatePath(raw, targetStyle), targetStyle);
 }
 
 /**
@@ -165,6 +195,13 @@ export function translatePathFromSource(
   const posixAbs = /^\/(?!\/)/.test(fwd) && !/^[a-zA-Z]:\//.test(fwd);
   const sourceIsPosix =
     !!sourceCwd && sourceCwd.replace(/\\/g, "/").startsWith("/");
+
+  if (style === "remote") {
+    if (/^[a-zA-Z]:[\\/]/.test(fwd) || /^(\\\\|\/\/)/.test(fwd)) {
+      return translatePath(fwd, "remote");
+    }
+    return fwd;
+  }
 
   if (style === "windows") {
     if (!posixAbs) return raw;

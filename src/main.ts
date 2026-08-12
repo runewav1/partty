@@ -155,6 +155,7 @@ import {
   translatePasteText,
   translatePath,
   translatePathFromSource,
+  type PastePathSource,
   type PathStyle,
 } from "./pathTranslation";
 import { createTabCloseIcon } from "./toolbarIcons";
@@ -523,6 +524,8 @@ async function boot(): Promise<void> {
 
   let paneHost: PaneHost | null = null;
   const paneCwdHints = new Map<string, string>();
+  /** OSC 633 `IsWindows` for integrated SSH panes (Unix vs Windows remote). */
+  const paneRemoteIsWindows = new Map<string, boolean>();
   const paneProfileIds = new Map<string, string>();
   const paneShellState = new Map<string, ShellIntegrationState>();
   const paneNames = new Map<string, string>();
@@ -625,6 +628,65 @@ async function boot(): Promise<void> {
       profilesList,
     );
     return getProfileById(profileId, profilesList);
+  }
+
+  function sshPathStyleForPane(paneId: string): PathStyle {
+    const flag = paneRemoteIsWindows.get(paneId);
+    if (flag === true) return "windows";
+    if (flag === false) return "remote";
+    const cwd = paneCwdHints.get(paneId);
+    if (cwd && (/^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith("\\\\"))) {
+      return "windows";
+    }
+    return "remote";
+  }
+
+  function pathStyleForPaneId(paneId: string): PathStyle {
+    const profile = resolvePaneProfile(paneId);
+    if (profile?.kind === "ssh") return sshPathStyleForPane(paneId);
+    const globalShell =
+      ((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
+      "pwsh";
+    const shellOverride =
+      resolveProfileShell(profile, globalShell, profilesList) ?? "";
+    return pathStyleForProfile(profile ?? undefined, shellOverride);
+  }
+
+  /** CWD for path expansion — remote SSH uses integrated OSC cwd, never the local host shell. */
+  function paneEffectiveCwd(paneId: string): string | null {
+    const hint = paneCwdHints.get(paneId);
+    const profile = resolvePaneProfile(paneId);
+    if (profile?.kind === "ssh") {
+      return profileHasRemoteIntegration(profile) ? (hint ?? null) : null;
+    }
+    if (hint) return hint;
+    if (paneHost?.getFocusedPaneId() === paneId) return liveCwd;
+    return null;
+  }
+
+  let lastClipboardPathContext: PastePathSource & { path: string } | null =
+    null;
+
+  function rememberClipboardPath(
+    paneId: string,
+    path: string,
+  ): PastePathSource & { path: string } {
+    const ctx = {
+      path,
+      style: pathStyleForPaneId(paneId),
+      cwd: paneEffectiveCwd(paneId),
+    };
+    lastClipboardPathContext = ctx;
+    return ctx;
+  }
+
+  function clipboardPathSourceForPaste(text: string): PastePathSource | null {
+    const ctx = lastClipboardPathContext;
+    if (!ctx) return null;
+    const pasted = text.trim().replace(/^['"]|['"]$/g, "");
+    const copied = ctx.path.trim().replace(/^['"]|['"]$/g, "");
+    if (pasted !== copied) return null;
+    return { style: ctx.style, cwd: ctx.cwd };
   }
 
   function resolvePendingSpawnContext(
@@ -1513,13 +1575,14 @@ async function boot(): Promise<void> {
       return true;
     }
 
-    const cwd = paneCwdHints.get(paneId) ?? liveCwd ?? null;
+    const cwd = paneEffectiveCwd(paneId);
     const path =
       extractPathAtColumn(line, cell.col) ??
       extractRelativePathAtColumn(line, cell.col, cwd);
     if (path) {
       ev.preventDefault();
       ev.stopPropagation();
+      rememberClipboardPath(paneId, path);
       copyToClipboard(path);
       return true;
     }
@@ -1541,7 +1604,7 @@ async function boot(): Promise<void> {
   ): boolean => {
     const editor = editorConfigRef.v;
     if (!editor.command) return false;
-    const cwd = paneCwdHints.get(paneId) ?? liveCwd ?? null;
+    const cwd = paneEffectiveCwd(paneId);
     const raw =
       extractPathAtColumn(line, col) ??
       extractRelativePathAtColumn(line, col, cwd);
@@ -1556,13 +1619,11 @@ async function boot(): Promise<void> {
     paneHost?.setFocusedPaneId(paneId);
     const newId = splitFocusedWithCwd(editor.splitType, profileId);
     if (!newId) return true;
-    const profile = getProfileById(profileId, profilesList);
-    const globalShell =
-      ((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
-      "pwsh";
-    const shellOverride = resolveProfileShell(profile, globalShell, profilesList);
-    const style = pathStyleForProfile(profile ?? undefined, shellOverride ?? "");
-    const target = quotePath(translatePathFromSource(raw, style, cwd), style);
+    const targetStyle = pathStyleForPaneId(newId);
+    const target = quotePath(
+      translatePathFromSource(raw, targetStyle, cwd),
+      targetStyle,
+    );
     // Run at shell startup (spawn-time startup command) instead of typing it
     // in after the prompt — the editor pane opens straight into the editor.
     pendingPaneSpawnStartup.set(
@@ -1595,7 +1656,7 @@ async function boot(): Promise<void> {
     const b = term.buffer.active;
     const clickAbsY = b.viewportY + cell.row;
     const line = b.getLine(clickAbsY)?.translateToString(false) ?? "";
-    const cwd = paneCwdHints.get(paneId) ?? liveCwd ?? null;
+    const cwd = paneEffectiveCwd(paneId);
     const pathHit =
       !!line &&
       (!!extractPathAtColumn(line, cell.col) ||
@@ -1691,6 +1752,7 @@ async function boot(): Promise<void> {
     pendingPaneStartupCommands.delete(paneId);
     paneShellState.delete(paneId);
     paneCwdHints.delete(paneId);
+    paneRemoteIsWindows.delete(paneId);
     paneProfileIds.delete(paneId);
     lastPtyDims.delete(paneId);
     pendingPtyWriteByPane.delete(paneId);
@@ -5296,7 +5358,13 @@ async function boot(): Promise<void> {
       // Path-shaped clipboard content is translated per the focused pane's
       // shell (e.g. an NTFS path pasted into a WSL pane) — same layer as drops.
       term.focus();
-      term.paste(translatePasteText(text, panePathStyle(pid)));
+      term.paste(
+        translatePasteText(
+          text,
+          pathStyleForPaneId(pid),
+          clipboardPathSourceForPaste(text),
+        ),
+      );
     } catch {
       /* empty clipboard or read failed */
     }
@@ -5327,6 +5395,7 @@ async function boot(): Promise<void> {
     }
     liveCwd = null;
     paneCwdHints.clear();
+    paneRemoteIsWindows.clear();
     lastPtyDims.clear();
     bridgeScrollCleanup?.();
     bridgeScrollCleanup = null;
@@ -6649,11 +6718,16 @@ async function boot(): Promise<void> {
   }
 
   await Promise.all([
-    listen<{ paneId: string; cwd: string }>("pty-cwd", (event) => {
-      const { paneId, cwd } = event.payload;
+    listen<{ paneId: string; cwd: string; remoteIsWindows?: boolean | null }>(
+      "pty-cwd",
+      (event) => {
+      const { paneId, cwd, remoteIsWindows } = event.payload;
       const profile = resolvePaneProfile(paneId);
       if (profile?.kind === "ssh" && !profileHasRemoteIntegration(profile)) {
         return;
+      }
+      if (remoteIsWindows != null) {
+        paneRemoteIsWindows.set(paneId, remoteIsWindows);
       }
       paneCwdHints.set(paneId, cwd);
       if (extCwdChangeSubs.length > 0) {
@@ -6765,6 +6839,7 @@ async function boot(): Promise<void> {
     listen("pty-session-shed", () => {
       liveCwd = null;
       paneCwdHints.clear();
+    paneRemoteIsWindows.clear();
       pendingPtyOutputByPane.clear();
       paneHost?.forEachPane((_id, p) => {
         p.term.reset();
@@ -6920,15 +6995,7 @@ async function boot(): Promise<void> {
   // module — the same layer paste and cross-pane drag consume.
 
   function panePathStyle(paneId: string): PathStyle {
-    const profileId = paneProfileIds.get(paneId);
-    const profile = profileId
-      ? profilesList.find((p) => p.id === profileId)
-      : undefined;
-    const shell =
-      profile?.shell ??
-      ((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
-      "";
-    return pathStyleForProfile(profile, shell);
+    return pathStyleForPaneId(paneId);
   }
 
   getCurrentWebview()

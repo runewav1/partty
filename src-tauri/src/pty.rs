@@ -37,6 +37,8 @@ pub struct PtyExitEvent {
 pub struct PtyCwdEvent {
     pub pane_id: String,
     pub cwd: String,
+    /// `IsWindows` from OSC 633 P when known (remote shell integration).
+    pub remote_is_windows: Option<bool>,
 }
 
 /// Shell-integration lifecycle event extracted from OSC 133 / 633.
@@ -1281,11 +1283,17 @@ impl PtySession {
                     for ev in osc_events {
                         match ev {
                             OscSideEvent::Cwd(cwd) => {
+                                let remote_is_windows = stripper
+                                    .properties
+                                    .is_windows
+                                    .as_deref()
+                                    .map(|v| v.eq_ignore_ascii_case("true"));
                                 let _ = app_emit.emit(
                                     "pty-cwd",
                                     PtyCwdEvent {
                                         pane_id: pane.clone(),
                                         cwd,
+                                        remote_is_windows,
                                     },
                                 );
                             }
