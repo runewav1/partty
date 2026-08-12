@@ -131,6 +131,12 @@ function normalizeProfile(raw: unknown): ConnectionProfile | null {
   };
 }
 
+export function profileHasRemoteIntegration(
+  profile: ConnectionProfile | null | undefined,
+): boolean {
+  return profile?.kind === "ssh" && profile.integration === true;
+}
+
 export async function fetchProfiles(): Promise<ConnectionProfile[]> {
   const raw = await invoke<unknown[]>("list_profiles");
   const profiles = raw

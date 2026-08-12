@@ -1,4 +1,5 @@
 import type { ConnectionProfile } from "./connectionProfiles";
+import { profileHasRemoteIntegration } from "./connectionProfiles";
 
 export function profileSupportsStartupCwd(
   profile: ConnectionProfile | null | undefined,
@@ -39,7 +40,9 @@ export function normalizePaneCwdForProfile(
 ): string {
   const t = raw.trim();
   if (!t) return "";
-  if (profile?.kind === "ssh") return "";
+  if (profile?.kind === "ssh") {
+    return profileHasRemoteIntegration(profile) ? t.replace(/\\/g, "/") : "";
+  }
   if (profile?.kind === "wsl") {
     if (/^[a-zA-Z]:[\\/]/.test(t) || /^\\\\[^\\]+\\/.test(t)) {
       return windowsPathToWsl(t);

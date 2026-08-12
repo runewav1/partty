@@ -268,6 +268,12 @@ fn resolve_spawn(
         {
             cwd = Some(pc.to_string());
         }
+    if assigned
+        .as_ref()
+        .is_some_and(|p| matches!(p.kind, profiles::ProfileKind::Ssh))
+    {
+        cwd = None;
+    }
 
     let shell_from_profile = spawn_profile.as_ref().and_then(|p| match p.kind {
         profiles::ProfileKind::Local => p

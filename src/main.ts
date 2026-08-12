@@ -30,6 +30,7 @@ import {
   isProfilePickerAliasContext,
   parseProfilePickerQuery,
   profileActionForPaletteCommandId,
+  profileHasRemoteIntegration,
   resolveDefaultProfileId,
   resolveProfileShell,
   type ConnectionProfile,
@@ -618,6 +619,14 @@ async function boot(): Promise<void> {
     return resolved;
   }
 
+  function resolvePaneProfile(paneId: string): ConnectionProfile | null {
+    const profileId = resolveDefaultProfileId(
+      paneProfileIds.get(paneId) ?? profileBehaviorRef.v.default_profile_id,
+      profilesList,
+    );
+    return getProfileById(profileId, profilesList);
+  }
+
   function resolvePendingSpawnContext(
     parentId: string,
     explicitProfileId?: string | null,
@@ -639,8 +648,11 @@ async function boot(): Promise<void> {
     }
 
     const profile = getProfileById(profileId, profilesList);
+    const parentProfile = resolvePaneProfile(parentId);
     const inheritCwd =
-      profile?.inheritCwd ?? profileBehaviorRef.v.inherit_cwd_on_split;
+      (profile?.inheritCwd ?? profileBehaviorRef.v.inherit_cwd_on_split) &&
+      profile?.kind !== "ssh" &&
+      parentProfile?.kind !== "ssh";
     const cwd = inheritCwd ? paneCwdHints.get(parentId) ?? null : null;
     return { profileId, cwd };
   }
@@ -2687,7 +2699,6 @@ async function boot(): Promise<void> {
     await ensureProfilesLoaded();
     const pt = ptIn ?? getPaneTerminalById(paneId);
     if (!pt) return;
-    const effectiveCwd = initialCwd ?? paneCwdHints.get(paneId) ?? null;
     const startupOverride = pendingPaneSpawnStartup.get(paneId) ?? null;
     const profileId = assignPaneProfileId(
       paneId,
@@ -2695,6 +2706,10 @@ async function boot(): Promise<void> {
         profileBehaviorRef.v.default_profile_id,
     );
     const profile = getProfileById(profileId, profilesList);
+    const effectiveCwd =
+      profile?.kind === "ssh"
+        ? null
+        : (initialCwd ?? paneCwdHints.get(paneId) ?? null);
     const globalShell =
       ((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
       "pwsh";
@@ -3197,17 +3212,30 @@ async function boot(): Promise<void> {
             () => onSelDispose.dispose(),
           ]);
           if (lp.preload_webgl_on_startup) void ensureWebglOnPane(id);
+          const explicitProfile =
+            pendingPaneSpawnProfile.get(id) ?? pendingNewPaneProfile.v;
+          pendingPaneSpawnProfile.delete(id);
+          pendingNewPaneProfile.v = null;
           const explicitCwd =
             pendingPaneSpawnCwd.get(id) ?? pendingNewPaneCwd.v;
           pendingPaneSpawnCwd.delete(id);
           pendingNewPaneCwd.v = null;
           const inheritedCwd = explicitCwd ?? paneCwdHints.get(id) ?? null;
-          if (inheritedCwd) paneCwdHints.set(id, inheritedCwd);
+          if (inheritedCwd) {
+            const spawnProfile = getProfileById(
+              resolveDefaultProfileId(
+                explicitProfile ??
+                  paneProfileIds.get(id) ??
+                  profileBehaviorRef.v.default_profile_id,
+                profilesList,
+              ),
+              profilesList,
+            );
+            if (spawnProfile?.kind !== "ssh") {
+              paneCwdHints.set(id, inheritedCwd);
+            }
+          }
 
-          const explicitProfile =
-            pendingPaneSpawnProfile.get(id) ?? pendingNewPaneProfile.v;
-          pendingPaneSpawnProfile.delete(id);
-          pendingNewPaneProfile.v = null;
           assignPaneProfileId(
             id,
             explicitProfile ??
@@ -6623,6 +6651,10 @@ async function boot(): Promise<void> {
   await Promise.all([
     listen<{ paneId: string; cwd: string }>("pty-cwd", (event) => {
       const { paneId, cwd } = event.payload;
+      const profile = resolvePaneProfile(paneId);
+      if (profile?.kind === "ssh" && !profileHasRemoteIntegration(profile)) {
+        return;
+      }
       paneCwdHints.set(paneId, cwd);
       if (extCwdChangeSubs.length > 0) {
         for (const fn of extCwdChangeSubs) {
