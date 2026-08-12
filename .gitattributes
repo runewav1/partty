@@ -1,0 +1,6 @@
+# Unix shell integration scripts must use LF (CRLF breaks bash/zsh/fish on remotes).
+src-tauri/scripts/*.bash text eol=lf
+src-tauri/scripts/*.zsh text eol=lf
+src-tauri/scripts/*.fish text eol=lf
+# PowerShell scripts target Windows (local inject + Windows SSH remotes).
+src-tauri/scripts/*.ps1 text eol=crlf
