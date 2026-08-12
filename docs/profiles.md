@@ -109,6 +109,7 @@ Used when `commandline` is unset:
 | `ssh_port` | u16 | Optional (`-p`) |
 | `ssh_identity_file` | string | Private key path (`-i`). OpenSSH formats only (e.g. ed25519, RSA, PEM) |
 | `ssh_args` | string[] | Extra client args |
+| `integration` | bool | Default `false`. Set `true` when the remote shell has loaded a Partty remote integration script (enables live remote CWD tracking; experimental) |
 
 ```toml
 version = 1
@@ -120,6 +121,29 @@ ssh_user = "deploy"
 ssh_port = 22
 ssh_identity_file = "C:\\Users\\you\\.ssh\\id_ed25519"
 ssh_args = ["-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes"]
+integration = true
+```
+
+### Shell integration (SSH)
+
+Partty does not inject integration on SSH sessions. Install a remote script on the server and source it from the remote shell profile:
+
+| Remote shell | Script (in repo) |
+|--------------|------------------|
+| bash | `src-tauri/scripts/partty-shell-integration-remote.bash` |
+| zsh | `src-tauri/scripts/partty-shell-integration-remote.zsh` |
+| fish | `src-tauri/scripts/partty-shell-integration-remote.fish` |
+| PowerShell (Windows SSH) | `src-tauri/scripts/partty-shell-integration-remote.ps1` |
+
+After the script is loaded in the remote session, set `integration = true` on the matching SSH profile. Partty then treats OSC CWD updates from that pane as authoritative for path expansion and (later) SFTP file transfer. Remote CWD is **not** used for split inherit.
+
+```toml
+version = 1
+id = "ssh-prod"
+name = "Prod"
+kind = "ssh"
+ssh_host = "prod.example.com"
+integration = true
 ```
 
 ### `commandline` override

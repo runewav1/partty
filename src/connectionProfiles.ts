@@ -24,6 +24,8 @@ export type ConnectionProfile = {
   sshIdentityFile?: string | null;
   sshArgs?: string[];
   commandline?: string | null;
+  /** SSH only: remote has Partty shell integration loaded. */
+  integration?: boolean;
   /** After shell ready (local/WSL) or remote command for SSH. */
   startupCommand?: string | null;
   /** Spawn settings from another profile (chainable). */
@@ -112,6 +114,7 @@ function normalizeProfile(raw: unknown): ConnectionProfile | null {
       ? o.sshArgs.filter((a): a is string => typeof a === "string")
       : undefined,
     commandline: typeof o.commandline === "string" ? o.commandline : undefined,
+    integration: readOptionalBool(o, "integration") ?? false,
     startupCommand: readOptionalString(o, "startupCommand", "startup_command"),
     base: readOptionalString(o, "base", "baseProfileId", "base_profile_id"),
     inheritCwd: readOptionalBool(

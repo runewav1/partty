@@ -56,6 +56,10 @@ pub struct ConnectionProfile {
     /// When set, structured `ssh_*` fields are ignored.
     #[serde(default)]
     pub commandline: Option<String>,
+    /// SSH only: remote shell has Partty integration loaded (see `partty-shell-integration-remote.*`).
+    /// Enables live remote CWD tracking for path features and SFTP (experimental).
+    #[serde(default)]
+    pub integration: bool,
     #[serde(default)]
     pub startup_command: Option<String>,
     /// Spawn using another profile (chainable). TOML key: `base`.
@@ -95,6 +99,7 @@ pub struct ProfileDto {
     pub ssh_identity_file: Option<String>,
     pub ssh_args: Vec<String>,
     pub commandline: Option<String>,
+    pub integration: bool,
     pub startup_command: Option<String>,
     pub base: Option<String>,
     pub inherit_cwd: Option<bool>,
@@ -125,6 +130,7 @@ impl From<&ConnectionProfile> for ProfileDto {
             ssh_identity_file: p.ssh_identity_file.clone(),
             ssh_args: p.ssh_args.clone(),
             commandline: p.commandline.clone(),
+            integration: p.integration,
             startup_command: p.startup_command.clone(),
             base: p.base.clone(),
             inherit_cwd: p.inherit_cwd,
@@ -177,6 +183,7 @@ fn builtin_local_default() -> ConnectionProfile {
         ssh_identity_file: None,
         ssh_args: Vec::new(),
         commandline: None,
+        integration: false,
         startup_command: None,
         base: None,
         inherit_cwd: None,
@@ -428,6 +435,7 @@ fn seed_local_shell_profiles() -> Result<(), String> {
             ssh_identity_file: None,
             ssh_args: Vec::new(),
             commandline: None,
+            integration: false,
             startup_command: None,
             base: None,
             inherit_cwd: None,
@@ -462,6 +470,7 @@ fn seed_wsl_profiles() -> Result<(), String> {
             ssh_identity_file: None,
             ssh_args: Vec::new(),
             commandline: None,
+            integration: false,
             startup_command: None,
             base: None,
             inherit_cwd: None,
@@ -511,6 +520,7 @@ fn merge_detected_ephemeral(mut profiles: Vec<ConnectionProfile>) -> Vec<Connect
             ssh_identity_file: None,
             ssh_args: Vec::new(),
             commandline: None,
+            integration: false,
             startup_command: None,
             base: None,
             inherit_cwd: None,
@@ -541,6 +551,7 @@ fn merge_detected_ephemeral(mut profiles: Vec<ConnectionProfile>) -> Vec<Connect
             ssh_identity_file: None,
             ssh_args: Vec::new(),
             commandline: None,
+            integration: false,
             startup_command: None,
             base: None,
             inherit_cwd: None,
@@ -721,6 +732,37 @@ mod tests {
     fn wsl_slug() {
         assert_eq!(profile_id_for_wsl("Ubuntu-22.04"), "wsl-ubuntu-22-04");
         assert_eq!(profile_id_for_wsl("archlinux"), "wsl-archlinux");
+    }
+
+    #[test]
+    fn ssh_integration_field_deserializes_and_dto() {
+        let text = r#"
+version = 1
+id = "ssh-prod"
+name = "Prod"
+kind = "ssh"
+ssh_host = "prod.example.com"
+integration = true
+"#;
+        let p: ConnectionProfile = toml::from_str(text).unwrap();
+        assert!(p.integration);
+        let dto = ProfileDto::from(&p);
+        assert!(dto.integration);
+        let json = serde_json::to_value(&dto).unwrap();
+        assert_eq!(json["integration"], true);
+    }
+
+    #[test]
+    fn ssh_integration_defaults_false() {
+        let text = r#"
+version = 1
+id = "ssh-prod"
+name = "Prod"
+kind = "ssh"
+ssh_host = "prod.example.com"
+"#;
+        let p: ConnectionProfile = toml::from_str(text).unwrap();
+        assert!(!p.integration);
     }
 
     #[test]

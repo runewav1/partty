@@ -5,8 +5,7 @@
 #
 # Windows remotes: use partty-shell-integration-remote.ps1 in $PROFILE instead.
 #
-# Once loaded, set integration = true on the matching Partty SSH profile so Partty
-# trusts live CWD updates from this session (profile flag ships in a later release).
+# Once loaded, set integration = true on the matching Partty SSH profile.
 
 if set -q __TERMIE_SHELL_INTEGRATION
     return
