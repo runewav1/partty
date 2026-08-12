@@ -630,15 +630,16 @@ async function boot(): Promise<void> {
     return getProfileById(profileId, profilesList);
   }
 
+  /** Unix-style paths for integrated SSH panes (`IsWindows=false`). */
   function sshPathStyleForPane(paneId: string): PathStyle {
     const flag = paneRemoteIsWindows.get(paneId);
     if (flag === true) return "windows";
-    if (flag === false) return "remote";
+    if (flag === false) return "posix";
     const cwd = paneCwdHints.get(paneId);
     if (cwd && (/^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith("\\\\"))) {
       return "windows";
     }
-    return "remote";
+    return "posix";
   }
 
   function pathStyleForPaneId(paneId: string): PathStyle {

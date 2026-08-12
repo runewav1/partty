@@ -8,7 +8,7 @@
  * translation, and shell-appropriate quoting.
  */
 
-export type PathStyle = "windows" | "msys" | "wsl" | "remote";
+export type PathStyle = "windows" | "msys" | "wsl" | "posix";
 
 export type PastePathSource = {
   style: PathStyle;
@@ -37,7 +37,7 @@ function inferPathStyle(path: string): PathStyle {
   const fwd = path.replace(/\\/g, "/");
   if (/^[A-Za-z]:\//.test(fwd) || /^\/\/(?!\/)/.test(fwd)) return "windows";
   if (/^\/mnt\/[a-z]\//.test(fwd)) return "wsl";
-  if (/^\/(?!\/)/.test(fwd)) return "remote";
+  if (/^\/(?!\/)/.test(fwd)) return "posix";
   return "windows";
 }
 
@@ -51,7 +51,7 @@ function inferPathStyle(path: string): PathStyle {
 export function translatePath(raw: string, style: PathStyle): string {
   if (style === "windows") return raw;
   const fwd = raw.replace(/\\/g, "/");
-  if (style === "remote") return fwd;
+  if (style === "posix") return fwd;
   // \\wsl$\<distro>\... or \\wsl.localhost\<distro>\... — Linux filesystem
   // paths. WSL strips the distro (the target distro's own filesystem); msys
   // keeps the UNC server form, forward-slashed (//wsl$/distro/...).
@@ -74,7 +74,7 @@ export function quotePath(path: string, style: PathStyle): string {
   if (style === "windows") {
     return /[\s"&|<>^%]/.test(path) ? `"${path.replace(/"/g, '\\"')}"` : path;
   }
-  // msys, wsl, remote — POSIX-style quoting
+  // msys, wsl, posix — shell-style quoting
   return /[\s'"$`\\]/.test(path)
     ? `'${path.replace(/'/g, `'\\''`)}'`
     : path;
@@ -136,15 +136,15 @@ export function translatePasteText(
   const raw = stripMatchingQuotes(text.trim());
   const sourceStyle = source?.style ?? inferPathStyle(raw);
 
-  // Remote ↔ local: never rewrite remote POSIX paths into NTFS (or vice versa).
-  if (sourceStyle === "remote" && targetStyle === "windows") {
+  // Unix ↔ local Windows: do not rewrite POSIX paths into NTFS (or vice versa).
+  if (sourceStyle === "posix" && targetStyle === "windows") {
     return quotePath(raw.replace(/\\/g, "/"), "windows");
   }
-  if (sourceStyle === "windows" && targetStyle === "remote") {
-    return quotePath(raw, "remote");
+  if (sourceStyle === "windows" && targetStyle === "posix") {
+    return quotePath(raw, "posix");
   }
-  if (sourceStyle === "remote" && targetStyle === "remote") {
-    return quotePath(raw.replace(/\\/g, "/"), "remote");
+  if (sourceStyle === "posix" && targetStyle === "posix") {
+    return quotePath(raw.replace(/\\/g, "/"), "posix");
   }
 
   return quotePath(translatePath(raw, targetStyle), targetStyle);
@@ -196,9 +196,9 @@ export function translatePathFromSource(
   const sourceIsPosix =
     !!sourceCwd && sourceCwd.replace(/\\/g, "/").startsWith("/");
 
-  if (style === "remote") {
+  if (style === "posix") {
     if (/^[a-zA-Z]:[\\/]/.test(fwd) || /^(\\\\|\/\/)/.test(fwd)) {
-      return translatePath(fwd, "remote");
+      return translatePath(fwd, "posix");
     }
     return fwd;
   }
