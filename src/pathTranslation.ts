@@ -1,11 +1,10 @@
 /**
  * Unified shell-agnostic path translation.
  *
- * Any path entering a pane's shell — native OS drops, cross-pane drags,
- * or clipboard paste — must be translated from its origin format (typically
- * an NTFS Windows path) into the format the pane's shell expects. This module
- * is that single layer: style detection from the pane's profile/shell, path
- * translation, and shell-appropriate quoting.
+ * Any path pasted into a pane's shell must be translated from its origin
+ * format (typically an NTFS Windows path) into the format the pane's shell
+ * expects. This module is that single layer: style detection from the pane's
+ * profile/shell, path translation, and shell-appropriate quoting.
  */
 
 export type PathStyle = "windows" | "msys" | "wsl" | "posix";
@@ -18,8 +17,7 @@ export type PastePathSource = {
 /**
  * Resolve the path style a pane's shell expects from its profile and the
  * resolved shell override. SSH path style is resolved per pane (see
- * `pathStyleForPaneId` in main.ts) from the remote `IsWindows` integration
- * flag — not from the local host shell that launched `ssh.exe`.
+ * `pathStyleForPaneId` in main.ts) from the remote `IsWindows` OSC property.
  */
 export function pathStyleForProfile(
   profile: { kind?: unknown; shell?: string | null } | undefined,
@@ -31,6 +29,18 @@ export function pathStyleForProfile(
     /git[- ]?bash|msys|cygwin/.test(shell)
     ? "msys"
     : "windows";
+}
+
+export function sshPathStyleFromRemote(
+  remoteIsWindows: boolean | undefined,
+  cwd: string | null | undefined,
+): PathStyle {
+  if (remoteIsWindows === true) return "windows";
+  if (remoteIsWindows === false) return "posix";
+  if (cwd && (/^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith("\\\\"))) {
+    return "windows";
+  }
+  return "posix";
 }
 
 function inferPathStyle(path: string): PathStyle {
@@ -124,7 +134,7 @@ function wslDistroFromCwd(cwd: string | null): string | null {
 
 /**
  * Translate clipboard content for paste into a pane of the given style:
- * path-shaped text (quoted or not) is translated and quoted like a drop;
+ * path-shaped text (quoted or not) is translated and quoted for the target shell;
  * everything else is returned untouched.
  */
 export function translatePasteText(
@@ -135,18 +145,16 @@ export function translatePasteText(
   if (!isPathLike(text)) return text;
   const raw = stripMatchingQuotes(text.trim());
   const sourceStyle = source?.style ?? inferPathStyle(raw);
-
-  // Unix ↔ local Windows: do not rewrite POSIX paths into NTFS (or vice versa).
-  if (sourceStyle === "posix" && targetStyle === "windows") {
-    return quotePath(raw.replace(/\\/g, "/"), "windows");
+  if (sourceStyle === "posix" || targetStyle === "posix") {
+    const posix = raw.replace(/\\/g, "/");
+    if (sourceStyle === "posix" && targetStyle === "windows") {
+      return quotePath(posix, "windows");
+    }
+    if (sourceStyle === "windows" && targetStyle === "posix") {
+      return quotePath(raw, "posix");
+    }
+    return quotePath(posix, "posix");
   }
-  if (sourceStyle === "windows" && targetStyle === "posix") {
-    return quotePath(raw, "posix");
-  }
-  if (sourceStyle === "posix" && targetStyle === "posix") {
-    return quotePath(raw.replace(/\\/g, "/"), "posix");
-  }
-
   return quotePath(translatePath(raw, targetStyle), targetStyle);
 }
 

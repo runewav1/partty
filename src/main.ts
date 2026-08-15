@@ -1,6 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   availableMonitors,
   currentMonitor,
@@ -153,8 +152,8 @@ import {
   pathStyleForProfile,
   quotePath,
   translatePasteText,
-  translatePath,
   translatePathFromSource,
+  sshPathStyleFromRemote,
   type PastePathSource,
   type PathStyle,
 } from "./pathTranslation";
@@ -630,21 +629,14 @@ async function boot(): Promise<void> {
     return getProfileById(profileId, profilesList);
   }
 
-  /** Unix-style paths for integrated SSH panes (`IsWindows=false`). */
-  function sshPathStyleForPane(paneId: string): PathStyle {
-    const flag = paneRemoteIsWindows.get(paneId);
-    if (flag === true) return "windows";
-    if (flag === false) return "posix";
-    const cwd = paneCwdHints.get(paneId);
-    if (cwd && (/^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith("\\\\"))) {
-      return "windows";
-    }
-    return "posix";
-  }
-
   function pathStyleForPaneId(paneId: string): PathStyle {
     const profile = resolvePaneProfile(paneId);
-    if (profile?.kind === "ssh") return sshPathStyleForPane(paneId);
+    if (profile?.kind === "ssh") {
+      return sshPathStyleFromRemote(
+        paneRemoteIsWindows.get(paneId),
+        paneCwdHints.get(paneId),
+      );
+    }
     const globalShell =
       ((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
       "pwsh";
@@ -653,7 +645,6 @@ async function boot(): Promise<void> {
     return pathStyleForProfile(profile ?? undefined, shellOverride);
   }
 
-  /** CWD for path expansion — remote SSH uses integrated OSC cwd, never the local host shell. */
   function paneEffectiveCwd(paneId: string): string | null {
     const hint = paneCwdHints.get(paneId);
     const profile = resolvePaneProfile(paneId);
@@ -668,17 +659,12 @@ async function boot(): Promise<void> {
   let lastClipboardPathContext: PastePathSource & { path: string } | null =
     null;
 
-  function rememberClipboardPath(
-    paneId: string,
-    path: string,
-  ): PastePathSource & { path: string } {
-    const ctx = {
+  function rememberClipboardPath(paneId: string, path: string): void {
+    lastClipboardPathContext = {
       path,
       style: pathStyleForPaneId(paneId),
       cwd: paneEffectiveCwd(paneId),
     };
-    lastClipboardPathContext = ctx;
-    return ctx;
   }
 
   function clipboardPathSourceForPaste(text: string): PastePathSource | null {
@@ -5356,8 +5342,7 @@ async function boot(): Promise<void> {
       if (!term) return;
       // Go through xterm so newlines normalize and bracketed paste wraps when
       // the app (TUI) enabled it — raw ptyWrite skipped both and broke OpenCode etc.
-      // Path-shaped clipboard content is translated per the focused pane's
-      // shell (e.g. an NTFS path pasted into a WSL pane) — same layer as drops.
+      // Path-shaped clipboard content is translated per the focused pane's shell.
       term.focus();
       term.paste(
         translatePasteText(
@@ -6988,47 +6973,6 @@ async function boot(): Promise<void> {
     reflowAllPanes();
     getFocusedTerm()?.focus();
   });
-
-  // ── Drag & drop ──────────────────────────────────────────────────────────
-  // Native pipeline: wry delivers extracted paths via onDragDropEvent (the
-  // DOM drop never fires with dragDropEnabled: true). Paths are translated
-  // and quoted per the target pane's shell via the shared pathTranslation
-  // module — the same layer paste and cross-pane drag consume.
-
-  function panePathStyle(paneId: string): PathStyle {
-    return pathStyleForPaneId(paneId);
-  }
-
-  getCurrentWebview()
-    .onDragDropEvent((event) => {
-      const payload = event.payload;
-      if (payload.type !== "drop") return;
-      // Tauri reports physical pixels; elementFromPoint wants CSS pixels.
-      const dpr = window.devicePixelRatio || 1;
-      const el = document.elementFromPoint(
-        payload.position.x / dpr,
-        payload.position.y / dpr,
-      );
-      const paneId =
-        el instanceof HTMLElement
-          ? (
-              el.closest(".pane-leaf[data-pane-id]") as HTMLElement | null
-            )?.dataset.paneId
-          : undefined;
-      if (!paneId || payload.paths.length === 0) return;
-      const style = panePathStyle(paneId);
-      const inserts = payload.paths
-        .map((p) => quotePath(translatePath(p.trim(), style), style))
-        .filter(Boolean);
-      if (inserts.length === 0) return;
-      const pt = getPaneTerminalById(paneId);
-      if (!pt) return;
-      pt.term.focus();
-      pt.term.paste(inserts.join(" "));
-    })
-    .catch(() => {
-      /* drag-drop unavailable — feature disabled */
-    });
 
   // ── Extensions ──────────────────────────────────────────────
   const loadExtensions = async (): Promise<void> => {

@@ -109,7 +109,7 @@ Used when `commandline` is unset:
 | `ssh_port` | u16 | Optional (`-p`) |
 | `ssh_identity_file` | string | Private key path (`-i`). OpenSSH formats only (e.g. ed25519, RSA, PEM) |
 | `ssh_args` | string[] | Extra client args |
-| `integration` | bool | Default `false`. Set `true` when the remote shell has loaded a Partty remote integration script (enables live remote CWD tracking; experimental) |
+| `integration` | bool | Default `false`. Set `true` when the remote shell has loaded a Partty remote integration script (enables live remote CWD tracking) |
 
 ```toml
 version = 1
@@ -135,7 +135,7 @@ Partty does not inject integration on SSH sessions. Install a remote script on t
 | fish | `src-tauri/scripts/partty-shell-integration-remote.fish` |
 | PowerShell (Windows SSH) | `src-tauri/scripts/partty-shell-integration-remote.ps1` |
 
-After the script is loaded in the remote session, set `integration = true` on the matching SSH profile. Partty then stores live OSC CWD updates for that pane (path expansion, future SFTP). Without `integration = true`, OSC CWD from SSH panes is ignored. Remote CWD is **not** used for split inherit or SSH spawn.
+After the script is loaded in the remote session, set `integration = true` on the matching SSH profile. Partty then stores live OSC CWD updates for that pane (path expansion). Without `integration = true`, OSC CWD from SSH panes is ignored. Remote CWD is **not** used for split inherit or SSH spawn.
 
 ```toml
 version = 1

@@ -57,7 +57,7 @@ pub struct ConnectionProfile {
     #[serde(default)]
     pub commandline: Option<String>,
     /// SSH only: remote shell has Partty integration loaded (see `partty-shell-integration-remote.*`).
-    /// Enables live remote CWD tracking for path features and SFTP (experimental).
+    /// Enables live remote CWD tracking for path features.
     #[serde(default)]
     pub integration: bool,
     #[serde(default)]
@@ -174,22 +174,8 @@ fn builtin_local_default() -> ConnectionProfile {
         id: LOCAL_DEFAULT_ID.into(),
         name: "Local (default shell)".into(),
         kind: ProfileKind::Local,
-        shell: None,
-        initial_cwd: None,
-        wsl_distro: None,
-        ssh_host: None,
-        ssh_user: None,
-        ssh_port: None,
-        ssh_identity_file: None,
-        ssh_args: Vec::new(),
-        commandline: None,
-        integration: false,
-        startup_command: None,
-        base: None,
-        inherit_cwd: None,
-        icon: None,
-        theme: None,
         builtin: true,
+        ..Default::default()
     }
 }
 
@@ -427,21 +413,8 @@ fn seed_local_shell_profiles() -> Result<(), String> {
             name: want_name,
             kind: ProfileKind::Local,
             shell: Some(detected_shell_profile_field(&shell.name, &shell.path)),
-            initial_cwd: None,
-            wsl_distro: None,
-            ssh_host: None,
-            ssh_user: None,
-            ssh_port: None,
-            ssh_identity_file: None,
-            ssh_args: Vec::new(),
-            commandline: None,
-            integration: false,
-            startup_command: None,
-            base: None,
-            inherit_cwd: None,
-            icon: None,
-            theme: None,
             builtin: true,
+            ..Default::default()
         };
         write_profile(&profile)?;
     }
@@ -461,22 +434,9 @@ fn seed_wsl_profiles() -> Result<(), String> {
             id,
             name: distro.clone(),
             kind: ProfileKind::Wsl,
-            shell: None,
-            initial_cwd: None,
             wsl_distro: Some(distro),
-            ssh_host: None,
-            ssh_user: None,
-            ssh_port: None,
-            ssh_identity_file: None,
-            ssh_args: Vec::new(),
-            commandline: None,
-            integration: false,
-            startup_command: None,
-            base: None,
-            inherit_cwd: None,
-            icon: None,
-            theme: None,
             builtin: true,
+            ..Default::default()
         };
         write_profile_if_missing(&profile)?;
     }
@@ -512,21 +472,8 @@ fn merge_detected_ephemeral(mut profiles: Vec<ConnectionProfile>) -> Vec<Connect
             name: display_name_for_shell(&shell.name),
             kind: ProfileKind::Local,
             shell: Some(detected_shell_profile_field(&shell.name, &shell.path)),
-            initial_cwd: None,
-            wsl_distro: None,
-            ssh_host: None,
-            ssh_user: None,
-            ssh_port: None,
-            ssh_identity_file: None,
-            ssh_args: Vec::new(),
-            commandline: None,
-            integration: false,
-            startup_command: None,
-            base: None,
-            inherit_cwd: None,
-            icon: None,
-            theme: None,
             builtin: true,
+            ..Default::default()
         });
     }
 
@@ -542,22 +489,9 @@ fn merge_detected_ephemeral(mut profiles: Vec<ConnectionProfile>) -> Vec<Connect
             id,
             name: distro.clone(),
             kind: ProfileKind::Wsl,
-            shell: None,
-            initial_cwd: None,
             wsl_distro: Some(distro),
-            ssh_host: None,
-            ssh_user: None,
-            ssh_port: None,
-            ssh_identity_file: None,
-            ssh_args: Vec::new(),
-            commandline: None,
-            integration: false,
-            startup_command: None,
-            base: None,
-            inherit_cwd: None,
-            icon: None,
-            theme: None,
             builtin: true,
+            ..Default::default()
         });
     }
 
@@ -735,8 +669,8 @@ mod tests {
     }
 
     #[test]
-    fn ssh_integration_field_deserializes_and_dto() {
-        let text = r#"
+    fn ssh_integration_field_roundtrip() {
+        let with_flag = r#"
 version = 1
 id = "ssh-prod"
 name = "Prod"
@@ -744,25 +678,22 @@ kind = "ssh"
 ssh_host = "prod.example.com"
 integration = true
 "#;
-        let p: ConnectionProfile = toml::from_str(text).unwrap();
+        let p: ConnectionProfile = toml::from_str(with_flag).unwrap();
         assert!(p.integration);
-        let dto = ProfileDto::from(&p);
-        assert!(dto.integration);
-        let json = serde_json::to_value(&dto).unwrap();
-        assert_eq!(json["integration"], true);
-    }
+        assert!(ProfileDto::from(&p).integration);
+        assert_eq!(
+            serde_json::to_value(ProfileDto::from(&p)).unwrap()["integration"],
+            true
+        );
 
-    #[test]
-    fn ssh_integration_defaults_false() {
-        let text = r#"
+        let without_flag = r#"
 version = 1
 id = "ssh-prod"
 name = "Prod"
 kind = "ssh"
 ssh_host = "prod.example.com"
 "#;
-        let p: ConnectionProfile = toml::from_str(text).unwrap();
-        assert!(!p.integration);
+        assert!(!toml::from_str::<ConnectionProfile>(without_flag).unwrap().integration);
     }
 
     #[test]

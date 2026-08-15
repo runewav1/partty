@@ -77,13 +77,6 @@ function __termie_emit_osc_batch
     end
 end
 
-if not set -q __TERMIE_SESSION_ID
-    set -g __TERMIE_SESSION_ID (dd if=/dev/urandom bs=4 count=1 2>/dev/null | od -An -tx1 | string trim | string replace ' ' '')
-end
-if test -z "$__TERMIE_SESSION_ID"
-    set -g __TERMIE_SESSION_ID $fish_pid
-end
-
 set -g __TERMIE_HAS_RUN 0
 set -g __TERMIE_CURRENT_CMD ""
 
@@ -141,9 +134,6 @@ function fish_prompt
 end
 
 __termie_emit_osc 633 P IsWindows=False
-__termie_emit_osc 633 P ShellType=fish
-__termie_emit_osc 633 P SessionId=$__TERMIE_SESSION_ID
-__termie_emit_osc 633 P HasRichCommandDetection=True
 
 set -l __TERMIE_INITIAL_CWD (__termie_get_cwd)
 if test -n "$__TERMIE_INITIAL_CWD"

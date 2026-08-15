@@ -22,7 +22,6 @@ $Global:__TermieState = @{
     IsInExecution                 = $false
     HasPSReadLine                 = $false
     OriginalPSConsoleHostReadLine = $null
-    SessionId                     = [guid]::NewGuid().ToString("N").Substring(0, 8)
     DebugMode                     = $env:PARTTY_DEBUG -eq "1"
 }
 
@@ -215,8 +214,6 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
     $Global:__TermieState.HasPSReadLine = $true
     $Global:__TermieState.OriginalPSConsoleHostReadLine = $function:PSConsoleHostReadLine
 
-    __Termie-Emit-OSC "633" @("P", "HasRichCommandDetection=True")
-
     function Global:PSConsoleHostReadLine {
         $commandLine = $Global:__TermieState.OriginalPSConsoleHostReadLine.Invoke()
         $Global:__TermieState.IsInExecution = $true
@@ -233,9 +230,6 @@ if ($PSVersionTable.PSVersion.Major -ge 6) {
     $isWindowsPlatform = $IsWindows
 }
 __Termie-Emit-OSC "633" @("P", "IsWindows=$($isWindowsPlatform.ToString().ToLower())")
-$shellType = if ($PSVersionTable.PSVersion.Major -ge 6) { "pwsh" } else { "powershell" }
-__Termie-Emit-OSC "633" @("P", "ShellType=$shellType")
-__Termie-Emit-OSC "633" @("P", "SessionId=$($Global:__TermieState.SessionId)")
 
 $initialCwd = __Termie-Get-SafeCwd
 if ($initialCwd) {

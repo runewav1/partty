@@ -73,9 +73,6 @@ __termie_emit_osc_batch() {
 typeset -g __TERMIE_HAS_RUN=0
 typeset -g __TERMIE_CURRENT_CMD=""
 typeset -g __TERMIE_IN_PROMPT=0
-typeset -g __TERMIE_SESSION_ID
-__TERMIE_SESSION_ID="$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
-[[ -z "$__TERMIE_SESSION_ID" ]] && __TERMIE_SESSION_ID="$$"
 
 __termie_precmd() {
   local exit_code=$?
@@ -123,9 +120,6 @@ add-zsh-hook preexec __termie_preexec
 add-zsh-hook precmd __termie_update_ps1
 
 __termie_emit_osc "633" "P" "IsWindows=False"
-__termie_emit_osc "633" "P" "ShellType=zsh"
-__termie_emit_osc "633" "P" "SessionId=$__TERMIE_SESSION_ID"
-__termie_emit_osc "633" "P" "HasRichCommandDetection=True"
 
 typeset -g __TERMIE_INITIAL_CWD
 __TERMIE_INITIAL_CWD="$(__termie_get_cwd)"
