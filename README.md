@@ -40,6 +40,12 @@ https://github.com/user-attachments/assets/50b6efde-94e8-49dc-b8a8-38c7b454d877
 - Inject a startup command to a pre-configured profile, so you can start a coding agent in WSL or send btop to an SSH
   connection automatically without doing so every time (treat it as a split).
 
+#### SSH
+
+- Optional shell integrations can be sourced to your shell profile on remote devices, which enables notifications
+  and other features for SSH connections. Without it, SSH profiles are still entirely functional, just without
+  much of the fancy things.
+
 ### Window
 
 - Summon and hide the window -- set the hide operation to destroy the webview, shave memory use
@@ -147,6 +153,8 @@ Some notable examples could be:
 - Rendering videos in full, lossless quality and complete render speeds, as opposed to being limited by
   terminal data streaming (stream to the front-end, render over the terminal viewport).
 - Rendering images without loss of quality, with the same concept as video rendering.
+- Refactoring the tabbing system with a terminal style bar, packed with system time information, current tab indicators,
+  or any other arbitrary variables, etc.
 
 A more realistic (and sensible) goal for Partty is to give the community the *tools* to do this; establish
 a more capable extensions API surface, and allow optional extension of the terminal's ability to do these
@@ -161,6 +169,6 @@ implementations of a terminal using raw conPTY/conhost.exe OS capabilities *do n
 The solution is the same as Windows Terminal; load `OpenConsole.exe` and `conpty.dll` alongside the terminal,
 and use them instead of conPTY. This enables Sixel rendering.
 
-This is currently an early capability of Partty, and isn't bundled alongside the application,
+This is currently an experimental capability of Partty, and isn't bundled alongside the application,
 which means you'll have to source pre-built binaries for the two from something like `nuget`, or build them
 yourself.
