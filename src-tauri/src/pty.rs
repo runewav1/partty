@@ -1050,12 +1050,15 @@ fn percent_decode(s: &str) -> Option<String> {
 /// Common Unix absolute roots that must never be treated as MSYS `/x/...` drives.
 fn looks_like_unix_root(path: &str) -> bool {
     const ROOTS: &[&str] = &[
-        "/home/", "/usr/", "/etc/", "/var/", "/tmp/", "/opt/", "/mnt/", "/root/", "/dev/",
-        "/proc/", "/sys/", "/bin/", "/lib/", "/sbin/", "/boot/", "/media/", "/run/", "/snap/",
-        "/home", "/usr", "/etc", "/var", "/tmp", "/opt", "/mnt", "/root", "/dev", "/proc", "/sys",
-        "/bin", "/lib", "/sbin", "/boot", "/media", "/run", "/snap",
+        "/home", "/usr", "/etc", "/var", "/tmp", "/opt", "/mnt", "/root", "/dev",
+        "/proc", "/sys", "/bin", "/lib", "/sbin", "/boot", "/media", "/run", "/snap",
     ];
-    ROOTS.iter().any(|r| path == *r || path.starts_with(r))
+    ROOTS.iter().any(|root| {
+        path == *root
+            || path
+                .strip_prefix(root)
+                .is_some_and(|rest| rest.starts_with('/'))
+    })
 }
 
 /// Normalise a `Cwd=` value from OSC 633 P to a Windows absolute path when possible.
@@ -2465,8 +2468,8 @@ fn detect_shell_kind(prefs: &Prefs) -> ShellKind {
 #[cfg(test)]
 mod tests {
     use super::{
-        detected_shell_profile_field, is_git_bash_path, is_wsl_bash_shim, osc633_normalize_cwd,
-        split_commandline, windows_path_to_wsl_mnt,
+        detected_shell_profile_field, is_git_bash_path, is_wsl_bash_shim, looks_like_unix_root,
+        osc633_normalize_cwd, split_commandline, windows_path_to_wsl_mnt,
     };
     use std::path::{Path, PathBuf};
 
@@ -2486,6 +2489,15 @@ mod tests {
 
     fn props_windows() -> Option<&'static str> {
         Some("True")
+    }
+
+    #[test]
+    fn unix_root_detection_respects_boundaries() {
+        assert!(looks_like_unix_root("/home"));
+        assert!(looks_like_unix_root("/home/rune"));
+        assert!(looks_like_unix_root("/home/"));
+        assert!(!looks_like_unix_root("/homebrew"));
+        assert!(!looks_like_unix_root("/usrbin"));
     }
 
     #[test]
