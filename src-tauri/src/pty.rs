@@ -1094,7 +1094,7 @@ fn osc633_normalize_cwd(value: &str, is_windows: Option<&str>) -> String {
             return format!(
                 "{}:\\{}",
                 drive.to_ascii_uppercase(),
-                &rest[2..].replace('/', "\\")
+                rest[2..].replace('/', "\\")
             );
         }
     }
