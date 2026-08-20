@@ -1050,8 +1050,8 @@ fn percent_decode(s: &str) -> Option<String> {
 /// Common Unix absolute roots that must never be treated as MSYS `/x/...` drives.
 fn looks_like_unix_root(path: &str) -> bool {
     const ROOTS: &[&str] = &[
-        "/home", "/usr", "/etc", "/var", "/tmp", "/opt", "/mnt", "/root", "/dev",
-        "/proc", "/sys", "/bin", "/lib", "/sbin", "/boot", "/media", "/run", "/snap",
+        "/home", "/usr", "/etc", "/var", "/tmp", "/opt", "/mnt", "/root", "/dev", "/proc", "/sys",
+        "/bin", "/lib", "/sbin", "/boot", "/media", "/run", "/snap",
     ];
     ROOTS.iter().any(|root| {
         path == *root
