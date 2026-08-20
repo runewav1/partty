@@ -56,7 +56,11 @@ pub fn load_theme(name: &str) -> Result<ThemeToml, String> {
     Ok(t)
 }
 
-pub fn save_theme(name: &str, colors: HashMap<String, String>, prefs: Option<toml::Value>) -> Result<(), String> {
+pub fn save_theme(
+    name: &str,
+    colors: HashMap<String, String>,
+    prefs: Option<toml::Value>,
+) -> Result<(), String> {
     prefs::validate_custom_theme_name(name)?;
     let path = themes_dir()?.join(format!("{name}.toml"));
     let t = ThemeToml {

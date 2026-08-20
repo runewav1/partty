@@ -1,21 +1,21 @@
 use crate::prefs::Prefs;
 use crate::profiles::{ConnectionProfile, ProfileKind};
 use parking_lot::Mutex as ParkingMutex;
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{sync_channel, RecvTimeoutError};
-use std::sync::Arc;
+use std::sync::mpsc::{RecvTimeoutError, sync_channel};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager};
-use windows_sys::Win32::Foundation::{DuplicateHandle, HANDLE, DUPLICATE_SAME_ACCESS};
-use windows_sys::Win32::System::Threading::{GetCurrentProcess, WaitForSingleObject, INFINITE};
+use windows_sys::Win32::Foundation::{DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE};
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, INFINITE, WaitForSingleObject};
 
 const SHELL_INTEGRATION_PWSH: &str = include_str!("../scripts/partty-shell-integration.ps1");
 const SHELL_INTEGRATION_BASH: &str = include_str!("../scripts/partty-shell-integration.bash");
@@ -357,8 +357,9 @@ mod stripper_tests {
     // stripper must remove. Independent from the implementation's structure
     // so the two cannot share the same bug.
 
-    const STRIPPED_OSC_NUMBERS: [&str; 10] =
-        ["0", "1", "2", "7", "50", "133", "633", "1337", "1338", "1339"];
+    const STRIPPED_OSC_NUMBERS: [&str; 10] = [
+        "0", "1", "2", "7", "50", "133", "633", "1337", "1338", "1339",
+    ];
 
     /// Naive terminator search: BEL or `ESC \`. Returns (payload_end, seq_end).
     fn oracle_terminator(buf: &[u8], from: usize) -> Option<(usize, usize)> {
@@ -466,15 +467,18 @@ mod stripper_tests {
     fn no_complete_stripped_osc_survives(cleaned: &[u8]) {
         let mut i = 0;
         while i < cleaned.len() {
-            if cleaned[i] == 0x1b && i + 1 < cleaned.len() && cleaned[i + 1] == 0x5d
-                && let Some((payload_end, seq_end)) = oracle_terminator(cleaned, i + 2) {
-                    assert!(
-                        !oracle_should_strip(&cleaned[i + 2..payload_end]),
-                        "complete recognized OSC survived in cleaned output",
-                    );
-                    i = seq_end;
-                    continue;
-                }
+            if cleaned[i] == 0x1b
+                && i + 1 < cleaned.len()
+                && cleaned[i + 1] == 0x5d
+                && let Some((payload_end, seq_end)) = oracle_terminator(cleaned, i + 2)
+            {
+                assert!(
+                    !oracle_should_strip(&cleaned[i + 2..payload_end]),
+                    "complete recognized OSC survived in cleaned output",
+                );
+                i = seq_end;
+                continue;
+            }
             i += 1;
         }
     }
@@ -606,7 +610,10 @@ mod stripper_tests {
         for payload in &expected_payloads {
             let mut evs = Vec::new();
             let stripped = oracle_stripper.dispatch_osc(payload, &mut evs);
-            assert!(stripped, "oracle marked a payload stripped that dispatch rejects");
+            assert!(
+                stripped,
+                "oracle marked a payload stripped that dispatch rejects"
+            );
             for e in evs {
                 expected_keys.push(event_key(&e));
             }
@@ -626,10 +633,16 @@ mod stripper_tests {
         // no-op and produces no events.
         let (again, again_keys) = run_impl(&[&impl_clean]);
         assert_eq!(again, impl_clean, "strip is not idempotent");
-        assert!(again_keys.is_empty(), "second strip produced events: {again_keys:?}");
+        assert!(
+            again_keys.is_empty(),
+            "second strip produced events: {again_keys:?}"
+        );
 
         // The impl must match the spec oracle exactly.
-        assert_eq!(impl_clean, expected_clean, "cleaned bytes differ from oracle");
+        assert_eq!(
+            impl_clean, expected_clean,
+            "cleaned bytes differ from oracle"
+        );
         assert_eq!(impl_keys, expected_keys, "events differ from oracle");
 
         // Property: chunk-boundary invariance — any chunking yields the same
@@ -648,9 +661,7 @@ mod stripper_tests {
 
     #[test]
     fn stripper_matches_spec_and_properties() {
-        let mut g = Gen {
-            seed: 0x5DEECE66D,
-        };
+        let mut g = Gen { seed: 0x5DEECE66D };
         for i in 0..384u64 {
             let mut g2 = Gen {
                 seed: g.seed.wrapping_add(i.wrapping_mul(0x9E3779B97F4A7C15)),
@@ -717,7 +728,10 @@ mod stripper_tests {
             chunks.push(&stream[start..]);
             let (got, got_keys) = run_impl(&chunks);
             assert_eq!(got, whole, "split at byte {split} diverged (len {n})");
-            assert_eq!(got_keys, whole_keys, "split at byte {split} diverged events");
+            assert_eq!(
+                got_keys, whole_keys,
+                "split at byte {split} diverged events"
+            );
             mask[split] = 0;
         }
     }
@@ -739,10 +753,11 @@ mod stripper_tests {
     fn split_invariant_utf8_and_terminators() {
         // Multibyte UTF-8 inside payloads + both terminator kinds, split
         // at every byte.
-        let stream = "\x1b]7;/home/caf\u{e9}\u{1f680}\x1b\\\x1b]633;P;Cwd=\u{5927}\x07\x1b]0;\u{3c0}\x07".as_bytes();
+        let stream =
+            "\x1b]7;/home/caf\u{e9}\u{1f680}\x1b\\\x1b]633;P;Cwd=\u{5927}\x07\x1b]0;\u{3c0}\x07"
+                .as_bytes();
         assert_split_invariant(stream);
     }
-
 
     #[test]
     fn strips_legacy_and_dead_osc_numbers() {
@@ -773,7 +788,6 @@ mod stripper_tests {
             assert_split_invariant(stream);
         }
     }
-
 
     #[test]
     fn oversized_unterminated_osc_discarded() {
@@ -858,8 +872,16 @@ mod stripper_tests {
         // whose payload contains an ESC (only ST terminates an OSC — same
         // state-machine semantics as xterm), so it passes through whole.
         let cases: Vec<(Vec<u8>, Vec<u8>, Vec<&str>)> = vec![
-            (b"\x1b\x1b]0;t\x07".to_vec(), b"\x1b".to_vec(), vec!["Title(t)"]),
-            (b"\x1b\x1b\x1b]7;x\x07".to_vec(), b"\x1b\x1b".to_vec(), vec!["Cwd(x)"]),
+            (
+                b"\x1b\x1b]0;t\x07".to_vec(),
+                b"\x1b".to_vec(),
+                vec!["Title(t)"],
+            ),
+            (
+                b"\x1b\x1b\x1b]7;x\x07".to_vec(),
+                b"\x1b\x1b".to_vec(),
+                vec!["Cwd(x)"],
+            ),
             (
                 b"\x1b]0;a\x07\x1b]133;A\x07\x1b]8;;u\x07".to_vec(),
                 b"\x1b]8;;u\x07".to_vec(),
@@ -870,7 +892,11 @@ mod stripper_tests {
             // the ESC lands inside the *number* does the sequence become
             // unrecognized and pass through (xterm's state machine agrees).
             (b"\x1b]133;A\x1b]133;B\x07".to_vec(), b"".to_vec(), vec![]),
-            (b"\x1b]\x1b]7;x\x07".to_vec(), b"\x1b]\x1b]7;x\x07".to_vec(), vec![]),
+            (
+                b"\x1b]\x1b]7;x\x07".to_vec(),
+                b"\x1b]\x1b]7;x\x07".to_vec(),
+                vec![],
+            ),
         ];
         for (stream, expected, expected_keys) in &cases {
             assert_split_invariant(stream);
@@ -890,7 +916,10 @@ mod stripper_tests {
             b"\x1b]50;\x18\x1a?\x07".as_slice(),
         ] {
             let (clean, _) = run_impl(&[stream]);
-            assert!(!clean.contains(&0x1b), "control-laced OSC leaked: {clean:?}");
+            assert!(
+                !clean.contains(&0x1b),
+                "control-laced OSC leaked: {clean:?}"
+            );
             assert_split_invariant(stream);
         }
     }
@@ -947,10 +976,11 @@ fn osc_unescape(s: &str) -> String {
                     let h1 = chars.next().and_then(|c| c.to_digit(16));
                     let h2 = chars.next().and_then(|c| c.to_digit(16));
                     if let (Some(a), Some(b)) = (h1, h2)
-                        && let Some(ch) = char::from_u32(a * 16 + b) {
-                            out.push(ch);
-                            continue;
-                        }
+                        && let Some(ch) = char::from_u32(a * 16 + b)
+                    {
+                        out.push(ch);
+                        continue;
+                    }
                     out.push('\\');
                 }
                 Some('\\') => {
@@ -995,11 +1025,7 @@ fn osc7_parse_cwd(payload: &str) -> Option<String> {
     } else {
         raw.to_string()
     };
-    if path.is_empty() {
-        None
-    } else {
-        Some(path)
-    }
+    if path.is_empty() { None } else { Some(path) }
 }
 
 /// Simple percent-decoder for OSC 7 URIs (ASCII-safe; UTF-8 sequences decoded as bytes).
@@ -1026,8 +1052,8 @@ fn looks_like_unix_root(path: &str) -> bool {
     const ROOTS: &[&str] = &[
         "/home/", "/usr/", "/etc/", "/var/", "/tmp/", "/opt/", "/mnt/", "/root/", "/dev/",
         "/proc/", "/sys/", "/bin/", "/lib/", "/sbin/", "/boot/", "/media/", "/run/", "/snap/",
-        "/home", "/usr", "/etc", "/var", "/tmp", "/opt", "/mnt", "/root", "/dev", "/proc",
-        "/sys", "/bin", "/lib", "/sbin", "/boot", "/media", "/run", "/snap",
+        "/home", "/usr", "/etc", "/var", "/tmp", "/opt", "/mnt", "/root", "/dev", "/proc", "/sys",
+        "/bin", "/lib", "/sbin", "/boot", "/media", "/run", "/snap",
     ];
     ROOTS.iter().any(|r| path == *r || path.starts_with(r))
 }
@@ -1062,40 +1088,44 @@ fn osc633_normalize_cwd(value: &str, is_windows: Option<&str>) -> String {
     if let Some(rest) = raw.strip_prefix("/mnt/") {
         let mut ch = rest.chars();
         if let Some(drive) = ch.next()
-            && drive.is_ascii_alphabetic() && rest.as_bytes().get(1) == Some(&b'/') {
-                return format!(
-                    "{}:\\{}",
-                    drive.to_ascii_uppercase(),
-                    &rest[2..].replace('/', "\\")
-                );
-            }
+            && drive.is_ascii_alphabetic()
+            && rest.as_bytes().get(1) == Some(&b'/')
+        {
+            return format!(
+                "{}:\\{}",
+                drive.to_ascii_uppercase(),
+                &rest[2..].replace('/', "\\")
+            );
+        }
     }
     // MSYS /x/path → X:\path (never rewrite /home, /usr, …)
     if raw.starts_with('/') && !looks_like_unix_root(raw) {
         let rest = &raw[1..];
         let mut chars = rest.chars();
         if let Some(drive) = chars.next()
-            && drive.is_ascii_alphabetic() {
-                match chars.next() {
-                    Some('/') => {
-                        return format!(
-                            "{}:\\{}",
-                            drive.to_ascii_uppercase(),
-                            chars.as_str().replace('/', "\\")
-                        );
-                    }
-                    None => {
-                        return format!("{}:\\", drive.to_ascii_uppercase());
-                    }
-                    Some(_) => {}
+            && drive.is_ascii_alphabetic()
+        {
+            match chars.next() {
+                Some('/') => {
+                    return format!(
+                        "{}:\\{}",
+                        drive.to_ascii_uppercase(),
+                        chars.as_str().replace('/', "\\")
+                    );
                 }
+                None => {
+                    return format!("{}:\\", drive.to_ascii_uppercase());
+                }
+                Some(_) => {}
             }
+        }
     }
     // file:// URI fallback
     if raw.contains("://")
-        && let Some(p) = osc7_parse_cwd(raw) {
-            return p;
-        }
+        && let Some(p) = osc7_parse_cwd(raw)
+    {
+        return p;
+    }
     raw.to_string()
 }
 
@@ -1243,7 +1273,11 @@ impl PtySession {
                     if elapsed >= batch_window {
                         break;
                     }
-                    let wait = if idle_probe { Duration::ZERO } else { batch_window - elapsed };
+                    let wait = if idle_probe {
+                        Duration::ZERO
+                    } else {
+                        batch_window - elapsed
+                    };
                     match rx.recv_timeout(wait) {
                         Ok(chunk) => {
                             pending.extend_from_slice(&chunk);
@@ -1366,7 +1400,8 @@ impl PtySession {
                             replayed: held_replayed,
                         };
                         if h.bytes.len() > PTY_PENDING_HOLD_MAX_BYTES {
-                            h.bytes.drain(..(h.bytes.len() - PTY_PENDING_HOLD_MAX_BYTES));
+                            h.bytes
+                                .drain(..(h.bytes.len() - PTY_PENDING_HOLD_MAX_BYTES));
                         }
                         held = Some(h);
                         thread::sleep(Duration::from_millis(20));
@@ -1378,10 +1413,7 @@ impl PtySession {
                         append_replay_buffer(&replay_emitter, &cleaned_bytes);
                     }
                     let batch_len = cleaned_bytes.len();
-                    if ch
-                        .send(InvokeResponseBody::Raw(cleaned_bytes))
-                        .is_err()
-                    {
+                    if ch.send(InvokeResponseBody::Raw(cleaned_bytes)).is_err() {
                         // The batch is exactly the replay tail (it was the last
                         // append); recover it byte-for-byte for the retry.
                         let tail = {
@@ -1394,7 +1426,8 @@ impl PtySession {
                             replayed: true,
                         };
                         if h.bytes.len() > PTY_PENDING_HOLD_MAX_BYTES {
-                            h.bytes.drain(..(h.bytes.len() - PTY_PENDING_HOLD_MAX_BYTES));
+                            h.bytes
+                                .drain(..(h.bytes.len() - PTY_PENDING_HOLD_MAX_BYTES));
                         }
                         held = Some(h);
                         thread::sleep(Duration::from_millis(20));
@@ -1437,7 +1470,9 @@ impl PtySession {
         let app_waiter = app.clone();
         let pane_id_waiter = Arc::clone(&pane_id_arc);
         let _waiter = thread::spawn(move || {
-            let Some(handle) = exit_handle else { return; };
+            let Some(handle) = exit_handle else {
+                return;
+            };
             unsafe { WaitForSingleObject(handle.as_raw_handle() as _, INFINITE) };
             // One-time grace so the conhost can flush the final output.
             thread::sleep(Duration::from_millis(60));
@@ -1590,12 +1625,7 @@ fn git_bash_standard_paths() -> Vec<PathBuf> {
     let mut v = Vec::new();
     for pf_var in ["ProgramFiles", "ProgramFiles(x86)"] {
         if let Ok(pf) = std::env::var(pf_var) {
-            v.push(
-                PathBuf::from(&pf)
-                    .join("Git")
-                    .join("bin")
-                    .join("bash.exe"),
-            );
+            v.push(PathBuf::from(&pf).join("Git").join("bin").join("bash.exe"));
         }
     }
     if let Ok(la) = std::env::var("LOCALAPPDATA") {
@@ -1611,9 +1641,7 @@ fn git_bash_standard_paths() -> Vec<PathBuf> {
 }
 
 pub fn resolve_git_bash_executable() -> Option<PathBuf> {
-    git_bash_standard_paths()
-        .into_iter()
-        .find(|p| p.is_file())
+    git_bash_standard_paths().into_iter().find(|p| p.is_file())
 }
 
 fn is_git_bash_path(path: &Path) -> bool {
@@ -1621,8 +1649,7 @@ fn is_git_bash_path(path: &Path) -> bool {
         return false;
     };
     let normalized = path_str.replace('/', "\\").to_ascii_lowercase();
-    normalized.contains("\\git\\bin\\bash.exe")
-        || normalized.contains("\\git\\usr\\bin\\bash.exe")
+    normalized.contains("\\git\\bin\\bash.exe") || normalized.contains("\\git\\usr\\bin\\bash.exe")
 }
 
 fn is_wsl_bash_shim(path: &Path) -> bool {
@@ -1643,10 +1670,7 @@ fn is_bash_executable_path(path: &Path) -> bool {
 }
 
 fn resolve_bash_executable(prefs: &Prefs) -> Result<CommandBuilder, String> {
-    let trimmed = prefs
-        .shell
-        .trim()
-        .trim_matches(|c| c == '"' || c == '\'');
+    let trimmed = prefs.shell.trim().trim_matches(|c| c == '"' || c == '\'');
     if !trimmed.is_empty() {
         let path = Path::new(trimmed);
         if (trimmed.contains('\\') || trimmed.contains('/') || trimmed.ends_with(".exe"))
@@ -1660,9 +1684,11 @@ fn resolve_bash_executable(prefs: &Prefs) -> Result<CommandBuilder, String> {
     }
     if has_exe_on_path("bash.exe") {
         if let Some(p) = where_exe_first_line("bash.exe")
-            && p.is_file() && !is_wsl_bash_shim(&p) {
-                return Ok(CommandBuilder::new(p));
-            }
+            && p.is_file()
+            && !is_wsl_bash_shim(&p)
+        {
+            return Ok(CommandBuilder::new(p));
+        }
         return Ok(CommandBuilder::new("bash.exe"));
     }
     Err("bash.exe not found. Set the profile `shell` to a full path.".to_string())
@@ -1701,9 +1727,10 @@ pub fn detect_available_shells() -> Vec<DetectedShell> {
 
     if let Ok(guard) = CACHE.lock()
         && let Some((at, shells)) = guard.as_ref()
-            && at.elapsed() < TTL {
-                return shells.clone();
-            }
+        && at.elapsed() < TTL
+    {
+        return shells.clone();
+    }
 
     let shells = detect_available_shells_uncached();
     if let Ok(mut guard) = CACHE.lock() {
@@ -1761,9 +1788,8 @@ fn detect_available_shells_uncached() -> Vec<DetectedShell> {
             });
 
             // bash — Git for Windows install only (not PATH / WSL shim / sh.exe).
-            let bash = s.spawn(|| {
-                resolve_git_bash_executable().map(|p| p.to_string_lossy().into_owned())
-            });
+            let bash =
+                s.spawn(|| resolve_git_bash_executable().map(|p| p.to_string_lossy().into_owned()));
 
             // WSL
             let wsl = s.spawn(|| -> Option<String> {
@@ -1833,9 +1859,10 @@ fn is_pwsh_alias(shell: &str) -> bool {
 
 fn apply_cwd(mut cmd: CommandBuilder, prefs: &Prefs) -> Result<CommandBuilder, String> {
     if let Some(dir) = prefs.initial_cwd.as_deref()
-        && Path::new(dir).is_dir() {
-            cmd.cwd(dir);
-        }
+        && Path::new(dir).is_dir()
+    {
+        cmd.cwd(dir);
+    }
     Ok(cmd)
 }
 
@@ -1981,9 +2008,10 @@ fn detect_wsl_login_shell(distro: &str) -> WslLoginShell {
     let key = distro.to_ascii_lowercase();
     if let Ok(guard) = CACHE.lock()
         && let Some(map) = guard.as_ref()
-            && let Some(kind) = map.get(&key) {
-                return *kind;
-            }
+        && let Some(kind) = map.get(&key)
+    {
+        return *kind;
+    }
 
     let kind = detect_wsl_login_shell_uncached(distro);
     if let Ok(mut guard) = CACHE.lock() {
@@ -2089,7 +2117,10 @@ source "{script_wsl}"
     contents
 }
 
-fn ensure_zsh_zdot(integration_script_unix: &str, startup: Option<&str>) -> Result<PathBuf, String> {
+fn ensure_zsh_zdot(
+    integration_script_unix: &str,
+    startup: Option<&str>,
+) -> Result<PathBuf, String> {
     let dir = std::env::temp_dir()
         .join("partty-shell-integration")
         .join("zdot");
@@ -2251,9 +2282,9 @@ fn resolve_on_path(name: &str) -> Option<PathBuf> {
             return Some(candidate);
         }
         for ext in std::env::split_paths(&exts) {
-            let with_ext = dir.join(name).with_extension(
-                ext.to_str()?.strip_prefix('.')?,
-            );
+            let with_ext = dir
+                .join(name)
+                .with_extension(ext.to_str()?.strip_prefix('.')?);
             if with_ext.is_file() {
                 return Some(with_ext);
             }
@@ -2448,8 +2479,7 @@ mod tests {
 
     #[test]
     fn split_quoted_commandline() {
-        let (exe, args) =
-            split_commandline(r#"ssh -i "C:\Users\me\.ssh\id_rsa" host"#).unwrap();
+        let (exe, args) = split_commandline(r#"ssh -i "C:\Users\me\.ssh\id_rsa" host"#).unwrap();
         assert_eq!(exe, "ssh");
         assert_eq!(args, vec!["-i", r"C:\Users\me\.ssh\id_rsa", "host"]);
     }
@@ -2495,9 +2525,7 @@ mod tests {
         assert!(is_git_bash_path(Path::new(
             r"C:\Program Files\Git\bin\bash.exe"
         )));
-        assert!(is_wsl_bash_shim(Path::new(
-            r"C:\Windows\System32\bash.exe"
-        )));
+        assert!(is_wsl_bash_shim(Path::new(r"C:\Windows\System32\bash.exe")));
         assert!(!is_git_bash_path(Path::new(
             r"C:\Windows\System32\bash.exe"
         )));

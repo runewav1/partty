@@ -58,7 +58,12 @@ fn rename_keys(v: Value, to_camel: bool) -> Value {
             }
             Value::Object(out)
         }
-        Value::Array(items) => Value::Array(items.into_iter().map(|v| rename_keys(v, to_camel)).collect()),
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .map(|v| rename_keys(v, to_camel))
+                .collect(),
+        ),
         other => other,
     }
 }
@@ -123,11 +128,7 @@ pub fn save_workspace(workspace: &Value) -> Result<(), String> {
     let json = rename_keys(workspace.clone(), false);
     let tom: toml::Value = serde_json::from_value(json).map_err(|e| e.to_string())?;
     let bytes = toml::to_string_pretty(&tom).map_err(|e| e.to_string())?;
-    fs::write(
-        workspaces_dir()?.join(format!("{id}.toml")),
-        bytes,
-    )
-    .map_err(|e| e.to_string())
+    fs::write(workspaces_dir()?.join(format!("{id}.toml")), bytes).map_err(|e| e.to_string())
 }
 
 pub fn remove_workspace(name: &str) -> Result<(), String> {

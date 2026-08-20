@@ -4,7 +4,7 @@
 //! `wsl.exe -l -q` (same discovery Windows Terminal uses). Friendly `name`
 //! is display-only — spawn uses `shell` / `wsl_distro` / etc.
 
-use crate::prefs::{ensure_config_dir, Prefs};
+use crate::prefs::{Prefs, ensure_config_dir};
 use crate::pty::{detect_available_shells, detected_shell_profile_field};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -332,9 +332,10 @@ pub fn list_wsl_distros() -> Vec<String> {
 
     if let Ok(guard) = CACHE.lock()
         && let Some((at, names)) = guard.as_ref()
-            && at.elapsed() < TTL {
-                return names.clone();
-            }
+        && at.elapsed() < TTL
+    {
+        return names.clone();
+    }
 
     let names = list_wsl_distros_uncached();
     if let Ok(mut guard) = CACHE.lock() {
@@ -387,24 +388,26 @@ fn seed_local_shell_profiles() -> Result<(), String> {
         if path.exists() {
             // Refresh default display names for seeded builtins (keep user renames).
             if let Ok(mut existing) = read_profile(&id)
-                && existing.builtin && existing.name != want_name {
-                    let is_stock = matches!(
-                        existing.name.as_str(),
-                        "PowerShell 7"
-                            | "Windows PowerShell"
-                            | "Command Prompt"
-                            | "Zsh"
-                            | "pwsh"
-                            | "powershell"
-                            | "CMD"
-                            | "bash"
-                            | "zsh"
-                    ) || existing.name.eq_ignore_ascii_case(&shell.name);
-                    if is_stock {
-                        existing.name = want_name;
-                        write_profile(&existing)?;
-                    }
+                && existing.builtin
+                && existing.name != want_name
+            {
+                let is_stock = matches!(
+                    existing.name.as_str(),
+                    "PowerShell 7"
+                        | "Windows PowerShell"
+                        | "Command Prompt"
+                        | "Zsh"
+                        | "pwsh"
+                        | "powershell"
+                        | "CMD"
+                        | "bash"
+                        | "zsh"
+                ) || existing.name.eq_ignore_ascii_case(&shell.name);
+                if is_stock {
+                    existing.name = want_name;
+                    write_profile(&existing)?;
                 }
+            }
             continue;
         }
         let profile = ConnectionProfile {
@@ -693,7 +696,11 @@ name = "Prod"
 kind = "ssh"
 ssh_host = "prod.example.com"
 "#;
-        assert!(!toml::from_str::<ConnectionProfile>(without_flag).unwrap().integration);
+        assert!(
+            !toml::from_str::<ConnectionProfile>(without_flag)
+                .unwrap()
+                .integration
+        );
     }
 
     #[test]

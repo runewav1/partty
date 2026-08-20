@@ -9,12 +9,12 @@ mod window_state;
 mod workspaces;
 
 use parking_lot::Mutex;
-use prefs::{load_persisted, save_prefs, PersistedState};
+use prefs::{PersistedState, load_persisted, save_prefs};
 use pty::PtySession;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::ipc::{Channel, InvokeResponseBody, Response};
@@ -105,10 +105,30 @@ fn detect_shells() -> Vec<pty::DetectedShell> {
 #[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
     let trimmed = url.trim();
-    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
-        return Err("only http/https links are allowed".to_string());
+    let is_http = trimmed
+        .get(..7)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("http://"));
+    let is_https = trimmed
+        .get(..8)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("https://"));
+    let is_www = trimmed
+        .get(..4)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("www."));
+    let is_localhost = trimmed
+        .get(..10)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("localhost:"));
+    let is_loopback = trimmed.starts_with("127.0.0.1:")
+        || trimmed.starts_with("[::1]:")
+        || trimmed.starts_with("::1:");
+    if !(is_http || is_https || is_www || is_localhost || is_loopback) {
+        return Err("only web links are allowed".to_string());
     }
-    open_url_in_default_browser(trimmed)
+    let normalized = if is_http || is_https {
+        trimmed.to_string()
+    } else {
+        format!("https://{trimmed}")
+    };
+    open_url_in_default_browser(&normalized)
 }
 
 /// Read UTF-16 text from the system clipboard (replaces `tauri-plugin-clipboard-manager`).
@@ -146,10 +166,7 @@ fn clipboard_read_text() -> Result<String, String> {
                     break;
                 }
             }
-            let text = String::from_utf16_lossy(std::slice::from_raw_parts(
-                ptr.cast::<u16>(),
-                end,
-            ));
+            let text = String::from_utf16_lossy(std::slice::from_raw_parts(ptr.cast::<u16>(), end));
             GlobalUnlock(handle);
             Ok(text)
         })();
@@ -227,7 +244,10 @@ fn resolve_spawn(
         Some(p) => match profiles::resolve_effective_spawn_profile(&p.id) {
             Ok(sp) => Some(sp),
             Err(e) => {
-                eprintln!("partty: profile `{}`: {e}; using assigned profile for spawn", p.id);
+                eprintln!(
+                    "partty: profile `{}`: {e}; using assigned profile for spawn",
+                    p.id
+                );
                 assigned.clone()
             }
         },
@@ -237,9 +257,10 @@ fn resolve_spawn(
     let mut spawn_for_pty = spawn_profile.clone();
     if let Some(ref assigned_p) = assigned
         && let Some(ref mut sp) = spawn_for_pty
-            && let Some(cmd) = profiles::resolve_assigned_startup_command(assigned_p) {
-                sp.startup_command = Some(cmd);
-            }
+        && let Some(cmd) = profiles::resolve_assigned_startup_command(assigned_p)
+    {
+        sp.startup_command = Some(cmd);
+    }
     // Per-spawn override (e.g. the `[editor]` split) wins over the profile's
     // own startup command; honored even without a resolvable profile.
     if let Some(cmd) = startup_override.map(str::trim).filter(|s| !s.is_empty()) {
@@ -265,9 +286,9 @@ fn resolve_spawn(
             .and_then(|p| p.initial_cwd.as_deref())
             .map(str::trim)
             .filter(|s| !s.is_empty())
-        {
-            cwd = Some(pc.to_string());
-        }
+    {
+        cwd = Some(pc.to_string());
+    }
     if assigned
         .as_ref()
         .is_some_and(|p| matches!(p.kind, profiles::ProfileKind::Ssh))
@@ -296,11 +317,7 @@ fn resolve_spawn(
         Some(p) if matches!(p.kind, profiles::ProfileKind::Wsl) => {
             format!(
                 "wsl:{}",
-                p.wsl_distro
-                    .as_deref()
-                    .unwrap_or("")
-                    .trim()
-                    .to_lowercase()
+                p.wsl_distro.as_deref().unwrap_or("").trim().to_lowercase()
             )
         }
         Some(p) if matches!(p.kind, profiles::ProfileKind::Ssh) => {
@@ -546,9 +563,9 @@ async fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
     }
 
     apply_window_effects(&win, &st.prefs);
-            if !st.window.maximized {
-                window_state::apply_saved_window_bounds(&win, &st.window);
-            }
+    if !st.window.maximized {
+        window_state::apply_saved_window_bounds(&win, &st.window);
+    }
     // Maximize deferred to spawn_show_main_window — calling maximize()
     // before show() causes Windows to miscalculate the maximized client
     // rect, leaving a white bar at the bottom.
@@ -644,7 +661,11 @@ fn toggle_window(app: &AppHandle) {
         // Cancel pending destroy; live xterm still has scrollback.
         state.hide_destroy_generation.fetch_add(1, Ordering::SeqCst);
         state.pty_output_unlocked.store(true, Ordering::SeqCst);
-        let defer = state.persisted.lock().prefs.defer_window_show_until_prepared;
+        let defer = state
+            .persisted
+            .lock()
+            .prefs
+            .defer_window_show_until_prepared;
         if defer {
             state
                 .defer_prepare_show_until_webview_ready
@@ -819,6 +840,17 @@ fn pty_ensure(
                 warm.session
             }
             None => Arc::new(PtySession::spawn_with_profile(
+                app.clone(),
+                pane_id.clone(),
+                cols,
+                rows,
+                &spawn_prefs,
+                None,
+                profile.as_ref(),
+            )?),
+        }
+    } else {
+        Arc::new(PtySession::spawn_with_profile(
             app.clone(),
             pane_id.clone(),
             cols,
@@ -826,18 +858,7 @@ fn pty_ensure(
             &spawn_prefs,
             None,
             profile.as_ref(),
-        )?),
-        }
-    } else {
-        Arc::new(PtySession::spawn_with_profile(
-        app.clone(),
-        pane_id.clone(),
-        cols,
-        rows,
-        &spawn_prefs,
-        None,
-        profile.as_ref(),
-    )?)
+        )?)
     };
     session.set_output_channel(output);
     state.pty_panes.lock().insert(pane_id.clone(), session);
@@ -963,10 +984,7 @@ struct PtyResizeEntry {
 }
 
 #[tauri::command]
-fn pty_resize_batch(
-    state: State<'_, AppState>,
-    items: Vec<PtyResizeEntry>,
-) -> Result<(), String> {
+fn pty_resize_batch(state: State<'_, AppState>, items: Vec<PtyResizeEntry>) -> Result<(), String> {
     if items.is_empty() {
         return Ok(());
     }
@@ -1286,7 +1304,7 @@ pub fn run() {
 
             let mut st = loaded.clone();
             window_state::sanitize_window_state(&mut st.window);
-    if !st.window.maximized {
+            if !st.window.maximized {
                 window_state::apply_saved_window_bounds(&win, &st.window);
             }
             // Maximize is deferred to spawn_show_main_window (after show).
@@ -1301,11 +1319,7 @@ pub fn run() {
             // Eagerly prime the warm PTY on boot so the very first pane
             // opens instantly instead of paying a cold-shell spawn cost.
             if st.prefs.preload_pty_on_startup {
-                let default_identity = format!(
-                    "{}\0{}",
-                    "",
-                    st.prefs.shell.trim().to_lowercase()
-                );
+                let default_identity = format!("{}\0{}", "", st.prefs.shell.trim().to_lowercase());
                 refill_warm_pty(&handle, &st.prefs, default_identity, None);
             }
 

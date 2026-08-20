@@ -3,7 +3,7 @@
 //! Move/resize updates only the in-memory `AppState.persisted` (debounced).
 //! Disk writes happen on intentional lifecycle points (hide, close, exit).
 
-use crate::prefs::{save_state, PersistedState, WindowState};
+use crate::prefs::{PersistedState, WindowState, save_state};
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
@@ -124,10 +124,7 @@ pub fn snapshot_window_into(persisted: &mut PersistedState, window: &WebviewWind
 }
 
 /// Debounced in-memory snapshot during drag-resize (no disk write).
-pub fn debounced_snapshot_to_memory(
-    app: &AppHandle,
-    last_snapshot: &Mutex<Option<Instant>>,
-) {
+pub fn debounced_snapshot_to_memory(app: &AppHandle, last_snapshot: &Mutex<Option<Instant>>) {
     if snapshot_suppressed() {
         return;
     }

@@ -760,10 +760,7 @@ fn resolve_selection_alias_pairs(pairs: &[(String, String)]) -> HashMap<String, 
 }
 
 fn normalize_selection_aliases(raw: &HashMap<String, String>) -> HashMap<String, String> {
-    let pairs: Vec<(String, String)> = raw
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
+    let pairs: Vec<(String, String)> = raw.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     resolve_selection_alias_pairs(&pairs)
 }
 
@@ -1500,10 +1497,7 @@ mod selection_alias_tests {
 
     #[test]
     fn identical_repeats_keep_once() {
-        let pairs = vec![
-            ("a".into(), "p1".into()),
-            ("a".into(), "p1".into()),
-        ];
+        let pairs = vec![("a".into(), "p1".into()), ("a".into(), "p1".into())];
         let map = resolve_selection_alias_pairs(&pairs);
         assert_eq!(map.get("a").map(String::as_str), Some("p1"));
     }

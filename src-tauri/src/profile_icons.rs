@@ -21,8 +21,8 @@ mod reg {
     use std::ptr;
     use windows_sys::Win32::Foundation::ERROR_SUCCESS;
     use windows_sys::Win32::System::Registry::{
-        RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER,
-        KEY_READ, REG_EXPAND_SZ, REG_SZ, REG_VALUE_TYPE,
+        HKEY, HKEY_CURRENT_USER, KEY_READ, REG_EXPAND_SZ, REG_SZ, REG_VALUE_TYPE, RegCloseKey,
+        RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW,
     };
 
     fn wide(s: &str) -> Vec<u16> {
@@ -169,10 +169,7 @@ pub fn icon_data_url_for_path(source: &Path) -> Option<String> {
             fs::copy(source, &cached).ok()?;
         }
         let bytes = fs::read(&cached).ok()?;
-        return Some(format!(
-            "data:image/png;base64,{}",
-            encode_base64(&bytes)
-        ));
+        return Some(format!("data:image/png;base64,{}", encode_base64(&bytes)));
     }
     // WSL shortcut.ico (and similar): WebView won't paint data:image/x-icon reliably.
     // Rasterize via ExtractIconEx → BMP (same path as .exe icons).
@@ -185,10 +182,7 @@ pub fn icon_data_url_for_path(source: &Path) -> Option<String> {
         if bytes.is_empty() {
             return None;
         }
-        return Some(format!(
-            "data:image/bmp;base64,{}",
-            encode_base64(&bytes)
-        ));
+        return Some(format!("data:image/bmp;base64,{}", encode_base64(&bytes)));
     }
 
     // Executables / other: extract associated icon → BMP.
@@ -200,10 +194,7 @@ pub fn icon_data_url_for_path(source: &Path) -> Option<String> {
     if bytes.is_empty() {
         return None;
     }
-    Some(format!(
-        "data:image/bmp;base64,{}",
-        encode_base64(&bytes)
-    ))
+    Some(format!("data:image/bmp;base64,{}", encode_base64(&bytes)))
 }
 
 fn encode_base64(data: &[u8]) -> String {
@@ -239,15 +230,15 @@ fn extract_associated_icon_bmp(_source: &Path, _dest: &Path) -> Option<()> {
 fn extract_associated_icon_bmp(source: &Path, dest: &Path) -> Option<()> {
     use std::ptr;
     use windows_sys::Win32::Graphics::Gdi::{
-        CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
-        PatBlt, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
-        BLACKNESS,
+        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACKNESS, CreateCompatibleBitmap,
+        CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, PatBlt,
+        ReleaseDC, SelectObject,
     };
     use windows_sys::Win32::UI::Shell::{
-        ExtractIconExW, SHGetFileInfoW, SHFILEINFOW, SHGFI_ICON, SHGFI_SMALLICON,
+        ExtractIconExW, SHFILEINFOW, SHGFI_ICON, SHGFI_SMALLICON, SHGetFileInfoW,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        DestroyIcon, DrawIconEx, GetIconInfo, DI_NORMAL, HICON, ICONINFO,
+        DI_NORMAL, DestroyIcon, DrawIconEx, GetIconInfo, HICON, ICONINFO,
     };
 
     unsafe {
@@ -425,9 +416,10 @@ pub fn resolve_icon_source(
     match kind {
         "wsl" => {
             if let Some(distro) = wsl_distro.map(str::trim).filter(|s| !s.is_empty())
-                && let Some(ico) = find_wsl_distro_icon(distro) {
-                    return Some(ico);
-                }
+                && let Some(ico) = find_wsl_distro_icon(distro)
+            {
+                return Some(ico);
+            }
             // WT's default WSL/Tux asset, then wsl.exe as last resort.
             wt_profile_icon_by_guid("9acb9455-ca41-5af7-950f-6bca1bc9722f")
                 .or_else(|| resolve_exe_on_path("wsl.exe"))
@@ -498,7 +490,10 @@ fn find_wsl_distro_icon(distro: &str) -> Option<PathBuf> {
                                     .or_else(|| {
                                         data_local_dir()
                                             .map(|local| {
-                                                local.join("wsl").join(&key_name).join("shortcut.ico")
+                                                local
+                                                    .join("wsl")
+                                                    .join(&key_name)
+                                                    .join("shortcut.ico")
                                             })
                                             .filter(|p| p.is_file())
                                     })
@@ -532,7 +527,10 @@ fn find_wsl_distro_icon(distro: &str) -> Option<PathBuf> {
 fn find_wsl_icon_in_wt_fragments(distro: &str) -> Option<PathBuf> {
     let local = data_local_dir()?;
     let roots = [
-        local.join("Microsoft").join("Windows Terminal").join("Fragments"),
+        local
+            .join("Microsoft")
+            .join("Windows Terminal")
+            .join("Fragments"),
         local
             .join("Microsoft")
             .join("Windows Terminal Preview")
@@ -551,15 +549,17 @@ fn find_wsl_icon_in_wt_fragments(distro: &str) -> Option<PathBuf> {
                 if let Ok(inner) = fs::read_dir(&path) {
                     for f in inner.flatten() {
                         if f.path().extension().and_then(|e| e.to_str()) == Some("json")
-                            && let Some(ico) = parse_wt_fragment_icon(&f.path(), distro) {
-                                return Some(ico);
-                            }
+                            && let Some(ico) = parse_wt_fragment_icon(&f.path(), distro)
+                        {
+                            return Some(ico);
+                        }
                     }
                 }
             } else if path.extension().and_then(|e| e.to_str()) == Some("json")
-                && let Some(ico) = parse_wt_fragment_icon(&path, distro) {
-                    return Some(ico);
-                }
+                && let Some(ico) = parse_wt_fragment_icon(&path, distro)
+            {
+                return Some(ico);
+            }
         }
     }
     None
@@ -680,10 +680,7 @@ fn wt_profile_icon_for_shell(shell: &str) -> Option<PathBuf> {
             "vs-pwsh.scale-200.png",
             "vs-pwsh.scale-100.png",
         ],
-        "powershell" => &[
-            "vs-powershell.scale-200.png",
-            "vs-powershell.scale-100.png",
-        ],
+        "powershell" => &["vs-powershell.scale-200.png", "vs-powershell.scale-100.png"],
         "cmd" => &["vs-cmd.scale-200.png", "vs-cmd.scale-100.png"],
         _ => &[],
     };
@@ -700,9 +697,7 @@ fn wt_profile_icon_for_shell(shell: &str) -> Option<PathBuf> {
         }
         "powershell" => Some("61c54bbd-c2c6-5271-96e7-009a87ff44bf"),
         "cmd" => Some("0caa0dad-35be-5f56-a8ff-afceeeaa6101"),
-        "bash" | "git-bash" | "gitbash" | "zsh" => {
-            Some("9acb9455-ca41-5af7-950f-6bca1bc9722f")
-        }
+        "bash" | "git-bash" | "gitbash" | "zsh" => Some("9acb9455-ca41-5af7-950f-6bca1bc9722f"),
         _ => None,
     }?;
     for scale in ["200", "150", "125", "100"] {
