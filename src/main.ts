@@ -3247,10 +3247,26 @@ async function boot(): Promise<void> {
             if (handleCtrlClickToken(id, pt.term, pt.host, ev)) return;
           };
           const onHostWheel = (ev: WheelEvent) => handlePaneHostWheel(id, ev);
+          let ctrlLinkHoverFrame: number | null = null;
+          let latestCtrlLinkHoverEvent: MouseEvent | null = null;
           const onHostMouseMove = (ev: MouseEvent) => {
-            updateCtrlLinkHover(id, pt.term, pt.host, ev);
+            // Pointer events can arrive much faster than the display refreshes.
+            // Coalesce them so link/path regex work runs at most once per frame.
+            latestCtrlLinkHoverEvent = ev;
+            if (ctrlLinkHoverFrame !== null) return;
+            ctrlLinkHoverFrame = requestAnimationFrame(() => {
+              ctrlLinkHoverFrame = null;
+              const latest = latestCtrlLinkHoverEvent;
+              latestCtrlLinkHoverEvent = null;
+              if (latest) updateCtrlLinkHover(id, pt.term, pt.host, latest);
+            });
           };
           const onHostMouseLeave = () => {
+            if (ctrlLinkHoverFrame !== null) {
+              cancelAnimationFrame(ctrlLinkHoverFrame);
+              ctrlLinkHoverFrame = null;
+            }
+            latestCtrlLinkHoverEvent = null;
             pt.host.classList.remove("pane-terminal-host--ctrl-link-hover");
           };
           pt.host.addEventListener("click", onHostClick);
@@ -3264,6 +3280,13 @@ async function boot(): Promise<void> {
 
           // Register cleanup for pane teardown.
           paneHostCleanups.set(id, [
+            () => {
+              if (ctrlLinkHoverFrame !== null) {
+                cancelAnimationFrame(ctrlLinkHoverFrame);
+                ctrlLinkHoverFrame = null;
+              }
+              latestCtrlLinkHoverEvent = null;
+            },
             () => pt.host.removeEventListener("click", onHostClick),
             () => pt.host.removeEventListener("wheel", onHostWheel),
             () => pt.host.removeEventListener("mousemove", onHostMouseMove),
