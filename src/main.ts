@@ -1452,24 +1452,37 @@ async function boot(): Promise<void> {
     return { col, row };
   };
 
+  const normalizeExternalUrl = (value: string): string | null => {
+    const raw = value.trim().replace(/[),.;:!?]+$/g, "");
+    if (!raw) return null;
+
+    const hasHttpScheme = /^https?:\/\//i.test(raw);
+    const isWww = /^www\./i.test(raw);
+    // Keep this allowlist aligned with the native open_external_url command.
+    const isLocalhost = /^localhost:\d+(?:[^\s<>"'`]*)?$/i.test(raw);
+    const isLoopback = /^(?:127\.0\.0\.1|\[::1\]|::1):\d+(?:[^\s<>"'`]*)?$/i.test(raw);
+    if (!(hasHttpScheme || isWww || isLocalhost || isLoopback)) return null;
+
+    const normalized = hasHttpScheme ? raw : `https://${raw}`;
+    try {
+      const url = new URL(normalized);
+      return url.protocol === "http:" || url.protocol === "https:"
+        ? url.toString()
+        : null;
+    } catch {
+      return null;
+    }
+  };
+
   const extractUrlAtColumn = (line: string, column: number): string | null => {
-    const re = /(https?:\/\/[^\s<>"'`]+|www\.[^\s<>"'`]+)/gi;
+    const re =
+      /(?:https?:\/\/|www\.)[^\s<>"'`]+|(?:localhost|127\.0\.0\.1):\d+[^\s<>"'`]*|\[::1\]:\d+[^\s<>"'`]*|::1:\d+[^\s<>"'`]*/gi;
     let m: RegExpExecArray | null = null;
     while ((m = re.exec(line)) !== null) {
       const start = m.index;
       const end = start + m[0].length;
       if (column < start || column >= end) continue;
-      const raw = m[0].replace(/[),.;:!?]+$/g, "");
-      const normalized = raw.startsWith("www.") ? `https://${raw}` : raw;
-      try {
-        const u = new URL(normalized);
-        if (u.protocol === "http:" || u.protocol === "https:") {
-          return u.toString();
-        }
-      } catch {
-        return null;
-      }
-      return null;
+      return normalizeExternalUrl(m[0]);
     }
     return null;
   };
@@ -3152,12 +3165,9 @@ async function boot(): Promise<void> {
         ),
         linkHandler: {
           activate: (_event, uri) => {
-            if (
-              uri.startsWith("http://") ||
-              uri.startsWith("https://") ||
-              uri.startsWith("mailto:")
-            ) {
-              void invoke("open_external_url", { url: uri }).catch(
+            const url = normalizeExternalUrl(uri);
+            if (url) {
+              void invoke("open_external_url", { url }).catch(
                 (e) => void showAlert(String(e), "Open link"),
               );
             }
