@@ -2765,12 +2765,12 @@ async function boot(): Promise<void> {
     pt.fit.fit();
     let d = ptyDims(pt.fit);
     if (!d) {
-      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+      await waitAnimationFrames(1);
       pt.fit.fit();
       d = ptyDims(pt.fit);
     }
     if (!d) {
-      await new Promise<void>((r) => requestAnimationFrame(() => r()));
+      await waitAnimationFrames(1);
       pt.fit.fit();
       d = ptyDims(pt.fit);
     }
@@ -3035,11 +3035,9 @@ async function boot(): Promise<void> {
     if (!opts.force && focusFollowsRef.v) return;
 
     const run = (): void => {
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          void warpCursorToPane(paneId);
-        }),
-      );
+      afterAnimationFrames(() => {
+        void warpCursorToPane(paneId);
+      });
     };
 
     const delay = opts.delayMs ?? 0;
@@ -6649,13 +6647,7 @@ async function boot(): Promise<void> {
   }
 
   function waitAnimationFrames(count = 2): Promise<void> {
-    return new Promise((resolve) => {
-      const step = (left: number) => {
-        if (left <= 0) resolve();
-        else requestAnimationFrame(() => step(left - 1));
-      };
-      step(count);
-    });
+    return new Promise((resolve) => afterAnimationFrames(resolve, count));
   }
 
   async function ensurePtyForAllTabHosts(): Promise<void> {
