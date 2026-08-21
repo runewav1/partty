@@ -1,7 +1,7 @@
 import { collectLeafIds, type PaneNode } from "./paneHost";
+import { mapLayoutToTabKey } from "./paneIds";
 import type { PersistedPaneLayout } from "./paneLayout";
 import type { PaneThemePrefs } from "./uiTheme";
-import { workspaceRootPaneId } from "./workspacePaneIds";
 import type { WorkspaceLayout } from "./workspaces";
 
 function portableRootId(ids: string[]): string {
@@ -42,7 +42,6 @@ function mapRecord<T>(src: Record<string, T> | undefined, idMap: Map<string, str
 export type LayoutSnapshotInput = {
   layout: PersistedPaneLayout;
   paneThemes: Map<string, PaneThemePrefs>;
-  paneNames: Map<string, string>;
   paneCwdHints: Map<string, string>;
   paneProfileIds: Map<string, string>;
   startupCommands?: Map<string, string>;
@@ -52,7 +51,6 @@ export function normalizeLayoutForWorkspace(input: LayoutSnapshotInput): Workspa
   const {
     layout,
     paneThemes,
-    paneNames,
     paneCwdHints,
     paneProfileIds,
     startupCommands,
@@ -69,12 +67,6 @@ export function normalizeLayoutForWorkspace(input: LayoutSnapshotInput): Workspa
     paneThemes: mapRecord(
       Object.fromEntries(
         ids.filter((id) => paneThemes.has(id)).map((id) => [id, paneThemes.get(id)!]),
-      ),
-      idNorm,
-    ),
-    paneNames: mapRecord(
-      Object.fromEntries(
-        ids.filter((id) => paneNames.has(id)).map((id) => [id, paneNames.get(id)!]),
       ),
       idNorm,
     ),
@@ -104,29 +96,17 @@ export function normalizeLayoutForWorkspace(input: LayoutSnapshotInput): Workspa
 
 export function remapWorkspaceLayoutForTab(
   layout: WorkspaceLayout,
-  tabId: string,
+  tabKey: string,
+  followSlots: Set<string> = new Set(),
 ): { layout: PersistedPaneLayout; idMap: Map<string, string> } {
-  const ids: string[] = [];
-  collectLeafIds(layout.tree, ids);
-  const savedRoot = ids.find((id) => id === "root" || id.startsWith("wsroot_")) ?? ids[0];
-  const newRoot = workspaceRootPaneId(tabId);
-  const idMap = new Map<string, string>();
-  if (savedRoot) idMap.set(savedRoot, newRoot);
-  for (const id of ids) {
-    if (!idMap.has(id)) idMap.set(id, crypto.randomUUID());
-  }
-
-  return {
-    layout: {
-      v: 1,
-      tree: mapTreeIds(layout.tree, idMap),
-      focusedId: idMap.get(layout.focusedId) ?? newRoot,
-      floating: mapRecord(layout.floating, idMap),
-      paneThemes: mapRecord(layout.paneThemes, idMap),
-      paneNames: mapRecord(layout.paneNames, idMap),
-      paneCwds: mapRecord(layout.paneCwds, idMap),
-      paneProfileIds: mapRecord(layout.paneProfileIds, idMap),
-    },
-    idMap,
+  const persisted: PersistedPaneLayout = {
+    v: 1,
+    tree: layout.tree,
+    focusedId: layout.focusedId,
+    floating: layout.floating,
+    paneThemes: layout.paneThemes,
+    paneCwds: layout.paneCwds,
+    paneProfileIds: layout.paneProfileIds,
   };
+  return mapLayoutToTabKey(persisted, tabKey, followSlots);
 }

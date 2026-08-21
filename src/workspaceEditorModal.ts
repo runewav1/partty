@@ -38,7 +38,6 @@ export type WorkspaceEditorOptions = {
 };
 
 type DraftMaps = {
-  paneNames: Record<string, string>;
   paneCwds: Record<string, string>;
   paneProfileIds: Record<string, string>;
   paneThemes: Record<string, PaneThemePrefs>;
@@ -47,7 +46,6 @@ type DraftMaps = {
 
 function emptyDraftMaps(): DraftMaps {
   return {
-    paneNames: {},
     paneCwds: {},
     paneProfileIds: {},
     paneThemes: {},
@@ -57,7 +55,6 @@ function emptyDraftMaps(): DraftMaps {
 
 function mapsFromLayout(layout: WorkspaceLayout): DraftMaps {
   return {
-    paneNames: { ...(layout.paneNames ?? {}) },
     paneCwds: { ...(layout.paneCwds ?? {}) },
     paneProfileIds: { ...(layout.paneProfileIds ?? {}) },
     paneThemes: Object.fromEntries(
@@ -126,10 +123,6 @@ export function createWorkspaceEditorModal(
   const paneIdLabel = document.createElement("div");
   paneIdLabel.className = "workspace-editor-pane-id";
 
-  const paneNameInput = document.createElement("input");
-  paneNameInput.className = "theme-builder-input";
-  paneNameInput.placeholder = "Pane name";
-
   const profileSel = document.createElement("select");
   profileSel.className = "theme-builder-input";
 
@@ -167,7 +160,6 @@ export function createWorkspaceEditorModal(
   props.append(
     propsTitle,
     paneIdLabel,
-    mkField("Name", paneNameInput),
     mkField("Profile", profileSel),
     mkField("Directory", cwdInput),
     mkField("Startup command", startupInput),
@@ -250,10 +242,6 @@ export function createWorkspaceEditorModal(
 
   function applyPropsToMaps(): void {
     if (!selectedId || !viewport) return;
-    const name = paneNameInput.value.trim();
-    if (name) maps.paneNames[selectedId] = name;
-    else delete maps.paneNames[selectedId];
-
     const profile = getProfileById(profileSel.value, getProfiles());
     if (profile) maps.paneProfileIds[selectedId] = profile.id;
     else delete maps.paneProfileIds[selectedId];
@@ -284,7 +272,6 @@ export function createWorkspaceEditorModal(
 
   function fillPropsForPane(id: string): void {
     paneIdLabel.textContent = id;
-    paneNameInput.value = maps.paneNames[id] ?? "";
     cwdInput.value = maps.paneCwds[id] ?? "";
     startupInput.value = maps.startupCommands[id] ?? "";
     const profile = profileForPane(id);
@@ -313,7 +300,6 @@ export function createWorkspaceEditorModal(
       v: 1 as const,
       tree: viewport.getTree(),
       focusedId: viewport.getFocusedId(),
-      paneNames: maps.paneNames,
       paneCwds: maps.paneCwds,
       paneProfileIds: maps.paneProfileIds,
       paneThemes: maps.paneThemes,
@@ -321,7 +307,6 @@ export function createWorkspaceEditorModal(
     const layout = normalizeLayoutForWorkspace({
       layout: pl,
       paneThemes: new Map(Object.entries(maps.paneThemes)),
-      paneNames: new Map(Object.entries(maps.paneNames)),
       paneCwdHints: new Map(Object.entries(maps.paneCwds)),
       paneProfileIds: new Map(Object.entries(maps.paneProfileIds)),
       startupCommands: new Map(Object.entries(maps.startupCommands)),
@@ -340,7 +325,7 @@ export function createWorkspaceEditorModal(
         const cwd = maps.paneCwds[id] ?? "";
         return {
           id,
-          name: maps.paneNames[id] || "pane",
+          name: profile?.name ?? "pane",
           profileLabel: profile?.name ?? "Default",
           cwdHint: cwd ? cwdBasename(cwd) : "",
           accentColor: accentForPane(id),
@@ -417,7 +402,7 @@ export function createWorkspaceEditorModal(
     syncCwdFieldState();
     applyPropsToMaps();
   });
-  [paneNameInput, cwdInput, startupInput, themeSel].forEach((el) => {
+  [cwdInput, startupInput, themeSel].forEach((el) => {
     el.addEventListener("change", () => applyPropsToMaps());
   });
   nameInput.addEventListener("input", () => syncNameActions());

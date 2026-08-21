@@ -35,9 +35,8 @@ export type ActiveProcessListEntry = {
 
 export type PaneInfo = {
   id: string;
-  /** Effective display name (user name / program / id prefix). */
+  /** Composed display name (OSC title, or profile + cwd/process). */
   name: string;
-  userName: string | null;
   programName: string | null;
   cwd: string | null;
   tabId: string | null;
@@ -98,7 +97,6 @@ export type ExtensionApi = {
   onPaneClosed(fn: (paneId: string) => void): () => void;
   onFocusChanged(fn: (paneId: string) => void): () => void;
   onCwdChanged(fn: (paneId: string, cwd: string) => void): () => void;
-  onPaneRenamed(fn: (paneId: string, name: string | null) => void): () => void;
   onTabSwitch(fn: (tabId: string) => void): () => void;
   onWindowShow(fn: () => void): () => void;
   onWindowHide(fn: () => void): () => void;
@@ -128,6 +126,7 @@ export type ExtensionApi = {
   getPaneIds(): string[];
   getPaneInfo(paneId: string): PaneInfo | null;
   getPaneCwd(paneId: string): string | null;
+  /** Composed display name (OSC title, or profile + cwd/process). */
   getPaneName(paneId: string): string | null;
   getPaneTerminalDims(paneId: string): { cols: number; rows: number } | null;
   getWindowState(): { visible: boolean; zenMode: boolean };

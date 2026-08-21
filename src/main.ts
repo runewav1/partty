@@ -64,6 +64,23 @@ import {
   type TabGroup,
   type TabsStateV1,
 } from "./tabsSession";
+import {
+  applyUserTabRename,
+  autoTabNameFromPane,
+  paneCollisionKey,
+  paneHeadline,
+  paneSubline,
+  procPaletteHeadline,
+  tabDisplayName as formatTabDisplayName,
+  type PaneNameParts,
+} from "./displayNames";
+import {
+  FOLLOW_TAB_MARK,
+  formatPaneId,
+  mapLayoutToTabKey,
+  nextSlot,
+  parsePaneId,
+} from "./paneIds";
 import { initParttyScrollFade } from "./scrollChrome";
 import { workspaceRootPaneId } from "./workspacePaneIds";
 import { attachDraggablePanel } from "./draggablePanel";
@@ -93,10 +110,6 @@ import {
   createCommandPalette,
   type PaletteCommand,
 } from "./commandPalette";
-import {
-  createPaneRenamePanel,
-  type PaneRenamePanelApi,
-} from "./paneRenamePanel";
 import {
   createKeybinds,
 } from "./keybinds";
@@ -149,6 +162,7 @@ import {
   ptyEnsure,
   ptyFocusPane,
   ptyKillPane,
+  ptyRenamePane,
   ptyReplaySnapshot,
   ptyResizeBatch,
   ptyWrite,
@@ -363,22 +377,14 @@ function normalizeSplitLayoutStyle(raw: unknown): SplitLayoutStyle {
   return raw === "dwindle" || raw === "master" ? raw : "balanced";
 }
 
-function resolveTabRootPaneId(
-  layout: PersistedPaneLayout,
-  tabId: string,
-): string {
-  const wsroot = workspaceRootPaneId(tabId);
-  if (findPaneLeaf(layout.tree, wsroot)) return wsroot;
+function resolveTabRootPaneId(layout: PersistedPaneLayout): string {
   const ids: string[] = [];
   collectLeafIds(layout.tree, ids);
-  return ids[0] ?? wsroot;
+  return ids[0] ?? "1a";
 }
 
-function isWorkspaceLayoutUsable(
-  p: PersistedPaneLayout,
-  tabId: string,
-): boolean {
-  const rid = resolveTabRootPaneId(p, tabId);
+function isWorkspaceLayoutUsable(p: PersistedPaneLayout): boolean {
+  const rid = resolveTabRootPaneId(p);
   if (!isLayoutValidForRoot(p, rid)) return false;
   return findPaneLeaf(p.tree, p.focusedId) != null;
 }
@@ -514,7 +520,6 @@ async function boot(): Promise<void> {
   const paneRemoteIsWindows = new Map<string, boolean>();
   const paneProfileIds = new Map<string, string>();
   const paneShellState = new Map<string, ShellIntegrationState>();
-  const paneNames = new Map<string, string>();
   const paneProgramNames = new Map<string, string>();
   const paneThemes = new Map<string, PaneThemePrefs>();
   const lastPtyDims = new Map<string, { cols: number; rows: number }>();
@@ -936,8 +941,6 @@ async function boot(): Promise<void> {
   const extFocusSubs: Array<(paneId: string) => void> = [];
   /** Extension cwd / rename subscribers (fired on live OSC7 + rename commits). */
   const extCwdChangeSubs: Array<(paneId: string, cwd: string) => void> = [];
-  const extPaneRenamedSubs: Array<(paneId: string, name: string | null) => void> =
-    [];
   /** Extension palette commands. */
   const extPaletteCommands: Array<{
     id: string;
@@ -1790,38 +1793,82 @@ async function boot(): Promise<void> {
     return lastFocusedPaneId || paneHost?.getFocusedPaneId() || null;
   }
 
-  function paneEffectiveName(paneId: string): string {
-    const user = paneNames.get(paneId);
-    const prog = paneProgramNames.get(paneId);
-    if (user && prog) return `${user} - (${prog})`;
-    if (user) return user;
-    if (prog) return prog;
-    return paneId.slice(0, 8);
+  function tabsInIndexOrder(): TabRecord[] {
+    return [...tabsState.tabs].sort((a, b) => a.order - b.order);
   }
 
-  function paneUserOrDefaultName(paneId: string): string {
-    return paneNames.get(paneId) || paneProgramNames.get(paneId) || paneId.slice(0, 8);
+  function tabKeyForTabId(tabId: string): string {
+    const i = tabsInIndexOrder().findIndex((t) => t.id === tabId);
+    return i >= 0 ? String(i + 1) : "1";
+  }
+
+  function paneProfileName(paneId: string): string {
+    const profile = resolvePaneProfile(paneId);
+    return profile?.name?.trim() || profile?.id || "local";
+  }
+
+  function paneCwdForIdentity(paneId: string): string | null {
+    const profile = resolvePaneProfile(paneId);
+    if (profile?.kind === "ssh" && !profileHasRemoteIntegration(profile)) {
+      return null;
+    }
+    return paneCwdHints.get(paneId) ?? null;
+  }
+
+  function paneNameParts(paneId: string): PaneNameParts {
+    const host = getPaneHostByPaneId(paneId);
+    const tabId = host ? tabIdForPaneHost(host) : null;
+    const tab = tabId ? tabsState.tabs.find((t) => t.id === tabId) : undefined;
+    const proc = activeProcesses.get(paneId);
+    return {
+      paneId,
+      profileName: paneProfileName(paneId),
+      cwd: paneCwdForIdentity(paneId),
+      oscTitle: paneProgramNames.get(paneId) ?? null,
+      processLabel: proc ? displayProcessCommand(proc.command) : null,
+      tabName: tab?.userName ?? "",
+    };
+  }
+
+  function paneEffectiveName(paneId: string): string {
+    return paneHeadline(paneNameParts(paneId));
   }
 
   function tabDisplayName(tabId: string): string {
     const tab = tabsState.tabs.find((t) => t.id === tabId);
-    if (!tab) return tabId;
-    if (tab.userName) {
+    let osc: string | undefined;
+    if (tab?.userName) {
       const host = tabPaneHosts.get(tabId);
       const fid = host ? host.getFocusedPaneId() : null;
-      const prog = fid ? paneProgramNames.get(fid) : undefined;
-      return prog ? `${tab.name} - (${prog})` : tab.name;
+      osc = fid ? paneProgramNames.get(fid) : undefined;
     }
-    return tab.name;
+    return formatTabDisplayName(tab, osc, tabId);
   }
 
-  function tabIdForHost(host: PaneHost): string | null {
-    for (const [tabId, h] of tabPaneHosts) if (h === host) return tabId;
-    return null;
+  function refreshTabLabelForPane(paneId: string): void {
+    const host = getPaneHostByPaneId(paneId);
+    if (!host) return;
+    if (focusedPaneId() !== paneId && host.getFocusedPaneId() !== paneId) return;
+    const tabId = tabIdForPaneHost(host);
+    if (!tabId) return;
+    const tab = tabsState.tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+    let dirty = false;
+    if (!tab.userName) {
+      const next = autoTabNameFromPane(paneNameParts(paneId));
+      if (tab.name !== next) {
+        tab.name = next;
+        saveTabsState(tabsState);
+        dirty = true;
+      }
+    } else {
+      dirty = true;
+    }
+    if (dirty) renderWorkspaceTabsBar();
   }
 
   function persistHostLayout(host: PaneHost): void {
-    const tabId = tabIdForHost(host);
+    const tabId = tabIdForPaneHost(host);
     const pl = layoutForPaneHost(host);
     if (tabId && pl) persistLayoutForTab(tabId, pl);
   }
@@ -2134,6 +2181,7 @@ async function boot(): Promise<void> {
     if (!ownerHost?.isPaneFloating(id)) return false;
     const changed = ownerHost.togglePaneFollow(id);
     if (!changed) return false;
+    syncLivePaneIds();
     persistHostLayout(ownerHost);
     scheduleResizeImmediate();
     return true;
@@ -2284,12 +2332,6 @@ async function boot(): Promise<void> {
     scrollTermByWheel(pt.term, ev);
   }
 
-  function openFocusedPaneRename(): void {
-    const paneId = paneHost?.getFocusedPaneId();
-    if (!paneId) return;
-    paneRenamePanel?.open(paneId, paneNames.get(paneId) ?? "");
-  }
-
   function installPaneControlSurface(): void {
     (window as unknown as { parttyPanes?: unknown }).parttyPanes = {
       list: () => paneHost?.getPaneDescriptors() ?? [],
@@ -2299,14 +2341,6 @@ async function boot(): Promise<void> {
         return id ? (paneHost?.getPaneDescriptor(id, true) ?? null) : null;
       },
       focus: (paneId: string) => paneHost?.setFocusedPaneId(paneId),
-      rename: (paneId: string, name: string) => {
-        const trimmed = String(name ?? "")
-          .trim()
-          .replace(/\s+/g, "_");
-        if (trimmed) paneNames.set(paneId, trimmed);
-        else paneNames.delete(paneId);
-        persistCurrentWorkspaceTabLayout();
-      },
       zoom: (paneId: string, delta: number) =>
         zoomPaneTerminal(paneId, Number(delta) || 0),
     };
@@ -2904,6 +2938,130 @@ async function boot(): Promise<void> {
   type DeferredTabInit = { init: PaneHostInit; rootPaneId: string };
   const deferredTabInits = new Map<string, DeferredTabInit>();
 
+  function rekeyKeyed<T>(map: Map<string, T>, from: string, to: string): void {
+    if (from === to || !map.has(from)) return;
+    const value = map.get(from)!;
+    map.delete(from);
+    map.set(to, value);
+  }
+
+  function rekeyKeyedSet(set: Set<string>, from: string, to: string): void {
+    if (set.delete(from)) set.add(to);
+  }
+
+  function rekeyPaneRuntimeState(from: string, to: string): void {
+    if (from === to) return;
+    rekeyKeyed(paneCwdHints, from, to);
+    rekeyKeyed(paneRemoteIsWindows, from, to);
+    rekeyKeyed(paneProfileIds, from, to);
+    rekeyKeyed(paneShellState, from, to);
+    rekeyKeyed(paneProgramNames, from, to);
+    rekeyKeyed(paneThemes, from, to);
+    rekeyKeyed(lastPtyDims, from, to);
+    rekeyKeyed(pendingPaneSpawnCwd, from, to);
+    rekeyKeyed(pendingPaneSpawnProfile, from, to);
+    rekeyKeyed(pendingPaneStartupCommands, from, to);
+    rekeyKeyed(pendingPaneSpawnStartup, from, to);
+    rekeyKeyed(activeProcesses, from, to);
+    rekeyKeyed(pendingShellCommandLine, from, to);
+    rekeyKeyed(processInputBuffers, from, to);
+    rekeyKeyed(paneHostCleanups, from, to);
+    rekeyKeyed(extCursorMoveSubs, from, to);
+    rekeyKeyed(extCursorHiddenOriginal, from, to);
+    rekeyKeyed(pendingPtyWriteByPane, from, to);
+    rekeyKeyed(pendingPtyOutputByPane, from, to);
+    rekeyKeyed(ptyBulkWriteTailByPane, from, to);
+    rekeyKeyed(pendingZoomByPane, from, to);
+    rekeyKeyed(paneWebglStates, from, to);
+    rekeyKeyedSet(extCursorHiddenPanes, from, to);
+    rekeyKeyedSet(ptyBulkActiveByPane, from, to);
+    rekeyKeyedSet(backendReplayRestoredPanes, from, to);
+    rekeyKeyedSet(pendingCreationReflowPanes, from, to);
+    if (lastFocusedPaneId === from) lastFocusedPaneId = to;
+  }
+
+  function retargetPaneId(host: PaneHost, from: string, to: string): void {
+    if (from === to) return;
+    if (!host.rekeyPane(from, to)) return;
+    rekeyPaneRuntimeState(from, to);
+    void ptyRenamePane(from, to).catch(() => {});
+  }
+
+  function allocPaneIdForTab(tabId: string): string {
+    const host = tabPaneHosts.get(tabId);
+    const tabKey = tabKeyForTabId(tabId);
+    const used = new Set<string>();
+    if (host) {
+      for (const id of host.getLeafIdsInOrder()) {
+        const parsed = parsePaneId(id);
+        if (parsed && parsed.tabKey === tabKey) used.add(parsed.slot);
+      }
+    }
+    return formatPaneId(tabKey, nextSlot(used));
+  }
+
+  function followSlotsInUse(): Set<string> {
+    const used = new Set<string>();
+    for (const host of tabPaneHosts.values()) {
+      for (const id of host.getLeafIdsInOrder()) {
+        if (!host.isPaneFollowing(id)) continue;
+        const parsed = parsePaneId(id);
+        if (parsed) used.add(parsed.slot);
+      }
+    }
+    return used;
+  }
+
+  function syncLivePaneIds(): void {
+    const tabs = tabsInIndexOrder();
+    const planned: Array<{ host: PaneHost; from: string; to: string }> = [];
+    const followUsed = new Set<string>();
+    for (let i = 0; i < tabs.length; i++) {
+      const tab = tabs[i]!;
+      const tabKey = String(i + 1);
+      const host = tabPaneHosts.get(tab.id);
+      if (!host) {
+        const deferred = deferredTabInits.get(tab.id);
+        if (!deferred?.init.initialTree) continue;
+        const mapped = mapLayoutToTabKey(
+          {
+            v: 1,
+            tree: deferred.init.initialTree,
+            focusedId: deferred.init.initialFocusedId ?? "",
+            floating: deferred.init.initialFloating,
+          },
+          tabKey,
+          followUsed,
+        );
+        deferred.init.initialTree = mapped.layout.tree;
+        deferred.init.initialFocusedId = mapped.layout.focusedId;
+        deferred.init.initialFloating = mapped.layout.floating;
+        deferred.rootPaneId = resolveTabRootPaneId(mapped.layout);
+        continue;
+      }
+      const localUsed = new Set<string>();
+      for (const id of host.getLeafIdsInOrder()) {
+        const follow = host.isPaneFollowing(id);
+        const prev = parsePaneId(id);
+        let slot = prev?.slot;
+        if (follow) {
+          if (!slot || followUsed.has(slot)) slot = nextSlot(followUsed);
+          followUsed.add(slot);
+          const to = formatPaneId(FOLLOW_TAB_MARK, slot);
+          if (to !== id) planned.push({ host, from: id, to });
+        } else {
+          if (!slot || localUsed.has(slot)) slot = nextSlot(localUsed);
+          localUsed.add(slot);
+          const to = formatPaneId(tabKey, slot);
+          if (to !== id) planned.push({ host, from: id, to });
+        }
+      }
+    }
+    if (planned.length === 0) return;
+    planned.forEach((move, i) => retargetPaneId(move.host, move.from, `#${i}`));
+    planned.forEach((move, i) => retargetPaneId(move.host, `#${i}`, move.to));
+  }
+
   function layoutNeedsLiveHost(layout: PersistedPaneLayout): boolean {
     for (const state of Object.values(layout.floating ?? {})) {
       if (state.follow) return true;
@@ -2914,10 +3072,6 @@ async function boot(): Promise<void> {
   function applyTabLayoutMetadata(layout: PersistedPaneLayout): void {
     for (const [paneId, theme] of Object.entries(layout.paneThemes ?? {})) {
       paneThemes.set(paneId, normalizePaneThemePrefs(theme));
-    }
-    for (const [paneId, name] of Object.entries(layout.paneNames ?? {})) {
-      const cleaned = name.trim().replace(/\s+/g, "_");
-      if (cleaned) paneNames.set(paneId, cleaned);
     }
     if (retainSessionStateRef.v) {
       for (const [paneId, cwd] of Object.entries(layout.paneCwds ?? {})) {
@@ -3121,6 +3275,7 @@ async function boot(): Promise<void> {
     container: HTMLElement,
     init: PaneHostInit | undefined,
     rootPaneId: string,
+    tabId: string,
   ): PaneHost {
     return new PaneHost(
       container,
@@ -3157,7 +3312,8 @@ async function boot(): Promise<void> {
           },
         },
         getTheme: (paneId) => xtermThemeForPane(paneId),
-        getPaneName: (paneId) => paneNames.get(paneId),
+        getPaneName: (paneId) => paneEffectiveName(paneId),
+        allocPaneId: () => allocPaneIdForTab(tabId),
         getPaneCssVars: (paneId) => cssVarsForPane(paneId),
         getSplitLayoutStyle: () => splitLayoutStyleRef.v,
         focusFollowsCursor: () => focusFollowsRef.v,
@@ -3168,8 +3324,6 @@ async function boot(): Promise<void> {
           document.documentElement.classList.contains("partty-booting"),
         onPaneFocus: (id) => {
           lastFocusedPaneId = id;
-          if (paneRenamePanel?.isOpen())
-            paneRenamePanel.setPane(id, paneNames.get(id) ?? "");
           const pt = getPaneTerminalById(id);
           // Sync hot path only: terminal focus + PTY focus IPC.
           // Fit / WebGL / CWD / bridge scroll are coalesced to the next frame
@@ -3192,6 +3346,7 @@ async function boot(): Promise<void> {
           } catch {
             /* ignore */
           }
+          refreshTabLabelForPane(id);
           // Notify extension subscribers.
           if (extFocusSubs.length > 0) {
             for (const fn of extFocusSubs) {
@@ -3332,7 +3487,6 @@ async function boot(): Promise<void> {
         },
   onPaneDisposed: (pid) => {
     void ptyKillPane(pid).catch(() => {});
-    paneNames.delete(pid);
     paneThemes.delete(pid);
     cleanupPaneVisualState(pid);
     parttyPerf.resetPane(pid);
@@ -3367,8 +3521,8 @@ async function boot(): Promise<void> {
     shell.className = "term-tab-pane-shell";
     shell.dataset.tabId = tabId;
     terminalPaneRoot.appendChild(shell);
-    const rid = rootPaneId ?? workspaceRootPaneId(tabId);
-    const host = createPaneHost(shell, init, rid);
+    const rid = rootPaneId ?? workspaceRootPaneId(tabKeyForTabId(tabId));
+    const host = createPaneHost(shell, init, rid, tabId);
     tabPaneHosts.set(tabId, host);
     tabPaneShells.set(tabId, shell);
     if (tabId !== activeWorkspaceTabId) {
@@ -3392,26 +3546,32 @@ async function boot(): Promise<void> {
 
   void ensureProfilesLoaded();
 
-  for (let i = 0; i < tabsState.tabs.length; i++) {
-    const tab = tabsState.tabs[i]!;
-    let layout = initialLayoutForTab(tab.id, i === 0);
-    if (!isWorkspaceLayoutUsable(layout, tab.id)) {
-      layout = emptyWorkspaceLayout(tab.id);
-    }
-    applyTabLayoutMetadata(layout);
-    const init: PaneHostInit = {
-      initialTree: layout.tree,
-      initialFocusedId: layout.focusedId,
-      initialFloating: layout.floating,
-    };
-    const rootId = resolveTabRootPaneId(layout, tab.id);
-    if (tab.id === activeWorkspaceTabId || layoutNeedsLiveHost(layout)) {
-      createTabPaneShellAndHost(tab.id, init, rootId);
-      if (tab.id !== activeWorkspaceTabId) {
-        tabPaneShells.get(tab.id)?.classList.add("term-tab-pane-shell--hidden");
+  {
+    const followSlots = new Set<string>();
+    const ordered = tabsInIndexOrder();
+    for (let i = 0; i < ordered.length; i++) {
+      const tab = ordered[i]!;
+      const tabKey = String(i + 1);
+      let layout = initialLayoutForTab(tab.id, i === 0);
+      layout = mapLayoutToTabKey(layout, tabKey, followSlots).layout;
+      if (!isWorkspaceLayoutUsable(layout)) {
+        layout = emptyWorkspaceLayout(tabKey);
       }
-    } else {
-      deferredTabInits.set(tab.id, { init, rootPaneId: rootId });
+      applyTabLayoutMetadata(layout);
+      const init: PaneHostInit = {
+        initialTree: layout.tree,
+        initialFocusedId: layout.focusedId,
+        initialFloating: layout.floating,
+      };
+      const rootId = resolveTabRootPaneId(layout);
+      if (tab.id === activeWorkspaceTabId || layoutNeedsLiveHost(layout)) {
+        createTabPaneShellAndHost(tab.id, init, rootId);
+        if (tab.id !== activeWorkspaceTabId) {
+          tabPaneShells.get(tab.id)?.classList.add("term-tab-pane-shell--hidden");
+        }
+      } else {
+        deferredTabInits.set(tab.id, { init, rootPaneId: rootId });
+      }
     }
   }
   paneHost = tabPaneHosts.get(activeWorkspaceTabId)!;
@@ -3452,29 +3612,23 @@ async function boot(): Promise<void> {
       tree,
       focusedId: host.getFocusedPaneId(),
       floating: host.getFloatingState(),
-      paneThemes: Object.fromEntries(
-        panes
-          .filter((pane) => paneThemes.has(pane.id))
-          .map((pane) => [pane.id, paneThemes.get(pane.id)!]),
-      ),
-      paneNames: Object.fromEntries(
-        panes
-          .filter((pane) => paneNames.has(pane.id))
-          .map((pane) => [pane.id, paneNames.get(pane.id)!]),
-      ),
+      paneThemes: paneMapSubset(panes, paneThemes),
       paneCwds: retainSessionStateRef.v
-        ? Object.fromEntries(
-            panes
-              .filter((pane) => paneCwdHints.has(pane.id))
-              .map((pane) => [pane.id, paneCwdHints.get(pane.id)!]),
-          )
+        ? paneMapSubset(panes, paneCwdHints)
         : undefined,
-      paneProfileIds: Object.fromEntries(
-        panes
-          .filter((pane) => paneProfileIds.has(pane.id))
-          .map((pane) => [pane.id, paneProfileIds.get(pane.id)!]),
-      ),
+      paneProfileIds: paneMapSubset(panes, paneProfileIds),
     };
+  }
+
+  function paneMapSubset<T>(
+    panes: { id: string }[],
+    map: Map<string, T>,
+  ): Record<string, T> {
+    return Object.fromEntries(
+      panes
+        .filter((pane) => map.has(pane.id))
+        .map((pane) => [pane.id, map.get(pane.id)!]),
+    );
   }
 
   function switchWorkspaceTab(tabId: string): void {
@@ -3484,13 +3638,6 @@ async function boot(): Promise<void> {
     persistCurrentWorkspaceTabLayout();
 
     const prevTabId = activeWorkspaceTabId;
-    {
-      const prevTab = tabsState.tabs.find((t) => t.id === prevTabId);
-      if (prevTab && !prevTab.userName) {
-        const fid = paneHost?.getFocusedPaneId();
-        if (fid) prevTab.name = paneUserOrDefaultName(fid);
-      }
-    }
     const prevShell = tabPaneShells.get(prevTabId);
     const nextShell = tabPaneShells.get(tabId);
     const motionOn = !motionDisabled();
@@ -3533,6 +3680,7 @@ async function boot(): Promise<void> {
       lastFocusedPaneId = paneHost.getFocusedPaneId();
     }
     syncGlobalPaneFocus(lastFocusedPaneId);
+    if (lastFocusedPaneId) refreshTabLabelForPane(lastFocusedPaneId);
 
     // When focus-follows-cursor is on, refocus to whichever pane the
     // mouse is already hovering over after the tab switch. Defer one
@@ -3691,6 +3839,7 @@ async function boot(): Promise<void> {
     );
     if (switchTo) switchWorkspaceTab(tabId);
     else renderWorkspaceTabsBar();
+    syncLivePaneIds();
     return tabId;
   }
 
@@ -3795,6 +3944,7 @@ async function boot(): Promise<void> {
     if (!closingSourceTab && paneHost === sourceHost) {
       scheduleHostGeometryRepair(sourceHost);
     }
+    syncLivePaneIds();
   }
 
   const tabMenuEl = document.getElementById("tab-context-menu");
@@ -3820,9 +3970,10 @@ async function boot(): Promise<void> {
 
   function duplicateWorkspaceTab(fromTabId: string): void {
     persistCurrentWorkspaceTabLayout();
-    const raw = loadLayoutForTab(fromTabId) ?? emptyWorkspaceLayout(fromTabId);
+    const tabKey = String(tabsInIndexOrder().length + 1);
+    const raw = loadLayoutForTab(fromTabId) ?? emptyWorkspaceLayout(tabKey);
     const newId = crypto.randomUUID();
-    const dup = duplicateTabLayout(raw, fromTabId, newId);
+    const dup = duplicateTabLayout(raw, tabKey, followSlotsInUse());
     persistLayoutForTab(newId, dup);
     const sourceName =
       tabsState.tabs.find((t) => t.id === fromTabId)?.name ??
@@ -3853,6 +4004,7 @@ async function boot(): Promise<void> {
       ],
     };
     saveTabsState(tabsState);
+    applyTabLayoutMetadata(dup);
     createTabPaneShellAndHost(newId, {
       initialTree: dup.tree,
       initialFocusedId: dup.focusedId,
@@ -3863,10 +4015,6 @@ async function boot(): Promise<void> {
   function seedWorkspacePaneMaps(mapped: PersistedPaneLayout): void {
     for (const [paneId, theme] of Object.entries(mapped.paneThemes ?? {})) {
       paneThemes.set(paneId, normalizePaneThemePrefs(theme));
-    }
-    for (const [paneId, name] of Object.entries(mapped.paneNames ?? {})) {
-      const cleaned = name.trim().replace(/\s+/g, "_");
-      if (cleaned) paneNames.set(paneId, cleaned);
     }
     for (const [paneId, cwd] of Object.entries(mapped.paneCwds ?? {})) {
       paneCwdHints.set(paneId, cwd);
@@ -3946,27 +4094,13 @@ async function boot(): Promise<void> {
       tree,
       focusedId: host.getFocusedPaneId(),
       floating: host.getFloatingState(),
-      paneThemes: Object.fromEntries(
-        panes
-          .filter((pane) => paneThemes.has(pane.id))
-          .map((pane) => [pane.id, paneThemes.get(pane.id)!]),
-      ),
-      paneNames: Object.fromEntries(
-        panes
-          .filter((pane) => paneNames.has(pane.id))
-          .map((pane) => [pane.id, paneNames.get(pane.id)!]),
-      ),
-      paneProfileIds: Object.fromEntries(
-        panes
-          .filter((pane) => paneProfileIds.has(pane.id))
-          .map((pane) => [pane.id, paneProfileIds.get(pane.id)!]),
-      ),
+      paneThemes: paneMapSubset(panes, paneThemes),
+      paneProfileIds: paneMapSubset(panes, paneProfileIds),
     };
     const cwdMap = await paneCwdMapForWorkspaceCapture(host);
     const layout = normalizeLayoutForWorkspace({
       layout: pl,
       paneThemes,
-      paneNames,
       paneCwdHints: cwdMap,
       paneProfileIds,
     });
@@ -3992,12 +4126,6 @@ async function boot(): Promise<void> {
   async function applyWorkspaceToNewTab(workspace: Workspace): Promise<void> {
     persistCurrentWorkspaceTabLayout();
     const newTabId = crypto.randomUUID();
-    const { layout: mapped, idMap } = remapWorkspaceLayoutForTab(
-      workspace.layout,
-      newTabId,
-    );
-    if (!isWorkspaceLayoutUsable(mapped, newTabId)) return;
-
     const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
     tabsState = {
       ...tabsState,
@@ -4013,6 +4141,20 @@ async function boot(): Promise<void> {
       ],
     };
     saveTabsState(tabsState);
+    const { layout: mapped, idMap } = remapWorkspaceLayoutForTab(
+      workspace.layout,
+      tabKeyForTabId(newTabId),
+      followSlotsInUse(),
+    );
+    if (!isWorkspaceLayoutUsable(mapped)) {
+      tabsState = {
+        ...tabsState,
+        tabs: tabsState.tabs.filter((t) => t.id !== newTabId),
+      };
+      saveTabsState(tabsState);
+      return;
+    }
+
     persistLayoutForTab(newTabId, mapped);
     seedWorkspacePaneMaps(mapped);
     createTabPaneShellAndHost(
@@ -4022,7 +4164,7 @@ async function boot(): Promise<void> {
         initialFocusedId: mapped.focusedId,
         initialFloating: mapped.floating,
       },
-      workspaceRootPaneId(newTabId),
+      resolveTabRootPaneId(mapped),
     );
     switchWorkspaceTab(newTabId);
     runWorkspaceStartupCommands(workspace.layout.startupCommands, idMap);
@@ -4034,9 +4176,10 @@ async function boot(): Promise<void> {
 
     const { layout: mapped, idMap } = remapWorkspaceLayoutForTab(
       workspace.layout,
-      tabId,
+      tabKeyForTabId(tabId),
+      followSlotsInUse(),
     );
-    if (!isWorkspaceLayoutUsable(mapped, tabId)) return;
+    if (!isWorkspaceLayoutUsable(mapped)) return;
 
     const tab = tabsState.tabs.find((t) => t.id === tabId);
     const title = workspace.name.trim();
@@ -4048,7 +4191,6 @@ async function boot(): Promise<void> {
     const oldHost = tabPaneHosts.get(tabId);
     if (oldHost) {
       for (const pane of oldHost.getPaneDescriptors()) {
-        paneNames.delete(pane.id);
         paneThemes.delete(pane.id);
       }
       disposeTabPaneHost(tabId);
@@ -4063,7 +4205,7 @@ async function boot(): Promise<void> {
         initialFocusedId: mapped.focusedId,
         initialFloating: mapped.floating,
       },
-      workspaceRootPaneId(tabId),
+      resolveTabRootPaneId(mapped),
     );
     paneHost = newHost;
     lastFocusedPaneId = newHost.getFocusedPaneId();
@@ -4116,6 +4258,7 @@ async function boot(): Promise<void> {
     } catch {
       /* ignore */
     }
+    syncLivePaneIds();
     document.documentElement.classList.toggle(
       "term-tabs-multiple",
       tabsState.tabs.length > 1,
@@ -4142,7 +4285,7 @@ async function boot(): Promise<void> {
       const v = raw.trim();
       if (v) {
         const t = tabsState.tabs.find((x) => x.id === id);
-        if (t) { t.name = v; t.userName = v; }
+        if (t) applyUserTabRename(t, v);
         saveTabsState(tabsState);
       }
     }
@@ -4189,7 +4332,7 @@ async function boot(): Promise<void> {
       const v = input?.value.trim();
       if (id && v) {
         const t = tabsState.tabs.find((x) => x.id === id);
-        if (t) { t.name = v; t.userName = v; }
+        if (t) applyUserTabRename(t, v);
         saveTabsState(tabsState);
       }
     }
@@ -4254,7 +4397,8 @@ async function boot(): Promise<void> {
   ): string {
     const id = crypto.randomUUID();
     const name = nextTabName(tabsState.tabs);
-    const empty = emptyWorkspaceLayout(id);
+    const tabKey = String(tabsInIndexOrder().length + 1);
+    const empty = emptyWorkspaceLayout(tabKey);
     const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
     const resolvedProfile = resolveProfileForNewTab(profileId);
     const rootId = empty.focusedId;
@@ -4845,6 +4989,7 @@ async function boot(): Promise<void> {
       next.forEach((tab, i) => (tab.order = i));
       tabsState = { ...tabsState, tabs: next };
       saveTabsState(tabsState);
+      syncLivePaneIds();
       renderWorkspaceTabsBar();
     }
 
@@ -4933,30 +5078,6 @@ async function boot(): Promise<void> {
       paneHost.getFocusedPaneId() ?? paneHost.getRootPaneId(),
     );
   }
-
-  const paneRenameRoot = document.getElementById(
-    "pane-rename-root",
-  ) as HTMLElement | null;
-  const paneRenamePanel: PaneRenamePanelApi | null = paneRenameRoot
-    ? createPaneRenamePanel({
-        root: paneRenameRoot,
-        onCommit: (paneId, name) => {
-          const trimmed = name.trim().replace(/\s+/g, "_");
-          if (trimmed) paneNames.set(paneId, trimmed);
-          else paneNames.delete(paneId);
-          if (extPaneRenamedSubs.length > 0) {
-            for (const fn of extPaneRenamedSubs) {
-              try {
-                fn(paneId, trimmed || null);
-              } catch {
-                /* ignore */
-              }
-            }
-          }
-          persistCurrentWorkspaceTabLayout();
-        },
-      })
-    : null;
 
   const settingsPanelEl = document.getElementById("settings-panel");
   const themeBuilderRoot = document.getElementById("theme-builder-root");
@@ -5417,7 +5538,7 @@ async function boot(): Promise<void> {
     const tabId = activeWorkspaceTabId;
     disposeTabPaneHost(tabId);
     clearPaneLayout();
-    const rid = workspaceRootPaneId(tabId);
+    const rid = workspaceRootPaneId(tabKeyForTabId(tabId));
     paneHost = createTabPaneShellAndHost(tabId, {
       initialTree: { kind: "leaf", id: rid },
       initialFocusedId: rid,
@@ -5502,20 +5623,26 @@ async function boot(): Promise<void> {
       const leafIds = host?.getLeafIdsInOrder() ?? [];
       const paneKeywords: string[] = [];
       for (const lid of leafIds) {
-        const pn = paneNames.get(lid);
-        if (pn) paneKeywords.push(pn.toLowerCase());
-        const prog = paneProgramNames.get(lid);
-        if (prog) {
-          for (const word of prog.split(/\s+/)) {
+        const parts = paneNameParts(lid);
+        paneKeywords.push(parts.profileName.toLowerCase());
+        if (parts.oscTitle) {
+          for (const word of parts.oscTitle.split(/\s+/)) {
             const w = word.toLowerCase();
             if (w) paneKeywords.push(w);
           }
         }
-        const cwd = paneCwdHints.get(lid);
-        if (cwd) {
-          const parts = cwd.replace(/\\/g, "/").split("/").filter(Boolean);
-          for (const part of parts) paneKeywords.push(part.toLowerCase());
+        if (parts.processLabel) {
+          for (const word of parts.processLabel.split(/\s+/)) {
+            const w = word.toLowerCase();
+            if (w) paneKeywords.push(w);
+          }
         }
+        const cwd = parts.cwd;
+        if (cwd) {
+          const segs = cwd.replace(/\\/g, "/").split("/").filter(Boolean);
+          for (const part of segs) paneKeywords.push(part.toLowerCase());
+        }
+        paneKeywords.push(lid.toLowerCase());
       }
       const extra = [...new Set(paneKeywords)].slice(0, 32).join(" ");
       const label = tabDisplayName(tab.id);
@@ -5530,79 +5657,107 @@ async function boot(): Promise<void> {
     });
   }
 
+  function allPaneNameParts(): PaneNameParts[] {
+    const out: PaneNameParts[] = [];
+    for (const host of tabPaneHosts.values()) {
+      for (const id of host.getLeafIdsInOrder()) out.push(paneNameParts(id));
+    }
+    return out;
+  }
+
+  function paneIndexFlags(parts: PaneNameParts[]): Set<string> {
+    const counts = new Map<string, number>();
+    for (const p of parts) {
+      const key = paneCollisionKey(p);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const show = new Set<string>();
+    for (const p of parts) {
+      if ((counts.get(paneCollisionKey(p)) ?? 0) > 1) show.add(p.paneId);
+    }
+    return show;
+  }
+
+  function paneQueryHaystack(p: PaneNameParts): string {
+    return [
+      p.paneId,
+      p.profileName,
+      p.cwd ?? "",
+      p.oscTitle ?? "",
+      p.processLabel ?? "",
+      p.tabName,
+      paneHeadline(p),
+    ]
+      .join(" ")
+      .toLowerCase();
+  }
+
+  function panePaletteHtml(
+    p: PaneNameParts,
+    showIndex: boolean,
+    prefix: "@pane:" | "@proc:",
+    headline: string,
+    suffix = "",
+  ): string {
+    const sub = paneSubline(p, headline, showIndex);
+    const subHtml = sub
+      ? ` <span class="cp-label-tab">${escapeHtml(sub)}</span>`
+      : "";
+    return `<span class="cp-label-prefix">${prefix}</span><span class="cp-label-name">${escapeHtml(headline)}</span>${subHtml}${suffix}`;
+  }
+
   function getPaneTargetCommands(query: string): PaletteCommand[] {
     const afterTag = query.slice(6);
     const spaceIdx = afterTag.indexOf(" ");
     const panePart = (spaceIdx === -1 ? afterTag : afterTag.slice(0, spaceIdx))
       .trimStart()
       .toLowerCase();
+    const all = allPaneNameParts();
+    const showIndex = paneIndexFlags(all);
 
-    // When a command follows the pane name, show a single dispatch entry.
-    // This prevents the palette's word-split filter from eliminating pane entries
-    // because command words like "rm" don't match pane keywords.
     if (spaceIdx !== -1 && panePart) {
       const command = afterTag.slice(spaceIdx + 1).trim();
-      // Find which pane this name refers to
-      for (const host of tabPaneHosts.values()) {
-        for (const leafId of host.getLeafIdsInOrder()) {
-          const name = paneUserOrDefaultName(leafId);
-          if (
-            name.toLowerCase() !== panePart &&
-            leafId.slice(0, 8).toLowerCase() !== panePart
-          )
-            continue;
-          const effName = paneEffectiveName(leafId);
-          const cwd = paneCwdHints.get(leafId) || "";
-          const shortCwd =
-            cwd.split(/[\\/]/).filter(Boolean).slice(-2).join("/") || cwd;
-          return [
-            {
-              id: `pane-dispatch-${leafId}`,
-              label: `@pane:${effName}${command ? ` → ${command}` : ""}`,
-              labelHtml:
-                `<span class="cp-label-prefix">@pane:</span><span class="cp-label-name">${escapeHtml(effName)}</span>` +
-                (shortCwd
-                  ? ` <span class="cp-label-cwd">${escapeHtml(shortCwd)}</span>`
-                  : "") +
-                (command
-                  ? ` <span class="cp-label-prefix" style="font-weight:400">→</span> ${escapeHtml(command)}`
-                  : ""),
-              keywords: `${name} ${cwd} ${command}`,
-              run: () => dispatchPaneCommand(leafId, query),
-            },
-          ];
-        }
+      for (const p of all) {
+        const headline = paneHeadline(p);
+        if (
+          p.paneId.toLowerCase() !== panePart &&
+          headline.toLowerCase() !== panePart
+        )
+          continue;
+        const suffix = command
+          ? ` <span class="cp-label-prefix" style="font-weight:400">→</span> ${escapeHtml(command)}`
+          : "";
+        return [
+          {
+            id: `pane-dispatch-${p.paneId}`,
+            label: `@pane:${headline}${command ? ` → ${command}` : ""}`,
+            labelHtml: panePaletteHtml(
+              p,
+              showIndex.has(p.paneId),
+              "@pane:",
+              headline,
+              suffix,
+            ),
+            keywords: paneQueryHaystack(p) + ` ${command}`,
+            run: () => dispatchPaneCommand(p.paneId, query),
+          },
+        ];
       }
-      // No pane matched — show empty
       return [];
     }
 
-    // No command yet — show filterable pane list
     const items: PaletteCommand[] = [];
-    for (const [tabId, host] of tabPaneHosts) {
-      const tab = tabsState.tabs.find((t) => t.id === tabId);
-      const tabLabel = tab
-        ? tab.name || `Tab ${tabsState.tabs.indexOf(tab) + 1}`
-        : tabId.slice(0, 6);
-      for (const leafId of host.getLeafIdsInOrder()) {
-        const name = paneUserOrDefaultName(leafId);
-        const effName = paneEffectiveName(leafId);
-        const cwd = paneCwdHints.get(leafId) || "";
-        const shortCwd =
-          cwd.split(/[\\/]/).filter(Boolean).slice(-2).join("/") || cwd;
-        const hay = `${name} ${cwd} ${tabLabel}`.toLowerCase();
-        if (panePart && !hay.includes(panePart)) continue;
-        const cwdHtml = shortCwd
-          ? ` <span class="cp-label-cwd">${escapeHtml(shortCwd)}</span>`
-          : "";
-        items.push({
-          id: `pane-target-${leafId}`,
-          label: `@pane:${effName}  ${shortCwd}  [${tabLabel}]`,
-          labelHtml: `<span class="cp-label-prefix">@pane:</span><span class="cp-label-name">${escapeHtml(effName)}</span>${cwdHtml} <span class="cp-label-tab">${escapeHtml(tabLabel)}</span>`,
-          keywords: `${name} ${effName} ${cwd} ${tabLabel} @pane:${panePart}`,
-          run: () => dispatchPaneCommand(leafId, query),
-        });
-      }
+    for (const p of all) {
+      if (panePart && !paneQueryHaystack(p).includes(panePart)) continue;
+      const headline = paneHeadline(p);
+      const indexed = showIndex.has(p.paneId);
+      items.push({
+        id: `pane-target-${p.paneId}`,
+        label: `@pane:${headline}`,
+        labelHtml: panePaletteHtml(p, indexed, "@pane:", headline),
+        keywords: paneQueryHaystack(p),
+        run: () => dispatchPaneCommand(p.paneId, query),
+      });
     }
     return items;
   }
@@ -5689,6 +5844,8 @@ async function boot(): Promise<void> {
       ];
 
     const items: PaletteCommand[] = [];
+    const all = allPaneNameParts();
+    const showIndex = paneIndexFlags(all);
     for (const [leafId, proc] of activeProcesses) {
       const displayCmd = displayProcessCommand(proc.command);
       if (
@@ -5697,35 +5854,20 @@ async function boot(): Promise<void> {
         !displayCmd.toLowerCase().includes(prefix)
       )
         continue;
-      const name = paneEffectiveName(leafId);
-      const shortCwd =
-        proc.cwd.split(/[\\/]/).filter(Boolean).slice(-2).join("/") || proc.cwd;
-      const dur = ((Date.now() - proc.startedAt) / 1000).toFixed(0);
+      const p = paneNameParts(leafId);
+      const headline = procPaletteHeadline(p);
       const shortDisplayCmd =
         displayCmd.length > 50
           ? displayCmd.slice(0, 47) + "\u2026"
           : displayCmd;
-      let tabLabel = "";
-      for (const [tid, host] of tabPaneHosts) {
-        if (host.getPaneTerminal(leafId)) {
-          const t = tabsState.tabs.find((x) => x.id === tid);
-          tabLabel = t ? t.name || `T${tabsState.tabs.indexOf(t) + 1}` : "";
-          break;
-        }
-      }
+      const dur = ((Date.now() - proc.startedAt) / 1000).toFixed(0);
       items.push({
         id: `proc-${leafId}`,
         label: `@proc:${shortDisplayCmd}  ${dur}s`,
         labelHtml:
-          `<span class="cp-label-prefix">@proc:</span><span class="cp-label-name">${escapeHtml(shortDisplayCmd)}</span>` +
-          (shortCwd
-            ? ` <span class="cp-label-cwd">${escapeHtml(shortCwd)}</span>`
-            : "") +
-          (tabLabel
-            ? ` <span class="cp-label-tab">${escapeHtml(tabLabel)}</span>`
-            : "") +
+          panePaletteHtml(p, showIndex.has(leafId), "@proc:", headline) +
           ` <span style="color:var(--ui-chrome-muted);margin-left:0.4em">${dur}s</span>`,
-        keywords: `@proc proc ${displayCmd} ${proc.cwd} ${name} ${tabLabel}`,
+        keywords: `@proc proc ${paneQueryHaystack(p)} ${displayCmd}`,
         run: () => {
           for (const [tid, host] of tabPaneHosts) {
             if (host.getPaneTerminal(leafId)) {
@@ -5968,15 +6110,6 @@ async function boot(): Promise<void> {
         label: "Close tab",
         keywords: "workspace remove delete",
         run: () => closeWorkspaceTab(activeWorkspaceTabId),
-      },
-      // --- Panes ---
-      // Split/float/close commands are keybind-driven (see help modal);
-      // only discovery via a keybind-free action stays in the palette.
-      {
-        id: "pane-rename",
-        label: "Rename pane",
-        keywords: "pane name title label friendly id",
-        run: () => openFocusedPaneRename(),
       },
       {
         id: "pane-close-children",
@@ -6224,11 +6357,7 @@ async function boot(): Promise<void> {
               selected &&
               selected.id.startsWith("pane-target-")
             ) {
-              const label = selected.label;
-              const nameEnd = label.indexOf("  ");
-              const paneName =
-                nameEnd === -1 ? label.slice(6) : label.slice(6, nameEnd);
-              return `@pane:${paneName} `;
+              return `@pane:${selected.id.slice("pane-target-".length)} `;
             }
             if (
               (currentInput.startsWith("@proc:") || currentInput === "@proc") &&
@@ -6737,7 +6866,8 @@ async function boot(): Promise<void> {
           }
         }
       }
-      if (paneId !== paneHost?.getFocusedPaneId()) return;
+      refreshTabLabelForPane(paneId);
+      if (paneId !== focusedPaneId()) return;
       if (normalizeFsPathKey(cwd) === normalizeFsPathKey(liveCwd ?? "")) return;
       liveCwd = cwd;
     }),
@@ -6749,6 +6879,7 @@ async function boot(): Promise<void> {
       } else {
         paneProgramNames.delete(paneId);
       }
+      refreshTabLabelForPane(paneId);
     }),
 
     listen<{
@@ -6809,6 +6940,7 @@ async function boot(): Promise<void> {
         }
         case "promptStart": {
           paneProgramNames.delete(paneId);
+          refreshTabLabelForPane(paneId);
           const entry = activeProcesses.get(paneId);
           if (entry && shouldEndOnPromptStart(entry)) {
             finishActiveProcess(paneId, Date.now());
@@ -7138,7 +7270,6 @@ async function boot(): Promise<void> {
           return {
             id: paneId,
             name: paneEffectiveName(paneId),
-            userName: paneNames.get(paneId) ?? null,
             programName: paneProgramNames.get(paneId) ?? null,
             cwd: paneCwdHints.get(paneId) ?? null,
             tabId: tabIdForPaneHost(host) ?? null,
@@ -7340,7 +7471,7 @@ async function boot(): Promise<void> {
           };
         },
         getPaneCwd: (paneId: string) => paneCwdHints.get(paneId) ?? null,
-        getPaneName: (paneId: string) => paneNames.get(paneId) ?? null,
+        getPaneName: (paneId: string) => paneEffectiveName(paneId),
 
         // ── Pane & tab control ──
         focusPane(paneId: string) {
@@ -7408,13 +7539,6 @@ async function boot(): Promise<void> {
           return () => {
             const idx = extCwdChangeSubs.indexOf(fn);
             if (idx !== -1) extCwdChangeSubs.splice(idx, 1);
-          };
-        },
-        onPaneRenamed(fn: (paneId: string, name: string | null) => void) {
-          extPaneRenamedSubs.push(fn);
-          return () => {
-            const idx = extPaneRenamedSubs.indexOf(fn);
-            if (idx !== -1) extPaneRenamedSubs.splice(idx, 1);
           };
         },
 

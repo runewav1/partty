@@ -112,6 +112,8 @@ export type PaneHostOptions = {
   getGlobalFocusedPaneId?: () => string | null;
   /** Root leaf id (per workspace tab). Defaults to `"main"`. */
   rootPaneId?: string;
+  /** Allocate a live pane id (`{tab}{slot}` / `*{slot}`). */
+  allocPaneId?: () => string;
   /** Handler for OSC 8 semantic hyperlinks. */
   linkHandler?: {
     activate: (event: MouseEvent, uri: string) => void;
@@ -599,6 +601,33 @@ export class PaneHost {
     return this.rootPaneId;
   }
 
+  /** Retarget a live pane id without disposing the terminal. */
+  rekeyPane(from: string, to: string): boolean {
+    if (from === to) return true;
+    if (!findPaneLeaf(this.tree, from) || findPaneLeaf(this.tree, to)) return false;
+    const mapNode = (n: PaneNode): PaneNode => {
+      if (n.kind === "leaf") return n.id === from ? { kind: "leaf", id: to } : n;
+      return { ...n, a: mapNode(n.a), b: mapNode(n.b) };
+    };
+    this.tree = mapNode(this.tree);
+    const pt = this.terminals.get(from);
+    if (pt) {
+      this.terminals.delete(from);
+      this.terminals.set(to, pt);
+    }
+    const fl = this.floating.get(from);
+    if (fl) {
+      this.floating.delete(from);
+      this.floating.set(to, fl);
+    }
+    if (this.justFloated.delete(from)) this.justFloated.add(to);
+    if (this.justTiled.delete(from)) this.justTiled.add(to);
+    if (this.focusedId === from) this.focusedId = to;
+    if (this.rootPaneId === from) this.rootPaneId = to;
+    this.mountTree();
+    return true;
+  }
+
   setFocusedPaneId(id: string): void {
     this.focusPane(id);
   }
@@ -646,13 +675,13 @@ export class PaneHost {
    */
   splitFocused(dir: "h" | "v"): string | null {
     if (this.floating.has(this.focusedId)) return null;
-    const newId = crypto.randomUUID();
+    const newId = this.opts.allocPaneId?.() ?? crypto.randomUUID();
     return this.insertPaneNearFocused(newId, dir, true);
   }
 
   /** Insert a new leaf already floated (no split-then-toggle). */
   createFloatingPane(dir: "h" | "v" = "v"): string | null {
-    const paneId = crypto.randomUUID();
+    const paneId = this.opts.allocPaneId?.() ?? crypto.randomUUID();
     const anchor = this.tiledInsertAnchor();
     if (!this.graftPaneAtAnchor(paneId, anchor, dir)) return null;
 

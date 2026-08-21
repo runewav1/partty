@@ -1,6 +1,6 @@
 import type { FloatingPaneState, PaneNode } from "./paneHost";
 import type { PaneThemePrefs } from "./uiTheme";
-import { findPaneLeaf, MAIN_PANE_ID } from "./paneHost";
+import { findPaneLeaf } from "./paneHost";
 
 export const PANE_LAYOUT_STORAGE_KEY = "partty.pane_layout.v1";
 
@@ -10,7 +10,6 @@ export type PersistedPaneLayout = {
   focusedId: string;
   floating?: Record<string, FloatingPaneState>;
   paneThemes?: Record<string, PaneThemePrefs>;
-  paneNames?: Record<string, string>;
   paneCwds?: Record<string, string>;
   /** Per-pane connection profile ids (local / future WSL·SSH). */
   paneProfileIds?: Record<string, string>;
@@ -29,7 +28,7 @@ function collectLeafIdsArr(node: PaneNode, out: string[]): void {
 export function layoutContainsWorkspaceRoot(tree: PaneNode): boolean {
   const ids: string[] = [];
   collectLeafIdsArr(tree, ids);
-  return ids.some((id) => id === MAIN_PANE_ID || id.startsWith("wsroot_"));
+  return ids.length > 0;
 }
 
 export function validatePaneTree(node: unknown): node is PaneNode {
@@ -63,7 +62,6 @@ export function loadPaneLayout(): PersistedPaneLayout | null {
       focusedId: parsed.focusedId,
       floating: parsed.floating,
       paneThemes: parsed.paneThemes,
-      paneNames: parsed.paneNames,
       paneCwds: parsed.paneCwds,
       paneProfileIds: parsed.paneProfileIds,
     };

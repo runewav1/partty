@@ -9,7 +9,6 @@ export type WorkspaceLayout = {
   focusedId: string;
   floating?: Record<string, FloatingPaneState>;
   paneThemes?: Record<string, PaneThemePrefs>;
-  paneNames?: Record<string, string>;
   paneCwds?: Record<string, string>;
   paneProfileIds?: Record<string, string>;
   startupCommands?: Record<string, string>;

@@ -155,7 +155,6 @@
   --ui-chrome-fainter: #71717a;
 
   /* ===== Z-Index Layers (single source of truth for overlay stacking) ===== */
-  --layer-pane-rename: 100;
   --layer-palette: 1000;
   --layer-panel: 1100;              /* settings + help panels */
   --layer-extensions: 1500;
@@ -222,7 +221,6 @@ html[data-motion-style="gentle"] {
 .extension-manager-card,
 .termie-dialog-panel,
 .shed-exit-dialog-card,
-.pane-rename-panel,
 .tab-context-menu {
   animation: overlay-panel-in var(--motion-medium) var(--motion-ease-out) backwards;
 }
@@ -343,60 +341,6 @@ html.theme-builder-open #main-workspace {
   user-select: none;
 }
 
-
-.pane-rename--hidden {
-  display: none !important;
-}
-
-.pane-rename-panel {
-  position: fixed;
-  z-index: var(--layer-pane-rename);
-  min-width: 260px;
-  overflow: hidden;
-  border: 1px solid var(--panel-border);
-  border-radius: var(--panel-radius);
-  background: var(--panel-glass-bg);
-  backdrop-filter: blur(16px) saturate(1.08);
-  -webkit-backdrop-filter: blur(16px) saturate(1.08);
-  box-shadow: var(--panel-elevated-shadow);
-}
-
-.pane-rename-form {
-  display: flex;
-  gap: 8px;
-  padding: 10px;
-}
-
-.pane-rename-input {
-  flex: 1;
-  min-width: 0;
-  border: 1px solid var(--input-border);
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--input-bg) 82%, transparent);
-  color: var(--input-text);
-  padding: 6px 8px;
-  font: 12px var(--font-ui);
-  outline: none;
-}
-
-.pane-rename-input:focus {
-  border-color: color-mix(in srgb, var(--accent-primary) 58%, var(--input-border));
-}
-
-.pane-rename-save {
-  flex: 0 0 auto;
-  border: 1px solid var(--panel-border);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--button-bg) 76%, transparent);
-  color: var(--button-text);
-  padding: 4px 9px;
-  font: 600 10.5px var(--font-ui);
-  cursor: pointer;
-}
-
-.pane-rename-save:hover {
-  background: var(--button-hover-bg);
-}
 
 #main-workspace {
   display: flex;

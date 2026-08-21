@@ -1024,6 +1024,33 @@ fn pty_focus_pane(state: State<'_, AppState>, pane_id: String) -> Result<(), Str
 }
 
 #[tauri::command]
+fn pty_rename_pane(state: State<'_, AppState>, from: String, to: String) -> Result<(), String> {
+    if from == to {
+        return Ok(());
+    }
+    {
+        let panes = state.pty_panes.lock();
+        if panes.contains_key(&to) {
+            return Err(format!("pane id already in use: {to}"));
+        }
+    }
+    let session = state.pty_panes.lock().remove(&from);
+    let ident = state.pty_spawn_identity.lock().remove(&from);
+    if let Some(session) = session {
+        *session.pane_id.lock() = to.clone();
+        state.pty_panes.lock().insert(to.clone(), session);
+    }
+    if let Some(ident) = ident {
+        state.pty_spawn_identity.lock().insert(to.clone(), ident);
+    }
+    let mut focused = state.focused_pane_id.lock();
+    if focused.as_deref() == Some(from.as_str()) {
+        *focused = Some(to);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn get_persisted_state(state: State<'_, AppState>) -> PersistedState {
     state.persisted.lock().clone()
 }
@@ -1245,7 +1272,7 @@ pub fn run() {
             persisted: Mutex::new(loaded.clone()),
             last_window_snapshot: Mutex::new(None),
             pty_spawn_identity: Mutex::new(HashMap::new()),
-            focused_pane_id: Mutex::new(Some("main".into())),
+            focused_pane_id: Mutex::new(None),
             webview_destroyed_for_hide: AtomicBool::new(false),
             defer_prepare_show_until_webview_ready: AtomicBool::new(false),
             hide_destroy_generation: AtomicU64::new(0),
@@ -1265,6 +1292,7 @@ pub fn run() {
             pty_kill_pane,
             pty_ack_exit,
             pty_focus_pane,
+            pty_rename_pane,
             clipboard_read_text,
             get_persisted_state,
             get_app_session_id,

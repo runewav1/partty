@@ -72,3 +72,8 @@ export function ptyAckExit(paneId: string): Promise<void> {
 export function ptyFocusPane(paneId: string): Promise<void> {
   return invoke("pty_focus_pane", { paneId });
 }
+
+export function ptyRenamePane(from: string, to: string): Promise<void> {
+  if (from === to) return Promise.resolve();
+  return invoke("pty_rename_pane", { from, to });
+}

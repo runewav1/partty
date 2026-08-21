@@ -1,83 +1,14 @@
 import type { PaneNode } from "./paneHost";
+import { emptyTabLayout, mapLayoutToTabKey } from "./paneIds";
 import { loadPaneLayout, type PersistedPaneLayout } from "./paneLayout";
 import { workspaceRootPaneId } from "./workspacePaneIds";
 
-export function duplicateTabLayout(layout: PersistedPaneLayout, fromTabId: string, newTabId: string): PersistedPaneLayout {
-  const oldRoot = workspaceRootPaneId(fromTabId);
-  const newRoot = workspaceRootPaneId(newTabId);
-  const ids: string[] = [];
-  function collect(n: PaneNode): void {
-    if (n.kind === "leaf") {
-      ids.push(n.id);
-      return;
-    }
-    collect(n.a);
-    collect(n.b);
-  }
-  collect(layout.tree);
-  const m = new Map<string, string>();
-  for (const id of ids) {
-    m.set(id, id === oldRoot ? newRoot : crypto.randomUUID());
-  }
-  function mapNode(n: PaneNode): PaneNode {
-    if (n.kind === "leaf") {
-      const nid = m.get(n.id);
-      return { kind: "leaf", id: nid ?? newRoot };
-    }
-    return { ...n, a: mapNode(n.a), b: mapNode(n.b) };
-  }
-  const focused = m.get(layout.focusedId) ?? newRoot;
-  const floating = layout.floating
-    ? Object.fromEntries(
-        Object.entries(layout.floating)
-          .map(([id, state]) => {
-            const nid = m.get(id);
-            return nid ? [nid, { ...state }] : null;
-          })
-          .filter((entry): entry is [string, NonNullable<typeof layout.floating>[string]] => entry !== null),
-      )
-    : undefined;
-  const paneThemes = layout.paneThemes
-    ? Object.fromEntries(
-        Object.entries(layout.paneThemes)
-          .map(([id, theme]) => {
-            const nid = m.get(id);
-            return nid ? [nid, { ...theme }] : null;
-          })
-          .filter((entry): entry is [string, NonNullable<typeof layout.paneThemes>[string]] => entry !== null),
-      )
-    : undefined;
-  const paneNames = layout.paneNames
-    ? Object.fromEntries(
-        Object.entries(layout.paneNames)
-          .map(([id, name]) => {
-            const nid = m.get(id);
-            return nid ? [nid, name] : null;
-          })
-          .filter((entry): entry is [string, string] => entry !== null),
-      )
-    : undefined;
-  const paneCwds = layout.paneCwds
-    ? Object.fromEntries(
-        Object.entries(layout.paneCwds)
-          .map(([id, cwd]) => {
-            const nid = m.get(id);
-            return nid ? [nid, cwd] : null;
-          })
-          .filter((entry): entry is [string, string] => entry !== null),
-      )
-    : undefined;
-  const paneProfileIds = layout.paneProfileIds
-    ? Object.fromEntries(
-        Object.entries(layout.paneProfileIds)
-          .map(([id, profileId]) => {
-            const nid = m.get(id);
-            return nid ? [nid, profileId] : null;
-          })
-          .filter((entry): entry is [string, string] => entry !== null),
-      )
-    : undefined;
-  return { v: 1, tree: mapNode(layout.tree), focusedId: focused, floating, paneThemes, paneNames, paneCwds, paneProfileIds };
+export function duplicateTabLayout(
+  layout: PersistedPaneLayout,
+  tabKey: string,
+  followSlots: Set<string>,
+): PersistedPaneLayout {
+  return mapLayoutToTabKey(layout, tabKey, followSlots).layout;
 }
 
 const TABS_STATE_KEY = "partty.tabs.v1";
@@ -107,10 +38,8 @@ export type TabsStateV1 = {
   groups: TabGroup[];
 };
 
-export const emptyWorkspaceLayout = (tabId: string): PersistedPaneLayout => {
-  const r = workspaceRootPaneId(tabId);
-  return { v: 1, tree: { kind: "leaf", id: r }, focusedId: r };
-};
+export const emptyWorkspaceLayout = (tabKey = "1"): PersistedPaneLayout =>
+  emptyTabLayout(tabKey);
 
 export function migrateLayoutFromLegacyMain(layout: PersistedPaneLayout, tabId: string): PersistedPaneLayout {
   const rid = workspaceRootPaneId(tabId);
@@ -122,35 +51,27 @@ export function migrateLayoutFromLegacyMain(layout: PersistedPaneLayout, tabId: 
     return { ...n, a: mapNode(n.a), b: mapNode(n.b) };
   }
   const focusedId = layout.focusedId === "main" ? rid : layout.focusedId;
-  const floating = layout.floating
-    ? Object.fromEntries(
-        Object.entries(layout.floating).map(([id, state]) => [id === "main" ? rid : id, { ...state }]),
-      )
-    : undefined;
-  const paneThemes = layout.paneThemes
-    ? Object.fromEntries(
-        Object.entries(layout.paneThemes).map(([id, theme]) => [id === "main" ? rid : id, { ...theme }]),
-      )
-    : undefined;
-  const paneNames = layout.paneNames
-    ? Object.fromEntries(
-        Object.entries(layout.paneNames).map(([id, name]) => [id === "main" ? rid : id, name]),
-      )
-    : undefined;
-  const paneCwds = layout.paneCwds
-    ? Object.fromEntries(
-        Object.entries(layout.paneCwds).map(([id, cwd]) => [id === "main" ? rid : id, cwd]),
-      )
-    : undefined;
-  const paneProfileIds = layout.paneProfileIds
-    ? Object.fromEntries(
-        Object.entries(layout.paneProfileIds).map(([id, profileId]) => [
-          id === "main" ? rid : id,
-          profileId,
-        ]),
-      )
-    : undefined;
-  return { v: 1, tree: mapNode(layout.tree), focusedId, floating, paneThemes, paneNames, paneCwds, paneProfileIds };
+  const mapMain = (id: string) => (id === "main" ? rid : id);
+  return {
+    v: 1,
+    tree: mapNode(layout.tree),
+    focusedId,
+    floating: remapRecordKeys(layout.floating, mapMain, (state) => ({ ...state })),
+    paneThemes: remapRecordKeys(layout.paneThemes, mapMain, (theme) => ({ ...theme })),
+    paneCwds: remapRecordKeys(layout.paneCwds, mapMain),
+    paneProfileIds: remapRecordKeys(layout.paneProfileIds, mapMain),
+  };
+}
+
+function remapRecordKeys<T>(
+  rec: Record<string, T> | undefined,
+  mapId: (id: string) => string,
+  clone: (v: T) => T = (v) => v,
+): Record<string, T> | undefined {
+  if (!rec) return undefined;
+  const out: Record<string, T> = {};
+  for (const [id, val] of Object.entries(rec)) out[mapId(id)] = clone(val);
+  return out;
 }
 
 function loadRawTabs(): TabsStateV1 {
@@ -201,7 +122,6 @@ export function loadLayoutForTab(tabId: string): PersistedPaneLayout | null {
       focusedId: p.focusedId,
       floating: p.floating,
       paneThemes: p.paneThemes,
-      paneNames: p.paneNames,
       paneCwds: p.paneCwds,
       paneProfileIds: p.paneProfileIds,
     };
