@@ -6,7 +6,11 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { parttyPerf } from "./perf";
-import { animateClass, motionDisabled } from "./motion";
+import {
+  animateClass,
+  cancelElementAnimations,
+  motionDisabled,
+} from "./motion";
 
 export const MAIN_PANE_ID = "main";
 
@@ -1241,28 +1245,17 @@ export class PaneHost {
       if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(sx - 1) < 0.01 && Math.abs(sy - 1) < 0.01) {
         continue;
       }
-      leaf.classList.add("pane-leaf--swapping");
-      // Promote to its own compositor layer for the flip so the transform
-      // never forces re-promotion (and re-raster) mid-animation.
-      leaf.style.willChange = "transform";
-      leaf.style.transformOrigin = "0 0";
-      leaf.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const cleanup = (): void => {
-            leaf.style.transition = "";
-            leaf.style.transform = "";
-            leaf.style.transformOrigin = "";
-            leaf.style.willChange = "";
-            leaf.classList.remove("pane-leaf--swapping");
-            leaf.removeEventListener("transitionend", cleanup);
-          };
-          leaf.style.transition = "transform var(--motion-medium) var(--motion-ease-emphasized)";
-          leaf.style.transform = "";
-          leaf.addEventListener("transitionend", cleanup);
-          window.setTimeout(cleanup, 480);
-        });
-      });
+      cancelElementAnimations(leaf);
+      leaf.style.setProperty("--pane-swap-dx", `${dx}px`);
+      leaf.style.setProperty("--pane-swap-dy", `${dy}px`);
+      leaf.style.setProperty("--pane-swap-sx", String(sx));
+      leaf.style.setProperty("--pane-swap-sy", String(sy));
+      animateClass(leaf, "pane-leaf--swapping", () => {
+        leaf.style.removeProperty("--pane-swap-dx");
+        leaf.style.removeProperty("--pane-swap-dy");
+        leaf.style.removeProperty("--pane-swap-sx");
+        leaf.style.removeProperty("--pane-swap-sy");
+      }, 480);
     }
   }
 

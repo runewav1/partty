@@ -934,13 +934,23 @@ html.terminal-no-round .term-tab-group {
   outline-offset: -2px;
 }
 
+@keyframes pane-swap-flip {
+  from {
+    transform: translate(var(--pane-swap-dx), var(--pane-swap-dy))
+      scale(var(--pane-swap-sx), var(--pane-swap-sy));
+  }
+  to {
+    transform: translate(0, 0) scale(1, 1);
+  }
+}
+
 .pane-leaf--swapping {
   z-index: 3;
   will-change: transform, opacity;
   pointer-events: none;
-  transition:
-    transform var(--motion-medium) var(--motion-ease-emphasized),
-    opacity var(--motion-fast) var(--motion-ease-out);
+  transform-origin: 0 0;
+  animation: pane-swap-flip var(--motion-medium) var(--motion-ease-emphasized)
+    forwards;
 }
 
 .pane-leaf--floating {
