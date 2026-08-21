@@ -3551,11 +3551,14 @@ async function boot(): Promise<void> {
     if (prevShell && prevShell !== nextShell && motionOn) {
       prevShell.classList.remove("term-tab-pane-shell--hidden");
       const capturedPrev = prevTabId;
-      void animateClass(prevShell, "term-tab-pane-shell--leaving", 320).then(
+      animateClass(
+        prevShell,
+        "term-tab-pane-shell--leaving",
         () => {
           if (activeWorkspaceTabId === capturedPrev) return;
           prevShell.classList.add("term-tab-pane-shell--hidden");
         },
+        320,
       );
     } else if (prevShell && prevShell !== nextShell) {
       prevShell.classList.add("term-tab-pane-shell--hidden");
@@ -3563,7 +3566,9 @@ async function boot(): Promise<void> {
 
     if (nextShell && motionOn) {
       const capturedTabId = tabId;
-      void animateClass(nextShell, "term-tab-pane-shell--entering", 320).then(
+      animateClass(
+        nextShell,
+        "term-tab-pane-shell--entering",
         () => {
           if (activeWorkspaceTabId !== capturedTabId) return;
           for (const [id, shell] of tabPaneShells) {
@@ -3573,6 +3578,7 @@ async function boot(): Promise<void> {
           scheduleCreationReflowForHost(nextHost);
           scheduleResizeImmediate(true);
         },
+        320,
       );
     } else {
       for (const [id, shell] of tabPaneShells) {

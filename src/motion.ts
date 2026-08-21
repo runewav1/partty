@@ -31,40 +31,53 @@ export function cancelElementAnimations(
 }
 
 /**
- * Add `className` to `el`, resolve when its animation ends, then remove the
- * class. Resolves immediately when motion is disabled. A safety timeout
- * guarantees resolution even if `animationend` never fires (display:none
- * mid-flight, zero-duration animations, dropped frames).
+ * Add `className` to `el`, remove it when its animation ends, and invoke the
+ * optional completion callback. Completion is immediate when motion is
+ * disabled. A safety timeout guarantees cleanup even if `animationend` never
+ * fires (display:none mid-flight, zero-duration animations, dropped frames).
  *
  * Cancels prior animations on `el` first so rapid retargeting (tab spam,
- * create/destroy) never stacks competing transforms.
+ * create/destroy) never stacks competing transforms. The callback form avoids
+ * allocating a Promise for one-shot UI motion.
  */
+function runClassAnimation(
+  el: HTMLElement,
+  className: string,
+  safetyTimeoutMs: number,
+  onFinish?: () => void,
+): void {
+  cancelElementAnimations(el);
+  el.classList.remove(className);
+  if (motionDisabled()) {
+    onFinish?.();
+    return;
+  }
+
+  let done = false;
+  const finish = (): void => {
+    if (done) return;
+    done = true;
+    el.classList.remove(className);
+    el.removeEventListener("animationend", onEnd);
+    window.clearTimeout(timer);
+    onFinish?.();
+  };
+  const onEnd = (e: AnimationEvent): void => {
+    if (e.target === el) finish();
+  };
+  const timer = window.setTimeout(finish, safetyTimeoutMs);
+  el.addEventListener("animationend", onEnd);
+  // Force a style flush so the browser restarts the animation cleanly
+  // when the same class is re-applied in quick succession.
+  void el.offsetWidth;
+  el.classList.add(className);
+}
+
 export function animateClass(
   el: HTMLElement,
   className: string,
+  onFinish?: () => void,
   safetyTimeoutMs = 600,
-): Promise<void> {
-  cancelElementAnimations(el);
-  el.classList.remove(className);
-  if (motionDisabled()) return Promise.resolve();
-  return new Promise((resolve) => {
-    let done = false;
-    const finish = (): void => {
-      if (done) return;
-      done = true;
-      el.classList.remove(className);
-      el.removeEventListener("animationend", onEnd);
-      window.clearTimeout(timer);
-      resolve();
-    };
-    const onEnd = (e: AnimationEvent): void => {
-      if (e.target === el) finish();
-    };
-    const timer = window.setTimeout(finish, safetyTimeoutMs);
-    el.addEventListener("animationend", onEnd);
-    // Force a style flush so the browser restarts the animation cleanly
-    // when the same class is re-applied in quick succession.
-    void el.offsetWidth;
-    el.classList.add(className);
-  });
+): void {
+  runClassAnimation(el, className, safetyTimeoutMs, onFinish);
 }

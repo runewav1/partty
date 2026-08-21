@@ -6,7 +6,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { parttyPerf } from "./perf";
-import { motionDisabled } from "./motion";
+import { animateClass, motionDisabled } from "./motion";
 
 export const MAIN_PANE_ID = "main";
 
@@ -1108,23 +1108,9 @@ export class PaneHost {
       }
     };
 
-    if (leafEl && !motionDisabled()) {
-      let done = false;
-      const finish = (): void => {
-        if (done) return;
-        done = true;
-        window.clearTimeout(safety);
-        leafEl.removeEventListener("animationend", onAnimEnd);
-        run();
-      };
-      const onAnimEnd = (ev: AnimationEvent): void => {
-        if (!ev.animationName.includes("pane-leave")) return;
-        finish();
-      };
-      const safety = window.setTimeout(finish, 280);
-      leafEl.addEventListener("animationend", onAnimEnd);
-      leafEl.classList.add("pane-leaf--leaving");
+    if (leafEl) {
       leafEl.style.pointerEvents = "none";
+      animateClass(leafEl, "pane-leaf--leaving", run, 280);
       return true;
     }
 
@@ -2021,16 +2007,10 @@ export class PaneHost {
       this.applyLeafTheme(wrap, node.id, pt);
       wrap.appendChild(pt.row);
       if (this.justTiled.delete(node.id)) {
-        wrap.classList.add("pane-leaf--floating-return");
-        wrap.addEventListener("animationend", () => {
-          wrap.classList.remove("pane-leaf--floating-return");
-        }, { once: true });
+        animateClass(wrap, "pane-leaf--floating-return");
       }
       if (isNew && !this.opts.suppressEnterAnimation?.()) {
-        wrap.classList.add("pane-leaf--entering");
-        wrap.addEventListener("animationend", () => {
-          wrap.classList.remove("pane-leaf--entering");
-        }, { once: true });
+        animateClass(wrap, "pane-leaf--entering");
       }
       return wrap;
     }
