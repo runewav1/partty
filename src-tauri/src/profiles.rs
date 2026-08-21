@@ -313,7 +313,9 @@ fn decode_wsl_list_bytes(bytes: &[u8]) -> String {
 
     if looks_utf16_le {
         let u16s: Vec<u16> = bytes
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
             .collect();
         return String::from_utf16_lossy(&u16s);
