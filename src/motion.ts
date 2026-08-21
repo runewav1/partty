@@ -115,3 +115,18 @@ export function animateClass(
 ): void {
   runClassAnimation(el, className, safetyTimeoutMs, onFinish);
 }
+
+/** Run a callback after a paint boundary without creating a Promise. */
+export function afterAnimationFrames(callback: () => void, count = 2): void {
+  if (count <= 0) {
+    callback();
+    return;
+  }
+  let remaining = count;
+  const step = (): void => {
+    remaining -= 1;
+    if (remaining <= 0) callback();
+    else requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}

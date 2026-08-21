@@ -103,6 +103,7 @@ import {
 import { showAlert } from "./dialog";
 import { pushOverlay, type OverlayHandle } from "./overlayStack";
 import {
+  afterAnimationFrames,
   animateClass,
   applyMotionPreferences,
   cancelElementAnimations,
@@ -2651,7 +2652,7 @@ async function boot(): Promise<void> {
       }
     };
 
-    requestAnimationFrame(() => requestAnimationFrame(run));
+    afterAnimationFrames(run);
     if (creationReflowLateTimer) window.clearTimeout(creationReflowLateTimer);
     if (document.fonts?.status === "loading") {
       void document.fonts.ready.then(run);
@@ -2696,7 +2697,7 @@ async function boot(): Promise<void> {
     }
     if (layoutRaf) return;
     layoutRaf = requestAnimationFrame(() => {
-      requestAnimationFrame(() => runLayoutPass());
+      afterAnimationFrames(runLayoutPass, 1);
     });
   }
 
@@ -3887,10 +3888,8 @@ async function boot(): Promise<void> {
     if (!cmd) return;
     pendingPaneStartupCommands.delete(paneId);
     const payload = cmd.endsWith("\r") || cmd.endsWith("\n") ? cmd : `${cmd}\r`;
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        void ptyWrite(paneId, payload).catch(() => {});
-      });
+    afterAnimationFrames(() => {
+      void ptyWrite(paneId, payload).catch(() => {});
     });
   }
 

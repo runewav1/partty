@@ -7,6 +7,7 @@ import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import { parttyPerf } from "./perf";
 import {
+  afterAnimationFrames,
   animateClass,
   cancelElementAnimations,
   motionDisabled,
@@ -1876,12 +1877,10 @@ export class PaneHost {
     // flex doesn't ease while xterm reflows (that was a common tear).
     if (commitLayout) {
       this.opts.onPaneLayout?.();
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (this.layoutDragDepth !== 0) return;
-          this.root.classList.remove("pane-host--layout-dragging");
-          this.opts.onPaneLayoutDrag?.(false);
-        });
+      afterAnimationFrames(() => {
+        if (this.layoutDragDepth !== 0) return;
+        this.root.classList.remove("pane-host--layout-dragging");
+        this.opts.onPaneLayoutDrag?.(false);
       });
       return;
     }
