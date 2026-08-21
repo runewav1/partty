@@ -6349,21 +6349,11 @@ async function boot(): Promise<void> {
   // the panes into their new size; the brief scale+fade makes that snap feel
   // intentional and fluid instead of abrupt. Skipped when motion is off / pref
   // disabled, and never hooked to continuous manual drag-resize.
-  let windowMotionTimer = 0;
   function playWindowMotion(): void {
     if (!windowMotionRef.v) return;
-    if (document.documentElement.classList.contains("terminal-motion-off"))
-      return;
     const el = document.getElementById("terminal-pane-root") ?? terminalContent;
     if (!el) return;
-    el.classList.remove("window-motion-settle");
-    void el.offsetWidth; // force reflow so the animation restarts
-    el.classList.add("window-motion-settle");
-    if (windowMotionTimer) window.clearTimeout(windowMotionTimer);
-    windowMotionTimer = window.setTimeout(() => {
-      el.classList.remove("window-motion-settle");
-      windowMotionTimer = 0;
-    }, 700);
+    animateClass(el, "window-motion-settle", undefined, 700);
   }
 
   async function toggleMaximizeRestore(): Promise<void> {

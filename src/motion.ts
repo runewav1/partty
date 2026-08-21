@@ -7,6 +7,7 @@
  */
 
 const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+const activeClassAnimations = new WeakMap<HTMLElement, () => void>();
 
 /** True when animations should be skipped (OS setting or app motion=off). */
 export function motionDisabled(): boolean {
@@ -21,6 +22,7 @@ export function cancelElementAnimations(
   el: HTMLElement,
   subtree = false,
 ): void {
+  activeClassAnimations.get(el)?.();
   try {
     for (const anim of el.getAnimations({ subtree })) {
       anim.cancel();
@@ -37,8 +39,8 @@ export function cancelElementAnimations(
  * fires (display:none mid-flight, zero-duration animations, dropped frames).
  *
  * Cancels prior animations on `el` first so rapid retargeting (tab spam,
- * create/destroy) never stacks competing transforms. The callback form avoids
- * allocating a Promise for one-shot UI motion.
+ * create/destroy) never stacks competing transforms or stale cleanup timers.
+ * The callback form avoids allocating a Promise for one-shot UI motion.
  */
 function runClassAnimation(
   el: HTMLElement,
@@ -54,18 +56,27 @@ function runClassAnimation(
   }
 
   let done = false;
-  const finish = (): void => {
+  let timer = 0;
+  const cancel = (): void => {
     if (done) return;
     done = true;
     el.classList.remove(className);
     el.removeEventListener("animationend", onEnd);
     window.clearTimeout(timer);
+    if (activeClassAnimations.get(el) === cancel) {
+      activeClassAnimations.delete(el);
+    }
+  };
+  const finish = (): void => {
+    if (done) return;
+    cancel();
     onFinish?.();
   };
   const onEnd = (e: AnimationEvent): void => {
     if (e.target === el) finish();
   };
-  const timer = window.setTimeout(finish, safetyTimeoutMs);
+  activeClassAnimations.set(el, cancel);
+  timer = window.setTimeout(finish, safetyTimeoutMs);
   el.addEventListener("animationend", onEnd);
   // Force a style flush so the browser restarts the animation cleanly
   // when the same class is re-applied in quick succession.
