@@ -1581,9 +1581,9 @@ html.zen-mode #main-workspace {
   cursor: pointer;
   opacity: 0;
   transition:
-    opacity 0.12s ease,
-    color 0.12s ease,
-    background 0.12s ease;
+    opacity var(--motion-fast) var(--motion-ease-out),
+    color var(--motion-fast) var(--motion-ease-out),
+    background var(--motion-fast) var(--motion-ease-out);
 }
 
 .command-palette-item:hover .command-palette-item-remove,
@@ -3010,7 +3010,7 @@ html.workspace-editor-open #main-workspace {
   line-height: 1;
   margin-left: 4px;
   padding: 1px 5px;
-  transition: background 0.15s ease;
+  transition: background var(--motion-fast) var(--motion-ease-out);
 }
 .proc-toast-nav:hover {
   background: var(--hover-overlay);
