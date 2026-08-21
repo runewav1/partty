@@ -102,7 +102,12 @@ import {
 } from "./keybinds";
 import { showAlert } from "./dialog";
 import { pushOverlay, type OverlayHandle } from "./overlayStack";
-import { motionDisabled, animateClass, cancelElementAnimations } from "./motion";
+import {
+  animateClass,
+  applyMotionPreferences,
+  cancelElementAnimations,
+  motionDisabled,
+} from "./motion";
 import { filterAndRankLexical, normalizeQuery } from "./lexicalSearch";
 import pkg from "../package.json";
 import { normalizeFsPathKey } from "./oscCwd";
@@ -275,20 +280,6 @@ function scheduleIdle(cb: () => void, timeout = IDLE_WEBGL_MS): void {
   }
 }
 
-function animationScaleForPref(value: unknown): string {
-  const raw = typeof value === "string" ? value.toLowerCase() : "normal";
-  if (raw === "off") return "0";
-  if (raw === "fast") return "0.55";
-  if (raw === "slow") return "1.65";
-  return "1";
-}
-
-function motionStyleForPref(value: unknown): string {
-  const raw = typeof value === "string" ? value.toLowerCase() : "smooth";
-  if (raw === "snappy" || raw === "gentle" || raw === "bouncy") return raw;
-  return "smooth";
-}
-
 function applyTerminalDisplayPrefs(raw: Partial<ParttyPrefs>): void {
   const root = document.documentElement;
   const paneGap =
@@ -311,15 +302,10 @@ function applyTerminalDisplayPrefs(raw: Partial<ParttyPrefs>): void {
     "terminal-no-focus-border",
     Boolean(raw.terminal_no_focus_border),
   );
-  root.classList.toggle(
-    "terminal-motion-off",
-    animationScaleForPref(raw.terminal_animation_speed) === "0",
+  applyMotionPreferences(
+    raw.terminal_animation_speed,
+    raw.terminal_animation_style,
   );
-  root.style.setProperty(
-    "--termie-animation-scale",
-    animationScaleForPref(raw.terminal_animation_speed),
-  );
-  root.dataset.motionStyle = motionStyleForPref(raw.terminal_animation_style);
   const backdropAlpha =
     typeof raw.window_effect_opacity === "number"
       ? raw.window_effect_opacity

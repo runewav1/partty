@@ -9,6 +9,29 @@
 const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 const activeClassAnimations = new WeakMap<HTMLElement, () => void>();
 
+function animationScaleForPreference(value: unknown): string {
+  const raw = typeof value === "string" ? value.toLowerCase() : "normal";
+  if (raw === "off") return "0";
+  if (raw === "fast") return "0.55";
+  if (raw === "slow") return "1.65";
+  return "1";
+}
+
+function motionStyleForPreference(value: unknown): string {
+  const raw = typeof value === "string" ? value.toLowerCase() : "smooth";
+  if (raw === "snappy" || raw === "gentle" || raw === "bouncy") return raw;
+  return "smooth";
+}
+
+/** Apply persisted motion preferences to the shared CSS motion tokens. */
+export function applyMotionPreferences(speed: unknown, style: unknown): void {
+  const root = document.documentElement;
+  const scale = animationScaleForPreference(speed);
+  root.classList.toggle("terminal-motion-off", scale === "0");
+  root.style.setProperty("--termie-animation-scale", scale);
+  root.dataset.motionStyle = motionStyleForPreference(style);
+}
+
 /** True when animations should be skipped (OS setting or app motion=off). */
 export function motionDisabled(): boolean {
   return (

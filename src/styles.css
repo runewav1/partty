@@ -54,6 +54,13 @@
   --motion-fast: calc(0.13s * var(--termie-animation-scale) * var(--motion-feel));
   --motion-medium: calc(0.2s * var(--termie-animation-scale) * var(--motion-feel));
   --motion-slow: calc(0.28s * var(--termie-animation-scale) * var(--motion-feel));
+  --motion-pane-focus-transition:
+    transform var(--motion-medium) var(--motion-ease-out),
+    border-color var(--motion-fast) var(--motion-ease-out),
+    opacity var(--motion-medium) var(--motion-ease-out),
+    filter var(--motion-medium) var(--motion-ease-out),
+    background var(--motion-medium) var(--motion-ease-out),
+    outline var(--motion-fast) var(--motion-ease-out);
   --termie-app-bg-alpha: 1;
   --termie-pane-radius: 6px;
   
@@ -1080,26 +1087,14 @@ html.pane-blur-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--
 html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--focused):not(.pane-leaf--floating):not(.pane-leaf--swapping):not(.pane-leaf--entering):not(.pane-leaf--leaving) {
   transform: scale(calc(1 - var(--pane-focus-scale-delta, 0.006)));
   transform-origin: center center;
-  transition:
-    transform var(--motion-medium) var(--motion-ease-out),
-    border-color var(--motion-fast) var(--motion-ease-out),
-    opacity var(--motion-medium) var(--motion-ease-out),
-    filter var(--motion-medium) var(--motion-ease-out),
-    background var(--motion-medium) var(--motion-ease-out),
-    outline var(--motion-fast) var(--motion-ease-out);
+  transition: var(--motion-pane-focus-transition);
   z-index: 0;
 }
 
 html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf.pane-leaf--focused:not(.pane-leaf--floating):not(.pane-leaf--swapping) {
   transform: scale(calc(1 + var(--pane-focus-scale-delta, 0.006)));
   transform-origin: center center;
-  transition:
-    transform var(--motion-medium) var(--motion-ease-out),
-    border-color var(--motion-fast) var(--motion-ease-out),
-    opacity var(--motion-medium) var(--motion-ease-out),
-    filter var(--motion-medium) var(--motion-ease-out),
-    background var(--motion-medium) var(--motion-ease-out),
-    outline var(--motion-fast) var(--motion-ease-out);
+  transition: var(--motion-pane-focus-transition);
   z-index: 2;
 }
 
