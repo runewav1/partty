@@ -1448,13 +1448,16 @@ export class PaneHost {
       if (!state) continue;
       el.classList.add("pane-leaf--floating");
       if (state.follow) el.classList.add("pane-leaf--floating-follow");
-      if (this.justFloated.delete(paneId)) el.classList.add("pane-leaf--floating-enter");
+      const animateFloatingEnter = this.justFloated.delete(paneId);
       el.style.left = `${state.x}px`;
       el.style.top = `${state.y}px`;
       el.style.width = `${state.width}px`;
       el.style.height = `${state.height}px`;
       el.style.zIndex = String(state.z);
       this.floatingMount(state).appendChild(el);
+      if (animateFloatingEnter) {
+        animateClass(el, "pane-leaf--floating-enter");
+      }
     }
     this.wireFocus();
     if (this.opts.applyPaneFocusClasses && this.opts.getGlobalFocusedPaneId) {
