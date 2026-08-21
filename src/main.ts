@@ -3542,7 +3542,6 @@ async function boot(): Promise<void> {
           if (activeWorkspaceTabId === capturedPrev) return;
           prevShell.classList.add("term-tab-pane-shell--hidden");
         },
-        320,
       );
     } else if (prevShell && prevShell !== nextShell) {
       prevShell.classList.add("term-tab-pane-shell--hidden");
@@ -3562,7 +3561,6 @@ async function boot(): Promise<void> {
           scheduleCreationReflowForHost(nextHost);
           scheduleResizeImmediate(true);
         },
-        320,
       );
     } else {
       for (const [id, shell] of tabPaneShells) {
@@ -6335,7 +6333,7 @@ async function boot(): Promise<void> {
     if (!windowMotionRef.v) return;
     const el = document.getElementById("terminal-pane-root") ?? terminalContent;
     if (!el) return;
-    animateClass(el, "window-motion-settle", undefined, 700);
+    animateClass(el, "window-motion-settle");
   }
 
   async function toggleMaximizeRestore(): Promise<void> {

@@ -1114,7 +1114,7 @@ export class PaneHost {
 
     if (leafEl) {
       leafEl.style.pointerEvents = "none";
-      animateClass(leafEl, "pane-leaf--leaving", run, 280);
+      animateClass(leafEl, "pane-leaf--leaving", run);
       return true;
     }
 
@@ -1255,7 +1255,7 @@ export class PaneHost {
         leaf.style.removeProperty("--pane-swap-dy");
         leaf.style.removeProperty("--pane-swap-sx");
         leaf.style.removeProperty("--pane-swap-sy");
-      }, 480);
+      });
     }
   }
 
