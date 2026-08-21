@@ -1864,9 +1864,7 @@ async function boot(): Promise<void> {
     if (!currentId) return false;
     const swapped = host.swapPaneWithAdjacent(currentId, key);
     if (swapped) {
-      const motionOn =
-        !document.documentElement.classList.contains("terminal-motion-off") &&
-        !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const motionOn = !motionDisabled();
       scheduleCursorWarpToPane(currentId, {
         force: true,
         delayMs: motionOn ? 480 : 0,
@@ -3598,9 +3596,7 @@ async function boot(): Promise<void> {
     );
     renderWorkspaceTabsBar();
     getFocusedTerm()?.focus();
-    const tabMotionOn =
-      !document.documentElement.classList.contains("terminal-motion-off") &&
-      !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const tabMotionOn = !motionDisabled();
     scheduleCursorWarpToPane(lastFocusedPaneId, {
       force: true,
       delayMs: tabMotionOn ? 420 : 0,
