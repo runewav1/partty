@@ -1556,33 +1556,6 @@ impl Drop for PtySession {
     }
 }
 
-fn has_exe_on_path(name: &str) -> bool {
-    let mut c = std::process::Command::new("where.exe");
-    c.arg(name)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    crate::subprocess::hide_console_window(&mut c);
-    c.status().map(|s| s.success()).unwrap_or(false)
-}
-
-/// First absolute path from `where.exe`, if any.
-fn where_exe_first_line(name: &str) -> Option<PathBuf> {
-    let mut c = std::process::Command::new("where.exe");
-    c.arg(name)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
-    crate::subprocess::hide_console_window(&mut c);
-    let out = c.output().ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let s = String::from_utf8_lossy(&out.stdout);
-    s.lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())
-        .map(PathBuf::from)
-}
-
 fn pwsh_standard_paths() -> Vec<PathBuf> {
     let mut v = Vec::new();
     if let Ok(pf) = std::env::var("ProgramFiles") {
@@ -1613,14 +1586,14 @@ fn pwsh_standard_paths() -> Vec<PathBuf> {
 }
 
 /// Resolve PowerShell 7+ for GUI apps where `PATH` may omit the install directory.
-/// Prefer well-known install paths before `where.exe` (fewer subprocesses, works when PATH is wrong).
+/// Prefer well-known install paths before scanning `PATH` (works when PATH is wrong).
 fn resolve_pwsh_executable() -> Option<PathBuf> {
     for p in pwsh_standard_paths() {
         if p.is_file() {
             return Some(p);
         }
     }
-    where_exe_first_line("pwsh.exe").filter(|p| p.is_file())
+    resolve_on_path("pwsh.exe")
 }
 
 /// Standard Git for Windows `bin\bash.exe` locations (not `sh.exe`).
@@ -1685,11 +1658,8 @@ fn resolve_bash_executable(prefs: &Prefs) -> Result<CommandBuilder, String> {
     if let Some(p) = resolve_git_bash_executable() {
         return Ok(CommandBuilder::new(p));
     }
-    if has_exe_on_path("bash.exe") {
-        if let Some(p) = where_exe_first_line("bash.exe")
-            && p.is_file()
-            && !is_wsl_bash_shim(&p)
-        {
+    if let Some(p) = resolve_on_path("bash.exe") {
+        if !is_wsl_bash_shim(&p) {
             return Ok(CommandBuilder::new(p));
         }
         return Ok(CommandBuilder::new("bash.exe"));
@@ -1765,14 +1735,7 @@ fn detect_available_shells_uncached() -> Vec<DetectedShell> {
                 if ps_system_path.is_file() {
                     return Some(ps_system_path.to_string_lossy().into_owned());
                 }
-                if has_exe_on_path("powershell.exe") {
-                    return Some(
-                        where_exe_first_line("powershell.exe")
-                            .map(|p| p.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| "powershell.exe".into()),
-                    );
-                }
-                None
+                resolve_on_path("powershell.exe").map(|p| p.to_string_lossy().into_owned())
             });
 
             // cmd.exe
@@ -1780,14 +1743,7 @@ fn detect_available_shells_uncached() -> Vec<DetectedShell> {
                 if Path::new(&comspec).is_file() {
                     return Some(comspec);
                 }
-                if has_exe_on_path("cmd.exe") {
-                    return Some(
-                        where_exe_first_line("cmd.exe")
-                            .map(|p| p.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| "cmd.exe".into()),
-                    );
-                }
-                None
+                resolve_on_path("cmd.exe").map(|p| p.to_string_lossy().into_owned())
             });
 
             // bash — Git for Windows install only (not PATH / WSL shim / sh.exe).
@@ -1796,14 +1752,7 @@ fn detect_available_shells_uncached() -> Vec<DetectedShell> {
 
             // WSL
             let wsl = s.spawn(|| -> Option<String> {
-                if has_exe_on_path("wsl.exe") {
-                    return Some(
-                        where_exe_first_line("wsl.exe")
-                            .map(|p| p.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| "wsl.exe".into()),
-                    );
-                }
-                None
+                resolve_on_path("wsl.exe").map(|p| p.to_string_lossy().into_owned())
             });
 
             (
@@ -2405,9 +2354,9 @@ fn windows_shell_command(
                     CommandBuilder::new(path_candidate)
                 } else {
                     let exe_with = format!("{}.exe", trimmed);
-                    if has_exe_on_path(&exe_with) {
+                    if resolve_on_path(&exe_with).is_some() {
                         CommandBuilder::new(exe_with)
-                    } else if has_exe_on_path(trimmed) {
+                    } else if resolve_on_path(trimmed).is_some() {
                         CommandBuilder::new(trimmed)
                     } else {
                         return windows_host_shell(prefs);

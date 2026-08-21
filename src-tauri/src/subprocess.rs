@@ -1,5 +1,5 @@
-//! Hide console windows for helper processes (PATH probes, git, cmd wrappers).
-//! GUI apps on Windows otherwise flash a console for each `std::process::Command` without this flag.
+//! Hide console windows for Windows helper processes that must use `std::process::Command`.
+//! GUI apps otherwise flash a console for each visible child process without this flag.
 
 use std::os::windows::process::CommandExt;
 
