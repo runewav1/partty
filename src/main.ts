@@ -3494,6 +3494,16 @@ async function boot(): Promise<void> {
     const prevShell = tabPaneShells.get(prevTabId);
     const nextShell = tabPaneShells.get(tabId);
     const motionOn = !motionDisabled();
+    const prevTabIndex = tabsState.tabs.findIndex((tab) => tab.id === prevTabId);
+    const nextTabIndex = tabsState.tabs.findIndex((tab) => tab.id === tabId);
+    const reverseTabMotion =
+      prevTabIndex >= 0 && nextTabIndex >= 0 && nextTabIndex < prevTabIndex;
+    const enteringClass = reverseTabMotion
+      ? "term-tab-pane-shell--entering-reverse"
+      : "term-tab-pane-shell--entering";
+    const leavingClass = reverseTabMotion
+      ? "term-tab-pane-shell--leaving-reverse"
+      : "term-tab-pane-shell--leaving";
 
     activeWorkspaceTabId = tabId;
     tabsState = { ...tabsState, activeTabId: tabId };
@@ -3509,7 +3519,9 @@ async function boot(): Promise<void> {
       cancelElementAnimations(shell);
       shell.classList.remove(
         "term-tab-pane-shell--entering",
+        "term-tab-pane-shell--entering-reverse",
         "term-tab-pane-shell--leaving",
+        "term-tab-pane-shell--leaving-reverse",
       );
       if (id !== tabId && id !== prevTabId) {
         shell.classList.add("term-tab-pane-shell--hidden");
@@ -3536,7 +3548,7 @@ async function boot(): Promise<void> {
       const capturedPrev = prevTabId;
       animateClass(
         prevShell,
-        "term-tab-pane-shell--leaving",
+        leavingClass,
         () => {
           if (activeWorkspaceTabId === capturedPrev) return;
           prevShell.classList.add("term-tab-pane-shell--hidden");
@@ -3550,7 +3562,7 @@ async function boot(): Promise<void> {
       const capturedTabId = tabId;
       animateClass(
         nextShell,
-        "term-tab-pane-shell--entering",
+        enteringClass,
         () => {
           if (activeWorkspaceTabId !== capturedTabId) return;
           for (const [id, shell] of tabPaneShells) {

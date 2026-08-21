@@ -818,7 +818,7 @@ html.term-tabs-multiple .term-toolbar {
 @keyframes tab-pane-enter {
   0% {
     opacity: 0;
-    transform: translateX(10px);
+    transform: translateX(var(--tab-pane-enter-from, 10px));
   }
   100% {
     opacity: 1;
@@ -833,11 +833,12 @@ html.term-tabs-multiple .term-toolbar {
   }
   100% {
     opacity: 0;
-    transform: translateX(-8px);
+    transform: translateX(var(--tab-pane-leave-to, -8px));
   }
 }
 
-.term-tab-pane-shell--entering {
+.term-tab-pane-shell--entering,
+.term-tab-pane-shell--entering-reverse {
   z-index: 2;
   visibility: visible;
   pointer-events: auto;
@@ -845,12 +846,21 @@ html.term-tabs-multiple .term-toolbar {
   will-change: opacity, transform;
 }
 
-.term-tab-pane-shell--leaving {
+.term-tab-pane-shell--entering-reverse {
+  --tab-pane-enter-from: -10px;
+}
+
+.term-tab-pane-shell--leaving,
+.term-tab-pane-shell--leaving-reverse {
   z-index: 1;
   visibility: visible;
   pointer-events: none;
   animation: tab-pane-leave var(--motion-medium) var(--motion-ease-out) forwards;
   will-change: opacity, transform;
+}
+
+.term-tab-pane-shell--leaving-reverse {
+  --tab-pane-leave-to: 8px;
 }
 
 .term-float-follow-layer {
