@@ -64,3 +64,57 @@ api.showNotification(
   "Extension loaded",
   `Launched ${count} time${count === 1 ? "" : "s"}`
 );
+
+// ── Tab bar (optional)
+// Center the strip; keep extra widgets visible while tabs shrink/scroll.
+//
+// api.setTabBarLayout({ tabJustify: "start", grow: false });
+//
+// api.registerTabBarItem({
+//   id: "ident",
+//   slot: "leading",
+//   order: 0,
+//   mount(el) {
+//     const id = api.getHostIdentity();
+//     el.textContent = `${id.user}@${id.host}`.toLowerCase();
+//   },
+// });
+//
+// api.registerTabRenderer((tab, el) => {
+//   const dot = document.createElement("span");
+//   dot.style.cssText =
+//     "width:8px;height:8px;border-radius:50%;display:inline-block;" +
+//     `background:${tab.active ? "#fff" : tab.color || "#888"}`;
+//   el.replaceChildren(dot);
+// });
+//
+// api.registerTabBarItem({
+//   id: "clock",
+//   slot: "leading",
+//   order: 2,
+//   mount(el) {
+//     const n = document.createElement("span");
+//     const tick = () => {
+//       n.textContent = new Date().toLocaleTimeString();
+//     };
+//     tick();
+//     const t = setInterval(tick, 1000);
+//     el.append(n);
+//     return () => clearInterval(t);
+//   },
+// });
+//
+// api.registerTabBarItem({
+//   id: "pane-id",
+//   slot: "leading",
+//   order: 1,
+//   mount(el) {
+//     el.style.opacity = "0.7";
+//     el.style.fontSize = "11px";
+//   },
+//   update(el) {
+//     const tab = api.getTabs().find((t) => t.active);
+//     el.textContent = tab?.focusedPaneId ?? "";
+//   },
+// });
+

@@ -75,6 +75,11 @@ import {
   type PaneNameParts,
 } from "./displayNames";
 import {
+  initTabBar,
+  type TabBarItem,
+  type TabRenderModel,
+} from "./tabBar";
+import {
   FOLLOW_TAB_MARK,
   formatPaneId,
   mapLayoutToTabKey,
@@ -4702,6 +4707,42 @@ async function boot(): Promise<void> {
     true,
   );
 
+  const tabBar = initTabBar({
+    wrap: document.getElementById("term-tabs-wrap")!,
+    strip: document.getElementById("term-tabs-strip")!,
+    leading: document.getElementById("term-tabbar-leading")!,
+    trailing: document.getElementById("term-tabbar-trailing")!,
+    background: document.getElementById("term-tabbar-bg")!,
+  });
+
+  function tabRenderModel(
+    tab: TabRecord,
+    groupColor: string | null = null,
+  ): TabRenderModel {
+    const group = tab.groupId
+      ? tabsState.groups.find((g) => g.id === tab.groupId)
+      : undefined;
+    const host = tabPaneHosts.get(tab.id);
+    const focused =
+      tab.id === activeWorkspaceTabId
+        ? focusedPaneId()
+        : (host?.getFocusedPaneId() ?? null);
+    const idx = tabsInIndexOrder().findIndex((t) => t.id === tab.id);
+    return {
+      id: tab.id,
+      index: idx >= 0 ? idx + 1 : 1,
+      name: tab.name,
+      displayName: tabDisplayName(tab.id),
+      userName: tab.userName ?? null,
+      color: tab.color || groupColor,
+      groupId: tab.groupId,
+      groupName: group?.name ?? null,
+      groupColor: group?.color ?? groupColor,
+      active: tab.id === activeWorkspaceTabId,
+      focusedPaneId: focused,
+    };
+  }
+
   function renderWorkspaceTabsBar(): void {
     const strip = document.getElementById("term-tabs-strip");
     if (!strip) return;
@@ -4785,10 +4826,24 @@ async function boot(): Promise<void> {
           groupHeader.style.setProperty("--tab-group-color", group.color);
         }
 
-        const groupName = document.createElement("span");
-        groupName.className = "term-tab-group-name";
-        groupName.textContent = group.name;
-        groupHeader.appendChild(groupName);
+        const groupRenderer = tabBar.groupRenderer();
+        if (groupRenderer) {
+          groupRenderer(
+            {
+              id: group.id,
+              name: group.name,
+              color: group.color,
+              collapsed: group.collapsed,
+              tabIds: tabs.map((t) => t.id),
+            },
+            groupHeader,
+          );
+        } else {
+          const groupName = document.createElement("span");
+          groupName.className = "term-tab-group-name";
+          groupName.textContent = group.name;
+          groupHeader.appendChild(groupName);
+        }
 
         groupHeader.addEventListener("contextmenu", (ev) => {
           ev.preventDefault();
@@ -4899,18 +4954,25 @@ async function boot(): Promise<void> {
       if (tab.id === activeWorkspaceTabId)
         btn.classList.add("term-tab--active");
 
-      // Apply tab color (from tab itself or from group)
       const tabColor = tab.color || groupColor;
       if (tabColor) {
         btn.style.setProperty("--tab-color", tabColor);
       }
 
-      const label = document.createElement("span");
-      label.className = "term-tab-label";
-      label.textContent = tabDisplayName(tab.id);
-      btn.appendChild(label);
+      const customTab = tabBar.tabRenderer();
+      if (customTab) {
+        customTab(tabRenderModel(tab, groupColor), btn);
+      } else {
+        const label = document.createElement("span");
+        label.className = "term-tab-label";
+        label.textContent = tabDisplayName(tab.id);
+        btn.appendChild(label);
+      }
 
-      if (tabsState.tabs.length > 1) {
+      if (
+        tabsState.tabs.length > 1 &&
+        !tabBar.layout().omitDefaultClose
+      ) {
         const closeHit = document.createElement("span");
         closeHit.className = "term-tab-close-hit";
         closeHit.setAttribute("aria-hidden", "true");
@@ -4947,6 +5009,9 @@ async function boot(): Promise<void> {
 
       strip.appendChild(btn);
     }
+
+    tabBar.afterStripRender();
+    tabBar.notifyChanged();
   }
 
   let tabDragId: string | null = null;
@@ -7134,6 +7199,15 @@ async function boot(): Promise<void> {
       const exts = allExts.filter((e) => e.enabled);
       if (exts.length === 0) return;
 
+      let hostIdentity = { user: "", host: "" };
+      try {
+        hostIdentity = await invoke<{ user: string; host: string }>(
+          "host_identity",
+        );
+      } catch {
+        /* ignore */
+      }
+
       // Listener registries — zero overhead when no extensions subscribe.
       const extApi: Record<string, unknown> = {
         onPtyOutput(fn: (paneId: string, data: string) => void) {
@@ -7498,12 +7572,21 @@ async function boot(): Promise<void> {
           return splitFocusedWithCwd(dir) ?? null;
         },
         getTabs() {
-          const tabs = visibleWorkspaceTabsInOrder();
-          return tabs.map((t) => ({
-            id: t.id,
-            name: t.name,
-            active: t.id === activeWorkspaceTabId,
-          }));
+          return visibleWorkspaceTabsInOrder().map((t) => tabRenderModel(t));
+        },
+        getTabGroups() {
+          return [...tabsState.groups]
+            .sort((a, b) => a.order - b.order)
+            .map((g) => ({
+              id: g.id,
+              name: g.name,
+              color: g.color,
+              collapsed: g.collapsed,
+              tabIds: tabsState.tabs
+                .filter((t) => t.groupId === g.id)
+                .sort((a, b) => a.order - b.order)
+                .map((t) => t.id),
+            }));
         },
         switchTab(tabId: string) {
           if (typeof tabId !== "string" || !tabId) return;
@@ -7574,6 +7657,72 @@ async function boot(): Promise<void> {
             if (idx !== -1) extTabSwitchSubs.splice(idx, 1);
           };
         },
+        onTabsChanged(fn: () => void) {
+          return tabBar.onChange(fn);
+        },
+        getTabBarLayout() {
+          return tabBar.layout();
+        },
+        setTabBarLayout(partial: {
+          tabJustify?: "start" | "center" | "end";
+          showSingleTab?: boolean;
+          omitDefaultClose?: boolean;
+          grow?: boolean;
+          gap?: string;
+          itemGap?: string;
+        }) {
+          const unsub = tabBar.setLayout(partial);
+          renderWorkspaceTabsBar();
+          return () => {
+            unsub();
+            renderWorkspaceTabsBar();
+          };
+        },
+        registerTabRenderer(fn: (tab: TabRenderModel, el: HTMLElement) => void) {
+          const unsub = tabBar.registerTabRenderer(fn);
+          renderWorkspaceTabsBar();
+          return () => {
+            unsub();
+            renderWorkspaceTabsBar();
+          };
+        },
+        registerGroupRenderer(
+          fn: (
+            group: {
+              id: string;
+              name: string;
+              color: string | null;
+              collapsed: boolean;
+              tabIds: string[];
+            },
+            el: HTMLElement,
+          ) => void,
+        ) {
+          const unsub = tabBar.registerGroupRenderer(fn);
+          renderWorkspaceTabsBar();
+          return () => {
+            unsub();
+            renderWorkspaceTabsBar();
+          };
+        },
+        registerTabBarItem(item: TabBarItem) {
+          if (!item || typeof item.id !== "string" || !item.id) return () => {};
+          if (
+            item.slot !== "leading" &&
+            item.slot !== "trailing" &&
+            item.slot !== "background"
+          ) {
+            return () => {};
+          }
+          if (typeof item.mount !== "function") return () => {};
+          return tabBar.registerItem(item);
+        },
+        requestTabBarRender() {
+          renderWorkspaceTabsBar();
+        },
+        refreshTabBarItems() {
+          tabBar.refreshItems();
+        },
 
         // ── Window lifecycle ──
         onWindowShow(fn: () => void) {
@@ -7593,6 +7742,10 @@ async function boot(): Promise<void> {
 
         // ── Metadata ──
         getAppVersion: () => pkg.version,
+        getHostIdentity: () => ({
+          user: hostIdentity.user,
+          host: hostIdentity.host,
+        }),
       };
 
       for (const ext of exts) {

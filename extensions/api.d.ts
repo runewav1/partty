@@ -72,6 +72,62 @@ export type OverlayHandle = {
   destroy(): void;
 };
 
+export type TabBarJustify = "start" | "center" | "end";
+
+export type TabBarSlot = "leading" | "trailing" | "background";
+
+export type TabBarLayout = {
+  tabJustify?: TabBarJustify;
+  /** When true, keep the strip visible even with a single tab. */
+  showSingleTab?: boolean;
+  /** Do not append the built-in close control; render it yourself if needed. */
+  omitDefaultClose?: boolean;
+  /** When false, hug content so leftover width is the window drag region. */
+  grow?: boolean;
+  /** CSS gap between leading / strip / trailing. */
+  gap?: string;
+  /** CSS gap between items inside a slot. */
+  itemGap?: string;
+};
+
+export type HostIdentity = {
+  user: string;
+  host: string;
+};
+
+export type TabInfo = {
+  id: string;
+  /** 1-based strip index (matches the number in live pane ids). */
+  index: number;
+  name: string;
+  displayName: string;
+  userName: string | null;
+  color: string | null;
+  groupId: string | null;
+  groupName: string | null;
+  groupColor: string | null;
+  active: boolean;
+  focusedPaneId: string | null;
+};
+
+export type TabGroupInfo = {
+  id: string;
+  name: string;
+  color: string | null;
+  collapsed: boolean;
+  tabIds: string[];
+};
+
+export type TabBarItem = {
+  id: string;
+  slot: TabBarSlot;
+  order?: number;
+  /** Called once. Return a disposer (clearInterval, etc.). */
+  mount: (el: HTMLElement) => void | (() => void);
+  /** Called after each host strip rebuild. `el` is the same node as mount. */
+  update?: (el: HTMLElement) => void;
+};
+
 export type ExtensionApi = {
   onPtyOutput(fn: (paneId: string, data: string) => void): () => void;
   onPtyInput(fn: (paneId: string, data: string) => void): () => void;
@@ -89,7 +145,8 @@ export type ExtensionApi = {
   focusPane(paneId: string): void;
   closePane(paneId: string): void;
   splitPane(paneId: string, dir: "h" | "v"): string | null;
-  getTabs(): { id: string; name: string; active: boolean }[];
+  getTabs(): TabInfo[];
+  getTabGroups(): TabGroupInfo[];
   switchTab(tabId: string): void;
 
   // ── Events ──
@@ -98,6 +155,11 @@ export type ExtensionApi = {
   onFocusChanged(fn: (paneId: string) => void): () => void;
   onCwdChanged(fn: (paneId: string, cwd: string) => void): () => void;
   onTabSwitch(fn: (tabId: string) => void): () => void;
+  /**
+   * Fires after the host rebuilds the tab strip (switch, rename, reorder,
+   * title, custom renderer). Do not call requestTabBarRender from here.
+   */
+  onTabsChanged(fn: () => void): () => void;
   onWindowShow(fn: () => void): () => void;
   onWindowHide(fn: () => void): () => void;
 
@@ -133,6 +195,8 @@ export type ExtensionApi = {
 
   // ── Metadata ──
   getAppVersion(): string;
+  /** Local account and machine name (`user` / `host`). */
+  getHostIdentity(): HostIdentity;
 
   // ── Rendering & cursor (pane overlay surface) ──
   /** Per-pane canvas overlay above the terminal surface. */
@@ -147,4 +211,36 @@ export type ExtensionApi = {
   ): () => void;
   /** Current view-relative cursor cell. */
   getCursorPos(paneId: string): CursorPosition | null;
+
+  // ── Tab bar chrome ──
+  getTabBarLayout(): {
+    tabJustify: TabBarJustify;
+    showSingleTab: boolean;
+    omitDefaultClose: boolean;
+    grow: boolean;
+    gap: string;
+    itemGap: string;
+  };
+  /**
+   * Layout of the host strip. Last writer wins; the returned function
+   * restores the previous layout.
+   */
+  setTabBarLayout(layout: TabBarLayout): () => void;
+  /**
+   * Replace the contents of each tab button. The host still creates the
+   * button, wires click / drag / context menu, and optionally the close hit.
+   */
+  registerTabRenderer(fn: (tab: TabInfo, el: HTMLElement) => void): () => void;
+  registerGroupRenderer(
+    fn: (group: TabGroupInfo, el: HTMLElement) => void,
+  ): () => void;
+  /**
+   * Persistent widget in the tab-bar area. Survives strip rebuilds.
+   * Use `trailing` / `leading` for clocks and labels; `background` is
+   * pointer-events: none and fills the wrap.
+   */
+  registerTabBarItem(item: TabBarItem): () => void;
+  requestTabBarRender(): void;
+  /** Run accessory `update` hooks without rebuilding the strip. */
+  refreshTabBarItems(): void;
 };
