@@ -1,14 +1,5 @@
-import type { PaneNode } from "./paneHost";
+import { collectLeafIds, type PaneNode } from "./paneHost";
 import type { PersistedPaneLayout } from "./paneLayout";
-
-function collectIds(node: PaneNode, out: string[]): void {
-  if (node.kind === "leaf") {
-    out.push(node.id);
-    return;
-  }
-  collectIds(node.a, out);
-  collectIds(node.b, out);
-}
 
 export const FOLLOW_TAB_MARK = "*";
 
@@ -85,7 +76,7 @@ export function mapLayoutToTabKey(
   followSlots: Set<string>,
 ): { layout: PersistedPaneLayout; idMap: Map<string, string> } {
   const ids: string[] = [];
-  collectIds(layout.tree, ids);
+  collectLeafIds(layout.tree, ids);
   const localUsed = new Set<string>();
   const idMap = new Map<string, string>();
 
@@ -110,7 +101,12 @@ export function mapLayoutToTabKey(
   };
 }
 
+/** Default root leaf id for a tab (`1a`, `2a`, …). */
+export function tabRootPaneId(tabKey: string): string {
+  return formatPaneId(tabKey, "a");
+}
+
 export function emptyTabLayout(tabKey: string): PersistedPaneLayout {
-  const id = formatPaneId(tabKey, "a");
+  const id = tabRootPaneId(tabKey);
   return { v: 1, tree: { kind: "leaf", id }, focusedId: id };
 }

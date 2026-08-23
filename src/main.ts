@@ -53,7 +53,6 @@ import {
 } from "./paneLayout";
 import {
   duplicateTabLayout,
-  emptyTabLayout,
   initialLayoutForTab,
   loadLayoutForTab,
   loadTabsState,
@@ -81,13 +80,14 @@ import {
 } from "./tabBar";
 import {
   FOLLOW_TAB_MARK,
+  emptyTabLayout,
   formatPaneId,
   mapLayoutToTabKey,
   nextSlot,
   parsePaneId,
+  tabRootPaneId,
 } from "./paneIds";
 import { initParttyScrollFade } from "./scrollChrome";
-import { workspaceRootPaneId } from "./workspacePaneIds";
 import { attachDraggablePanel } from "./draggablePanel";
 import {
   getSessionShedOnExitMode,
@@ -1853,7 +1853,7 @@ async function boot(): Promise<void> {
     } else {
       dirty = true;
     }
-    if (dirty) renderWorkspaceTabsBar();
+    if (dirty) renderTabsBar();
   }
 
   function persistHostLayout(host: PaneHost): void {
@@ -1908,7 +1908,7 @@ async function boot(): Promise<void> {
       ownerHost.isPristineRootTab() &&
       !ownerHost.isPaneFloating(id)
     ) {
-      closeWorkspaceTab(activeWorkspaceTabId);
+      closeTab(activeTabId);
       return;
     }
 
@@ -2135,7 +2135,7 @@ async function boot(): Promise<void> {
       }
       const changed = paneHost.toggleFocusedFloating();
       if (!changed) return false;
-      persistCurrentWorkspaceTabLayout();
+      persistCurrentTabLayout();
       scheduleResizeImmediate();
       return true;
     }
@@ -2149,7 +2149,7 @@ async function boot(): Promise<void> {
       }
       ownerHost.clearPaneMoveRollback();
       persistHostLayout(ownerHost);
-      persistCurrentWorkspaceTabLayout();
+      persistCurrentTabLayout();
       paneHost.setFocusedPaneId(id);
       scheduleCreationReflow(id);
       scheduleResizeImmediate();
@@ -2188,7 +2188,7 @@ async function boot(): Promise<void> {
       pendingNewPaneProfile.v = null;
       return null;
     }
-    persistCurrentWorkspaceTabLayout();
+    persistCurrentTabLayout();
     if (!document.documentElement.classList.contains("partty-booting")) {
       scheduleCreationReflow(newId);
     }
@@ -2915,11 +2915,11 @@ async function boot(): Promise<void> {
   }
 
   let tabsState: TabsStateV1 = loadTabsState();
-  let activeWorkspaceTabId =
+  let activeTabId =
     tabsState.tabs.find((t) => t.id === tabsState.activeTabId)?.id ??
     tabsState.tabs[0]?.id ??
     "tab-1";
-  tabsState = { ...tabsState, activeTabId: activeWorkspaceTabId };
+  tabsState = { ...tabsState, activeTabId: activeTabId };
   saveTabsState(tabsState);
   const tabPaneHosts = new Map<string, PaneHost>();
   const tabPaneShells = new Map<string, HTMLElement>();
@@ -3493,7 +3493,7 @@ async function boot(): Promise<void> {
           setTerminalLayoutSuspended(dragging);
           mouseCursorDragRef.suppress?.(dragging);
         },
-        onPaneReorder: () => persistCurrentWorkspaceTabLayout(),
+        onPaneReorder: () => persistCurrentTabLayout(),
       },
       init,
     );
@@ -3508,11 +3508,11 @@ async function boot(): Promise<void> {
     shell.className = "term-tab-pane-shell";
     shell.dataset.tabId = tabId;
     terminalPaneRoot.appendChild(shell);
-    const rid = rootPaneId ?? workspaceRootPaneId(tabKeyForTabId(tabId));
+    const rid = rootPaneId ?? tabRootPaneId(tabKeyForTabId(tabId));
     const host = createPaneHost(shell, init, rid, tabId);
     tabPaneHosts.set(tabId, host);
     tabPaneShells.set(tabId, shell);
-    if (tabId !== activeWorkspaceTabId) {
+    if (tabId !== activeTabId) {
       shell.classList.add("term-tab-pane-shell--hidden");
     }
     return host;
@@ -3551,9 +3551,9 @@ async function boot(): Promise<void> {
         initialFloating: layout.floating,
       };
       const rootId = resolveTabRootPaneId(layout);
-      if (tab.id === activeWorkspaceTabId || layoutNeedsLiveHost(layout)) {
+      if (tab.id === activeTabId || layoutNeedsLiveHost(layout)) {
         createTabPaneShellAndHost(tab.id, init, rootId);
-        if (tab.id !== activeWorkspaceTabId) {
+        if (tab.id !== activeTabId) {
           tabPaneShells.get(tab.id)?.classList.add("term-tab-pane-shell--hidden");
         }
       } else {
@@ -3561,7 +3561,7 @@ async function boot(): Promise<void> {
       }
     }
   }
-  paneHost = tabPaneHosts.get(activeWorkspaceTabId)!;
+  paneHost = tabPaneHosts.get(activeTabId)!;
   lastFocusedPaneId = paneHost.getFocusedPaneId();
   syncGlobalPaneFocus(lastFocusedPaneId);
   installPointerFocusFollow();
@@ -3582,11 +3582,11 @@ async function boot(): Promise<void> {
     true,
   );
 
-  function persistCurrentWorkspaceTabLayout(): void {
+  function persistCurrentTabLayout(): void {
     if (!paneHost) return;
     const pl = layoutForPaneHost(paneHost);
     if (!pl) return;
-    persistLayoutForTab(activeWorkspaceTabId, pl);
+    persistLayoutForTab(activeTabId, pl);
   }
 
   function layoutForPaneHost(host: PaneHost): PersistedPaneLayout | null {
@@ -3618,13 +3618,13 @@ async function boot(): Promise<void> {
     );
   }
 
-  function switchWorkspaceTab(tabId: string): void {
-    if (tabId === activeWorkspaceTabId) return;
+  function switchToTab(tabId: string): void {
+    if (tabId === activeTabId) return;
     const nextHost = ensureTabPaneHost(tabId);
     if (!nextHost) return;
-    persistCurrentWorkspaceTabLayout();
+    persistCurrentTabLayout();
 
-    const prevTabId = activeWorkspaceTabId;
+    const prevTabId = activeTabId;
     const prevShell = tabPaneShells.get(prevTabId);
     const nextShell = tabPaneShells.get(tabId);
     const motionOn = !motionDisabled();
@@ -3639,7 +3639,7 @@ async function boot(): Promise<void> {
       ? "term-tab-pane-shell--leaving-reverse"
       : "term-tab-pane-shell--leaving";
 
-    activeWorkspaceTabId = tabId;
+    activeTabId = tabId;
     tabsState = { ...tabsState, activeTabId: tabId };
     saveTabsState(tabsState);
 
@@ -3685,7 +3685,7 @@ async function boot(): Promise<void> {
         prevShell,
         leavingClass,
         () => {
-          if (activeWorkspaceTabId === capturedPrev) return;
+          if (activeTabId === capturedPrev) return;
           prevShell.classList.add("term-tab-pane-shell--hidden");
         },
       );
@@ -3699,7 +3699,7 @@ async function boot(): Promise<void> {
         nextShell,
         enteringClass,
         () => {
-          if (activeWorkspaceTabId !== capturedTabId) return;
+          if (activeTabId !== capturedTabId) return;
           for (const [id, shell] of tabPaneShells) {
             if (id !== capturedTabId)
               shell.classList.add("term-tab-pane-shell--hidden");
@@ -3724,7 +3724,7 @@ async function boot(): Promise<void> {
       "term-tabs-multiple",
       tabsState.tabs.length > 1,
     );
-    renderWorkspaceTabsBar();
+    renderTabsBar();
     getFocusedTerm()?.focus();
     const tabMotionOn = !motionDisabled();
     scheduleCursorWarpToPane(lastFocusedPaneId, {
@@ -3748,7 +3748,7 @@ async function boot(): Promise<void> {
     });
   }
 
-  function visibleWorkspaceTabsInOrder(): TabRecord[] {
+  function visibleTabsInOrder(): TabRecord[] {
     const sortedTabs = [...tabsState.tabs].sort((a, b) => a.order - b.order);
     const sortedGroups = [...tabsState.groups].sort(
       (a, b) => a.order - b.order,
@@ -3784,13 +3784,13 @@ async function boot(): Promise<void> {
   }
 
   function tabForHotkeyIndex(index: number): TabRecord | null {
-    return visibleWorkspaceTabsInOrder()[index] ?? null;
+    return visibleTabsInOrder()[index] ?? null;
   }
 
   function switchOrCreateTabForHotkeyIndex(index: number): void {
     const existing = tabForHotkeyIndex(index);
-    if (existing) switchWorkspaceTab(existing.id);
-    else openNewWorkspaceTab();
+    if (existing) switchToTab(existing.id);
+    else openNewTab();
   }
 
   function openTabWithTransferredPane(
@@ -3824,8 +3824,8 @@ async function boot(): Promise<void> {
       },
       paneId,
     );
-    if (switchTo) switchWorkspaceTab(tabId);
-    else renderWorkspaceTabsBar();
+    if (switchTo) switchToTab(tabId);
+    else renderTabsBar();
     syncLivePaneIds();
     return tabId;
   }
@@ -3867,7 +3867,7 @@ async function boot(): Promise<void> {
   }
 
   function moveFocusedPaneToTabHotkeyIndex(index: number): void {
-    const sourceTabId = activeWorkspaceTabId;
+    const sourceTabId = activeTabId;
     const sourceHost = paneHost;
     const paneId = sourceHost?.getFocusedPaneId();
     if (!sourceHost || !paneId) return;
@@ -3917,15 +3917,15 @@ async function boot(): Promise<void> {
     if (targetLayout) persistLayoutForTab(targetTabId, targetLayout);
     targetHost.setFocusedPaneId(paneId);
     if (closingSourceTab) {
-      closeWorkspaceTab(sourceTabId);
+      closeTab(sourceTabId);
       if (!quietPaneDeferralRef.v) {
-        switchWorkspaceTab(targetTabId);
+        switchToTab(targetTabId);
       }
     } else if (quietPaneDeferralRef.v) {
-      renderWorkspaceTabsBar();
+      renderTabsBar();
       sourceHost.getPaneTerminal(sourceHost.getFocusedPaneId())?.term.focus();
     } else {
-      switchWorkspaceTab(targetTabId);
+      switchToTab(targetTabId);
     }
     scheduleCreationReflow(paneId);
     if (!closingSourceTab && paneHost === sourceHost) {
@@ -3955,8 +3955,8 @@ async function boot(): Promise<void> {
     tabMenuOverlay = pushOverlay(hideTabContextMenu);
   }
 
-  function duplicateWorkspaceTab(fromTabId: string): void {
-    persistCurrentWorkspaceTabLayout();
+  function duplicateTab(fromTabId: string): void {
+    persistCurrentTabLayout();
     const tabKey = String(tabsInIndexOrder().length + 1);
     const raw = loadLayoutForTab(fromTabId) ?? emptyTabLayout(tabKey);
     const newId = crypto.randomUUID();
@@ -3996,7 +3996,7 @@ async function boot(): Promise<void> {
       initialTree: dup.tree,
       initialFocusedId: dup.focusedId,
     });
-    switchWorkspaceTab(newId);
+    switchToTab(newId);
   }
 
 
@@ -4019,15 +4019,15 @@ async function boot(): Promise<void> {
     tabPaneShells.delete(tabId);
   }
 
-  function closeWorkspaceTab(tabId: string): void {
+  function closeTab(tabId: string): void {
     if (tabsState.tabs.length <= 1) return;
     const idx = tabsState.tabs.findIndex((t) => t.id === tabId);
     if (idx < 0) return;
-    persistCurrentWorkspaceTabLayout();
-    if (tabId === activeWorkspaceTabId) {
+    persistCurrentTabLayout();
+    if (tabId === activeTabId) {
       const other = tabsState.tabs[idx + 1] ?? tabsState.tabs[idx - 1];
       if (!other) return;
-      switchWorkspaceTab(other.id);
+      switchToTab(other.id);
     }
     tabsState = {
       ...tabsState,
@@ -4045,7 +4045,7 @@ async function boot(): Promise<void> {
       "term-tabs-multiple",
       tabsState.tabs.length > 1,
     );
-    renderWorkspaceTabsBar();
+    renderTabsBar();
     scheduleResizeImmediate(true);
     if (paneHost) scheduleHostGeometryRepair(paneHost);
     getFocusedTerm()?.focus();
@@ -4071,7 +4071,7 @@ async function boot(): Promise<void> {
         saveTabsState(tabsState);
       }
     }
-    renderWorkspaceTabsBar();
+    renderTabsBar();
   }
 
   let zenRenameOverlay: OverlayHandle | null = null;
@@ -4119,7 +4119,7 @@ async function boot(): Promise<void> {
       }
     }
     renamingTabId = null;
-    renderWorkspaceTabsBar();
+    renderTabsBar();
     getFocusedTerm()?.focus();
   }
 
@@ -4129,7 +4129,7 @@ async function boot(): Promise<void> {
       openZenRenameModal();
       return;
     }
-    renderWorkspaceTabsBar();
+    renderTabsBar();
     requestAnimationFrame(() => {
       const strip = document.getElementById("term-tabs-strip");
       const inp = strip?.querySelector(
@@ -4157,12 +4157,12 @@ async function boot(): Promise<void> {
         saveTabsState(tabsState);
       }
     }
-    renderWorkspaceTabsBar();
+    renderTabsBar();
   }
 
   function beginGroupRename(groupId: string): void {
     renamingGroupId = groupId;
-    renderWorkspaceTabsBar();
+    renderTabsBar();
     requestAnimationFrame(() => {
       const strip = document.getElementById("term-tabs-strip");
       const inp = strip?.querySelector(
@@ -4173,7 +4173,7 @@ async function boot(): Promise<void> {
     });
   }
 
-  function openNewWorkspaceTab(
+  function openNewTab(
     switchTo = true,
     profileId?: string | null,
   ): string {
@@ -4203,8 +4203,8 @@ async function boot(): Promise<void> {
       initialTree: empty.tree,
       initialFocusedId: empty.focusedId,
     });
-    if (switchTo) switchWorkspaceTab(id);
-    else renderWorkspaceTabsBar();
+    if (switchTo) switchToTab(id);
+    else renderTabsBar();
     return id;
   }
 
@@ -4248,7 +4248,7 @@ async function boot(): Promise<void> {
           ),
         };
         saveTabsState(tabsState);
-        renderWorkspaceTabsBar();
+        renderTabsBar();
       });
       input.addEventListener("change", () => {
         document.body.removeChild(input);
@@ -4258,7 +4258,7 @@ async function boot(): Promise<void> {
       });
       input.click();
     });
-    mk("Duplicate", () => duplicateWorkspaceTab(tab.id));
+    mk("Duplicate", () => duplicateTab(tab.id));
     mk("Add to new group", () => {
       const groupId = crypto.randomUUID();
       const groupName = `Group ${tabsState.groups.length + 1}`;
@@ -4280,7 +4280,7 @@ async function boot(): Promise<void> {
         ),
       };
       saveTabsState(tabsState);
-      renderWorkspaceTabsBar();
+      renderTabsBar();
     });
     for (const group of tabsState.groups) {
       if (group.id === tab.groupId) continue;
@@ -4292,7 +4292,7 @@ async function boot(): Promise<void> {
           ),
         };
         saveTabsState(tabsState);
-        renderWorkspaceTabsBar();
+        renderTabsBar();
       });
     }
     if (tab.groupId) {
@@ -4304,11 +4304,11 @@ async function boot(): Promise<void> {
           ),
         };
         saveTabsState(tabsState);
-        renderWorkspaceTabsBar();
+        renderTabsBar();
       });
     }
     if (tabsState.tabs.length > 1) {
-      mk("Close", () => closeWorkspaceTab(tab.id));
+      mk("Close", () => closeTab(tab.id));
     }
     showTabContextMenuAt(clientX, clientY);
   }
@@ -4353,7 +4353,7 @@ async function boot(): Promise<void> {
           ),
         };
         saveTabsState(tabsState);
-        renderWorkspaceTabsBar();
+        renderTabsBar();
       });
       input.addEventListener("change", () => {
         document.body.removeChild(input);
@@ -4371,7 +4371,7 @@ async function boot(): Promise<void> {
         ),
       };
       saveTabsState(tabsState);
-      renderWorkspaceTabsBar();
+      renderTabsBar();
     });
     mk("Disband group", () => {
       tabsState = {
@@ -4382,7 +4382,7 @@ async function boot(): Promise<void> {
         ),
       };
       saveTabsState(tabsState);
-      renderWorkspaceTabsBar();
+      renderTabsBar();
     });
     showTabContextMenuAt(clientX, clientY);
   }
@@ -4501,7 +4501,7 @@ async function boot(): Promise<void> {
       : undefined;
     const host = tabPaneHosts.get(tab.id);
     const focused =
-      tab.id === activeWorkspaceTabId
+      tab.id === activeTabId
         ? focusedPaneId()
         : (host?.getFocusedPaneId() ?? null);
     const idx = tabsInIndexOrder().findIndex((t) => t.id === tab.id);
@@ -4515,12 +4515,12 @@ async function boot(): Promise<void> {
       groupId: tab.groupId,
       groupName: group?.name ?? null,
       groupColor: group?.color ?? groupColor,
-      active: tab.id === activeWorkspaceTabId,
+      active: tab.id === activeTabId,
       focusedPaneId: focused,
     };
   }
 
-  function renderWorkspaceTabsBar(): void {
+  function renderTabsBar(): void {
     const strip = document.getElementById("term-tabs-strip");
     if (!strip) return;
     strip.replaceChildren();
@@ -4662,7 +4662,7 @@ async function boot(): Promise<void> {
             ),
           };
           saveTabsState(tabsState);
-          renderWorkspaceTabsBar();
+          renderTabsBar();
         });
 
         strip.appendChild(groupHeader);
@@ -4726,9 +4726,9 @@ async function boot(): Promise<void> {
       btn.role = "tab";
       btn.setAttribute(
         "aria-selected",
-        tab.id === activeWorkspaceTabId ? "true" : "false",
+        tab.id === activeTabId ? "true" : "false",
       );
-      if (tab.id === activeWorkspaceTabId)
+      if (tab.id === activeTabId)
         btn.classList.add("term-tab--active");
 
       const tabColor = tab.color || groupColor;
@@ -4764,10 +4764,10 @@ async function boot(): Promise<void> {
         if (tabsState.tabs.length > 1 && t.closest(".term-tab-close-hit")) {
           ev.preventDefault();
           ev.stopPropagation();
-          closeWorkspaceTab(tab.id);
+          closeTab(tab.id);
           return;
         }
-        switchWorkspaceTab(tab.id);
+        switchToTab(tab.id);
       });
       btn.addEventListener("contextmenu", (ev) => {
         ev.preventDefault();
@@ -4832,7 +4832,7 @@ async function boot(): Promise<void> {
       tabsState = { ...tabsState, tabs: next };
       saveTabsState(tabsState);
       syncLivePaneIds();
-      renderWorkspaceTabsBar();
+      renderTabsBar();
     }
 
     // Handle group reordering
@@ -4854,11 +4854,11 @@ async function boot(): Promise<void> {
       next.forEach((group, i) => (group.order = i));
       tabsState = { ...tabsState, groups: next };
       saveTabsState(tabsState);
-      renderWorkspaceTabsBar();
+      renderTabsBar();
     }
   });
 
-  renderWorkspaceTabsBar();
+  renderTabsBar();
   initParttyScrollFade();
 
   void (async () => {
@@ -5007,7 +5007,7 @@ async function boot(): Promise<void> {
         onCommit: (prefs) => {
           paneThemeRestore = null;
           applyPaneTheme(paneId, prefs);
-          persistCurrentWorkspaceTabLayout();
+          persistCurrentTabLayout();
         },
       });
     });
@@ -5313,10 +5313,10 @@ async function boot(): Promise<void> {
     bridgeScrollCleanup?.();
     bridgeScrollCleanup = null;
     shedWebgl();
-    const tabId = activeWorkspaceTabId;
+    const tabId = activeTabId;
     disposeTabPaneHost(tabId);
     clearPaneLayout();
-    const rid = workspaceRootPaneId(tabKeyForTabId(tabId));
+    const rid = tabRootPaneId(tabKeyForTabId(tabId));
     paneHost = createTabPaneShellAndHost(tabId, {
       initialTree: { kind: "leaf", id: rid },
       initialFocusedId: rid,
@@ -5396,7 +5396,7 @@ async function boot(): Promise<void> {
 
 
   function getTabPaletteCommands(): PaletteCommand[] {
-    return visibleWorkspaceTabsInOrder().map((tab, index) => {
+    return visibleTabsInOrder().map((tab, index) => {
       const host = tabPaneHosts.get(tab.id);
       const leafIds = host?.getLeafIdsInOrder() ?? [];
       const paneKeywords: string[] = [];
@@ -5430,7 +5430,7 @@ async function boot(): Promise<void> {
         keywords: `tab workspace ${tab.name} ${label} ${extra} alt ${index + 1}`,
         hotkey:
           index < 9 ? `Alt+${index + 1}` : index === 9 ? "Alt+0" : undefined,
-        run: () => switchWorkspaceTab(tab.id),
+        run: () => switchToTab(tab.id),
       };
     });
   }
@@ -5556,7 +5556,7 @@ async function boot(): Promise<void> {
   function navigateToPane(paneId: string): void {
     for (const [tabId, host] of tabPaneHosts) {
       if (host.getPaneTerminal(paneId)) {
-        if (tabId !== activeWorkspaceTabId) switchWorkspaceTab(tabId);
+        if (tabId !== activeTabId) switchToTab(tabId);
         host.getPaneTerminal(paneId)?.term.focus();
         return;
       }
@@ -5649,7 +5649,7 @@ async function boot(): Promise<void> {
         run: () => {
           for (const [tid, host] of tabPaneHosts) {
             if (host.getPaneTerminal(leafId)) {
-              if (tid !== activeWorkspaceTabId) switchWorkspaceTab(tid);
+              if (tid !== activeTabId) switchToTab(tid);
               host.getPaneTerminal(leafId)?.term.focus();
               return;
             }
@@ -5681,7 +5681,7 @@ async function boot(): Promise<void> {
       // No command — switch to the pane's tab and focus it.
       for (const [tabId, host] of tabPaneHosts) {
         if (host.getPaneTerminal(targetPaneId)) {
-          if (tabId !== activeWorkspaceTabId) switchWorkspaceTab(tabId);
+          if (tabId !== activeTabId) switchToTab(tabId);
           host.getPaneTerminal(targetPaneId)?.term.focus();
           return;
         }
@@ -5710,7 +5710,7 @@ async function boot(): Promise<void> {
     const id = resolveDefaultProfileId(profileId, profilesList);
     switch (action) {
       case "new-tab":
-        openNewWorkspaceTab(true, id);
+        openNewTab(true, id);
         return;
       case "split-h":
         splitFocusedWithCwd("h", id);
@@ -5868,26 +5868,26 @@ async function boot(): Promise<void> {
         label: "New tab",
         keywords: "workspace create add profile",
         run: () => {
-          openNewWorkspaceTab();
+          openNewTab();
         },
       },
       {
         id: "tab-duplicate",
         label: "Duplicate tab",
         keywords: "workspace copy clone",
-        run: () => duplicateWorkspaceTab(activeWorkspaceTabId),
+        run: () => duplicateTab(activeTabId),
       },
       {
         id: "tab-rename",
         label: "Rename tab",
         keywords: "workspace title edit",
-        run: () => beginTabRename(activeWorkspaceTabId),
+        run: () => beginTabRename(activeTabId),
       },
       {
         id: "tab-close",
         label: "Close tab",
         keywords: "workspace remove delete",
-        run: () => closeWorkspaceTab(activeWorkspaceTabId),
+        run: () => closeTab(activeTabId),
       },
       {
         id: "pane-close-children",
@@ -6746,7 +6746,7 @@ async function boot(): Promise<void> {
           }
         }
         if (paneHost && lp.destroy_webview_on_hide) {
-          persistCurrentWorkspaceTabLayout();
+          persistCurrentTabLayout();
         }
         await persistTerminalBuffersForHide();
         if (lp.webgl_shed_on_hide) {
@@ -7254,7 +7254,7 @@ async function boot(): Promise<void> {
           if (!host) return;
           if (host.isPristineRootTab()) {
             const tabId = tabIdForPaneHost(host);
-            if (tabId) closeWorkspaceTab(tabId);
+            if (tabId) closeTab(tabId);
             return;
           }
           void ptyKillPane(paneId).catch(() => {});
@@ -7268,7 +7268,7 @@ async function boot(): Promise<void> {
           return splitFocusedWithCwd(dir) ?? null;
         },
         getTabs() {
-          return visibleWorkspaceTabsInOrder().map((t) => tabRenderModel(t));
+          return visibleTabsInOrder().map((t) => tabRenderModel(t));
         },
         getTabGroups() {
           return [...tabsState.groups]
@@ -7287,7 +7287,7 @@ async function boot(): Promise<void> {
         switchTab(tabId: string) {
           if (typeof tabId !== "string" || !tabId) return;
           if (tabPaneHosts.has(tabId) || deferredTabInits.has(tabId)) {
-            switchWorkspaceTab(tabId);
+            switchToTab(tabId);
           }
         },
 
@@ -7368,18 +7368,18 @@ async function boot(): Promise<void> {
           itemGap?: string;
         }) {
           const unsub = tabBar.setLayout(partial);
-          renderWorkspaceTabsBar();
+          renderTabsBar();
           return () => {
             unsub();
-            renderWorkspaceTabsBar();
+            renderTabsBar();
           };
         },
         registerTabRenderer(fn: (tab: TabRenderModel, el: HTMLElement) => void) {
           const unsub = tabBar.registerTabRenderer(fn);
-          renderWorkspaceTabsBar();
+          renderTabsBar();
           return () => {
             unsub();
-            renderWorkspaceTabsBar();
+            renderTabsBar();
           };
         },
         registerGroupRenderer(
@@ -7395,10 +7395,10 @@ async function boot(): Promise<void> {
           ) => void,
         ) {
           const unsub = tabBar.registerGroupRenderer(fn);
-          renderWorkspaceTabsBar();
+          renderTabsBar();
           return () => {
             unsub();
-            renderWorkspaceTabsBar();
+            renderTabsBar();
           };
         },
         registerTabBarItem(item: TabBarItem) {
@@ -7414,7 +7414,7 @@ async function boot(): Promise<void> {
           return tabBar.registerItem(item);
         },
         requestTabBarRender() {
-          renderWorkspaceTabsBar();
+          renderTabsBar();
         },
         refreshTabBarItems() {
           tabBar.refreshItems();
@@ -7504,7 +7504,7 @@ async function boot(): Promise<void> {
 
   window.addEventListener("beforeunload", () => {
     try {
-      persistCurrentWorkspaceTabLayout();
+      persistCurrentTabLayout();
       if (!retainSessionStateRef.v) {
         shedSessionLocalState();
       } else if (shouldShedSessionOnExitSilent()) {

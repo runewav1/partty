@@ -15,20 +15,10 @@ export type PersistedPaneLayout = {
   paneProfileIds?: Record<string, string>;
 };
 
-function collectLeafIdsArr(node: PaneNode, out: string[]): void {
-  if (node.kind === "leaf") {
-    out.push(node.id);
-    return;
-  }
-  collectLeafIdsArr(node.a, out);
-  collectLeafIdsArr(node.b, out);
-}
-
-/** Layout is valid if it includes legacy `main` or a per-tab `wsroot_*` root leaf. */
-export function layoutContainsWorkspaceRoot(tree: PaneNode): boolean {
-  const ids: string[] = [];
-  collectLeafIdsArr(tree, ids);
-  return ids.length > 0;
+/** True when the tree contains at least one leaf pane. */
+export function hasLeafNodes(tree: PaneNode): boolean {
+  if (tree.kind === "leaf") return true;
+  return hasLeafNodes(tree.a) || hasLeafNodes(tree.b);
 }
 
 export function validatePaneTree(node: unknown): node is PaneNode {
@@ -55,7 +45,7 @@ export function loadPaneLayout(): PersistedPaneLayout | null {
     const parsed = JSON.parse(raw) as Partial<PersistedPaneLayout>;
     if (parsed.v !== 1 || !parsed.tree || typeof parsed.focusedId !== "string") return null;
     if (!validatePaneTree(parsed.tree)) return null;
-    if (!layoutContainsWorkspaceRoot(parsed.tree)) return null;
+    if (!hasLeafNodes(parsed.tree)) return null;
     return {
       v: 1,
       tree: parsed.tree,

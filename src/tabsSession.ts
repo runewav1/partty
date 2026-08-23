@@ -1,7 +1,6 @@
 import type { PaneNode } from "./paneHost";
-import { emptyTabLayout as makeEmptyTabLayout, mapLayoutToTabKey } from "./paneIds";
+import { emptyTabLayout, mapLayoutToTabKey, tabRootPaneId } from "./paneIds";
 import { loadPaneLayout, type PersistedPaneLayout } from "./paneLayout";
-import { workspaceRootPaneId } from "./workspacePaneIds";
 
 export function duplicateTabLayout(
   layout: PersistedPaneLayout,
@@ -38,11 +37,8 @@ export type TabsStateV1 = {
   groups: TabGroup[];
 };
 
-export const emptyTabLayout = (tabKey = "1"): PersistedPaneLayout =>
-  makeEmptyTabLayout(tabKey);
-
 export function migrateLayoutFromLegacyMain(layout: PersistedPaneLayout, tabId: string): PersistedPaneLayout {
-  const rid = workspaceRootPaneId(tabId);
+  const rid = tabRootPaneId(tabId);
   function mapNode(n: PaneNode): PaneNode {
     if (n.kind === "leaf") {
       const id = n.id === "main" ? rid : n.id;
