@@ -1,3 +1,5 @@
+import { PERF_CONSOLE_KEY, PERF_INTERVAL_MS_KEY, PERF_KEY } from "./storageKeys";
+
 type TimingBucket = {
   count: number;
   totalMs: number;
@@ -86,7 +88,7 @@ const ptyOutputThroughput = new Map<string, ThroughputWindow>();
 
 function readEnabled(): boolean {
   try {
-    return localStorage.getItem("partty.perf") === "1" || new URLSearchParams(location.search).has("parttyPerf");
+    return localStorage.getItem(PERF_KEY) === "1" || new URLSearchParams(location.search).has("parttyPerf");
   } catch {
     return false;
   }
@@ -94,7 +96,7 @@ function readEnabled(): boolean {
 
 function readConsoleEnabled(): boolean {
   try {
-    return localStorage.getItem("partty.perf.console") === "1" || new URLSearchParams(location.search).has("parttyPerfConsole");
+    return localStorage.getItem(PERF_CONSOLE_KEY) === "1" || new URLSearchParams(location.search).has("parttyPerfConsole");
   } catch {
     return false;
   }
@@ -102,7 +104,7 @@ function readConsoleEnabled(): boolean {
 
 function readIntervalMs(): number {
   try {
-    const raw = localStorage.getItem("partty.perf.intervalMs");
+    const raw = localStorage.getItem(PERF_INTERVAL_MS_KEY);
     const n = raw ? Number.parseInt(raw, 10) : NaN;
     return Number.isFinite(n) ? Math.max(1000, Math.min(60000, n)) : 5000;
   } catch {
@@ -241,9 +243,9 @@ export const parttyPerf = {
       this.consoleIntervalMs = Math.max(1000, Math.min(60000, Math.floor(opts.consoleIntervalMs)));
     }
     try {
-      localStorage.setItem("partty.perf", this.enabled ? "1" : "0");
-      localStorage.setItem("partty.perf.console", this.consoleEnabled ? "1" : "0");
-      localStorage.setItem("partty.perf.intervalMs", String(this.consoleIntervalMs));
+      localStorage.setItem(PERF_KEY, this.enabled ? "1" : "0");
+      localStorage.setItem(PERF_CONSOLE_KEY, this.consoleEnabled ? "1" : "0");
+      localStorage.setItem(PERF_INTERVAL_MS_KEY, String(this.consoleIntervalMs));
     } catch {
       /* localStorage unavailable */
     }

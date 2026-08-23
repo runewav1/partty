@@ -1,8 +1,7 @@
 import type { FloatingPaneState, PaneNode } from "./paneHost";
 import type { PaneThemePrefs } from "./uiTheme";
 import { findPaneLeaf } from "./paneHost";
-
-export const PANE_LAYOUT_STORAGE_KEY = "partty.pane_layout.v1";
+import { PANE_LAYOUT_KEY } from "./storageKeys";
 
 export type PersistedPaneLayout = {
   v: 1;
@@ -40,7 +39,7 @@ export function validatePaneTree(node: unknown): node is PaneNode {
 
 export function loadPaneLayout(): PersistedPaneLayout | null {
   try {
-    const raw = localStorage.getItem(PANE_LAYOUT_STORAGE_KEY);
+    const raw = localStorage.getItem(PANE_LAYOUT_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<PersistedPaneLayout>;
     if (parsed.v !== 1 || !parsed.tree || typeof parsed.focusedId !== "string") return null;
@@ -93,7 +92,7 @@ function walkEl(el: Element): PaneNode {
 
 export function clearPaneLayout(): void {
   try {
-    localStorage.removeItem(PANE_LAYOUT_STORAGE_KEY);
+    localStorage.removeItem(PANE_LAYOUT_KEY);
   } catch {
     /* ignore */
   }

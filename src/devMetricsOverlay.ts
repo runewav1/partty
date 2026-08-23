@@ -1,5 +1,6 @@
 import { parttyPerf } from "./perf";
 import { attachDraggablePanel } from "./draggablePanel";
+import { DEV_OVERLAY_POS_KEY } from "./storageKeys";
 
 export type DevMetricsOverlayApi = {
   show(): void;
@@ -58,7 +59,7 @@ export function createDevMetricsOverlay(opts: DevMetricsOverlayOptions): DevMetr
   el.appendChild(body);
   root.appendChild(el);
 
-  attachDraggablePanel(el, handle, "partty.dev-overlay.pos");
+  attachDraggablePanel(el, handle, DEV_OVERLAY_POS_KEY);
 
   function fmtBytes(n: number): string {
     if (n >= 1073741824) return `${(n / 1073741824).toFixed(1)} GiB`;

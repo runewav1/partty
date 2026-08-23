@@ -90,6 +90,19 @@ import {
 import { initParttyScrollFade } from "./scrollChrome";
 import { attachDraggablePanel } from "./draggablePanel";
 import {
+  COMMAND_PALETTE_POS_KEY,
+  DEFER_PTY_REINIT_KEY,
+  HELP_PANEL_POS_KEY,
+  PANE_LAYOUT_KEY,
+  PERF_KEY,
+  SETTINGS_PANEL_POS_KEY,
+  TAB_LAYOUT_PREFIX,
+  TABS_STATE_KEY,
+  THEME_MODAL_POS_KEY,
+  ZEN_MODE_KEY,
+  tabLayoutKey,
+} from "./storageKeys";
+import {
   getSessionShedOnExitMode,
   shedSessionLocalState,
   shouldShedSessionOnExitSilent,
@@ -135,8 +148,6 @@ import type { ParttyPrefs, SettingsPanelApi } from "./settingsPanel";
 import type { ExtensionManagerApi } from "./extensionManager";
 import type { ThemeBuilderApi } from "./themeBuilderModal";
 import type { ThemeModalApi } from "./themeModal";
-
-
 import {
   createByteChunkBuffer,
   createStringChunkBuffer,
@@ -206,24 +217,21 @@ const PTY_OUTPUT_FLUSH_MS = 4;
 const PTY_OUTPUT_BACKGROUND_FLUSH_MS = 33;
 const PTY_OUTPUT_MAX_BATCH_BYTES = 128 * 1024;
 
-const ZEN_MODE_STORAGE_KEY = "partty.zen.enabled";
 const TOOLTIP_STASH_ATTR = "data-partty-tooltip-title";
-/** Set when shell / initial cwd change; next `partty-prepare-show` runs a full PTY reinit. */
-const DEFER_PTY_REINIT_KEY = "partty.defer_pty_reinit";
 const IDLE_WEBGL_MS = 400;
 
 type PersistedPayload = { prefs: Record<string, unknown> };
 
 const STORAGE_KEY_MIGRATIONS: [string, string][] = [
-  ["termie.zen.enabled", ZEN_MODE_STORAGE_KEY],
+  ["termie.zen.enabled", ZEN_MODE_KEY],
   ["termie.defer_pty_reinit", DEFER_PTY_REINIT_KEY],
-  ["termie.tabs.v1", "partty.tabs.v1"],
-  ["termie.pane_layout.v1", "partty.pane_layout.v1"],
-  ["termie.themeModal.pos", "partty.themeModal.pos"],
-  ["termie.settingsPanel.pos", "partty.settingsPanel.pos"],
-  ["termie.helpPanel.pos", "partty.helpPanel.pos"],
-  ["termie.commandPalette.pos", "partty.commandPalette.pos"],
-  ["termie.perf", "partty.perf"],
+  ["termie.tabs.v1", TABS_STATE_KEY],
+  ["termie.pane_layout.v1", PANE_LAYOUT_KEY],
+  ["termie.themeModal.pos", THEME_MODAL_POS_KEY],
+  ["termie.settingsPanel.pos", SETTINGS_PANEL_POS_KEY],
+  ["termie.helpPanel.pos", HELP_PANEL_POS_KEY],
+  ["termie.commandPalette.pos", COMMAND_PALETTE_POS_KEY],
+  ["termie.perf", PERF_KEY],
 ];
 
 function migrateParttyLocalStorage(): void {
@@ -238,7 +246,7 @@ function migrateParttyLocalStorage(): void {
     localStorage.removeItem("termie.terminal.serialize");
     for (const key of Object.keys(localStorage)) {
       if (!key.startsWith("termie.tab.layout.v1.")) continue;
-      const nextKey = `partty.tab.layout.v1.${key.slice("termie.tab.layout.v1.".length)}`;
+      const nextKey = `${TAB_LAYOUT_PREFIX}${key.slice("termie.tab.layout.v1.".length)}`;
       const oldValue = localStorage.getItem(key);
       if (oldValue != null && localStorage.getItem(nextKey) == null) {
         localStorage.setItem(nextKey, oldValue);
@@ -494,7 +502,7 @@ async function boot(): Promise<void> {
     (persisted.prefs as Partial<ParttyPrefs>).always_open_in_zen_mode,
   );
   const zenModeEnabled =
-    prefAlwaysZen || localStorage.getItem(ZEN_MODE_STORAGE_KEY) === "1";
+    prefAlwaysZen || localStorage.getItem(ZEN_MODE_KEY) === "1";
   document.documentElement.classList.toggle("zen-mode", zenModeEnabled);
   const releaseBootSurface = (): void => {
     document.documentElement.classList.remove("partty-booting");
@@ -2707,7 +2715,7 @@ async function boot(): Promise<void> {
 
   function setZenMode(next: boolean): void {
     document.documentElement.classList.toggle("zen-mode", next);
-    localStorage.setItem(ZEN_MODE_STORAGE_KEY, next ? "1" : "0");
+    localStorage.setItem(ZEN_MODE_KEY, next ? "1" : "0");
     applyTooltipPolicy(document);
     scheduleResizeImmediate();
   }
@@ -4036,7 +4044,7 @@ async function boot(): Promise<void> {
     saveTabsState(tabsState);
     disposeTabPaneHost(tabId);
     try {
-      localStorage.removeItem(`partty.tab.layout.v1.${tabId}`);
+      localStorage.removeItem(tabLayoutKey(tabId));
     } catch {
       /* ignore */
     }
@@ -5025,7 +5033,7 @@ async function boot(): Promise<void> {
           const head = settingsPanelEl.querySelector(".settings-panel-head");
           if (card instanceof HTMLElement && head instanceof HTMLElement) {
             card.style.position = "fixed";
-            attachDraggablePanel(card, head, "partty.settingsPanel.pos");
+            attachDraggablePanel(card, head, SETTINGS_PANEL_POS_KEY);
           }
           return createSettingsPanel(
             settingsPanelEl,
@@ -5374,7 +5382,7 @@ async function boot(): Promise<void> {
   const cpToolbar = document.querySelector(".command-palette-toolbar");
   if (cpPanel instanceof HTMLElement && cpToolbar instanceof HTMLElement) {
     cpPanel.style.position = "fixed";
-    attachDraggablePanel(cpPanel, cpToolbar, "partty.commandPalette.pos");
+    attachDraggablePanel(cpPanel, cpToolbar, COMMAND_PALETTE_POS_KEY);
   }
 
   if (helpPanelEl) {
@@ -5382,7 +5390,7 @@ async function boot(): Promise<void> {
     const hhead = helpPanelEl.querySelector(".help-panel-head");
     if (hcard instanceof HTMLElement && hhead instanceof HTMLElement) {
       hcard.style.position = "fixed";
-      attachDraggablePanel(hcard, hhead, "partty.helpPanel.pos");
+      attachDraggablePanel(hcard, hhead, HELP_PANEL_POS_KEY);
     }
   }
 

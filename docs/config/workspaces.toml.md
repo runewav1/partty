@@ -57,6 +57,8 @@ id = "root"
 
 A split has two child nodes, `a` and `b`. `h` places panes side by side and `v` stacks them. `ratio` must be between `0.05` and `0.95`.
 
+`ratio` is **local to that split**, not a fraction of the whole workspace. It is the share of the split's own area given to child `a`; child `b` receives the remainder (`1 - ratio`). When a pane is split, the original pane becomes `a` and the newly created pane becomes `b` — so the ratio is "in relation to the pane it splits from": it controls how much of the parent's space the original pane keeps. `0.5` gives both children equal space. A pane's actual on-screen size is the product of every ancestor split's ratio along the root-to-leaf path.
+
 ```toml
 [layout.tree]
 kind = "split"

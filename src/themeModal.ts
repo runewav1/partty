@@ -10,8 +10,7 @@ import {
 } from "./lexicalSearch";
 import type { ParttyPrefs } from "./settingsPanel";
 import { ensureCustomThemesLoaded, normalizePaneThemePrefs, pickUiPrefs, themeCssVarsForPrefs, THEME_OPTIONS, getThemePrefsCache, type ThemeCssVars, type UiThemePrefs } from "./uiTheme";
-
-const POS_KEY = "partty.themeModal.pos";
+import { THEME_MODAL_POS_KEY } from "./storageKeys";
 
 type Persisted = { prefs: Record<string, unknown> };
 
@@ -196,7 +195,7 @@ export function createThemeModal(
   root.appendChild(backdrop);
   root.appendChild(panel);
 
-  attachDraggablePanel(panel, head, POS_KEY);
+  attachDraggablePanel(panel, head, THEME_MODAL_POS_KEY);
 
   function indexForPrefs(p: UiThemePrefs): number {
     const n = normalizePaneThemePrefs(p);

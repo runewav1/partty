@@ -1,6 +1,7 @@
 import type { PaneNode } from "./paneHost";
 import { emptyTabLayout, mapLayoutToTabKey, tabRootPaneId } from "./paneIds";
 import { loadPaneLayout, type PersistedPaneLayout } from "./paneLayout";
+import { TABS_STATE_KEY, tabLayoutKey } from "./storageKeys";
 
 export function duplicateTabLayout(
   layout: PersistedPaneLayout,
@@ -9,9 +10,6 @@ export function duplicateTabLayout(
 ): PersistedPaneLayout {
   return mapLayoutToTabKey(layout, tabKey, followSlots).layout;
 }
-
-const TABS_STATE_KEY = "partty.tabs.v1";
-const TAB_LAYOUT_PREFIX = "partty.tab.layout.v1.";
 
 export type TabGroup = {
   id: string;
@@ -100,10 +98,6 @@ export function saveTabsState(s: TabsStateV1): void {
   } catch {
     /* ignore */
   }
-}
-
-function tabLayoutKey(tabId: string): string {
-  return `${TAB_LAYOUT_PREFIX}${tabId}`;
 }
 
 export function loadLayoutForTab(tabId: string): PersistedPaneLayout | null {
