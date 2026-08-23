@@ -1452,18 +1452,6 @@ pub fn validate_custom_theme_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn validate_workspace_name(name: &str) -> Result<(), String> {
-    if name.is_empty() || name.len() > 64 {
-        return Err("invalid workspace name length".into());
-    }
-    if !name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-    {
-        return Err("workspace name: use letters, numbers, dashes, underscores only".into());
-    }
-    Ok(())
-}
 
 /// Extension state path (still JSON, one file for all extension toggles).
 pub fn extension_state_path() -> Option<PathBuf> {

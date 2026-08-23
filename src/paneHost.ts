@@ -1183,40 +1183,6 @@ export class PaneHost {
     return removed;
   }
 
-  /**
-   * Replace the split tree (e.g. tab switch). Drops terminals for leaf ids not in `tree`,
-   * keeps existing `Terminal` instances when the same leaf id appears in the new tree.
-   */
-  applyWorkspaceLayout(tree: PaneNode, focusedId: string, rootPaneId: string): void {
-    if (!findPaneLeaf(tree, rootPaneId)) return;
-    if (!findPaneLeaf(tree, focusedId)) return;
-    const nextIds: string[] = [];
-    collectLeafIds(tree, nextIds);
-    const keep = new Set(nextIds);
-    for (const id of [...this.terminals.keys()]) {
-      if (keep.has(id)) continue;
-      const pt = this.terminals.get(id);
-      if (pt) {
-        try {
-          pt.fit.dispose();
-          pt.term.dispose();
-        } catch {
-          /* ignore */
-        }
-        this.terminals.delete(id);
-        this.opts.onPaneDisposed(id);
-      }
-    }
-    for (const id of [...this.floating.keys()]) {
-      if (!keep.has(id)) this.floating.delete(id);
-    }
-    this.rootPaneId = rootPaneId;
-    this.tree = tree;
-    this.focusedId = focusedId;
-    this.mountTree();
-    this.setFocusedPaneId(focusedId);
-    this.opts.onPaneLayout?.();
-  }
 
   /**
    * Swap positions of two leaf panes in the split tree. PTY/xterm instances stay bound to pane ids.

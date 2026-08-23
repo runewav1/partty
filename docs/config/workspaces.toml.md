@@ -1,43 +1,53 @@
 # Workspaces
 
-**Files:** `~/.partty/workspaces/{id}.toml`  
-**UI:** Palette → **Save workspace** / **Open workspace**
+**Files:** `~/.partty/workspaces/{id}.toml`
 
-A workspace is a **saved single-tab pane layout**: split tree, per-pane profile, theme, directory, and optional startup command. Applying a workspace replaces the current tab or opens a new one.
+A workspace is a single-tab terminal layout. It describes the pane tree and the settings used to start each pane: connection profile, theme, starting directory, startup command, and floating-pane state.
 
-This is separate from **session** prefs in [`config.toml`](config.toml.md) (`[session]`), which control whether tabs/layouts persist in localStorage across restarts.
+Invalid files are rejected when they are read.
 
-## File name
+Workspaces are separate from session preferences in [`config.toml`](config.toml.md). The `[session]` settings control whether the live tab and pane layout are retained in browser storage across restarts.
 
-The on-disk file stem is derived from the workspace **name** (lowercase, spaces → hyphens, safe characters only), e.g. `Rust dev` → `rust-dev.toml`.
+## File name and identity
+
+The file name is the workspace ID:
+
+```text
+~/.partty/workspaces/rust-dev.toml
+```
+
+The ID must be 1–64 characters containing only ASCII letters, numbers, `-`, or `_`. The `id` field inside the file must match the file stem exactly.
 
 ## Top level
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `version` | u32 | `1` |
-| `id` | string | File stem (derived from name on save) |
-| `name` | string | Workspace name; also used as the tab title when applied |
-| `tab_name` | string | Same as `name` (kept for file compatibility) |
+| `version` | integer | Workspace schema version. Must be `1`. |
+| `id` | string | ID matching the file stem. |
+| `name` | string | Human-readable workspace name, 1–128 characters. |
+| `tab_name` | string, optional | Explicit name for the tab created from this workspace. If omitted, the normal tab naming behavior is used. |
+| `layout` | table | Pane layout and per-pane configuration. |
+
+Unknown keys are rejected. This keeps spelling mistakes from silently changing how a workspace starts.
 
 ## Layout (`[layout]`)
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `v` | u32 | `1` |
-| `tree` | pane tree | Split/leaf structure (see below) |
-| `focused_id` | string | Pane id to focus on load |
-| `pane_names` | map | Optional display names per pane id |
-| `pane_profile_ids` | map | Connection profile id per pane |
-| `pane_themes` | map | Per-pane theme (`ui_theme`, `ui_theme_variant`) |
-| `pane_cwds` | map | Starting directory per pane (local/WSL only) |
-| `startup_commands` | map | Command run once after shell is ready |
+| `v` | integer | Layout schema version. Must be `1`. |
+| `tree` | pane tree | Split and leaf structure. |
+| `focused_id` | string | ID of the pane that receives focus. It must occur in the tree. |
+| `floating` | map | Optional floating state keyed by pane ID. |
+| `pane_themes` | map | Optional per-pane theme settings. |
+| `pane_cwds` | map | Optional per-pane starting directories. |
+| `pane_profile_ids` | map | Optional connection profile IDs. |
+| `startup_commands` | map | Optional per-pane commands injected during PTY startup. |
 
-Pane ids in saved files are portable: `root`, `p1`, `p2`, … (not live `wsroot_*` ids).
+Every key in a per-pane map must refer to a leaf in `tree`. Pane IDs are local to the file and should be stable, readable values such as `root`, `editor`, and `logs`.
 
 ### Pane tree
 
-Leaves and splits use `kind`:
+A single pane is a leaf:
 
 ```toml
 [layout.tree]
@@ -45,11 +55,13 @@ kind = "leaf"
 id = "root"
 ```
 
+A split has two child nodes, `a` and `b`. `h` places panes side by side and `v` stacks them. `ratio` must be between `0.05` and `0.95`.
+
 ```toml
 [layout.tree]
 kind = "split"
-dir = "h"        # "h" side-by-side, "v" stacked
-ratio = 0.5
+dir = "h"
+ratio = 0.55
 
 [layout.tree.a]
 kind = "leaf"
@@ -57,37 +69,69 @@ id = "root"
 
 [layout.tree.b]
 kind = "leaf"
-id = "p1"
+id = "logs"
 ```
 
-### Per-pane maps
+Pane IDs must be unique, and the tree must contain at least one leaf.
+
+### Profiles, directories, and startup commands
+
+`pane_profile_ids` refers to profile IDs from the profiles configuration. If a pane has no entry, the normal default profile is used.
+
+`pane_cwds` supplies the starting directory for the selected profile. Use the path syntax appropriate for that profile:
+
+- local profiles use host paths, such as `C:\\Users\\Rune\\Development`;
+- WSL profiles use WSL paths, such as `/mnt/c/Users/Rune/Development` (Windows drive paths are also normalized for WSL);
+- SSH profiles generally do not use a local starting directory.
+
+`startup_commands` contains one nonempty command string per pane. ParTTY passes this command into the PTY's spawn-time startup command, using the selected profile's shell/connection behavior. It is not typed into an already-running terminal after startup, so the shell starts directly at the requested command without a follow-up injection.
 
 ```toml
 [layout.pane_profile_ids]
 root = "local-default"
-p1 = "wsl-ubuntu"
+logs = "wsl-ubuntu"
 
 [layout.pane_cwds]
 root = "C:\\Users\\Rune\\Development"
-p1 = "/mnt/c/Users/Rune/Development"
+logs = "/mnt/c/Users/Rune/Development"
 
+[layout.startup_commands]
+logs = "npm run dev"
+```
+
+### Themes
+
+A theme entry requires both the theme ID and its variant:
+
+```toml
 [layout.pane_themes.root]
 ui_theme = "tokyonight"
 ui_theme_variant = "default"
-
-[layout.startup_commands]
-p1 = "npm run dev"
 ```
 
-SSH profiles ignore `pane_cwds`.
+### Floating panes
 
-## Example
+A pane listed in `floating` starts as a floating pane. Coordinates and dimensions are logical window values; `width` and `height` must be positive. `z` controls stacking order. `follow` preserves the existing floating-pane follow behavior.
+
+```toml
+[layout.floating.logs]
+x = 80.0
+y = 48.0
+width = 720.0
+height = 420.0
+z = 1.0
+follow = false
+```
+
+A pane may have entries in both `floating` and the other per-pane maps. Its profile, theme, directory, and startup command still apply when it is started.
+
+## Complete example
 
 ```toml
 version = 1
 id = "rust-dev"
-name = "Rust dev"
-tab_name = "Rust dev"
+name = "Rust development"
+tab_name = "Rust"
 
 [layout]
 v = 1
@@ -103,22 +147,42 @@ kind = "leaf"
 id = "root"
 
 [layout.tree.b]
+kind = "split"
+dir = "v"
+ratio = 0.65
+
+[layout.tree.b.a]
 kind = "leaf"
-id = "p1"
+id = "editor"
+
+[layout.tree.b.b]
+kind = "leaf"
+id = "logs"
 
 [layout.pane_profile_ids]
 root = "local-default"
-p1 = "local-default"
+editor = "local-default"
+logs = "wsl-ubuntu"
+
+[layout.pane_cwds]
+root = "C:\\Users\\Rune\\Development\\rust-app"
+editor = "C:\\Users\\Rune\\Development\\rust-app"
+logs = "/mnt/c/Users/Rune/Development/rust-app"
+
+[layout.pane_themes.root]
+ui_theme = "tokyonight"
+ui_theme_variant = "default"
 
 [layout.startup_commands]
-p1 = "cargo watch -x check"
+logs = "cargo watch -x check"
+
+[layout.floating.editor]
+x = 120.0
+y = 72.0
+width = 900.0
+height = 600.0
+z = 2.0
+follow = false
 ```
 
-## Palette
 
-| Command | Action |
-|---------|--------|
-| Save workspace | Open editor with current tab captured |
-| Open workspace | List saved layouts; **Tab** = current tab, **New** = new tab, **Edit** = editor |
-
-Quick save: in the open dialog, type a name and press Enter.

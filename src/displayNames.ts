@@ -1,4 +1,9 @@
-import { cwdBasename } from "./workspacePanePath";
+
+function cwdBasename(cwd: string): string {
+  const norm = cwd.replace(/\\/g, "/");
+  const parts = norm.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? cwd;
+}
 
 export type PaneNameParts = {
   paneId: string;

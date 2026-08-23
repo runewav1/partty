@@ -53,7 +53,7 @@ import {
 } from "./paneLayout";
 import {
   duplicateTabLayout,
-  emptyWorkspaceLayout,
+  emptyTabLayout,
   initialLayoutForTab,
   loadLayoutForTab,
   loadTabsState,
@@ -135,21 +135,7 @@ import type { ParttyPrefs, SettingsPanelApi } from "./settingsPanel";
 import type { ExtensionManagerApi } from "./extensionManager";
 import type { ThemeBuilderApi } from "./themeBuilderModal";
 import type { ThemeModalApi } from "./themeModal";
-import type { WorkspacesModalApi } from "./workspacesModal";
-import type {
-  WorkspaceEditorApi,
-  WorkspaceLoadTarget,
-} from "./workspaceEditorModal";
-import {
-  normalizeLayoutForWorkspace,
-  remapWorkspaceLayoutForTab,
-} from "./workspaceLayout";
-import {
-  readWorkspace,
-  writeWorkspace,
-  workspaceIdFromName,
-  type Workspace,
-} from "./workspaces";
+
 
 import {
   createByteChunkBuffer,
@@ -388,7 +374,7 @@ function resolveTabRootPaneId(layout: PersistedPaneLayout): string {
   return ids[0] ?? "1a";
 }
 
-function isWorkspaceLayoutUsable(p: PersistedPaneLayout): boolean {
+function isPaneLayoutUsable(p: PersistedPaneLayout): boolean {
   const rid = resolveTabRootPaneId(p);
   if (!isLayoutValidForRoot(p, rid)) return false;
   return findPaneLeaf(p.tree, p.focusedId) != null;
@@ -532,7 +518,6 @@ async function boot(): Promise<void> {
   const pendingPaneSpawnCwd = new Map<string, string>();
   const pendingNewPaneProfile = { v: null as string | null };
   const pendingPaneSpawnProfile = new Map<string, string>();
-  const pendingPaneStartupCommands = new Map<string, string>();
   const pendingPaneSpawnStartup = new Map<string, string>();
   let profilesList: ConnectionProfile[] = [
     {
@@ -1744,7 +1729,6 @@ async function boot(): Promise<void> {
       paneHostCleanups.delete(paneId);
     }
     disposeWebglForPane(paneId);
-    pendingPaneStartupCommands.delete(paneId);
     paneShellState.delete(paneId);
     paneCwdHints.delete(paneId);
     paneRemoteIsWindows.delete(paneId);
@@ -2848,7 +2832,6 @@ async function boot(): Promise<void> {
         lastPtyDims.set(paneId, safe);
         parttyPerf.mark("pty.ensure.success");
         parttyPerf.time("pty.ensure.ms", performance.now() - ensureStarted);
-        flushPaneStartupCommand(paneId);
         return;
       } catch (e) {
         lastErr = e;
@@ -2965,7 +2948,6 @@ async function boot(): Promise<void> {
     rekeyKeyed(lastPtyDims, from, to);
     rekeyKeyed(pendingPaneSpawnCwd, from, to);
     rekeyKeyed(pendingPaneSpawnProfile, from, to);
-    rekeyKeyed(pendingPaneStartupCommands, from, to);
     rekeyKeyed(pendingPaneSpawnStartup, from, to);
     rekeyKeyed(activeProcesses, from, to);
     rekeyKeyed(pendingShellCommandLine, from, to);
@@ -3559,8 +3541,8 @@ async function boot(): Promise<void> {
       const tabKey = String(i + 1);
       let layout = initialLayoutForTab(tab.id, i === 0);
       layout = mapLayoutToTabKey(layout, tabKey, followSlots).layout;
-      if (!isWorkspaceLayoutUsable(layout)) {
-        layout = emptyWorkspaceLayout(tabKey);
+      if (!isPaneLayoutUsable(layout)) {
+        layout = emptyTabLayout(tabKey);
       }
       applyTabLayoutMetadata(layout);
       const init: PaneHostInit = {
@@ -3976,7 +3958,7 @@ async function boot(): Promise<void> {
   function duplicateWorkspaceTab(fromTabId: string): void {
     persistCurrentWorkspaceTabLayout();
     const tabKey = String(tabsInIndexOrder().length + 1);
-    const raw = loadLayoutForTab(fromTabId) ?? emptyWorkspaceLayout(tabKey);
+    const raw = loadLayoutForTab(fromTabId) ?? emptyTabLayout(tabKey);
     const newId = crypto.randomUUID();
     const dup = duplicateTabLayout(raw, tabKey, followSlotsInUse());
     persistLayoutForTab(newId, dup);
@@ -4017,211 +3999,6 @@ async function boot(): Promise<void> {
     switchWorkspaceTab(newId);
   }
 
-  function seedWorkspacePaneMaps(mapped: PersistedPaneLayout): void {
-    for (const [paneId, theme] of Object.entries(mapped.paneThemes ?? {})) {
-      paneThemes.set(paneId, normalizePaneThemePrefs(theme));
-    }
-    for (const [paneId, cwd] of Object.entries(mapped.paneCwds ?? {})) {
-      paneCwdHints.set(paneId, cwd);
-      pendingPaneSpawnCwd.set(paneId, cwd);
-    }
-    for (const [paneId, profileId] of Object.entries(
-      mapped.paneProfileIds ?? {},
-    )) {
-      const resolved = resolveDefaultProfileId(profileId, profilesList);
-      paneProfileIds.set(paneId, resolved);
-      pendingPaneSpawnProfile.set(paneId, resolved);
-    }
-  }
-
-  function queuePaneStartupCommands(
-    startup: Record<string, string> | undefined,
-    idMap: Map<string, string>,
-  ): void {
-    if (!startup) return;
-    for (const [savedId, cmd] of Object.entries(startup)) {
-      const paneId = idMap.get(savedId);
-      const trimmed = cmd.trim();
-      if (paneId && trimmed) pendingPaneStartupCommands.set(paneId, trimmed);
-    }
-  }
-
-  function flushPaneStartupCommand(paneId: string): void {
-    const cmd = pendingPaneStartupCommands.get(paneId);
-    if (!cmd) return;
-    pendingPaneStartupCommands.delete(paneId);
-    const payload = cmd.endsWith("\r") || cmd.endsWith("\n") ? cmd : `${cmd}\r`;
-    afterAnimationFrames(() => {
-      void ptyWrite(paneId, payload).catch(() => {});
-    });
-  }
-
-  function runWorkspaceStartupCommands(
-    startup: Record<string, string> | undefined,
-    idMap: Map<string, string>,
-  ): void {
-    queuePaneStartupCommands(startup, idMap);
-  }
-
-  async function paneCwdMapForWorkspaceCapture(host: PaneHost): Promise<Map<string, string>> {
-    const ids: string[] = [];
-    collectLeafIds(host.getTree(), ids);
-    const out = new Map<string, string>();
-    const globalCwd = (
-      (persisted.prefs as Partial<ParttyPrefs>).initial_cwd as string | null | undefined
-    )?.trim();
-    for (const id of ids) {
-      let cwd = paneCwdHints.get(id)?.trim();
-      if (!cwd) {
-        const profileId = resolveDefaultProfileId(
-          paneProfileIds.get(id) ?? profileBehaviorRef.v.default_profile_id,
-          profilesList,
-        );
-        const profile = getProfileById(profileId, profilesList);
-        const fromProfile = profile?.initialCwd?.trim();
-        if (fromProfile) cwd = fromProfile;
-        else if (globalCwd) cwd = globalCwd;
-      }
-      if (cwd) out.set(id, cwd);
-    }
-    return out;
-  }
-
-  async function workspaceFromCurrentTab(name = ""): Promise<Workspace | null> {
-    const host = paneHost;
-    if (!host) return null;
-    const tree = host.getTree();
-    const rid = host.getRootPaneId();
-    if (!tree || !findPaneLeaf(tree, rid)) return null;
-    const panes = host.getPaneDescriptors();
-    const pl: PersistedPaneLayout = {
-      v: 1,
-      tree,
-      focusedId: host.getFocusedPaneId(),
-      floating: host.getFloatingState(),
-      paneThemes: paneMapSubset(panes, paneThemes),
-      paneProfileIds: paneMapSubset(panes, paneProfileIds),
-    };
-    const cwdMap = await paneCwdMapForWorkspaceCapture(host);
-    const layout = normalizeLayoutForWorkspace({
-      layout: pl,
-      paneThemes,
-      paneCwdHints: cwdMap,
-      paneProfileIds,
-    });
-    const workspaceName = name.trim();
-    return {
-      version: 1,
-      name: workspaceName,
-      layout,
-    };
-  }
-
-  async function applyWorkspace(
-    workspace: Workspace,
-    target: WorkspaceLoadTarget,
-  ): Promise<void> {
-    if (target === "new") {
-      await applyWorkspaceToNewTab(workspace);
-      return;
-    }
-    await applyWorkspaceToCurrentTab(workspace);
-  }
-
-  async function applyWorkspaceToNewTab(workspace: Workspace): Promise<void> {
-    persistCurrentWorkspaceTabLayout();
-    const newTabId = crypto.randomUUID();
-    const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
-    tabsState = {
-      ...tabsState,
-      tabs: [
-        ...tabsState.tabs,
-        {
-          id: newTabId,
-          name: workspace.name.trim() || workspaceIdFromName(workspace.name),
-          groupId: null,
-          color: null,
-          order: maxOrder + 1,
-        },
-      ],
-    };
-    saveTabsState(tabsState);
-    const { layout: mapped, idMap } = remapWorkspaceLayoutForTab(
-      workspace.layout,
-      tabKeyForTabId(newTabId),
-      followSlotsInUse(),
-    );
-    if (!isWorkspaceLayoutUsable(mapped)) {
-      tabsState = {
-        ...tabsState,
-        tabs: tabsState.tabs.filter((t) => t.id !== newTabId),
-      };
-      saveTabsState(tabsState);
-      return;
-    }
-
-    persistLayoutForTab(newTabId, mapped);
-    seedWorkspacePaneMaps(mapped);
-    createTabPaneShellAndHost(
-      newTabId,
-      {
-        initialTree: mapped.tree,
-        initialFocusedId: mapped.focusedId,
-        initialFloating: mapped.floating,
-      },
-      resolveTabRootPaneId(mapped),
-    );
-    switchWorkspaceTab(newTabId);
-    runWorkspaceStartupCommands(workspace.layout.startupCommands, idMap);
-  }
-
-  async function applyWorkspaceToCurrentTab(workspace: Workspace): Promise<void> {
-    const tabId = activeWorkspaceTabId;
-    persistCurrentWorkspaceTabLayout();
-
-    const { layout: mapped, idMap } = remapWorkspaceLayoutForTab(
-      workspace.layout,
-      tabKeyForTabId(tabId),
-      followSlotsInUse(),
-    );
-    if (!isWorkspaceLayoutUsable(mapped)) return;
-
-    const tab = tabsState.tabs.find((t) => t.id === tabId);
-    const title = workspace.name.trim();
-    if (tab && title) {
-      tab.name = title;
-      saveTabsState(tabsState);
-    }
-
-    const oldHost = tabPaneHosts.get(tabId);
-    if (oldHost) {
-      for (const pane of oldHost.getPaneDescriptors()) {
-        paneThemes.delete(pane.id);
-      }
-      disposeTabPaneHost(tabId);
-    }
-
-    seedWorkspacePaneMaps(mapped);
-
-    const newHost = createTabPaneShellAndHost(
-      tabId,
-      {
-        initialTree: mapped.tree,
-        initialFocusedId: mapped.focusedId,
-        initialFloating: mapped.floating,
-      },
-      resolveTabRootPaneId(mapped),
-    );
-    paneHost = newHost;
-    lastFocusedPaneId = newHost.getFocusedPaneId();
-    persistLayoutForTab(tabId, mapped);
-    installPaneControlSurface();
-    renderWorkspaceTabsBar();
-    scheduleResizeImmediate(true);
-    scheduleCreationReflowForHost(newHost);
-
-    runWorkspaceStartupCommands(workspace.layout.startupCommands, idMap);
-  }
 
   function tabIdForPaneHost(host: PaneHost): string | null {
     for (const [tabId, h] of tabPaneHosts) {
@@ -4403,7 +4180,7 @@ async function boot(): Promise<void> {
     const id = crypto.randomUUID();
     const name = nextTabName(tabsState.tabs);
     const tabKey = String(tabsInIndexOrder().length + 1);
-    const empty = emptyWorkspaceLayout(tabKey);
+    const empty = emptyTabLayout(tabKey);
     const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
     const resolvedProfile = resolveProfileForNewTab(profileId);
     const rootId = empty.focusedId;
@@ -5147,8 +4924,7 @@ async function boot(): Promise<void> {
   const settingsPanelEl = document.getElementById("settings-panel");
   const themeBuilderRoot = document.getElementById("theme-builder-root");
   const themeModalRoot = document.getElementById("theme-modal-root");
-  const workspacesModalRoot = document.getElementById("workspaces-modal-root");
-  const workspaceEditorRoot = document.getElementById("workspace-editor-root");
+
   const extManagerEl = document.getElementById(
     "extension-manager",
   ) as HTMLElement | null;
@@ -5237,69 +5013,6 @@ async function boot(): Promise<void> {
     });
   }
 
-  const workspaceEditorLazy = lazyCell<WorkspaceEditorApi>();
-  const workspacesModalLazy = lazyCell<WorkspacesModalApi>();
-
-  const ensureWorkspaceEditor = (): Promise<WorkspaceEditorApi | null> =>
-    !workspaceEditorRoot
-      ? Promise.resolve(null)
-      : workspaceEditorLazy.ensure(async () => {
-          const { createWorkspaceEditorModal } = await import(
-            "./workspaceEditorModal"
-          );
-          return createWorkspaceEditorModal({
-            root: workspaceEditorRoot as HTMLElement,
-            getProfiles: () => profilesList,
-            onApply: async (workspace, target) => {
-              await applyWorkspace(workspace, target);
-            },
-          });
-        });
-
-  const ensureWorkspacesModal = (): Promise<WorkspacesModalApi | null> =>
-    !workspacesModalRoot
-      ? Promise.resolve(null)
-      : workspacesModalLazy.ensure(async () => {
-          const { createWorkspacesModal } = await import("./workspacesModal");
-          return createWorkspacesModal({
-            root: workspacesModalRoot as HTMLElement,
-            onSave: async (name) => {
-              const captured = await workspaceFromCurrentTab(name);
-              if (!captured) return null;
-              const fileId = workspaceIdFromName(name);
-              try {
-                const prev = await readWorkspace(fileId);
-                if (prev.layout.startupCommands) {
-                  captured.layout.startupCommands = {
-                    ...prev.layout.startupCommands,
-                  };
-                }
-              } catch {}
-              try {
-                await writeWorkspace(captured);
-                return fileId;
-              } catch (e) {
-                console.error("save workspace", e);
-                return null;
-              }
-            },
-            onLoad: async (workspace, target) => {
-              await applyWorkspace(workspace, target);
-            },
-            onEdit: (workspace) => {
-              runLazy(ensureWorkspaceEditor, (ed) => ed.open(workspace));
-            },
-            onCapture: () => {
-              void workspaceFromCurrentTab().then((captured) => {
-                if (captured) {
-                  runLazy(ensureWorkspaceEditor, (ed) =>
-                    ed.openCapture(captured),
-                  );
-                }
-              });
-            },
-          });
-        });
 
   const settingsLazy = lazyCell<SettingsPanelApi>();
 
@@ -6224,24 +5937,7 @@ async function boot(): Promise<void> {
         keywords: "theme pane appearance colors focused local override",
         run: () => openFocusedPaneTheme(),
       },
-      {
-        id: "workspaces-save",
-        label: "Save workspace",
-        keywords: "workspace layout save snapshot tab panes edit",
-        run: () => {
-          void workspaceFromCurrentTab().then((captured) => {
-            if (captured) {
-              runLazy(ensureWorkspaceEditor, (ed) => ed.openCapture(captured));
-            }
-          });
-        },
-      },
-      {
-        id: "workspaces-open",
-        label: "Open workspace",
-        keywords: "workspace layout preset load snapshot tab panes",
-        run: () => runLazy(ensureWorkspacesModal, (wm) => wm.open()),
-      },
+
       {
         id: "open-theme-builder",
         label: "Theme builder…",

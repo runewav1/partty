@@ -1,5 +1,5 @@
 import type { PaneNode } from "./paneHost";
-import { emptyTabLayout, mapLayoutToTabKey } from "./paneIds";
+import { emptyTabLayout as makeEmptyTabLayout, mapLayoutToTabKey } from "./paneIds";
 import { loadPaneLayout, type PersistedPaneLayout } from "./paneLayout";
 import { workspaceRootPaneId } from "./workspacePaneIds";
 
@@ -38,8 +38,8 @@ export type TabsStateV1 = {
   groups: TabGroup[];
 };
 
-export const emptyWorkspaceLayout = (tabKey = "1"): PersistedPaneLayout =>
-  emptyTabLayout(tabKey);
+export const emptyTabLayout = (tabKey = "1"): PersistedPaneLayout =>
+  makeEmptyTabLayout(tabKey);
 
 export function migrateLayoutFromLegacyMain(layout: PersistedPaneLayout, tabId: string): PersistedPaneLayout {
   const rid = workspaceRootPaneId(tabId);
@@ -137,7 +137,7 @@ export function initialLayoutForTab(tabId: string, isFirstTab: boolean): Persist
   }
   const d = loadLayoutForTab(tabId);
   if (d) return migrateLayoutFromLegacyMain(d, tabId);
-  return emptyWorkspaceLayout(tabId);
+  return emptyTabLayout(tabId);
 }
 
 export function persistLayoutForTab(tabId: string, layout: PersistedPaneLayout): void {

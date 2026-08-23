@@ -39,7 +39,5 @@ commands.allow = [
   "get_profile",
   "list_workspaces",
   "read_workspace",
-  "write_workspace",
-  "delete_workspace",
   "open_external_url",
 ]

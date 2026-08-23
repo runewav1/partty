@@ -1327,8 +1327,6 @@ pub fn run() {
             get_profile,
             workspaces::list_workspaces,
             workspaces::read_workspace,
-            workspaces::write_workspace,
-            workspaces::delete_workspace,
             set_prefs,
             toggle_overlay,
             list_extensions,

@@ -1,158 +1,416 @@
-//! Saved workspace layouts (`~/.partty/workspaces/*.toml`).
+//! Read-only workspace layouts from `%USERPROFILE%/.partty/workspaces/*.toml`.
+//!
+//! Workspace files are user-authored configuration. ParTTY reads and validates
+//! them, but never creates, changes, deletes, or watches them.
 
-use crate::prefs::{ensure_config_dir, validate_workspace_name};
-use serde_json::{Map, Value};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 
+const WORKSPACE_VERSION: u32 = 1;
+const LAYOUT_VERSION: u32 = 1;
+const MAX_ID_LEN: usize = 64;
+const MAX_NAME_LEN: usize = 128;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkspaceFile {
+    version: u32,
+    id: String,
+    name: String,
+    #[serde(default)]
+    tab_name: Option<String>,
+    layout: WorkspaceLayoutFile,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WorkspaceLayoutFile {
+    v: u32,
+    tree: PaneNodeFile,
+    focused_id: String,
+    #[serde(default)]
+    floating: HashMap<String, FloatingPaneStateFile>,
+    #[serde(default)]
+    pane_themes: HashMap<String, PaneThemePrefsFile>,
+    #[serde(default)]
+    pane_cwds: HashMap<String, String>,
+    #[serde(default)]
+    pane_profile_ids: HashMap<String, String>,
+    #[serde(default)]
+    startup_commands: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", deny_unknown_fields)]
+enum PaneNodeFile {
+    #[serde(rename = "leaf")]
+    Leaf { id: String },
+    #[serde(rename = "split")]
+    Split {
+        dir: String,
+        ratio: f64,
+        a: Box<PaneNodeFile>,
+        b: Box<PaneNodeFile>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FloatingPaneStateFile {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    z: f64,
+    #[serde(default)]
+    follow: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PaneThemePrefsFile {
+    ui_theme: String,
+    ui_theme_variant: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceDto {
+    pub version: u32,
+    pub id: String,
+    pub name: String,
+    pub tab_name: Option<String>,
+    pub layout: WorkspaceLayoutDto,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceLayoutDto {
+    pub v: u32,
+    pub tree: PaneNodeDto,
+    pub focused_id: String,
+    pub floating: HashMap<String, FloatingPaneStateDto>,
+    pub pane_themes: HashMap<String, PaneThemePrefsDto>,
+    pub pane_cwds: HashMap<String, String>,
+    pub pane_profile_ids: HashMap<String, String>,
+    pub startup_commands: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind")]
+pub enum PaneNodeDto {
+    #[serde(rename = "leaf")]
+    Leaf { id: String },
+    #[serde(rename = "split")]
+    Split {
+        dir: String,
+        ratio: f64,
+        a: Box<PaneNodeDto>,
+        b: Box<PaneNodeDto>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FloatingPaneStateDto {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub z: f64,
+    pub follow: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PaneThemePrefsDto {
+    #[serde(rename = "ui_theme")]
+    pub ui_theme: String,
+    #[serde(rename = "ui_theme_variant")]
+    pub ui_theme_variant: String,
+}
+
 fn workspaces_dir() -> Result<PathBuf, String> {
-    let dir = ensure_config_dir()
-        .ok_or_else(|| "could not resolve home dir".to_string())?
-        .join("workspaces");
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir)
+    let home = std::env::var_os("USERPROFILE")
+        .ok_or_else(|| "could not resolve home directory".to_string())?;
+    Ok(PathBuf::from(home).join(".partty").join("workspaces"))
 }
 
-fn snake_to_camel_key(key: &str) -> String {
-    let mut out = String::with_capacity(key.len());
-    let mut upper = false;
-    for c in key.chars() {
-        if c == '_' {
-            upper = true;
-        } else if upper {
-            out.push(c.to_ascii_uppercase());
-            upper = false;
-        } else {
-            out.push(c);
+fn validate_id(id: &str) -> Result<(), String> {
+    if id.is_empty() || id.len() > MAX_ID_LEN {
+        return Err(format!("workspace id must be 1-{MAX_ID_LEN} characters"));
+    }
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err("workspace id may contain only letters, numbers, dashes, and underscores".into());
+    }
+    Ok(())
+}
+
+fn validate_name(name: &str) -> Result<(), String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > MAX_NAME_LEN {
+        return Err(format!("workspace name must be 1-{MAX_NAME_LEN} characters"));
+    }
+    Ok(())
+}
+
+fn collect_leaf_ids(node: &PaneNodeFile, ids: &mut Vec<String>) -> Result<(), String> {
+    match node {
+        PaneNodeFile::Leaf { id } => {
+            if id.trim().is_empty() {
+                return Err("workspace layout contains an empty pane id".into());
+            }
+            ids.push(id.clone());
+        }
+        PaneNodeFile::Split {
+            dir,
+            ratio,
+            a,
+            b,
+        } => {
+            if dir != "h" && dir != "v" {
+                return Err(format!("workspace layout has invalid split direction `{dir}`"));
+            }
+            if !ratio.is_finite() || !(0.05..=0.95).contains(ratio) {
+                return Err("workspace layout split ratio must be between 0.05 and 0.95".into());
+            }
+            collect_leaf_ids(a, ids)?;
+            collect_leaf_ids(b, ids)?;
         }
     }
-    out
+    Ok(())
 }
 
-fn camel_to_snake_key(key: &str) -> String {
-    let mut out = String::with_capacity(key.len() + 4);
-    for (i, c) in key.char_indices() {
-        if c.is_ascii_uppercase() {
-            if i > 0 {
-                out.push('_');
-            }
-            out.push(c.to_ascii_lowercase());
-        } else {
-            out.push(c);
+fn validate_layout(layout: &WorkspaceLayoutFile) -> Result<(), String> {
+    if layout.v != LAYOUT_VERSION {
+        return Err(format!(
+            "unsupported workspace layout version {}; expected {LAYOUT_VERSION}",
+            layout.v
+        ));
+    }
+
+    let mut ids = Vec::new();
+    collect_leaf_ids(&layout.tree, &mut ids)?;
+    let id_set: HashSet<&str> = ids.iter().map(String::as_str).collect();
+    if id_set.len() != ids.len() {
+        return Err("workspace layout contains duplicate pane ids".into());
+    }
+    if !id_set.contains(layout.focused_id.as_str()) {
+        return Err("workspace focused_id must refer to a pane in the layout".into());
+    }
+
+    for (pane_id, state) in &layout.floating {
+        validate_pane_map_key(pane_id, &id_set, "floating")?;
+        if !state.x.is_finite()
+            || !state.y.is_finite()
+            || !state.width.is_finite()
+            || !state.height.is_finite()
+            || !state.z.is_finite()
+            || state.width <= 0.0
+            || state.height <= 0.0
+        {
+            return Err(format!("workspace floating state for `{pane_id}` is invalid"));
         }
     }
-    out
+
+    for pane_id in layout.pane_themes.keys() {
+        validate_pane_map_key(pane_id, &id_set, "pane_themes")?;
+    }
+    for pane_id in layout.pane_cwds.keys() {
+        validate_pane_map_key(pane_id, &id_set, "pane_cwds")?;
+    }
+    for pane_id in layout.pane_profile_ids.keys() {
+        validate_pane_map_key(pane_id, &id_set, "pane_profile_ids")?;
+    }
+    for (pane_id, command) in &layout.startup_commands {
+        validate_pane_map_key(pane_id, &id_set, "startup_commands")?;
+        if command.trim().is_empty() {
+            return Err(format!("workspace startup command for `{pane_id}` is empty"));
+        }
+    }
+
+    Ok(())
 }
 
-fn rename_keys(v: Value, to_camel: bool) -> Value {
-    match v {
-        Value::Object(map) => {
-            let mut out = Map::new();
-            for (k, v) in map {
-                let nk = if to_camel {
-                    snake_to_camel_key(&k)
-                } else {
-                    camel_to_snake_key(&k)
-                };
-                out.insert(nk, rename_keys(v, to_camel));
-            }
-            Value::Object(out)
-        }
-        Value::Array(items) => Value::Array(
-            items
+fn validate_pane_map_key(
+    pane_id: &str,
+    ids: &HashSet<&str>,
+    map_name: &str,
+) -> Result<(), String> {
+    if ids.contains(pane_id) {
+        Ok(())
+    } else {
+        Err(format!("workspace {map_name} contains unknown pane `{pane_id}`"))
+    }
+}
+
+fn validate_workspace(workspace: &WorkspaceFile, file_id: &str) -> Result<(), String> {
+    validate_id(file_id)?;
+    if workspace.version != WORKSPACE_VERSION {
+        return Err(format!(
+            "unsupported workspace version {}; expected {WORKSPACE_VERSION}",
+            workspace.version
+        ));
+    }
+    if workspace.id != file_id {
+        return Err(format!(
+            "workspace id `{}` does not match filename `{file_id}`",
+            workspace.id
+        ));
+    }
+    validate_id(&workspace.id)?;
+    validate_name(&workspace.name)?;
+    if let Some(tab_name) = &workspace.tab_name {
+        validate_name(tab_name)?;
+    }
+    validate_layout(&workspace.layout)
+}
+
+fn pane_node_dto(node: &PaneNodeFile) -> PaneNodeDto {
+    match node {
+        PaneNodeFile::Leaf { id } => PaneNodeDto::Leaf { id: id.clone() },
+        PaneNodeFile::Split {
+            dir,
+            ratio,
+            a,
+            b,
+        } => PaneNodeDto::Split {
+            dir: dir.clone(),
+            ratio: *ratio,
+            a: Box::new(pane_node_dto(a)),
+            b: Box::new(pane_node_dto(b)),
+        },
+    }
+}
+
+fn workspace_dto(workspace: WorkspaceFile) -> WorkspaceDto {
+    let layout = workspace.layout;
+    WorkspaceDto {
+        version: workspace.version,
+        id: workspace.id,
+        name: workspace.name.trim().to_string(),
+        tab_name: workspace.tab_name.map(|name| name.trim().to_string()),
+        layout: WorkspaceLayoutDto {
+            v: layout.v,
+            tree: pane_node_dto(&layout.tree),
+            focused_id: layout.focused_id,
+            floating: layout
+                .floating
                 .into_iter()
-                .map(|v| rename_keys(v, to_camel))
+                .map(|(id, state)| {
+                    (
+                        id,
+                        FloatingPaneStateDto {
+                            x: state.x,
+                            y: state.y,
+                            width: state.width,
+                            height: state.height,
+                            z: state.z,
+                            follow: state.follow,
+                        },
+                    )
+                })
                 .collect(),
-        ),
-        other => other,
+            pane_themes: layout
+                .pane_themes
+                .into_iter()
+                .map(|(id, theme)| {
+                    (
+                        id,
+                        PaneThemePrefsDto {
+                            ui_theme: theme.ui_theme,
+                            ui_theme_variant: theme.ui_theme_variant,
+                        },
+                    )
+                })
+                .collect(),
+            pane_cwds: layout.pane_cwds,
+            pane_profile_ids: layout.pane_profile_ids,
+            startup_commands: layout.startup_commands,
+        },
     }
 }
 
-fn workspace_id(workspace: &Value) -> Option<&str> {
-    workspace
-        .get("id")
-        .or_else(|| workspace.get("name"))
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-}
-
-fn fill_workspace_defaults(mut workspace: Value, stem: &str) -> Value {
-    let Some(obj) = workspace.as_object_mut() else {
-        return workspace;
-    };
-    if obj
-        .get("id")
-        .and_then(|v| v.as_str())
-        .is_none_or(str::is_empty)
-    {
-        obj.insert("id".into(), Value::String(stem.to_string()));
-    }
-    if obj
-        .get("name")
-        .and_then(|v| v.as_str())
-        .is_none_or(str::is_empty)
-    {
-        obj.insert("name".into(), Value::String(stem.to_string()));
-    }
-    workspace
-}
-
-pub fn list_workspace_names() -> Result<Vec<String>, String> {
+pub fn list_workspace_ids() -> Result<Vec<String>, String> {
     let dir = workspaces_dir()?;
-    let mut out = Vec::new();
-    for e in fs::read_dir(&dir).map_err(|e| e.to_string())? {
-        let e = e.map_err(|e| e.to_string())?;
-        let name = e.file_name().to_string_lossy().into_owned();
-        if let Some(stem) = name.strip_suffix(".toml") {
-            out.push(stem.to_string());
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("could not list {}: {error}", dir.display())),
+    };
+
+    let mut ids = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
+            continue;
+        }
+        if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
+            ids.push(stem.to_string());
         }
     }
-    out.sort();
-    Ok(out)
+    ids.sort_unstable();
+    Ok(ids)
 }
 
-pub fn load_workspace(name: &str) -> Result<Value, String> {
-    validate_workspace_name(name)?;
-    let path = workspaces_dir()?.join(format!("{name}.toml"));
-    let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let tom: toml::Value = toml::from_str(&text).map_err(|e| e.to_string())?;
-    let json = serde_json::to_value(tom).map_err(|e| e.to_string())?;
-    let json = rename_keys(json, true);
-    Ok(fill_workspace_defaults(json, name))
-}
-
-pub fn save_workspace(workspace: &Value) -> Result<(), String> {
-    let id = workspace_id(workspace).ok_or_else(|| "workspace id missing".to_string())?;
-    validate_workspace_name(id)?;
-    let json = rename_keys(workspace.clone(), false);
-    let tom: toml::Value = serde_json::from_value(json).map_err(|e| e.to_string())?;
-    let bytes = toml::to_string_pretty(&tom).map_err(|e| e.to_string())?;
-    fs::write(workspaces_dir()?.join(format!("{id}.toml")), bytes).map_err(|e| e.to_string())
-}
-
-pub fn remove_workspace(name: &str) -> Result<(), String> {
-    validate_workspace_name(name)?;
-    let path = workspaces_dir()?.join(format!("{name}.toml"));
-    fs::remove_file(path).map_err(|e| e.to_string())
+pub fn load_workspace(id: &str) -> Result<WorkspaceDto, String> {
+    validate_id(id)?;
+    let dir = workspaces_dir()?;
+    let path = dir.join(format!("{id}.toml"));
+    let text = fs::read_to_string(&path)
+        .map_err(|error| format!("could not read {}: {error}", path.display()))?;
+    let workspace: WorkspaceFile = toml::from_str(&text)
+        .map_err(|error| format!("could not parse {}: {error}", path.display()))?;
+    validate_workspace(&workspace, id)
+        .map_err(|error| format!("invalid workspace `{id}`: {error}"))?;
+    Ok(workspace_dto(workspace))
 }
 
 #[tauri::command]
 pub fn list_workspaces() -> Result<Vec<String>, String> {
-    list_workspace_names()
+    list_workspace_ids()
 }
 
 #[tauri::command]
-pub fn read_workspace(name: String) -> Result<Value, String> {
-    load_workspace(&name)
+pub fn read_workspace(id: String) -> Result<WorkspaceDto, String> {
+    load_workspace(&id)
 }
 
-#[tauri::command]
-pub fn write_workspace(workspace: Value) -> Result<(), String> {
-    save_workspace(&workspace)
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[tauri::command]
-pub fn delete_workspace(name: String) -> Result<(), String> {
-    remove_workspace(&name)
+    fn layout(tree: PaneNodeFile) -> WorkspaceLayoutFile {
+        WorkspaceLayoutFile {
+            v: 1,
+            tree,
+            focused_id: "root".into(),
+            floating: HashMap::new(),
+            pane_themes: HashMap::new(),
+            pane_cwds: HashMap::new(),
+            pane_profile_ids: HashMap::new(),
+            startup_commands: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_pane_ids() {
+        let tree = PaneNodeFile::Split {
+            dir: "h".into(),
+            ratio: 0.5,
+            a: Box::new(PaneNodeFile::Leaf { id: "root".into() }),
+            b: Box::new(PaneNodeFile::Leaf { id: "root".into() }),
+        };
+        assert!(validate_layout(&layout(tree)).is_err());
+    }
+
+    #[test]
+    fn accepts_a_single_pane_layout() {
+        let tree = PaneNodeFile::Leaf { id: "root".into() };
+        assert!(validate_layout(&layout(tree)).is_ok());
+    }
 }
