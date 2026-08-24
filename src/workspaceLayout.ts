@@ -116,3 +116,23 @@ export function resolvePaneStartupCwd(
   const global = globalInitialCwd?.trim();
   return global || null;
 }
+
+/**
+ * Queue spawn-time startup commands for workspace panes. `startup` keys are
+ * file-local pane ids; `idMap` maps them to runtime ids. Commands land in
+ * `pendingStartup` and are consumed once when the pane's PTY is ensured, so the
+ * shell starts directly at the command instead of having it typed in after
+ * startup (same mechanism as the `[editor]` split).
+ */
+export function queueWorkspaceStartupCommands(
+  startup: Record<string, string> | undefined,
+  idMap: Map<string, string>,
+  pendingStartup: Map<string, string>,
+): void {
+  if (!startup) return;
+  for (const [savedId, cmd] of Object.entries(startup)) {
+    const paneId = idMap.get(savedId);
+    const trimmed = cmd.trim();
+    if (paneId && trimmed) pendingStartup.set(paneId, trimmed);
+  }
+}

@@ -90,6 +90,7 @@ import {
 import { initParttyScrollFade } from "./scrollChrome";
 import { attachDraggablePanel } from "./draggablePanel";
 import {
+  queueWorkspaceStartupCommands,
   remapWorkspaceLayoutForTab,
   seedPaneMapsFromLayout,
 } from "./workspaceLayout";
@@ -4282,7 +4283,7 @@ async function boot(): Promise<void> {
     };
     saveTabsState(tabsState);
 
-    const { layout: mapped } = remapWorkspaceLayoutForTab(
+    const { layout: mapped, idMap } = remapWorkspaceLayoutForTab(
       workspace.layout,
       tabKeyForTabId(newTabId),
       followSlotsInUse(),
@@ -4299,6 +4300,11 @@ async function boot(): Promise<void> {
 
     persistLayoutForTab(newTabId, mapped);
     seedWorkspaceMaps(mapped);
+    queueWorkspaceStartupCommands(
+      workspace.layout.startupCommands,
+      idMap,
+      pendingPaneSpawnStartup,
+    );
     createTabPaneShellAndHost(
       newTabId,
       {
@@ -4315,7 +4321,7 @@ async function boot(): Promise<void> {
     const tabId = activeTabId;
     persistCurrentTabLayout();
 
-    const { layout: mapped } = remapWorkspaceLayoutForTab(
+    const { layout: mapped, idMap } = remapWorkspaceLayoutForTab(
       workspace.layout,
       tabKeyForTabId(tabId),
       followSlotsInUse(),
@@ -4341,6 +4347,12 @@ async function boot(): Promise<void> {
     }
 
     seedWorkspaceMaps(mapped);
+
+    queueWorkspaceStartupCommands(
+      workspace.layout.startupCommands,
+      idMap,
+      pendingPaneSpawnStartup,
+    );
 
     const newHost = createTabPaneShellAndHost(
       tabId,
