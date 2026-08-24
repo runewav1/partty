@@ -9,7 +9,6 @@ use std::fs;
 use std::path::PathBuf;
 
 const WORKSPACE_VERSION: u32 = 1;
-const LAYOUT_VERSION: u32 = 1;
 const MAX_ID_LEN: usize = 64;
 const MAX_NAME_LEN: usize = 128;
 
@@ -27,7 +26,6 @@ struct WorkspaceFile {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WorkspaceLayoutFile {
-    v: u32,
     tree: PaneNodeFile,
     focused_id: String,
     #[serde(default)]
@@ -88,7 +86,6 @@ pub struct WorkspaceDto {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceLayoutDto {
-    pub v: u32,
     pub tree: PaneNodeDto,
     pub focused_id: String,
     pub floating: HashMap<String, FloatingPaneStateDto>,
@@ -123,10 +120,9 @@ pub struct FloatingPaneStateDto {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub struct PaneThemePrefsDto {
-    #[serde(rename = "ui_theme")]
     pub ui_theme: String,
-    #[serde(rename = "ui_theme_variant")]
     pub ui_theme_variant: String,
 }
 
@@ -144,7 +140,9 @@ fn validate_id(id: &str) -> Result<(), String> {
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     {
-        return Err("workspace id may contain only letters, numbers, dashes, and underscores".into());
+        return Err(
+            "workspace id may contain only letters, numbers, dashes, and underscores".into(),
+        );
     }
     Ok(())
 }
@@ -152,7 +150,9 @@ fn validate_id(id: &str) -> Result<(), String> {
 fn validate_name(name: &str) -> Result<(), String> {
     let trimmed = name.trim();
     if trimmed.is_empty() || trimmed.chars().count() > MAX_NAME_LEN {
-        return Err(format!("workspace name must be 1-{MAX_NAME_LEN} characters"));
+        return Err(format!(
+            "workspace name must be 1-{MAX_NAME_LEN} characters"
+        ));
     }
     Ok(())
 }
@@ -165,14 +165,11 @@ fn collect_leaf_ids(node: &PaneNodeFile, ids: &mut Vec<String>) -> Result<(), St
             }
             ids.push(id.clone());
         }
-        PaneNodeFile::Split {
-            dir,
-            ratio,
-            a,
-            b,
-        } => {
+        PaneNodeFile::Split { dir, ratio, a, b } => {
             if dir != "h" && dir != "v" {
-                return Err(format!("workspace layout has invalid split direction `{dir}`"));
+                return Err(format!(
+                    "workspace layout has invalid split direction `{dir}`"
+                ));
             }
             if !ratio.is_finite() || !(0.05..=0.95).contains(ratio) {
                 return Err("workspace layout split ratio must be between 0.05 and 0.95".into());
@@ -185,13 +182,6 @@ fn collect_leaf_ids(node: &PaneNodeFile, ids: &mut Vec<String>) -> Result<(), St
 }
 
 fn validate_layout(layout: &WorkspaceLayoutFile) -> Result<(), String> {
-    if layout.v != LAYOUT_VERSION {
-        return Err(format!(
-            "unsupported workspace layout version {}; expected {LAYOUT_VERSION}",
-            layout.v
-        ));
-    }
-
     let mut ids = Vec::new();
     collect_leaf_ids(&layout.tree, &mut ids)?;
     let id_set: HashSet<&str> = ids.iter().map(String::as_str).collect();
@@ -212,7 +202,9 @@ fn validate_layout(layout: &WorkspaceLayoutFile) -> Result<(), String> {
             || state.width <= 0.0
             || state.height <= 0.0
         {
-            return Err(format!("workspace floating state for `{pane_id}` is invalid"));
+            return Err(format!(
+                "workspace floating state for `{pane_id}` is invalid"
+            ));
         }
     }
 
@@ -228,22 +220,22 @@ fn validate_layout(layout: &WorkspaceLayoutFile) -> Result<(), String> {
     for (pane_id, command) in &layout.startup_commands {
         validate_pane_map_key(pane_id, &id_set, "startup_commands")?;
         if command.trim().is_empty() {
-            return Err(format!("workspace startup command for `{pane_id}` is empty"));
+            return Err(format!(
+                "workspace startup command for `{pane_id}` is empty"
+            ));
         }
     }
 
     Ok(())
 }
 
-fn validate_pane_map_key(
-    pane_id: &str,
-    ids: &HashSet<&str>,
-    map_name: &str,
-) -> Result<(), String> {
+fn validate_pane_map_key(pane_id: &str, ids: &HashSet<&str>, map_name: &str) -> Result<(), String> {
     if ids.contains(pane_id) {
         Ok(())
     } else {
-        Err(format!("workspace {map_name} contains unknown pane `{pane_id}`"))
+        Err(format!(
+            "workspace {map_name} contains unknown pane `{pane_id}`"
+        ))
     }
 }
 
@@ -272,12 +264,7 @@ fn validate_workspace(workspace: &WorkspaceFile, file_id: &str) -> Result<(), St
 fn pane_node_dto(node: &PaneNodeFile) -> PaneNodeDto {
     match node {
         PaneNodeFile::Leaf { id } => PaneNodeDto::Leaf { id: id.clone() },
-        PaneNodeFile::Split {
-            dir,
-            ratio,
-            a,
-            b,
-        } => PaneNodeDto::Split {
+        PaneNodeFile::Split { dir, ratio, a, b } => PaneNodeDto::Split {
             dir: dir.clone(),
             ratio: *ratio,
             a: Box::new(pane_node_dto(a)),
@@ -286,51 +273,52 @@ fn pane_node_dto(node: &PaneNodeFile) -> PaneNodeDto {
     }
 }
 
-fn workspace_dto(workspace: WorkspaceFile) -> WorkspaceDto {
-    let layout = workspace.layout;
-    WorkspaceDto {
-        version: workspace.version,
-        id: workspace.id,
-        name: workspace.name.trim().to_string(),
-        tab_name: workspace.tab_name.map(|name| name.trim().to_string()),
-        layout: WorkspaceLayoutDto {
-            v: layout.v,
-            tree: pane_node_dto(&layout.tree),
-            focused_id: layout.focused_id,
-            floating: layout
-                .floating
-                .into_iter()
-                .map(|(id, state)| {
-                    (
-                        id,
-                        FloatingPaneStateDto {
-                            x: state.x,
-                            y: state.y,
-                            width: state.width,
-                            height: state.height,
-                            z: state.z,
-                            follow: state.follow,
-                        },
-                    )
-                })
-                .collect(),
-            pane_themes: layout
-                .pane_themes
-                .into_iter()
-                .map(|(id, theme)| {
-                    (
-                        id,
-                        PaneThemePrefsDto {
-                            ui_theme: theme.ui_theme,
-                            ui_theme_variant: theme.ui_theme_variant,
-                        },
-                    )
-                })
-                .collect(),
-            pane_cwds: layout.pane_cwds,
-            pane_profile_ids: layout.pane_profile_ids,
-            startup_commands: layout.startup_commands,
-        },
+impl From<WorkspaceFile> for WorkspaceDto {
+    fn from(workspace: WorkspaceFile) -> Self {
+        let layout = workspace.layout;
+        Self {
+            version: workspace.version,
+            id: workspace.id,
+            name: workspace.name.trim().to_string(),
+            tab_name: workspace.tab_name.map(|name| name.trim().to_string()),
+            layout: WorkspaceLayoutDto {
+                tree: pane_node_dto(&layout.tree),
+                focused_id: layout.focused_id,
+                floating: layout
+                    .floating
+                    .into_iter()
+                    .map(|(id, state)| {
+                        (
+                            id,
+                            FloatingPaneStateDto {
+                                x: state.x,
+                                y: state.y,
+                                width: state.width,
+                                height: state.height,
+                                z: state.z,
+                                follow: state.follow,
+                            },
+                        )
+                    })
+                    .collect(),
+                pane_themes: layout
+                    .pane_themes
+                    .into_iter()
+                    .map(|(id, theme)| {
+                        (
+                            id,
+                            PaneThemePrefsDto {
+                                ui_theme: theme.ui_theme,
+                                ui_theme_variant: theme.ui_theme_variant,
+                            },
+                        )
+                    })
+                    .collect(),
+                pane_cwds: layout.pane_cwds,
+                pane_profile_ids: layout.pane_profile_ids,
+                startup_commands: layout.startup_commands,
+            },
+        }
     }
 }
 
@@ -367,7 +355,7 @@ pub fn load_workspace(id: &str) -> Result<WorkspaceDto, String> {
         .map_err(|error| format!("could not parse {}: {error}", path.display()))?;
     validate_workspace(&workspace, id)
         .map_err(|error| format!("invalid workspace `{id}`: {error}"))?;
-    Ok(workspace_dto(workspace))
+    Ok(workspace.into())
 }
 
 #[tauri::command]
@@ -386,7 +374,6 @@ mod tests {
 
     fn layout(tree: PaneNodeFile) -> WorkspaceLayoutFile {
         WorkspaceLayoutFile {
-            v: 1,
             tree,
             focused_id: "root".into(),
             floating: HashMap::new(),

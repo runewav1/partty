@@ -89,6 +89,7 @@ import {
 } from "./paneIds";
 import { initParttyScrollFade } from "./scrollChrome";
 import { attachDraggablePanel } from "./draggablePanel";
+import { seedPaneMapsFromLayout } from "./workspaceLayout";
 import {
   COMMAND_PALETTE_POS_KEY,
   DEFER_PTY_REINIT_KEY,
@@ -3065,19 +3066,11 @@ async function boot(): Promise<void> {
   }
 
   function applyTabLayoutMetadata(layout: PersistedPaneLayout): void {
-    for (const [paneId, theme] of Object.entries(layout.paneThemes ?? {})) {
-      paneThemes.set(paneId, normalizePaneThemePrefs(theme));
-    }
-    if (retainSessionStateRef.v) {
-      for (const [paneId, cwd] of Object.entries(layout.paneCwds ?? {})) {
-        paneCwdHints.set(paneId, cwd);
-      }
-    }
-    for (const [paneId, profileId] of Object.entries(
-      layout.paneProfileIds ?? {},
-    )) {
-      paneProfileIds.set(paneId, profileId);
-    }
+    seedPaneMapsFromLayout(
+      layout,
+      { paneThemes, paneProfileIds, paneCwdHints },
+      { seedCwds: retainSessionStateRef.v },
+    );
   }
   const paneRootEl = document.getElementById("terminal-pane-root");
   if (!paneRootEl) throw new Error("#terminal-pane-root missing");

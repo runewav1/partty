@@ -1452,7 +1452,6 @@ pub fn validate_custom_theme_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-
 /// Extension state path (still JSON, one file for all extension toggles).
 pub fn extension_state_path() -> Option<PathBuf> {
     let dir = ensure_config_dir()?;

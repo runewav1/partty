@@ -34,7 +34,6 @@ Unknown keys are rejected. This keeps spelling mistakes from silently changing h
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `v` | integer | Layout schema version. Must be `1`. |
 | `tree` | pane tree | Split and leaf structure. |
 | `focused_id` | string | ID of the pane that receives focus. It must occur in the tree. |
 | `floating` | map | Optional floating state keyed by pane ID. |
@@ -136,7 +135,6 @@ name = "Rust development"
 tab_name = "Rust"
 
 [layout]
-v = 1
 focused_id = "root"
 
 [layout.tree]
