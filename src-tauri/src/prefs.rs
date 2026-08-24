@@ -79,6 +79,9 @@ fn default_editor_split_type() -> String {
 fn default_session_shed_on_exit() -> String {
     "keep".to_string()
 }
+fn default_workspace_open_mode() -> String {
+    "new-tab".to_string()
+}
 fn default_default_profile_id() -> String {
     "local-default".to_string()
 }
@@ -190,6 +193,8 @@ pub struct Prefs {
     pub retain_session_state: bool,
     #[serde(default = "default_session_shed_on_exit")]
     pub session_shed_on_exit: String,
+    #[serde(default = "default_workspace_open_mode")]
+    pub workspace_open_mode: String,
     #[serde(default)]
     pub summon_spawn_at_cursor: bool,
     #[serde(default)]
@@ -354,6 +359,7 @@ impl Default for Prefs {
             right_click_paste: true,
             retain_session_state: true,
             session_shed_on_exit: "keep".to_string(),
+            workspace_open_mode: default_workspace_open_mode(),
             summon_spawn_at_cursor: false,
             cursor_follow_window_move: false,
             cursor_follow_pane_focus: true,
@@ -454,6 +460,8 @@ pub struct ConfigToml {
     #[serde(default)]
     pub session: SessionSection,
     #[serde(default)]
+    pub workspaces: WorkspacesSection,
+    #[serde(default)]
     pub notifications: NotificationsSection,
     #[serde(default)]
     pub mouse: MouseSection,
@@ -469,6 +477,7 @@ pub struct ConfigToml {
     pub terminal: TerminalSection,
     #[serde(default)]
     pub editor: EditorSection,
+    #[serde(default)]
     pub dev: DevSection,
 }
 
@@ -931,6 +940,21 @@ impl Default for SessionSection {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspacesSection {
+    /// Where a workspace opens when loaded: `"new-tab"` (default) | `"replace"`.
+    #[serde(default = "default_workspace_open_mode")]
+    pub open_mode: String,
+}
+
+impl Default for WorkspacesSection {
+    fn default() -> Self {
+        Self {
+            open_mode: default_workspace_open_mode(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NotificationsSection {
     #[serde(default = "default_process_notification_threshold")]
     pub command_threshold_secs: f64,
@@ -1151,6 +1175,7 @@ impl From<ConfigToml> for Prefs {
             cursor_follow_window_move: c.focus.warp_with_window,
             font_terminal: c.font_terminal.family,
             session_shed_on_exit: c.session.shed_on_exit,
+            workspace_open_mode: c.workspaces.open_mode,
             auto_copy_selection: c.session.auto_copy,
             right_click_paste: c.session.right_click_paste,
             retain_session_state: c.session.retain_session_state,
@@ -1275,6 +1300,9 @@ impl From<&Prefs> for ConfigToml {
                 auto_copy: p.auto_copy_selection,
                 right_click_paste: p.right_click_paste,
                 retain_session_state: p.retain_session_state,
+            },
+            workspaces: WorkspacesSection {
+                open_mode: p.workspace_open_mode.clone(),
             },
             notifications: NotificationsSection {
                 command_threshold_secs: p.process_notification_threshold,

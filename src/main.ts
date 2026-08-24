@@ -89,7 +89,11 @@ import {
 } from "./paneIds";
 import { initParttyScrollFade } from "./scrollChrome";
 import { attachDraggablePanel } from "./draggablePanel";
-import { seedPaneMapsFromLayout } from "./workspaceLayout";
+import {
+  remapWorkspaceLayoutForTab,
+  seedPaneMapsFromLayout,
+} from "./workspaceLayout";
+import { listWorkspaceIds, readWorkspace, type Workspace } from "./workspaces";
 import {
   COMMAND_PALETTE_POS_KEY,
   DEFER_PTY_REINIT_KEY,
@@ -145,7 +149,11 @@ import { filterAndRankLexical, normalizeQuery } from "./lexicalSearch";
 import pkg from "../package.json";
 import { normalizeFsPathKey } from "./oscCwd";
 import { lazyCell, runLazy } from "./lazyOnce";
-import type { ParttyPrefs, SettingsPanelApi } from "./settingsPanel";
+import type {
+  ParttyPrefs,
+  SettingsPanelApi,
+  WorkspaceOpenMode,
+} from "./settingsPanel";
 import type { ExtensionManagerApi } from "./extensionManager";
 import type { ThemeBuilderApi } from "./themeBuilderModal";
 import type { ThemeModalApi } from "./themeModal";
@@ -4209,6 +4217,149 @@ async function boot(): Promise<void> {
     return id;
   }
 
+  function workspaceOpenMode(): WorkspaceOpenMode {
+    return (persisted.prefs as Partial<ParttyPrefs>).workspace_open_mode ===
+      "replace"
+      ? "replace"
+      : "new-tab";
+  }
+
+  function seedWorkspaceMaps(mapped: PersistedPaneLayout): void {
+    seedPaneMapsFromLayout(
+      mapped,
+      { paneThemes, paneProfileIds, paneCwdHints },
+      {
+        seedCwds: true,
+        resolveCwdFallbacks: true,
+        profiles: profilesList,
+        defaultProfileId: profileBehaviorRef.v.default_profile_id,
+        globalInitialCwd:
+          (persisted.prefs as Partial<ParttyPrefs>).initial_cwd ?? null,
+      },
+    );
+  }
+
+  async function applyWorkspaceById(id: string): Promise<void> {
+    await ensureProfilesLoaded();
+    let workspace: Workspace;
+    try {
+      workspace = await readWorkspace(id);
+    } catch (e) {
+      console.error("read workspace", id, e);
+      showAlert(`Could not read workspace \`${id}\`.`);
+      return;
+    }
+    applyWorkspace(workspace);
+  }
+
+  function applyWorkspace(workspace: Workspace): void {
+    if (workspaceOpenMode() === "replace") {
+      applyWorkspaceToCurrentTab(workspace);
+    } else {
+      applyWorkspaceToNewTab(workspace);
+    }
+  }
+
+  function applyWorkspaceToNewTab(workspace: Workspace): void {
+    persistCurrentTabLayout();
+    const newTabId = crypto.randomUUID();
+    const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
+    const title =
+      workspace.tabName?.trim() || workspace.name.trim() || workspace.id;
+    tabsState = {
+      ...tabsState,
+      tabs: [
+        ...tabsState.tabs,
+        {
+          id: newTabId,
+          name: title,
+          userName: null,
+          groupId: null,
+          color: null,
+          order: maxOrder + 1,
+        },
+      ],
+    };
+    saveTabsState(tabsState);
+
+    const { layout: mapped } = remapWorkspaceLayoutForTab(
+      workspace.layout,
+      tabKeyForTabId(newTabId),
+      followSlotsInUse(),
+    );
+    if (!isPaneLayoutUsable(mapped)) {
+      tabsState = {
+        ...tabsState,
+        tabs: tabsState.tabs.filter((t) => t.id !== newTabId),
+      };
+      saveTabsState(tabsState);
+      showAlert("Workspace layout could not be applied.");
+      return;
+    }
+
+    persistLayoutForTab(newTabId, mapped);
+    seedWorkspaceMaps(mapped);
+    createTabPaneShellAndHost(
+      newTabId,
+      {
+        initialTree: mapped.tree,
+        initialFocusedId: mapped.focusedId,
+        initialFloating: mapped.floating,
+      },
+      resolveTabRootPaneId(mapped),
+    );
+    switchToTab(newTabId);
+  }
+
+  function applyWorkspaceToCurrentTab(workspace: Workspace): void {
+    const tabId = activeTabId;
+    persistCurrentTabLayout();
+
+    const { layout: mapped } = remapWorkspaceLayoutForTab(
+      workspace.layout,
+      tabKeyForTabId(tabId),
+      followSlotsInUse(),
+    );
+    if (!isPaneLayoutUsable(mapped)) {
+      showAlert("Workspace layout could not be applied.");
+      return;
+    }
+
+    const tab = tabsState.tabs.find((t) => t.id === tabId);
+    const title = workspace.tabName?.trim() || workspace.name.trim();
+    if (tab && title) {
+      tab.name = title;
+      saveTabsState(tabsState);
+    }
+
+    const oldHost = tabPaneHosts.get(tabId);
+    if (oldHost) {
+      for (const pane of oldHost.getPaneDescriptors()) {
+        paneThemes.delete(pane.id);
+      }
+      disposeTabPaneHost(tabId);
+    }
+
+    seedWorkspaceMaps(mapped);
+
+    const newHost = createTabPaneShellAndHost(
+      tabId,
+      {
+        initialTree: mapped.tree,
+        initialFocusedId: mapped.focusedId,
+        initialFloating: mapped.floating,
+      },
+      resolveTabRootPaneId(mapped),
+    );
+    paneHost = newHost;
+    lastFocusedPaneId = newHost.getFocusedPaneId();
+    persistLayoutForTab(tabId, mapped);
+    installPaneControlSurface();
+    renderTabsBar();
+    scheduleResizeImmediate(true);
+    scheduleCreationReflowForHost(newHost);
+  }
+
   function openTabContextMenu(
     clientX: number,
     clientY: number,
@@ -5739,6 +5890,47 @@ async function boot(): Promise<void> {
   /** Active profile-picker session (hotkey / Tab). Input is filter-only; no `@profile:` prefix. */
   let profilePickerSession: ProfilePaletteAction | null = null;
 
+  /** Active workspace-picker session. Input is filter-only over workspace ids. */
+  let workspacePickerOpen = false;
+  let workspacePickerIds: string[] = [];
+
+  async function beginWorkspacePicker(): Promise<void> {
+    let ids: string[];
+    try {
+      ids = await listWorkspaceIds();
+    } catch (e) {
+      console.error("list workspaces", e);
+      showAlert("Could not list workspaces.");
+      return;
+    }
+    if (ids.length === 0) {
+      showAlert("No workspaces found in ~/.partty/workspaces.");
+      return;
+    }
+    workspacePickerIds = ids;
+    workspacePickerOpen = true;
+    commandPalette?.open({ placeholder: "Workspace" });
+  }
+
+  function getWorkspaceCommands(filter: string): PaletteCommand[] {
+    const ranked = filterAndRankLexical(
+      workspacePickerIds.map((id) => ({
+        id: `workspace-load-${id}`,
+        label: id,
+        keywords: `workspace layout preset load ${id}`,
+      })),
+      normalizeQuery(filter),
+    );
+    return ranked.map((r) => ({
+      id: r.id!,
+      label: r.label,
+      keywords: "workspace layout preset load",
+      run: () => {
+        void applyWorkspaceById(r.label);
+      },
+    }));
+  }
+
   function beginProfilePicker(action: ProfilePaletteAction): void {
     profilePickerSession = action;
     commandPalette?.open({ placeholder: "Profile" });
@@ -5847,6 +6039,9 @@ async function boot(): Promise<void> {
     if (profilePickerSession) {
       return listProfileCommands(profilePickerSession, query.trim());
     }
+    if (workspacePickerOpen) {
+      return getWorkspaceCommands(query.trim());
+    }
     const q = query.trimStart();
     if (q.startsWith(":")) {
       return getTabPaletteCommands();
@@ -5889,6 +6084,15 @@ async function boot(): Promise<void> {
         label: "Close tab",
         keywords: "workspace remove delete",
         run: () => closeTab(activeTabId),
+      },
+      {
+        id: "workspace-open",
+        label: "Open workspace…",
+        keywords:
+          "workspace layout preset load snapshot tab panes workspace picker",
+        run: () => {
+          void beginWorkspacePicker();
+        },
       },
       {
         id: "pane-close-children",
@@ -6110,6 +6314,8 @@ async function boot(): Promise<void> {
           },
           onClosed: () => {
             profilePickerSession = null;
+            workspacePickerOpen = false;
+            workspacePickerIds = [];
             getFocusedTerm()?.focus();
             if (cpInput) cpInput.placeholder = "Command or > …";
           },

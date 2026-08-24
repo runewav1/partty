@@ -8,6 +8,8 @@ Invalid files are rejected when they are read.
 
 Workspaces are separate from session preferences in [`config.toml`](config.toml.md). The `[session]` settings control whether the live tab and pane layout are retained in browser storage across restarts.
 
+Open a workspace from the command palette (**Open workspace…**). Where it opens — a new tab, or overwriting the current tab — is set by `[workspaces].open_mode` in [`config.toml`](config.toml.md).
+
 ## File name and identity
 
 The file name is the workspace ID:

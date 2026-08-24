@@ -2,6 +2,9 @@ import { invoke } from "@tauri-apps/api/core";
 import { mouseCursorForceVisible } from "./mouseCursor";
 import { pushOverlay, type OverlayHandle } from "./overlayStack";
 
+/** Where a workspace opens when loaded: `new-tab` (default) | `replace` current tab. */
+export type WorkspaceOpenMode = "new-tab" | "replace";
+
 /** Mirrors `prefs::Prefs` JSON (snake_case). */
 export type ParttyPrefs = {
   shell: string;
@@ -43,6 +46,8 @@ export type ParttyPrefs = {
   font_terminal: string;
   font_ui: string;
   session_shed_on_exit: string;
+  /** Config-only `[workspaces]` — not in the form; carried through unchanged. */
+  workspace_open_mode?: WorkspaceOpenMode;
   summon_spawn_at_cursor: boolean;
   cursor_follow_window_move: boolean;
   /** Warp OS cursor onto the focused pane when focus context changes. */
@@ -254,6 +259,8 @@ export function createSettingsPanel(
       editor_split_type: previous.editor_split_type ?? "v",
       editor_profile: previous.editor_profile ?? "",
       editor_command: previous.editor_command ?? "",
+      // Config-only `[workspaces]` — carried through unchanged (see above).
+      workspace_open_mode: previous.workspace_open_mode ?? "new-tab",
       terminal_animation_speed,
       terminal_animation_style, terminal_window_motion: gc("terminal_window_motion"),
       window_effect_mode, window_effect_opacity: clamp01(g("window_effect_opacity"), 0),

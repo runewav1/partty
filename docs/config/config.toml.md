@@ -155,6 +155,16 @@ Terminal session behavior (tabs/layouts in localStorage, copy/paste). Not the sa
 | `right_click_paste` | bool | `true` | right-click in a terminal pane pastes from the clipboard |
 | `retain_session_state` | bool | `true` | keep pane layouts and working directories across restarts |
 
+## `[workspaces]`
+
+How a workspace behaves when it is opened from the command palette (`Open workspace…`).
+
+| Key | Type | Default | Values |
+|-----|------|---------|--------|
+| `open_mode` | string | `"new-tab"` | `"new-tab"` — open the workspace in a new tab · `"replace"` — overwrite the current tab's layout with the workspace |
+
+Workspace files themselves live under `~/.partty/workspaces/` — see [workspaces.toml.md](workspaces.toml.md).
+
 ## `[notifications]`
 
 | Key | Type | Default | Description |
