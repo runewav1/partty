@@ -243,5 +243,5 @@ if (-not $env:TERM_PROGRAM) {
     $env:TERM_PROGRAM = "Partty"
 }
 if (-not $env:TERM_PROGRAM_VERSION) {
-    $env:TERM_PROGRAM_VERSION = "0.3.0"
+    $env:TERM_PROGRAM_VERSION = "0.4.0"
 }
