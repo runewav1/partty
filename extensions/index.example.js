@@ -15,7 +15,12 @@ console.log("[ext] App version:", api.getAppVersion());
 // ── PTY observation
 const unsub = api.onPtyOutput((paneId, data) => {
   if (data.includes("NEEDS PERMISSION")) {
-    api.showNotification("Agent waiting", "Respond in the pane", paneId);
+    api.showNotification("Agent waiting", "Respond in the pane", {
+      paneId,
+      buttons: [
+        { label: "Approve", run: () => api.writeToPane(paneId, "yes\n") },
+      ],
+    });
   }
 });
 

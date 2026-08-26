@@ -2751,6 +2751,10 @@ html.zen-mode #main-workspace {
   pointer-events: none;
 }
 
+.proc-toast--nav {
+  cursor: pointer;
+}
+
 .proc-toast-cmd {
   color: color-mix(in srgb, var(--accent-primary) 78%, var(--ui-chrome-fg));
   font-weight: 600;
@@ -2765,7 +2769,7 @@ html.zen-mode #main-workspace {
   color: var(--ui-chrome-muted);
 }
 
-.proc-toast-nav {
+.proc-toast-btn {
   background: none;
   border: 1px solid var(--input-border);
   border-radius: 3px;
@@ -2777,7 +2781,7 @@ html.zen-mode #main-workspace {
   padding: 1px 5px;
   transition: background var(--motion-fast) var(--motion-ease-out);
 }
-.proc-toast-nav:hover {
+.proc-toast-btn:hover {
   background: var(--hover-overlay);
   border-color: var(--accent-primary);
 }

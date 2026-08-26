@@ -123,6 +123,19 @@ export type TabBarItem = {
   update?: (el: HTMLElement) => void;
 };
 
+export type NotificationButton = {
+  label: string;
+  /** Runs when the button is clicked. */
+  run: () => void;
+};
+
+export type ShowNotificationOptions = {
+  /** Navigate to this pane when the notification body is clicked. */
+  paneId?: string;
+  /** Extra action buttons rendered in the notification. */
+  buttons?: NotificationButton[];
+};
+
 export type ExtensionApi = {
   onPtyOutput(fn: (paneId: string, data: string) => void): () => void;
   onPtyInput(fn: (paneId: string, data: string) => void): () => void;
@@ -168,7 +181,15 @@ export type ExtensionApi = {
   ): () => void;
 
   // ── Notifications ──
-  showNotification(command: string, detail: string, paneId?: string): void;
+  /**
+   * Show a notification toast. `opts` accepts an options object or, for
+   * backwards compatibility, a bare paneId string.
+   */
+  showNotification(
+    command: string,
+    detail: string,
+    opts?: ShowNotificationOptions | string,
+  ): void;
 
   // ── Preferences (extension-scoped, persisted in localStorage) ──
   getPref<T>(key: string, fallback: T): T;

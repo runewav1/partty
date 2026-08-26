@@ -5717,6 +5717,9 @@ async function boot(): Promise<void> {
     "proc-toast",
   ) as HTMLElement | null;
 
+  type NotificationButton = { label: string; run: () => void };
+  let processToastButtons: NotificationButton[] = [];
+
   function navigateToPane(paneId: string): void {
     for (const [tabId, host] of tabPaneHosts) {
       if (host.getPaneTerminal(paneId)) {
@@ -5725,6 +5728,29 @@ async function boot(): Promise<void> {
         return;
       }
     }
+  }
+
+  function showProcessToast(
+    bodyHtml: string,
+    paneId: string,
+    buttons: NotificationButton[] = [],
+  ): void {
+    if (!processToast) return;
+    processToast.dataset.paneId = paneId;
+    processToastButtons = buttons;
+    processToast.classList.toggle("proc-toast--nav", paneId !== "");
+    processToast.title = paneId ? "Go to pane" : "";
+    processToast.innerHTML = `${bodyHtml}${buttons
+      .map(
+        (b, i) =>
+          `<button class="proc-toast-btn" data-index="${i}">${escapeHtml(b.label)}</button>`,
+      )
+      .join("")}`;
+    processToast.classList.remove("proc-toast--hidden");
+    if (processToastTimer) clearTimeout(processToastTimer);
+    processToastTimer = window.setTimeout(() => {
+      processToast.classList.add("proc-toast--hidden");
+    }, processNotificationShowForRef.v);
   }
 
   function showProcessNotification(
@@ -5750,20 +5776,30 @@ async function boot(): Promise<void> {
     } else {
       durStr = ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
     }
-    processToast.dataset.paneId = paneId;
-    processToast.innerHTML = `<span class="proc-toast-cmd">${escapeHtml(shortCmd)}</span> \u00b7 ${durStr} \u00b7 <span class="proc-toast-pane">${escapeHtml(shortPaneName)}</span> <span class="proc-toast-cwd">${escapeHtml(shortCwd)}</span><button class="proc-toast-nav" title="Go to pane">\u2192</button>`;
-    processToast.classList.remove("proc-toast--hidden");
-    if (processToastTimer) clearTimeout(processToastTimer);
-    processToastTimer = window.setTimeout(() => {
-      processToast.classList.add("proc-toast--hidden");
-    }, processNotificationShowForRef.v);
+    showProcessToast(
+      `<span class="proc-toast-cmd">${escapeHtml(shortCmd)}</span> \u00b7 ${durStr} \u00b7 <span class="proc-toast-pane">${escapeHtml(shortPaneName)}</span> <span class="proc-toast-cwd">${escapeHtml(shortCwd)}</span>`,
+      paneId,
+    );
   }
 
   processToast?.addEventListener("click", (e) => {
-    const btn = (e.target as HTMLElement).closest(".proc-toast-nav");
+    const btn = (e.target as HTMLElement).closest(".proc-toast-btn");
     if (btn) {
-      const paneId = processToast.dataset.paneId;
-      if (paneId) navigateToPane(paneId);
+      const effect =
+        processToastButtons[Number((btn as HTMLElement).dataset.index)]?.run;
+      if (effect) {
+        try {
+          effect();
+        } catch {
+          /* ignore */
+        }
+      }
+      processToast.classList.add("proc-toast--hidden");
+      return;
+    }
+    const paneId = processToast.dataset.paneId;
+    if (paneId) {
+      navigateToPane(paneId);
       processToast.classList.add("proc-toast--hidden");
     }
   });
@@ -7185,19 +7221,20 @@ async function boot(): Promise<void> {
         writeToPane(paneId: string, text: string) {
           queuePtyWrite(paneId, text);
         },
-        showNotification(command: string, detail: string, paneId?: string) {
-    if (!processNotificationEnabledRef.v) return;
-    if (!processToast) return;
-          processToast.dataset.paneId = paneId ?? "";
-          const navArrow = paneId
-            ? `<button class="proc-toast-nav" title="Go to pane">\u2192</button>`
-            : "";
-          processToast.innerHTML = `<span class="proc-toast-cmd">${escapeHtml(truncateEnd(command, NOTIF_COMMAND_MAX))}</span> ${escapeHtml(truncateEnd(detail, NOTIF_DETAIL_MAX))}${navArrow}`;
-          processToast.classList.remove("proc-toast--hidden");
-          if (processToastTimer) clearTimeout(processToastTimer);
-          processToastTimer = window.setTimeout(() => {
-            processToast.classList.add("proc-toast--hidden");
-          }, processNotificationShowForRef.v);
+        showNotification(
+          command: string,
+          detail: string,
+          opts?: string | { paneId?: string; buttons?: NotificationButton[] },
+        ) {
+          if (!processNotificationEnabledRef.v) return;
+          if (!processToast) return;
+          const options =
+            typeof opts === "string" ? { paneId: opts } : (opts ?? {});
+          showProcessToast(
+            `<span class="proc-toast-cmd">${escapeHtml(truncateEnd(command, NOTIF_COMMAND_MAX))}</span> ${escapeHtml(truncateEnd(detail, NOTIF_DETAIL_MAX))}`,
+            options.paneId ?? "",
+            options.buttons ?? [],
+          );
         },
         getPref<T>(key: string, fallback: T): T {
           try {
