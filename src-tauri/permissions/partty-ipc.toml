@@ -15,7 +15,6 @@ commands.allow = [
   "get_persisted_state",
   "list_extensions",
   "set_extension_enabled",
-  "host_identity",
   "get_app_session_id",
   "stash_terminal_buffers",
   "take_terminal_buffers",

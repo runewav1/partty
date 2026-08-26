@@ -7114,15 +7114,6 @@ async function boot(): Promise<void> {
       const exts = allExts.filter((e) => e.enabled);
       if (exts.length === 0) return;
 
-      let hostIdentity = { user: "", host: "" };
-      try {
-        hostIdentity = await invoke<{ user: string; host: string }>(
-          "host_identity",
-        );
-      } catch {
-        /* ignore */
-      }
-
       // Listener registries — zero overhead when no extensions subscribe.
       const extApi: Record<string, unknown> = {
         onPtyOutput(fn: (paneId: string, data: string) => void) {
@@ -7657,10 +7648,6 @@ async function boot(): Promise<void> {
 
         // ── Metadata ──
         getAppVersion: () => pkg.version,
-        getHostIdentity: () => ({
-          user: hostIdentity.user,
-          host: hostIdentity.host,
-        }),
       };
 
       for (const ext of exts) {

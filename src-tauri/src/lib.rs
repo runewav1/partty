@@ -1217,24 +1217,6 @@ fn set_extension_enabled(id: String, enabled: bool) {
     save_extension_state(&state);
 }
 
-#[derive(Clone, serde::Serialize)]
-struct HostIdentity {
-    user: String,
-    host: String,
-}
-
-/// OS user and hostname for chrome labels (`user@host`).
-#[tauri::command]
-fn host_identity() -> HostIdentity {
-    let user = std::env::var("USERNAME")
-        .or_else(|_| std::env::var("USER"))
-        .unwrap_or_default();
-    let host = std::env::var("COMPUTERNAME")
-        .or_else(|_| std::env::var("HOSTNAME"))
-        .unwrap_or_default();
-    HostIdentity { user, host }
-}
-
 /// Raise the Windows timer resolution to 1 ms for the process lifetime.
 /// `recv_timeout`/`sleep` in the PTY emitter and reader threads otherwise wake
 /// on the ~15.6 ms system tick, adding ~10 ms of latency to every PTY echo
@@ -1331,7 +1313,6 @@ pub fn run() {
             toggle_overlay,
             list_extensions,
             set_extension_enabled,
-            host_identity,
             webview_boot_complete,
             commit_show_window,
             request_destroy_webview_for_hide,

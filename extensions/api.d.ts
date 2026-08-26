@@ -90,11 +90,6 @@ export type TabBarLayout = {
   itemGap?: string;
 };
 
-export type HostIdentity = {
-  user: string;
-  host: string;
-};
-
 export type TabInfo = {
   id: string;
   /** 1-based strip index (matches the number in live pane ids). */
@@ -195,8 +190,6 @@ export type ExtensionApi = {
 
   // ── Metadata ──
   getAppVersion(): string;
-  /** Local account and machine name (`user` / `host`). */
-  getHostIdentity(): HostIdentity;
 
   // ── Rendering & cursor (pane overlay surface) ──
   /** Per-pane canvas overlay above the terminal surface. */

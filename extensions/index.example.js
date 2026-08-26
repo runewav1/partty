@@ -70,16 +70,6 @@ api.showNotification(
 //
 // api.setTabBarLayout({ tabJustify: "start", grow: false });
 //
-// api.registerTabBarItem({
-//   id: "ident",
-//   slot: "leading",
-//   order: 0,
-//   mount(el) {
-//     const id = api.getHostIdentity();
-//     el.textContent = `${id.user}@${id.host}`.toLowerCase();
-//   },
-// });
-//
 // api.registerTabRenderer((tab, el) => {
 //   const dot = document.createElement("span");
 //   dot.style.cssText =
