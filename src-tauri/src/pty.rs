@@ -1,3 +1,4 @@
+use crate::clipboard;
 use crate::prefs::Prefs;
 use crate::profiles::{ConnectionProfile, ProfileKind};
 use parking_lot::Mutex as ParkingMutex;
@@ -88,6 +89,10 @@ enum OscSideEvent {
     PreExec,
     CommandDone(Option<i32>),
     CommandLine(String),
+    /// OSC 52 set: base64-encoded clipboard text to write.
+    Osc52Set(String),
+    /// OSC 52 query: selection to echo back in the reply.
+    Osc52Query(String),
 }
 
 /// A cleaned output batch that could not be delivered yet (webview down or
@@ -260,6 +265,10 @@ impl OscStripper {
                 self.handle_shell_integration(rest, events);
                 true
             }
+            "52" => {
+                self.handle_osc52(rest, events);
+                true
+            }
             // Dead/legacy sequences xterm.js would parse and discard: strip
             // them for the renderer's benefit (and kill the OSC 50 query
             // echoback vector).
@@ -301,6 +310,34 @@ impl OscStripper {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Parse an OSC 52 payload (`Pc;Pd`). The set form carries base64-encoded
+    /// clipboard text; the query form (`Pd` == `?`) asks us to reply with the
+    /// current clipboard contents. Both are stripped from the stream and
+    /// delivered as events — the emitter loop performs the actual clipboard
+    /// work. Windows has a single system clipboard, so the selection is only
+    /// used to decide whether the sequence is one we act on at all: standard
+    /// values are `0` (clipboard), `1` (primary), `2` (secondary), `3`
+    /// (highlight), plus the letter aliases `c`/`s`/`p` and comma lists like
+    /// `0,s`. Unsupported selections are still stripped, just not acted on.
+    fn handle_osc52(&self, rest: &str, events: &mut Vec<OscSideEvent>) {
+        let (selection, data) = match rest.split_once(';') {
+            Some((pc, pd)) => (pc, pd),
+            None => (rest, ""),
+        };
+        if !selection
+            .chars()
+            .any(|c| matches!(c, '0' | 'c' | 's' | 'p'))
+        {
+            return;
+        }
+        let payload = data.trim();
+        if payload == "?" {
+            events.push(OscSideEvent::Osc52Query(selection.to_string()));
+        } else {
+            events.push(OscSideEvent::Osc52Set(payload.to_string()));
         }
     }
 }
@@ -357,8 +394,8 @@ mod stripper_tests {
     // stripper must remove. Independent from the implementation's structure
     // so the two cannot share the same bug.
 
-    const STRIPPED_OSC_NUMBERS: [&str; 10] = [
-        "0", "1", "2", "7", "50", "133", "633", "1337", "1338", "1339",
+    const STRIPPED_OSC_NUMBERS: [&str; 11] = [
+        "0", "1", "2", "7", "50", "52", "133", "633", "1337", "1338", "1339",
     ];
 
     /// Naive terminator search: BEL or `ESC \`. Returns (payload_end, seq_end).
@@ -426,6 +463,8 @@ mod stripper_tests {
             OscSideEvent::PreExec => "PreExec".into(),
             OscSideEvent::CommandDone(c) => format!("CommandDone({c:?})"),
             OscSideEvent::CommandLine(s) => format!("CommandLine({s})"),
+            OscSideEvent::Osc52Set(s) => format!("Osc52Set({s})"),
+            OscSideEvent::Osc52Query(s) => format!("Osc52Query({s})"),
         }
     }
 
@@ -505,7 +544,7 @@ mod stripper_tests {
         }
     }
 
-    const OSC_NUMS: [&str; 6] = ["0", "1", "2", "7", "133", "633"];
+    const OSC_NUMS: [&str; 7] = ["0", "1", "2", "7", "52", "133", "633"];
     const UNKNOWN_OSC_NUMS: [&str; 6] = ["4", "8", "12", "48", "100", "1000"];
     const PLAIN_BYTES: &[u8] = b"abcXYZ0123 _-.,!?()/\\:~=#*\t\r\n";
     const UTF8_FRAG: &[u8] = "caf\u{e9} \u{3c0} \u{1f680} \u{5927}".as_bytes();
@@ -691,6 +730,10 @@ mod stripper_tests {
             b"\x1b]0;partial".to_vec(),
             b"\x1b]0;t\x07\x1b".to_vec(),
             b"\x1b]8;;https://x\x07link".to_vec(),
+            b"\x1b]52;0;SGVsbG8=\x07".to_vec(),
+            b"\x1b]52;c;?\x1b\\".to_vec(),
+            b"\x1b]52;1;AAAA\x07".to_vec(),
+            b"\x1b]52;0;sensitive\x1b\\".to_vec(),
             b"\x1b[31mred\x1b[0m".to_vec(),
             b"\x1b\x1b[K".to_vec(),
         ];
@@ -787,6 +830,23 @@ mod stripper_tests {
             assert!(!clean.contains(&0x1b), "OSC 50 leaked: {clean:?}");
             assert_split_invariant(stream);
         }
+    }
+
+    #[test]
+    fn osc52_handling() {
+        // Set form (selections `0`, `c`, comma list `0,s`) → Osc52Set, stripped.
+        // Empty payload clears the clipboard. Query form → Osc52Query, stripped.
+        // Unsupported selection (1) → stripped with no event.
+        let stream = b"a\x1b]52;0;SGVsbG8=\x07b\x1b]52;c;?\x1b\\c\x1b]52;1;QUFB\x07d";
+        let (clean, keys) = run_impl(&[stream]);
+        assert_eq!(clean, b"abcd", "OSC 52 must be stripped");
+        assert_eq!(keys, vec!["Osc52Set(SGVsbG8=)", "Osc52Query(c)"]);
+        assert_split_invariant(stream);
+
+        let (clean, keys) = run_impl(&[b"\x1b]52;c;\x07\x1b]52;0,s;Zg==\x07"]);
+        assert!(!clean.contains(&0x1b), "OSC 52 leaked: {clean:?}");
+        assert_eq!(keys, vec!["Osc52Set()", "Osc52Set(Zg==)"]);
+        assert_split_invariant(b"\x1b]52;c;\x07\x1b]52;0,s;Zg==\x07");
     }
 
     #[test]
@@ -1233,6 +1293,10 @@ impl PtySession {
         let app_emit = app.clone();
         let pane_id_emitter = Arc::clone(&pane_id_arc);
         let output_channel_emitter = Arc::clone(&output_channel);
+        // OSC 52 replies write back into the PTY; clone the writer for the
+        // emitter thread (the `PtySession::write` path locks the same mutex).
+        let writer_osc = Arc::clone(&writer);
+        let osc52 = prefs.osc52;
         // NOTE: do NOT capture a `WebviewWindow` here.  When
         // `destroy_webview_on_hide` is enabled (the default), the main webview
         // is torn down on hide and rebuilt on summon; a handle captured at PTY
@@ -1387,6 +1451,27 @@ impl PtySession {
                                         event: ShellEventKind::CommandLine { text: text_ev },
                                     },
                                 );
+                            }
+                            OscSideEvent::Osc52Set(payload) => {
+                                if !osc52 {
+                                    continue;
+                                }
+                                if let Some(decoded) = clipboard::base64_decode(&payload) {
+                                    let text = String::from_utf8_lossy(&decoded);
+                                    let _ = clipboard::write_text(&text);
+                                }
+                            }
+                            OscSideEvent::Osc52Query(selection) => {
+                                if !osc52 {
+                                    continue;
+                                }
+                                if let Ok(text) = clipboard::read_text() {
+                                    let encoded = clipboard::base64_encode(text.as_bytes());
+                                    let reply = format!("\x1b]52;{selection};{encoded}\x1b\\");
+                                    let mut w = writer_osc.lock();
+                                    let _ = w.write_all(reply.as_bytes());
+                                    let _ = w.flush();
+                                }
                             }
                         }
                     }

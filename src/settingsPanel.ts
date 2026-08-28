@@ -33,6 +33,8 @@ export type ParttyPrefs = {
   auto_copy_selection: boolean;
   /** Right-click in the terminal pastes from the clipboard. */
   right_click_paste?: boolean;
+  /** OSC 52 clipboard integration: remote programs can read/write the local clipboard. */
+  osc52?: boolean;
   /**
    * Use a sideloaded `conpty.dll`/`OpenConsole.exe` next to the binary as the
    * ConPTY host, enabling image protocols (sixel/kitty/iTerm) that the inbox
@@ -229,6 +231,7 @@ export function createSettingsPanel(
       focus_pane_scale: gc("focus_pane_scale"), pane_focus_scale_intensity: clampf(g("pane_focus_scale_intensity"), 0.45, 0, 1),
       auto_copy_selection: gc("auto_copy_selection"),
       right_click_paste: gc("right_click_paste"),
+      osc52: gc("osc52"),
       session_shed_on_exit,
       retain_session_state: gc("retain_session_state"),
       summon_spawn_at_cursor: gc("summon_spawn_at_cursor"),
@@ -534,6 +537,7 @@ export function createSettingsPanel(
     setVal("pane_focus_scale_intensity", String(pr.pane_focus_scale_intensity ?? 0.45));
     setChk("auto_copy_selection", pr.auto_copy_selection ?? false);
     setChk("right_click_paste", pr.right_click_paste ?? true);
+    setChk("osc52", pr.osc52 ?? true);
     setChk("retain_session_state", pr.retain_session_state ?? true);
     setChk("summon_spawn_at_cursor", pr.summon_spawn_at_cursor ?? false);
     setChk("cursor_follow_window_move", pr.cursor_follow_window_move ?? false);

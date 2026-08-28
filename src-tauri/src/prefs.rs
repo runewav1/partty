@@ -189,6 +189,11 @@ pub struct Prefs {
     pub auto_copy_selection: bool,
     #[serde(default = "default_true")]
     pub right_click_paste: bool,
+    /// OSC 52 clipboard integration: remote programs (e.g. over SSH) can read
+    /// and write the local clipboard. Security-sensitive — disabled via
+    /// `[session] osc52 = false`.
+    #[serde(default = "default_true")]
+    pub osc52: bool,
     #[serde(default = "default_true")]
     pub retain_session_state: bool,
     #[serde(default = "default_session_shed_on_exit")]
@@ -357,6 +362,7 @@ impl Default for Prefs {
             pane_focus_scale_intensity: default_pane_focus_scale_intensity(),
             auto_copy_selection: false,
             right_click_paste: true,
+            osc52: true,
             retain_session_state: true,
             session_shed_on_exit: "keep".to_string(),
             workspace_open_mode: default_workspace_open_mode(),
@@ -925,6 +931,8 @@ pub struct SessionSection {
     #[serde(default = "default_true")]
     pub right_click_paste: bool,
     #[serde(default = "default_true")]
+    pub osc52: bool,
+    #[serde(default = "default_true")]
     pub retain_session_state: bool,
 }
 
@@ -934,6 +942,7 @@ impl Default for SessionSection {
             shed_on_exit: "keep".to_string(),
             auto_copy: false,
             right_click_paste: true,
+            osc52: true,
             retain_session_state: true,
         }
     }
@@ -1178,6 +1187,7 @@ impl From<ConfigToml> for Prefs {
             workspace_open_mode: c.workspaces.open_mode,
             auto_copy_selection: c.session.auto_copy,
             right_click_paste: c.session.right_click_paste,
+            osc52: c.session.osc52,
             retain_session_state: c.session.retain_session_state,
             process_notification_threshold: c.notifications.command_threshold_secs,
             process_notification_show_for: c.notifications.toast_duration_ms,
@@ -1299,6 +1309,7 @@ impl From<&Prefs> for ConfigToml {
                 shed_on_exit: p.session_shed_on_exit.clone(),
                 auto_copy: p.auto_copy_selection,
                 right_click_paste: p.right_click_paste,
+                osc52: p.osc52,
                 retain_session_state: p.retain_session_state,
             },
             workspaces: WorkspacesSection {
