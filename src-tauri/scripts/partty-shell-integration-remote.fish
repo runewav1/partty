@@ -7,12 +7,12 @@
 #
 # Once loaded, set integration = true on the matching Partty SSH profile.
 
-if set -q __TERMIE_SHELL_INTEGRATION
+if set -q __PARTTY_SHELL_INTEGRATION
     return
 end
-set -g __TERMIE_SHELL_INTEGRATION 1
+set -g __PARTTY_SHELL_INTEGRATION 1
 
-function __termie_escape_value -a input
+function __partty_escape_value -a input
     set -l output ""
     set -l len (string length -- "$input")
     if test "$len" -eq 0
@@ -30,11 +30,11 @@ function __termie_escape_value -a input
     printf '%s' "$output"
 end
 
-function __termie_get_cwd
+function __partty_get_cwd
     printf '%s' "$PWD"
 end
 
-function __termie_path_to_uri -a path
+function __partty_path_to_uri -a path
     set path (string replace -a '\\' '/' -- "$path")
     set -l encoded ""
     for i in (seq (string length -- "$path"))
@@ -63,7 +63,7 @@ function __termie_path_to_uri -a path
     end
 end
 
-function __termie_emit_osc -a code
+function __partty_emit_osc -a code
     set -l payload "$code"
     if test (count $argv) -gt 1
         set payload "$payload;"(string join ';' $argv[2..-1])
@@ -71,75 +71,75 @@ function __termie_emit_osc -a code
     printf '\e]%s\a' "$payload"
 end
 
-function __termie_emit_osc_batch
+function __partty_emit_osc_batch
     for seq in $argv
         printf '\e]%s\a' "$seq"
     end
 end
 
-set -g __TERMIE_HAS_RUN 0
-set -g __TERMIE_CURRENT_CMD ""
+set -g __PARTTY_HAS_RUN 0
+set -g __PARTTY_CURRENT_CMD ""
 
-function __termie_fish_precmd --on-event fish_prompt
+function __partty_fish_precmd --on-event fish_prompt
     set -l exit_code $status
     set -l sequences
 
-    if test "$__TERMIE_HAS_RUN" = 1
-        if test -n "$__TERMIE_CURRENT_CMD"
+    if test "$__PARTTY_HAS_RUN" = 1
+        if test -n "$__PARTTY_CURRENT_CMD"
             set -a sequences "633;D;$exit_code"
         else
             set -a sequences "633;D"
         end
     end
-    set -g __TERMIE_HAS_RUN 0
-    set -g __TERMIE_CURRENT_CMD ""
+    set -g __PARTTY_HAS_RUN 0
+    set -g __PARTTY_CURRENT_CMD ""
 
     set -a sequences "633;A"
-    set -l cwd (__termie_get_cwd)
+    set -l cwd (__partty_get_cwd)
     if test -n "$cwd"
         set -l cwd_normalized (string replace -a '\\' '/' -- "$cwd")
-        set -a sequences "633;P;Cwd="(__termie_escape_value "$cwd_normalized")
-        set -a sequences "7;"(__termie_path_to_uri "$cwd")
+        set -a sequences "633;P;Cwd="(__partty_escape_value "$cwd_normalized")
+        set -a sequences "7;"(__partty_path_to_uri "$cwd")
     end
-    __termie_emit_osc_batch $sequences
+    __partty_emit_osc_batch $sequences
 end
 
-function __termie_fish_preexec --on-event fish_preexec
-    set -g __TERMIE_HAS_RUN 1
+function __partty_fish_preexec --on-event fish_preexec
+    set -g __PARTTY_HAS_RUN 1
     set -l cmd (string join ' ' -- $argv)
-    set -g __TERMIE_CURRENT_CMD "$cmd"
+    set -g __PARTTY_CURRENT_CMD "$cmd"
     set cmd (string trim -- "$cmd")
     if test -z "$cmd"
         return
     end
-    __termie_emit_osc 633 E (__termie_escape_value "$cmd")
-    __termie_emit_osc 633 C
+    __partty_emit_osc 633 E (__partty_escape_value "$cmd")
+    __partty_emit_osc 633 C
 end
 
-function __termie_fish_prompt_end
-    __termie_emit_osc 633 B
+function __partty_fish_prompt_end
+    __partty_emit_osc 633 B
 end
 
 if functions -q fish_prompt
-    functions -c fish_prompt __termie_original_fish_prompt
+    functions -c fish_prompt __partty_original_fish_prompt
 end
 
 function fish_prompt
-    if functions -q __termie_original_fish_prompt
-        __termie_original_fish_prompt
+    if functions -q __partty_original_fish_prompt
+        __partty_original_fish_prompt
     else
         printf '%s> ' (prompt_pwd)
     end
-    __termie_fish_prompt_end
+    __partty_fish_prompt_end
 end
 
-__termie_emit_osc 633 P IsWindows=False
+__partty_emit_osc 633 P IsWindows=False
 
-set -l __TERMIE_INITIAL_CWD (__termie_get_cwd)
-if test -n "$__TERMIE_INITIAL_CWD"
-    set -l initial_normalized (string replace -a '\\' '/' -- "$__TERMIE_INITIAL_CWD")
-    __termie_emit_osc 633 P Cwd=(__termie_escape_value "$initial_normalized")
-    __termie_emit_osc 7 (__termie_path_to_uri "$__TERMIE_INITIAL_CWD")
+set -l __PARTTY_INITIAL_CWD (__partty_get_cwd)
+if test -n "$__PARTTY_INITIAL_CWD"
+    set -l initial_normalized (string replace -a '\\' '/' -- "$__PARTTY_INITIAL_CWD")
+    __partty_emit_osc 633 P Cwd=(__partty_escape_value "$initial_normalized")
+    __partty_emit_osc 7 (__partty_path_to_uri "$__PARTTY_INITIAL_CWD")
 end
 
 set -gx PARTTY_SHELL_INTEGRATION 1

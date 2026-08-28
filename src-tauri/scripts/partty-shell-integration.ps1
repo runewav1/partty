@@ -3,11 +3,11 @@
 # ============================================================================
 
 # Guard: prevent double-sourcing
-if ($Global:__TermieState -and $Global:__TermieState.Initialized) {
+if ($Global:__ParttyState -and $Global:__ParttyState.Initialized) {
     return
 }
 
-$Global:__TermieState = @{
+$Global:__ParttyState = @{
     Initialized         = $true
     OriginalPrompt      = $null
     LastHistoryId       = -1
@@ -19,14 +19,14 @@ $Global:__TermieState = @{
     DebugMode           = $env:PARTTY_DEBUG -eq "1"
 }
 
-function __Termie-Debug {
+function __Partty-Debug {
     param([string]$Message)
-    if ($Global:__TermieState.DebugMode) {
+    if ($Global:__ParttyState.DebugMode) {
         [Console]::Error.WriteLine("[PARTTY-DEBUG] $Message")
     }
 }
 
-function __Termie-Escape-Value {
+function __Partty-Escape-Value {
     param([string]$Value)
     if ([string]::IsNullOrEmpty($Value)) {
         return ""
@@ -45,7 +45,7 @@ function __Termie-Escape-Value {
     return $result.ToString()
 }
 
-function __Termie-UriEncode-Path {
+function __Partty-UriEncode-Path {
     param([string]$Path)
     if ([string]::IsNullOrEmpty($Path)) { return "" }
     $result = [System.Text.StringBuilder]::new($Path.Length * 2)
@@ -68,13 +68,13 @@ function __Termie-UriEncode-Path {
     return $result.ToString()
 }
 
-function __Termie-Path-To-FileUri {
+function __Partty-Path-To-FileUri {
     param([string]$Path)
     if ([string]::IsNullOrEmpty($Path)) {
         return ""
     }
     $normalizedPath = $Path.Replace('\', '/')
-    $encoded = __Termie-UriEncode-Path $normalizedPath
+    $encoded = __Partty-UriEncode-Path $normalizedPath
 
     # UNC paths: \\server\share -> file://server/share
     if ($encoded.StartsWith('//')) {
@@ -87,7 +87,7 @@ function __Termie-Path-To-FileUri {
     return "file:///" + $encoded.TrimStart('/')
 }
 
-function __Termie-Get-SafeCwd {
+function __Partty-Get-SafeCwd {
     try {
         $location = Get-Location
         if ($location.Provider.Name -eq 'FileSystem') {
@@ -100,12 +100,12 @@ function __Termie-Get-SafeCwd {
         return $null
     }
     catch {
-        __Termie-Debug "Error getting CWD: $_"
+        __Partty-Debug "Error getting CWD: $_"
         return $null
     }
 }
 
-function __Termie-Emit-OSC {
+function __Partty-Emit-OSC {
     param(
         [string]$Code,
         [string[]]$Args
@@ -119,7 +119,7 @@ function __Termie-Emit-OSC {
     [Console]::Write("${esc}]${payload}${bel}")
 }
 
-function __Termie-Emit-OSC-Batch {
+function __Partty-Emit-OSC-Batch {
     param([string[]]$Sequences)
     $esc = [char]0x1b
     $bel = [char]0x07
@@ -130,7 +130,7 @@ function __Termie-Emit-OSC-Batch {
     [Console]::Write($buffer.ToString())
 }
 
-$Global:__TermieState.OriginalPrompt = $function:Prompt
+$Global:__ParttyState.OriginalPrompt = $function:Prompt
 
 function Global:Prompt {
     # Capture exit state first
@@ -148,11 +148,11 @@ function Global:Prompt {
     $currentHistoryId = if ($lastHistory) { $lastHistory.Id } else { -1 }
 
     # OSC 633;D - command finished
-    if ($Global:__TermieState.LastHistoryId -ne -1) {
-        $wasExecuted = $Global:__TermieState.IsInExecution -or (-not $Global:__TermieState.HasPSReadLine)
+    if ($Global:__ParttyState.LastHistoryId -ne -1) {
+        $wasExecuted = $Global:__ParttyState.IsInExecution -or (-not $Global:__ParttyState.HasPSReadLine)
         if ($wasExecuted) {
-            $Global:__TermieState.IsInExecution = $false
-            if ($currentHistoryId -eq $Global:__TermieState.LastHistoryId) {
+            $Global:__ParttyState.IsInExecution = $false
+            if ($currentHistoryId -eq $Global:__ParttyState.LastHistoryId) {
                 $sequences.Add("633;D")
             }
             else {
@@ -165,41 +165,41 @@ function Global:Prompt {
     $sequences.Add("633;A")
 
     # OSC 633;P;Cwd
-    $cwd = __Termie-Get-SafeCwd
+    $cwd = __Partty-Get-SafeCwd
     if ($cwd) {
         $cwdNormalized = $cwd.Replace('\\', '/')
-        $sequences.Add("633;P;Cwd=$(__Termie-Escape-Value $cwdNormalized)")
+        $sequences.Add("633;P;Cwd=$(__Partty-Escape-Value $cwdNormalized)")
     }
 
     if ($sequences.Count -gt 0) {
-        __Termie-Emit-OSC-Batch $sequences.ToArray()
+        __Partty-Emit-OSC-Batch $sequences.ToArray()
     }
 
     # Restore $? / $LASTEXITCODE for original prompt
     if (-not $successState) {
-        try { Write-Error "termie-internal" -ErrorAction SilentlyContinue 2>$null } catch {}
+        try { Write-Error "partty-internal" -ErrorAction SilentlyContinue 2>$null } catch {}
     }
     $global:LASTEXITCODE = $realExitCode
 
     # Run original prompt
     $originalOutput = ""
     try {
-        if ($Global:__TermieState.OriginalPrompt) {
-            $originalOutput = & $Global:__TermieState.OriginalPrompt
+        if ($Global:__ParttyState.OriginalPrompt) {
+            $originalOutput = & $Global:__ParttyState.OriginalPrompt
         }
         else {
             $originalOutput = "PS $($executionContext.SessionState.Path.CurrentLocation)> "
         }
     }
     catch {
-        __Termie-Debug "Original prompt error: $_"
+        __Partty-Debug "Original prompt error: $_"
         $originalOutput = "PS> "
     }
 
     # Trailing sequences: OSC 7 + prompt end
     $post = [System.Collections.Generic.List[string]]::new()
     if ($cwd) {
-        $post.Add("7;$(__Termie-Path-To-FileUri $cwd)")
+        $post.Add("7;$(__Partty-Path-To-FileUri $cwd)")
     }
     $post.Add("633;B")
     $result = $originalOutput
@@ -211,24 +211,24 @@ function Global:Prompt {
         }
     }
 
-    $Global:__TermieState.LastHistoryId = $currentHistoryId
-    $Global:__TermieState.LastExitCode = $reportedExitCode
+    $Global:__ParttyState.LastHistoryId = $currentHistoryId
+    $Global:__ParttyState.LastExitCode = $reportedExitCode
     return $result
 }
 
 if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
-    $Global:__TermieState.HasPSReadLine = $true
-    $Global:__TermieState.OriginalPSConsoleHostReadLine = $function:PSConsoleHostReadLine
+    $Global:__ParttyState.HasPSReadLine = $true
+    $Global:__ParttyState.OriginalPSConsoleHostReadLine = $function:PSConsoleHostReadLine
 
-    __Termie-Emit-OSC "633" @("P", "HasRichCommandDetection=True")
+    __Partty-Emit-OSC "633" @("P", "HasRichCommandDetection=True")
 
     function Global:PSConsoleHostReadLine {
-        $commandLine = $Global:__TermieState.OriginalPSConsoleHostReadLine.Invoke()
-        $Global:__TermieState.IsInExecution = $true
+        $commandLine = $Global:__ParttyState.OriginalPSConsoleHostReadLine.Invoke()
+        $Global:__ParttyState.IsInExecution = $true
         if (-not [string]::IsNullOrWhiteSpace($commandLine)) {
-            __Termie-Emit-OSC "633" @("E", (__Termie-Escape-Value $commandLine.Trim()))
+            __Partty-Emit-OSC "633" @("E", (__Partty-Escape-Value $commandLine.Trim()))
         }
-        __Termie-Emit-OSC "633" @("C")
+        __Partty-Emit-OSC "633" @("C")
         return $commandLine
     }
 }
@@ -237,17 +237,17 @@ $isWindowsPlatform = $true
 if ($PSVersionTable.PSVersion.Major -ge 6) {
     $isWindowsPlatform = $IsWindows
 }
-__Termie-Emit-OSC "633" @("P", "IsWindows=$($isWindowsPlatform.ToString().ToLower())")
+__Partty-Emit-OSC "633" @("P", "IsWindows=$($isWindowsPlatform.ToString().ToLower())")
 $shellType = if ($PSVersionTable.PSVersion.Major -ge 6) { "pwsh" } else { "powershell" }
-__Termie-Emit-OSC "633" @("P", "ShellType=$shellType")
-__Termie-Emit-OSC "633" @("P", "SessionId=$($Global:__TermieState.SessionId)")
+__Partty-Emit-OSC "633" @("P", "ShellType=$shellType")
+__Partty-Emit-OSC "633" @("P", "SessionId=$($Global:__ParttyState.SessionId)")
 
 # Emit initial CWD immediately
-$initialCwd = __Termie-Get-SafeCwd
+$initialCwd = __Partty-Get-SafeCwd
 if ($initialCwd) {
     $initialCwdNormalized = $initialCwd.Replace('\\', '/')
-    __Termie-Emit-OSC "633" @("P", "Cwd=$(__Termie-Escape-Value $initialCwdNormalized)")
-    __Termie-Emit-OSC "7" @("$(__Termie-Path-To-FileUri $initialCwd)")
+    __Partty-Emit-OSC "633" @("P", "Cwd=$(__Partty-Escape-Value $initialCwdNormalized)")
+    __Partty-Emit-OSC "7" @("$(__Partty-Path-To-FileUri $initialCwd)")
 }
 
 $env:PARTTY_SHELL_INTEGRATION = "1"

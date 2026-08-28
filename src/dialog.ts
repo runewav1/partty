@@ -32,25 +32,25 @@ function showDialog(spec: DialogSpec): Promise<DialogResult> {
   return new Promise((resolve) => {
     mouseCursorForceVisible(true);
 
-    let host = document.getElementById("termie-dialog-host");
+    let host = document.getElementById("partty-dialog-host");
     if (!host) {
       host = document.createElement("div");
-      host.id = "termie-dialog-host";
-      host.className = "termie-dialog-host";
+      host.id = "partty-dialog-host";
+      host.className = "partty-dialog-host";
       document.body.appendChild(host);
     }
 
     const backdrop = document.createElement("div");
-    backdrop.className = "termie-dialog-backdrop";
+    backdrop.className = "partty-dialog-backdrop";
     const panel = document.createElement("div");
-    panel.className = "termie-dialog-panel";
+    panel.className = "partty-dialog-panel";
     panel.setAttribute("role", spec.role ?? "dialog");
 
     const title = document.createElement("h2");
-    title.className = "termie-dialog-title";
+    title.className = "partty-dialog-title";
     title.textContent = spec.title;
     const msg = document.createElement("p");
-    msg.className = "termie-dialog-msg";
+    msg.className = "partty-dialog-msg";
     msg.textContent = spec.message;
     panel.append(title, msg);
 
@@ -58,14 +58,14 @@ function showDialog(spec: DialogSpec): Promise<DialogResult> {
     if (spec.input) {
       input = document.createElement("input");
       input.type = "text";
-      input.className = "termie-dialog-input";
+      input.className = "partty-dialog-input";
       input.spellcheck = false;
       input.value = spec.input.value;
       panel.appendChild(input);
     }
 
     const actions = document.createElement("div");
-    actions.className = "termie-dialog-actions";
+    actions.className = "partty-dialog-actions";
     panel.appendChild(actions);
 
     const finish = (button: number): void => {
@@ -82,10 +82,10 @@ function showDialog(spec: DialogSpec): Promise<DialogResult> {
       el.type = "button";
       el.className =
         btn.kind === "primary"
-          ? "termie-dialog-btn termie-dialog-btn--primary"
+          ? "partty-dialog-btn partty-dialog-btn--primary"
           : btn.kind === "danger"
-            ? "termie-dialog-btn termie-dialog-btn--danger"
-            : "termie-dialog-btn";
+            ? "partty-dialog-btn partty-dialog-btn--danger"
+            : "partty-dialog-btn";
       el.textContent = btn.label;
       el.addEventListener("click", () => finish(i));
       actions.appendChild(el);

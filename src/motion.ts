@@ -28,7 +28,7 @@ export function applyMotionPreferences(speed: unknown, style: unknown): void {
   const root = document.documentElement;
   const scale = animationScaleForPreference(speed);
   root.classList.toggle("terminal-motion-off", scale === "0");
-  root.style.setProperty("--termie-animation-scale", scale);
+  root.style.setProperty("--partty-animation-scale", scale);
   root.dataset.motionStyle = motionStyleForPreference(style);
 }
 

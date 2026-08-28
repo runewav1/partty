@@ -99,12 +99,7 @@ import {
   COMMAND_PALETTE_POS_KEY,
   DEFER_PTY_REINIT_KEY,
   HELP_PANEL_POS_KEY,
-  PANE_LAYOUT_KEY,
-  PERF_KEY,
   SETTINGS_PANEL_POS_KEY,
-  TAB_LAYOUT_PREFIX,
-  TABS_STATE_KEY,
-  THEME_MODAL_POS_KEY,
   ZEN_MODE_KEY,
   tabLayoutKey,
 } from "./storageKeys";
@@ -232,41 +227,6 @@ const IDLE_WEBGL_MS = 400;
 
 type PersistedPayload = { prefs: Record<string, unknown> };
 
-const STORAGE_KEY_MIGRATIONS: [string, string][] = [
-  ["termie.zen.enabled", ZEN_MODE_KEY],
-  ["termie.defer_pty_reinit", DEFER_PTY_REINIT_KEY],
-  ["termie.tabs.v1", TABS_STATE_KEY],
-  ["termie.pane_layout.v1", PANE_LAYOUT_KEY],
-  ["termie.themeModal.pos", THEME_MODAL_POS_KEY],
-  ["termie.settingsPanel.pos", SETTINGS_PANEL_POS_KEY],
-  ["termie.helpPanel.pos", HELP_PANEL_POS_KEY],
-  ["termie.commandPalette.pos", COMMAND_PALETTE_POS_KEY],
-  ["termie.perf", PERF_KEY],
-];
-
-function migrateParttyLocalStorage(): void {
-  try {
-    for (const [oldKey, newKey] of STORAGE_KEY_MIGRATIONS) {
-      const oldValue = localStorage.getItem(oldKey);
-      if (oldValue != null && localStorage.getItem(newKey) == null) {
-        localStorage.setItem(newKey, oldValue);
-      }
-    }
-    localStorage.removeItem("partty.terminal.serialize");
-    localStorage.removeItem("termie.terminal.serialize");
-    for (const key of Object.keys(localStorage)) {
-      if (!key.startsWith("termie.tab.layout.v1.")) continue;
-      const nextKey = `${TAB_LAYOUT_PREFIX}${key.slice("termie.tab.layout.v1.".length)}`;
-      const oldValue = localStorage.getItem(key);
-      if (oldValue != null && localStorage.getItem(nextKey) == null) {
-        localStorage.setItem(nextKey, oldValue);
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
 const PTY_FALLBACK_COLS = 80;
 const PTY_FALLBACK_ROWS = 24;
 
@@ -345,9 +305,9 @@ function applyTerminalDisplayPrefs(raw: Partial<ParttyPrefs>): void {
     "--pane-sandbox-padding",
     `${Math.max(0, Math.min(32, sandboxPadding))}px`,
   );
-  root.style.setProperty("--termie-app-bg-alpha", String(appAlpha));
+  root.style.setProperty("--partty-app-bg-alpha", String(appAlpha));
   root.style.setProperty(
-    "--termie-pane-radius",
+    "--partty-pane-radius",
     `${Math.max(0, Math.min(32, paneRadius))}px`,
   );
 }
@@ -448,7 +408,6 @@ function terminalFontStackFromDocument(): string {
 }
 
 async function boot(): Promise<void> {
-  migrateParttyLocalStorage();
   if (!import.meta.env.DEV) {
     document.querySelectorAll("[data-dev-only]").forEach((el) => el.remove());
   }
@@ -6599,8 +6558,8 @@ async function boot(): Promise<void> {
       )
         return;
       if (
-        t?.closest(".termie-dialog-input") ||
-        t?.closest(".termie-dialog-panel")
+        t?.closest(".partty-dialog-input") ||
+        t?.closest(".partty-dialog-panel")
       )
         return;
       e.preventDefault();
@@ -6652,8 +6611,8 @@ async function boot(): Promise<void> {
         )
           return;
         if (
-          t?.closest(".termie-dialog-input") ||
-          t?.closest(".termie-dialog-panel")
+          t?.closest(".partty-dialog-input") ||
+          t?.closest(".partty-dialog-panel")
         )
           return;
         e.preventDefault();

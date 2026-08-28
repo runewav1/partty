@@ -18,12 +18,12 @@
   background: transparent;
 }
 
-.termie-scroll-fade::-webkit-scrollbar-thumb {
+.partty-scroll-fade::-webkit-scrollbar-thumb {
   border-radius: 4px;
   background: color-mix(in srgb, var(--ui-chrome-muted) 38%, transparent);
 }
 
-.termie-scroll-fade:not(.termie-scroll-fade--active)::-webkit-scrollbar-thumb {
+.partty-scroll-fade:not(.partty-scroll-fade--active)::-webkit-scrollbar-thumb {
   background: transparent !important;
 }
 
@@ -45,15 +45,15 @@
   --pane-outer-gap: 6px;
   --pane-sandbox-padding: 0px;
 
-  --termie-animation-scale: 1;
+  --partty-animation-scale: 1;
   --motion-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --motion-ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
   --motion-ease-standard: cubic-bezier(0.25, 1, 0.5, 1);
   /* Per-"Feel" duration multiplier (see html[data-motion-style]); 1 = Smooth. */
   --motion-feel: 1;
-  --motion-fast: calc(0.13s * var(--termie-animation-scale) * var(--motion-feel));
-  --motion-medium: calc(0.2s * var(--termie-animation-scale) * var(--motion-feel));
-  --motion-slow: calc(0.28s * var(--termie-animation-scale) * var(--motion-feel));
+  --motion-fast: calc(0.13s * var(--partty-animation-scale) * var(--motion-feel));
+  --motion-medium: calc(0.2s * var(--partty-animation-scale) * var(--motion-feel));
+  --motion-slow: calc(0.28s * var(--partty-animation-scale) * var(--motion-feel));
   --motion-pane-focus-transition:
     transform var(--motion-medium) var(--motion-ease-out),
     border-color var(--motion-fast) var(--motion-ease-out),
@@ -61,8 +61,8 @@
     filter var(--motion-medium) var(--motion-ease-out),
     background var(--motion-medium) var(--motion-ease-out),
     outline var(--motion-fast) var(--motion-ease-out);
-  --termie-app-bg-alpha: 1;
-  --termie-pane-radius: 6px;
+  --partty-app-bg-alpha: 1;
+  --partty-pane-radius: 6px;
   
   /* ===== Git Status Colors ===== */
   --git-untracked: #a1a1aa;
@@ -159,7 +159,7 @@
   --layer-panel: 1100;              /* settings + help panels */
   --layer-extensions: 1500;
   --layer-toast: 2000;
-  --layer-dialog: 3000;             /* termie alert / prompt / confirm */
+  --layer-dialog: 3000;             /* partty alert / prompt / confirm */
   --layer-dev-overlay: 5000;
   --layer-theme-modal: 8500;
   --layer-theme-builder: 9000;
@@ -216,7 +216,7 @@ html[data-motion-style="gentle"] {
 .theme-builder-panel,
 .zen-rename-card,
 .extension-manager-card,
-.termie-dialog-panel,
+.partty-dialog-panel,
 .shed-exit-dialog-card,
 .tab-context-menu {
   animation: overlay-panel-in var(--motion-medium) var(--motion-ease-out) backwards;
@@ -225,7 +225,7 @@ html[data-motion-style="gentle"] {
 .command-palette,
 .help-panel-backdrop,
 .settings-panel-backdrop,
-.termie-dialog-backdrop,
+.partty-dialog-backdrop,
 .theme-builder-backdrop,
 .theme-modal-backdrop,
 .zen-rename-backdrop,
@@ -263,7 +263,7 @@ body {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-app-bg-alpha) * 100%), transparent);
+  background: color-mix(in srgb, var(--term-bg) calc(var(--partty-app-bg-alpha) * 100%), transparent);
   font-family: var(--font-ui);
 }
 
@@ -286,7 +286,7 @@ body {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-app-bg-alpha) * 100%), transparent);
+  background: color-mix(in srgb, var(--term-bg) calc(var(--partty-app-bg-alpha) * 100%), transparent);
   display: flex;
   flex-direction: row;
   align-items: stretch;
@@ -321,7 +321,7 @@ html.mouse-cursor-hidden * {
   min-width: 0;
   min-height: 0;
   height: 100%;
-  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-app-bg-alpha) * 100%), transparent);
+  background: color-mix(in srgb, var(--term-bg) calc(var(--partty-app-bg-alpha) * 100%), transparent);
 }
 
 /* Theme picker open: block input to xterm/shell until closed */
@@ -368,7 +368,7 @@ html.theme-builder-open #main-workspace {
   padding: 3px 8px 3px;
   /* Tight to window edge */
   padding-left: 8px;
-  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-app-bg-alpha) * 100%), transparent);
+  background: color-mix(in srgb, var(--term-bg) calc(var(--partty-app-bg-alpha) * 100%), transparent);
   border-bottom: none;
   position: relative;
   z-index: 6;
@@ -669,7 +669,7 @@ html:not(.term-tabs-multiple):not(.term-tabs-force-strip) .term-tabs-strip {
 }
 
 html.term-tabs-multiple .term-toolbar {
-  background: color-mix(in srgb, color-mix(in srgb, var(--term-bg) 78%, #000 22%) calc(var(--termie-app-bg-alpha) * 100%), transparent);
+  background: color-mix(in srgb, color-mix(in srgb, var(--term-bg) 78%, #000 22%) calc(var(--partty-app-bg-alpha) * 100%), transparent);
 }
 
 .window-controls {
@@ -756,7 +756,7 @@ html.term-tabs-multiple .term-toolbar {
   margin-top: 0;
   position: relative;
   z-index: 2;
-  background: color-mix(in srgb, var(--term-bg) calc(var(--termie-app-bg-alpha) * 100%), transparent);
+  background: color-mix(in srgb, var(--term-bg) calc(var(--partty-app-bg-alpha) * 100%), transparent);
 }
 
 #terminal-content {
@@ -907,7 +907,7 @@ html.term-tabs-multiple .term-toolbar {
   flex: 1;
   outline: none;
   border: 1px solid transparent;
-  border-radius: var(--termie-pane-radius);
+  border-radius: var(--partty-pane-radius);
   overflow: hidden;
   background: var(--term-bg);
   /* Border snaps quickly; opacity/filter ease so focus hops still feel alive. */
@@ -939,7 +939,7 @@ html.terminal-no-round .term-tab-group {
   z-index: var(--layer-pane-drag-preview);
   pointer-events: none;
   box-sizing: border-box;
-  border-radius: var(--termie-pane-radius);
+  border-radius: var(--partty-pane-radius);
   border: 1px solid color-mix(in srgb, var(--accent-primary) 38%, transparent);
   background: color-mix(in srgb, var(--term-bg) 14%, transparent);
   backdrop-filter: blur(14px) saturate(1.12);
@@ -2100,18 +2100,18 @@ html.zen-mode #main-workspace {
   box-shadow: 0 0 0 1px rgba(0,0,0,0.15);
 }
 
-.termie-dialog-host {
+.partty-dialog-host {
   position: fixed;
   inset: 0;
   z-index: var(--layer-dialog);
   pointer-events: none;
 }
 
-.termie-dialog-host .termie-dialog-backdrop {
+.partty-dialog-host .partty-dialog-backdrop {
   pointer-events: auto;
 }
 
-.termie-dialog-backdrop {
+.partty-dialog-backdrop {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
@@ -2122,7 +2122,7 @@ html.zen-mode #main-workspace {
   padding: 20px;
 }
 
-.termie-dialog-panel {
+.partty-dialog-panel {
   width: min(400px, 100%);
   padding: 14px 20px 14px;
   background: var(--panel-glass-bg);
@@ -2133,14 +2133,14 @@ html.zen-mode #main-workspace {
   -webkit-backdrop-filter: blur(16px) saturate(1.08);
 }
 
-.termie-dialog-title {
+.partty-dialog-title {
   margin: 0 0 6px;
   font-size: 13px;
   font-weight: 600;
   color: var(--ui-chrome-fg);
 }
 
-.termie-dialog-msg {
+.partty-dialog-msg {
   margin: 0 0 12px;
   font-size: 13px;
   line-height: 1.45;
@@ -2148,7 +2148,7 @@ html.zen-mode #main-workspace {
   white-space: pre-wrap;
 }
 
-.termie-dialog-input {
+.partty-dialog-input {
   width: 100%;
   margin: 0 0 14px;
   padding: 9px 11px;
@@ -2160,14 +2160,14 @@ html.zen-mode #main-workspace {
   box-sizing: border-box;
 }
 
-.termie-dialog-actions {
+.partty-dialog-actions {
   display: flex;
   flex-direction: row;
   justify-content: flex-end;
   gap: 8px;
 }
 
-.termie-dialog-btn {
+.partty-dialog-btn {
   border: none;
   border-radius: 6px;
   padding: 7px 14px;
@@ -2178,25 +2178,25 @@ html.zen-mode #main-workspace {
   color: var(--ui-chrome-fg);
 }
 
-.termie-dialog-btn:hover {
+.partty-dialog-btn:hover {
   background: color-mix(in srgb, var(--hover-overlay) 140%, var(--ui-chrome-fg) 8%);
 }
 
-.termie-dialog-btn--primary {
+.partty-dialog-btn--primary {
   background: var(--accent-primary);
   color: #fafafa;
 }
 
-.termie-dialog-btn--primary:hover {
+.partty-dialog-btn--primary:hover {
   background: var(--accent-primary-light);
 }
 
-.termie-dialog-btn--danger {
+.partty-dialog-btn--danger {
   background: var(--accent-danger);
   color: #fafafa;
 }
 
-.termie-dialog-btn--danger:hover {
+.partty-dialog-btn--danger:hover {
   background: var(--accent-danger-light);
 }
 
