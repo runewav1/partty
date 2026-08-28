@@ -65,7 +65,9 @@ pub fn write_text(text: &str) -> Result<(), String> {
     use windows_sys::Win32::System::DataExchange::{
         CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
     };
-    use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    use windows_sys::Win32::System::Memory::{
+        GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock,
+    };
 
     let utf16: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
     let byte_len = utf16.len() * 2;
@@ -183,9 +185,15 @@ mod tests {
     #[test]
     fn b64_roundtrip_various_lengths() {
         for len in 0..64 {
-            let bytes: Vec<u8> = (0..len).map(|i| (i as u8).wrapping_mul(37).wrapping_add(11)).collect();
+            let bytes: Vec<u8> = (0..len)
+                .map(|i| (i as u8).wrapping_mul(37).wrapping_add(11))
+                .collect();
             let enc = base64_encode(&bytes);
-            assert_eq!(base64_decode(&enc).as_deref(), Some(bytes.as_slice()), "len {len}");
+            assert_eq!(
+                base64_decode(&enc).as_deref(),
+                Some(bytes.as_slice()),
+                "len {len}"
+            );
         }
     }
 
@@ -198,7 +206,10 @@ mod tests {
         assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
         assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
         assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
-        assert_eq!(base64_encode("caf\u{e9} \u{1f680}".as_bytes()), "Y2Fmw6kg8J+agA==");
+        assert_eq!(
+            base64_encode("caf\u{e9} \u{1f680}".as_bytes()),
+            "Y2Fmw6kg8J+agA=="
+        );
     }
 
     #[test]
