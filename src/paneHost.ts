@@ -4,7 +4,7 @@ import type { LigaturesAddon } from "@xterm/addon-ligatures";
 import type { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
-import { Terminal, type ITheme } from "@xterm/xterm";
+import { Terminal, type ITheme, type ITerminalOptions } from "@xterm/xterm";
 import { parttyPerf } from "./perf";
 import {
   afterAnimationFrames,
@@ -1970,7 +1970,11 @@ export class PaneHost {
           theme: this.opts.getTheme(node.id),
           scrollback: this.opts.scrollbackLines,
           linkHandler: this.opts.linkHandler ?? undefined,
-        });
+          // ConPTY always terminates wrapped lines with CRLF-style control
+          // sequences; the Windows wrapping heuristics + scrollback handling
+          // in xterm match that. Not in the public typings — kept at runtime.
+          windowsMode: true,
+        } as ITerminalOptions);
         const fit = new FitAddon();
         term.loadAddon(fit);
         const unicode11 = new Unicode11Addon();
