@@ -1032,7 +1032,6 @@ async function boot(): Promise<void> {
   let liveCwd: string | null = null;
   let lastFocusedPaneId = "";
   let tooltipObserver: MutationObserver | null = null;
-  let bridgeScrollCleanup: (() => void) | null = null;
 
   // ConPTY input buffers are small (~1–2KB). Fast shells drain fine; busy TUIs
   // (OpenCode, etc.) don't — a single large write silently drops. Chunk + pace.
@@ -2866,28 +2865,6 @@ async function boot(): Promise<void> {
     await ensureWebglOnPane(paneId);
     if (paneHost?.getFocusedPaneId() !== paneId) return;
 
-    bridgeScrollCleanup?.();
-    bridgeScrollCleanup = null;
-    const termEl = pt.term.element;
-    const bridge = document.getElementById("terminal-chrome-bridge");
-    if (termEl && bridge) {
-      const vp = termEl.querySelector(".xterm-viewport") as HTMLElement | null;
-      if (vp) {
-        const onScroll = (): void => {
-          const max = vp.scrollHeight - vp.clientHeight;
-          const t = max > 0 ? vp.scrollTop / max : 0;
-          const intensity = Math.max(0.22, 0.88 - t * 0.66);
-          bridge.style.setProperty(
-            "--terminal-bridge-intensity",
-            intensity.toFixed(3),
-          );
-        };
-        vp.addEventListener("scroll", onScroll, { passive: true });
-        bridgeScrollCleanup = () => vp.removeEventListener("scroll", onScroll);
-        onScroll();
-      }
-    }
-
     pt.term.focus();
   }
 
@@ -3282,7 +3259,7 @@ async function boot(): Promise<void> {
           lastFocusedPaneId = id;
           const pt = getPaneTerminalById(id);
           // Sync hot path only: terminal focus + PTY focus IPC.
-          // Fit / WebGL / CWD / bridge scroll are coalesced to the next frame
+          // Fit / WebGL / CWD are coalesced to the next frame
           // so Ctrl+Arrow hops stay visually instant.
           if (pt) {
             pt.term.focus();
@@ -5433,8 +5410,6 @@ async function boot(): Promise<void> {
     paneCwdHints.clear();
     paneRemoteIsWindows.clear();
     lastPtyDims.clear();
-    bridgeScrollCleanup?.();
-    bridgeScrollCleanup = null;
     shedWebgl();
     const tabId = activeTabId;
     disposeTabPaneHost(tabId);
@@ -7716,7 +7691,6 @@ async function boot(): Promise<void> {
       /* ignore */
     }
     mouseCursorController?.dispose();
-    bridgeScrollCleanup?.();
     paneHost = null;
     commandPalette?.dispose();
   });

@@ -722,31 +722,6 @@ html.term-tabs-multiple .term-toolbar {
   background: #34c759;
 }
 
-/* Blur / “chrome” blend between toolbar and terminal (strength tied to --terminal-bridge-intensity) */
-.terminal-chrome-bridge {
-  flex: 0 0 auto;
-  height: 10px;
-  margin: 0 calc(var(--term-pad-x) + 2px);
-  margin-top: -1px;
-  border-radius: 0 0 10px 10px;
-  pointer-events: none;
-  position: relative;
-  z-index: 5;
-  --terminal-bridge-intensity: 0.55;
-  backdrop-filter: blur(calc(10px * var(--terminal-bridge-intensity)))
-    saturate(calc(1 + 0.2 * var(--terminal-bridge-intensity)));
-  -webkit-backdrop-filter: blur(calc(10px * var(--terminal-bridge-intensity)))
-    saturate(calc(1 + 0.2 * var(--terminal-bridge-intensity)));
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.35) 55%, transparent 100%);
-  -webkit-mask-image: linear-gradient(
-    180deg,
-    rgba(0, 0, 0, 0.95) 0%,
-    rgba(0, 0, 0, 0.35) 55%,
-    transparent 100%
-  );
-  opacity: 0.92;
-}
-
 #terminal-stage {
   flex: 1;
   min-height: 0;
@@ -927,7 +902,6 @@ html.term-tabs-multiple .term-toolbar {
 
 html.terminal-no-round .pane-leaf,
 html.terminal-no-round .pane-leaf::before,
-html.terminal-no-round .terminal-chrome-bridge,
 html.terminal-no-round .term-tab,
 html.terminal-no-round .term-tab-group {
   border-radius: 0 !important;
@@ -1394,8 +1368,7 @@ html.terminal-motion-off *::after {
   cursor: pointer;
 }
 
-html.zen-mode .term-toolbar,
-html.zen-mode .terminal-chrome-bridge {
+html.zen-mode .term-toolbar {
   display: none !important;
 }
 
