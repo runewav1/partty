@@ -6184,7 +6184,7 @@ async function boot(): Promise<void> {
       {
         id: "quit-app",
         label: "Quit",
-        keywords: "exit app quit close traffic light red",
+        keywords: "exit app quit close",
         run: () => void appWindow.destroy().catch(() => {}),
       },
       ...extPaletteCommands.map((c) => ({
@@ -6382,35 +6382,6 @@ async function boot(): Promise<void> {
     });
   // Escape is handled by the shared overlay stack.
   const appWindow = getCurrentWindow();
-  async function syncMaximizeButtonTitle(): Promise<void> {
-    const btn = document.getElementById("window-maximize");
-    if (!btn) return;
-    try {
-      const m = await appWindow.isMaximized();
-      btn.title = m ? "Restore" : "Maximize";
-      btn.setAttribute("aria-label", m ? "Restore" : "Maximize");
-    } catch {
-      /* ignore */
-    }
-  }
-  void syncMaximizeButtonTitle();
-  void appWindow.onResized(() => {
-    void syncMaximizeButtonTitle();
-  });
-  document
-    .getElementById("window-maximize")
-    ?.addEventListener("pointerenter", () => {
-      void syncMaximizeButtonTitle();
-    });
-  document.getElementById("window-quit")?.addEventListener("click", () => {
-    void appWindow.destroy().catch(() => {});
-  });
-  document.getElementById("window-suspend")?.addEventListener("click", () => {
-    void invoke("toggle_overlay").catch(() => {});
-  });
-  document.getElementById("window-minimize")?.addEventListener("click", () => {
-    void appWindow.minimize().catch(() => {});
-  });
   // Subtle "settle" animation on the pane stack after the window itself is
   // resized/restored/maximized or hops monitors. These operations intentionally
   // restore→maximize the Tauri window (avoids a Windows render fault), which snaps
@@ -6424,31 +6395,16 @@ async function boot(): Promise<void> {
     animateClass(el, "window-motion-settle");
   }
 
-  async function toggleMaximizeRestore(): Promise<void> {
-    try {
-      const isMax = await appWindow.isMaximized();
-      if (isMax) await appWindow.unmaximize();
-      else await appWindow.maximize();
-      await syncMaximizeButtonTitle();
-      playWindowMotion();
-    } catch {
-      /* ignore */
-    }
-  }
   // Alt+Shift+Up maximizes, Alt+Shift+Down restores (see the Alt keydown handler).
   async function setWindowMaximized(max: boolean): Promise<void> {
     try {
       if (max) await appWindow.maximize();
       else await appWindow.unmaximize();
-      await syncMaximizeButtonTitle();
       playWindowMotion();
     } catch {
       /* ignore */
     }
   }
-  document.getElementById("window-maximize")?.addEventListener("click", () => {
-    void toggleMaximizeRestore();
-  });
 
   // Move the window to an adjacent monitor: +1 = next (Alt+Shift+Right), -1 = previous
   // (Alt+Shift+Left), wrapping around the list. Preserves the window's offset within
@@ -6487,7 +6443,6 @@ async function boot(): Promise<void> {
       );
       await appWindow.setPosition(new PhysicalPosition(nextX, nextY));
       if (wasMaximized) await appWindow.maximize();
-      await syncMaximizeButtonTitle();
       playWindowMotion();
       if (cursorFollowWindowMoveRef.v) {
         scheduleCursorWarpToPane(undefined, {
