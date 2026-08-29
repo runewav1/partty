@@ -116,21 +116,6 @@
             </div>
 
             <div class="settings-section" data-section="terminal">
-              <div class="settings-section-hd">Fonts</div>
-              <div class="settings-section-bd">
-                <div class="settings-row">
-                  <span class="settings-row-label">Terminal</span>
-                  <input id="setting-font-terminal" name="font_terminal" type="text" class="settings-input" list="font-suggestions" spellcheck="false" autocomplete="off" placeholder="default" />
-                </div>
-                <div class="settings-row">
-                  <span class="settings-row-label">UI</span>
-                  <input id="setting-font-ui" name="font_ui" type="text" class="settings-input" list="font-suggestions" spellcheck="false" autocomplete="off" placeholder="default" />
-                </div>
-
-              </div>
-            </div>
-
-            <div class="settings-section" data-section="terminal">
               <div class="settings-section-hd">Terminal</div>
               <div class="settings-section-bd">
                 <div class="settings-row settings-row--compact">
@@ -190,6 +175,10 @@
                   <label class="settings-checkbox-label"><span>Blinking cursor</span><input class="settings-checkbox-input" type="checkbox" name="terminal_cursor_blink" checked /></label>
                   <label class="settings-checkbox-label"><span>Alt+click cursor</span><input class="settings-checkbox-input" type="checkbox" name="terminal_alt_click_moves_cursor" checked /></label>
                   <div class="settings-row settings-row--compact">
+                    <span class="settings-row-label">Font</span>
+                    <input id="setting-font-terminal" name="font_terminal" type="text" class="settings-input" list="font-suggestions" spellcheck="false" autocomplete="off" placeholder="default" />
+                  </div>
+                  <div class="settings-row settings-row--compact">
                     <span class="settings-row-label">Font size</span>
                     <input name="terminal_font_size" type="number" min="8" max="48" step="1" class="settings-input settings-input--narrow" />
                   </div>
@@ -240,6 +229,7 @@
                     <input name="pane_focus_scale_intensity" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
                   </div>
                   <label class="settings-checkbox-label" title="Backspace deletes a single-line selection on the input line"><span>Backspace selection</span><input class="settings-checkbox-input" type="checkbox" name="terminal_backspace_delete_selection" checked /></label>
+                  <label class="settings-checkbox-label" title="Allow remote programs (e.g. over SSH) to read and write the local clipboard via OSC 52"><span>OSC 52 clipboard</span><input class="settings-checkbox-input" type="checkbox" name="osc52" checked /></label>
                 </div>
               </div>
             </div>
@@ -293,8 +283,12 @@
             </div>
 
             <div class="settings-section" data-section="ui">
-              <div class="settings-section-hd">Transparency</div>
+              <div class="settings-section-hd">Appearance</div>
               <div class="settings-section-bd">
+                <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">UI font</span>
+                  <input id="setting-font-ui" name="font_ui" type="text" class="settings-input" list="font-suggestions" spellcheck="false" autocomplete="off" placeholder="default" />
+                </div>
                 <div class="settings-row settings-row--compact">
                   <span class="settings-row-label">Backdrop</span>
                   <select id="setting-window-effect-mode" name="window_effect_mode" class="settings-input settings-input--narrow">
@@ -342,7 +336,6 @@
                   <label class="settings-checkbox-label"><span>No tooltips</span><input class="settings-checkbox-input" type="checkbox" name="ui_disable_tooltips" /></label>
                   <label class="settings-checkbox-label"><span>Auto-copy</span><input class="settings-checkbox-input" type="checkbox" name="auto_copy_selection" /></label>
                   <label class="settings-checkbox-label" title="Right-click in a terminal pane pastes from the clipboard"><span>Right-click paste</span><input class="settings-checkbox-input" type="checkbox" name="right_click_paste" checked /></label>
-                  <label class="settings-checkbox-label" title="Allow remote programs (e.g. over SSH) to read and write the local clipboard via OSC 52"><span>OSC 52 clipboard</span><input class="settings-checkbox-input" type="checkbox" name="osc52" checked /></label>
                 </div>
               </div>
             </div>
