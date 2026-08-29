@@ -1826,7 +1826,10 @@ html.tabs-hidden #main-workspace {
   line-height: 1.3;
 }
 .settings-row .settings-input {
-  flex: 1;
+  flex: 0 1 auto;
+  /* Size every control to its own content; `--narrow`/`--font` stay as
+     generous caps and inline widths still win. */
+  field-sizing: content;
   margin: 0;
   padding: 5px 8px;
   border: 1px solid var(--input-border);
@@ -1836,7 +1839,8 @@ html.tabs-hidden #main-workspace {
   font: inherit;
   font-size: 12px;
   outline: none;
-  min-width: 0;
+  min-width: 4em;
+  max-width: 100%;
   -moz-appearance: textfield;
 }
 
