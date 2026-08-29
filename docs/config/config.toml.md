@@ -189,7 +189,6 @@ Workspace files themselves live under `~/.partty/workspaces/` — see [workspace
 | Key | Type | Default |
 |-----|------|---------|
 | `hide_tooltips` | bool | `false` |
-| `hide_tabs_on_start` | bool | `false` |
 
 ## `[theme]`
 

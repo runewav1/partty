@@ -214,8 +214,6 @@ pub struct Prefs {
     #[serde(default = "default_terminal_backspace_delete_selection")]
     pub terminal_backspace_delete_selection: bool,
     #[serde(default)]
-    pub always_hide_tabs: bool,
-    #[serde(default)]
     pub terminal_no_gap: bool,
     #[serde(default = "default_terminal_pane_gap")]
     pub terminal_pane_gap: f64,
@@ -377,7 +375,6 @@ impl Default for Prefs {
             font_ui: String::new(),
             ui_disable_tooltips: false,
             terminal_backspace_delete_selection: true,
-            always_hide_tabs: false,
             terminal_no_gap: false,
             terminal_pane_gap: default_terminal_pane_gap(),
             terminal_sandbox_padding: default_terminal_sandbox_padding(),
@@ -1013,8 +1010,6 @@ impl Default for MouseSection {
 pub struct UiSection {
     #[serde(default)]
     pub hide_tooltips: bool,
-    #[serde(default)]
-    pub hide_tabs_on_start: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1198,7 +1193,6 @@ impl From<ConfigToml> for Prefs {
             mouse_hide_on_idle: c.mouse.hide_on_idle,
             mouse_idle_seconds: c.mouse.idle_timeout_secs,
             ui_disable_tooltips: c.ui.hide_tooltips,
-            always_hide_tabs: c.ui.hide_tabs_on_start,
             ui_theme: c.theme.active,
             ui_theme_variant: c.theme.variant,
             font_ui: c.font_ui.family,
@@ -1329,7 +1323,6 @@ impl From<&Prefs> for ConfigToml {
             },
             ui: UiSection {
                 hide_tooltips: p.ui_disable_tooltips,
-                hide_tabs_on_start: p.always_hide_tabs,
             },
             theme: ThemeSection {
                 active: p.ui_theme.clone(),

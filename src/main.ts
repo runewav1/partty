@@ -467,11 +467,7 @@ async function boot(): Promise<void> {
   );
   applyPaneFocusScalePrefs(persisted.prefs as Partial<ParttyPrefs>);
 
-  const prefHideTabs = Boolean(
-    (persisted.prefs as Partial<ParttyPrefs>).always_hide_tabs,
-  );
-  const tabsHidden =
-    prefHideTabs || localStorage.getItem(TABS_HIDDEN_KEY) === "1";
+  const tabsHidden = localStorage.getItem(TABS_HIDDEN_KEY) === "1";
   document.documentElement.classList.toggle("tabs-hidden", tabsHidden);
   const releaseBootSurface = (): void => {
     document.documentElement.classList.remove("partty-booting");
@@ -4626,10 +4622,11 @@ async function boot(): Promise<void> {
     strip.replaceChildren();
     const mult = tabsState.tabs.length > 1;
     document.documentElement.classList.toggle("term-tabs-multiple", mult);
-    // With nothing to render, collapse the tab bar so it doesn't eat viewport.
+    // One tab (or fewer) isn't worth a tab bar — collapse it so it doesn't eat
+    // viewport. The user hide/show toggle only applies with multiple tabs.
     document.documentElement.classList.toggle(
-      "tabs-empty",
-      tabsState.tabs.length === 0,
+      "tabs-collapsed",
+      tabsState.tabs.length <= 1,
     );
 
     // Sort tabs and groups by order
@@ -5290,9 +5287,6 @@ async function boot(): Promise<void> {
               Boolean((saved as Partial<ParttyPrefs>).pane_variable_opacity),
             );
             applyPaneFocusScalePrefs(saved);
-            if (saved.always_hide_tabs) {
-              setTabsHidden(true);
-            }
             const prevUi = pickUiPrefs(
               previous as unknown as Record<string, unknown>,
             );

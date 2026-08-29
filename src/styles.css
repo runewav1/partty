@@ -1303,7 +1303,8 @@ html.terminal-motion-off *::after {
   cursor: pointer;
 }
 
-html.tabs-hidden .term-toolbar {
+html.tabs-hidden .term-toolbar,
+html.tabs-collapsed .term-toolbar {
   display: none !important;
 }
 
@@ -1313,11 +1314,6 @@ html.tabs-hidden #terminal-stage {
 
 html.tabs-hidden #main-workspace {
   padding: 0;
-}
-
-/* No tabs to show — don't waste the terminal viewport on an empty tab bar. */
-html.tabs-empty .term-toolbar {
-  display: none !important;
 }
 
 .command-palette {
