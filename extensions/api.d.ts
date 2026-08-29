@@ -207,7 +207,7 @@ export type ExtensionApi = {
   /** Composed display name (OSC title, or profile + cwd/process). */
   getPaneName(paneId: string): string | null;
   getPaneTerminalDims(paneId: string): { cols: number; rows: number } | null;
-  getWindowState(): { visible: boolean; zenMode: boolean };
+  getWindowState(): { visible: boolean; tabsHidden: boolean };
 
   // ── Metadata ──
   getAppVersion(): string;

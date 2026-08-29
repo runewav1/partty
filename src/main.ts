@@ -100,7 +100,7 @@ import {
   DEFER_PTY_REINIT_KEY,
   HELP_PANEL_POS_KEY,
   SETTINGS_PANEL_POS_KEY,
-  ZEN_MODE_KEY,
+  TABS_HIDDEN_KEY,
   tabLayoutKey,
 } from "./storageKeys";
 import {
@@ -467,12 +467,12 @@ async function boot(): Promise<void> {
   );
   applyPaneFocusScalePrefs(persisted.prefs as Partial<ParttyPrefs>);
 
-  const prefAlwaysZen = Boolean(
-    (persisted.prefs as Partial<ParttyPrefs>).always_open_in_zen_mode,
+  const prefHideTabs = Boolean(
+    (persisted.prefs as Partial<ParttyPrefs>).always_hide_tabs,
   );
-  const zenModeEnabled =
-    prefAlwaysZen || localStorage.getItem(ZEN_MODE_KEY) === "1";
-  document.documentElement.classList.toggle("zen-mode", zenModeEnabled);
+  const tabsHidden =
+    prefHideTabs || localStorage.getItem(TABS_HIDDEN_KEY) === "1";
+  document.documentElement.classList.toggle("tabs-hidden", tabsHidden);
   const releaseBootSurface = (): void => {
     document.documentElement.classList.remove("partty-booting");
   };
@@ -1627,7 +1627,7 @@ async function boot(): Promise<void> {
 
   const isTooltipSuppressed = (): boolean =>
     disableTooltipsRef.v ||
-    document.documentElement.classList.contains("zen-mode");
+    document.documentElement.classList.contains("tabs-hidden");
 
   const syncTooltipForElement = (el: HTMLElement, suppress: boolean): void => {
     if (suppress) {
@@ -2681,9 +2681,9 @@ async function boot(): Promise<void> {
     scheduleCreationReflowForHost(host);
   }
 
-  function setZenMode(next: boolean): void {
-    document.documentElement.classList.toggle("zen-mode", next);
-    localStorage.setItem(ZEN_MODE_KEY, next ? "1" : "0");
+  function setTabsHidden(next: boolean): void {
+    document.documentElement.classList.toggle("tabs-hidden", next);
+    localStorage.setItem(TABS_HIDDEN_KEY, next ? "1" : "0");
     applyTooltipPolicy(document);
     scheduleResizeImmediate();
   }
@@ -4020,23 +4020,23 @@ async function boot(): Promise<void> {
     renderTabsBar();
   }
 
-  let zenRenameOverlay: OverlayHandle | null = null;
+  let tabRenameOverlay: OverlayHandle | null = null;
 
-  function openZenRenameModal(): void {
-    const modal = document.getElementById("zen-rename-modal");
+  function openTabRenameModal(): void {
+    const modal = document.getElementById("tab-rename-modal");
     const input = document.getElementById(
-      "zen-rename-input",
+      "tab-rename-input",
     ) as HTMLInputElement | null;
     const form = modal?.querySelector(
-      ".zen-rename-form",
+      ".tab-rename-form",
     ) as HTMLFormElement | null;
     if (!modal || !input || !form) return;
     const tab = tabsState.tabs.find((t) => t.id === renamingTabId);
     input.value = tab?.name ?? "";
-    modal.classList.remove("zen-rename-modal--hidden");
+    modal.classList.remove("tab-rename-modal--hidden");
     modal.setAttribute("aria-hidden", "false");
-    zenRenameOverlay?.release();
-    zenRenameOverlay = pushOverlay(() => closeZenRenameModal(false));
+    tabRenameOverlay?.release();
+    tabRenameOverlay = pushOverlay(() => closeTabRenameModal(false));
     mouseCursorForceVisible(true);
     requestAnimationFrame(() => {
       input.focus();
@@ -4044,18 +4044,18 @@ async function boot(): Promise<void> {
     });
   }
 
-  function closeZenRenameModal(commit: boolean): void {
-    const modal = document.getElementById("zen-rename-modal");
+  function closeTabRenameModal(commit: boolean): void {
+    const modal = document.getElementById("tab-rename-modal");
     if (!modal) return;
-    zenRenameOverlay?.release();
-    zenRenameOverlay = null;
-    modal.classList.add("zen-rename-modal--hidden");
+    tabRenameOverlay?.release();
+    tabRenameOverlay = null;
+    modal.classList.add("tab-rename-modal--hidden");
     modal.setAttribute("aria-hidden", "true");
     mouseCursorForceVisible(false);
     if (commit) {
       const id = renamingTabId;
       const input = document.getElementById(
-        "zen-rename-input",
+        "tab-rename-input",
       ) as HTMLInputElement | null;
       const v = input?.value.trim();
       if (id && v) {
@@ -4071,8 +4071,8 @@ async function boot(): Promise<void> {
 
   function beginTabRename(tabId: string): void {
     renamingTabId = tabId;
-    if (document.documentElement.classList.contains("zen-mode")) {
-      openZenRenameModal();
+    if (document.documentElement.classList.contains("tabs-hidden")) {
+      openTabRenameModal();
       return;
     }
     renderTabsBar();
@@ -4626,6 +4626,11 @@ async function boot(): Promise<void> {
     strip.replaceChildren();
     const mult = tabsState.tabs.length > 1;
     document.documentElement.classList.toggle("term-tabs-multiple", mult);
+    // With nothing to render, collapse the tab bar so it doesn't eat viewport.
+    document.documentElement.classList.toggle(
+      "tabs-empty",
+      tabsState.tabs.length === 0,
+    );
 
     // Sort tabs and groups by order
     const sortedTabs = [...tabsState.tabs].sort((a, b) => a.order - b.order);
@@ -5285,8 +5290,8 @@ async function boot(): Promise<void> {
               Boolean((saved as Partial<ParttyPrefs>).pane_variable_opacity),
             );
             applyPaneFocusScalePrefs(saved);
-            if (saved.always_open_in_zen_mode) {
-              setZenMode(true);
+            if (saved.always_hide_tabs) {
+              setTabsHidden(true);
             }
             const prevUi = pickUiPrefs(
               previous as unknown as Record<string, unknown>,
@@ -6085,16 +6090,25 @@ async function boot(): Promise<void> {
         },
       },
       // --- View / appearance ---
-      {
-        id: "toggle-zen-mode",
-        label: document.documentElement.classList.contains("zen-mode")
-          ? "Exit zen"
-          : "Enter zen",
-        keywords: "focus session hide toolbar chrome distraction free",
-        run: () => {
-          setZenMode(!document.documentElement.classList.contains("zen-mode"));
-        },
-      },
+      // The hide/show toggle only matters with multiple tabs; a single tab
+      // bar is not worth hiding (and there's always at least one tab).
+      ...(tabsState.tabs.length > 1
+        ? [
+            {
+              id: "toggle-tabs-hidden",
+              label: document.documentElement.classList.contains("tabs-hidden")
+                ? "Show tabs"
+                : "Hide tabs",
+              keywords:
+                "focus session hide show tabs toolbar chrome distraction free",
+              run: () => {
+                setTabsHidden(
+                  !document.documentElement.classList.contains("tabs-hidden"),
+                );
+              },
+            },
+          ]
+        : []),
       {
         id: "toggle-mouse-hidden",
         label: mouseHiddenRef.v ? "Show cursor" : "Hide cursor",
@@ -6364,21 +6378,21 @@ async function boot(): Promise<void> {
     ?.querySelector("[data-close-help]")
     ?.addEventListener("click", () => closeHelpPanel());
 
-  // Zen tab rename modal
-  const zenModal = document.getElementById("zen-rename-modal");
-  zenModal
-    ?.querySelector(".zen-rename-form")
+  // Tab rename modal (used when the tab bar is hidden)
+  const tabRenameModal = document.getElementById("tab-rename-modal");
+  tabRenameModal
+    ?.querySelector(".tab-rename-form")
     ?.addEventListener("submit", (e) => {
       e.preventDefault();
-      closeZenRenameModal(true);
+      closeTabRenameModal(true);
     });
-  zenModal?.querySelectorAll("[data-zen-rename-close]").forEach((el) => {
-    el.addEventListener("click", () => closeZenRenameModal(false));
+  tabRenameModal?.querySelectorAll("[data-tab-rename-close]").forEach((el) => {
+    el.addEventListener("click", () => closeTabRenameModal(false));
   });
-  zenModal
-    ?.querySelector(".zen-rename-backdrop")
+  tabRenameModal
+    ?.querySelector(".tab-rename-backdrop")
     ?.addEventListener("click", (e) => {
-      if (e.target === e.currentTarget) closeZenRenameModal(false);
+      if (e.target === e.currentTarget) closeTabRenameModal(false);
     });
   // Escape is handled by the shared overlay stack.
   const appWindow = getCurrentWindow();
@@ -6456,7 +6470,7 @@ async function boot(): Promise<void> {
   }
 
   // Alt+Shift + primary-button drag moves the window from anywhere in the client
-  // area. Useful in zen mode, where the toolbar drag handle is hidden. Capture
+  // area. Useful when tabs are hidden, where the toolbar drag handle is gone. Capture
   // phase + stopPropagation so it wins over terminal/text selection handlers.
   window.addEventListener(
     "mousedown",
@@ -7373,7 +7387,7 @@ async function boot(): Promise<void> {
         getWindowState() {
           return {
             visible: document.visibilityState === "visible",
-            zenMode: document.documentElement.classList.contains("zen-mode"),
+            tabsHidden: document.documentElement.classList.contains("tabs-hidden"),
           };
         },
         getPaneCwd: (paneId: string) => paneCwdHints.get(paneId) ?? null,

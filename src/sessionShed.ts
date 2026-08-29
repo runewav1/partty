@@ -6,9 +6,9 @@ import {
   SESSION_SHED_ON_EXIT_KEY,
   SETTINGS_PANEL_POS_KEY,
   TAB_LAYOUT_PREFIX,
+  TABS_HIDDEN_KEY,
   TABS_STATE_KEY,
   THEME_MODAL_POS_KEY,
-  ZEN_MODE_KEY,
 } from "./storageKeys";
 
 export type SessionShedOnExitMode = "keep" | "shed" | "ask";
@@ -51,7 +51,7 @@ export function shedSessionLocalState(): void {
       if (k.startsWith(TAB_LAYOUT_PREFIX)) localStorage.removeItem(k);
     }
     clearPaneLayout();
-    localStorage.removeItem(ZEN_MODE_KEY);
+    localStorage.removeItem(TABS_HIDDEN_KEY);
     localStorage.removeItem(DEFER_PTY_REINIT_KEY);
     localStorage.removeItem(THEME_MODAL_POS_KEY);
     localStorage.removeItem(SETTINGS_PANEL_POS_KEY);

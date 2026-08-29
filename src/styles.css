@@ -163,7 +163,7 @@
   --layer-dev-overlay: 5000;
   --layer-theme-modal: 8500;
   --layer-theme-builder: 9000;
-  --layer-zen-rename: 9500;
+  --layer-tab-rename: 9500;
   --layer-context-menu: 12000;
   --layer-exit-dialog: 13000;
   --layer-pane-drag-preview: 20000;
@@ -214,7 +214,7 @@ html[data-motion-style="gentle"] {
 .help-panel-card,
 .theme-modal-panel,
 .theme-builder-panel,
-.zen-rename-card,
+.tab-rename-card,
 .extension-manager-card,
 .partty-dialog-panel,
 .shed-exit-dialog-card,
@@ -228,7 +228,7 @@ html[data-motion-style="gentle"] {
 .partty-dialog-backdrop,
 .theme-builder-backdrop,
 .theme-modal-backdrop,
-.zen-rename-backdrop,
+.tab-rename-backdrop,
 .extension-manager-backdrop,
 .shed-exit-dialog {
   animation: overlay-backdrop-in var(--motion-fast) var(--motion-ease-out) backwards;
@@ -1303,16 +1303,21 @@ html.terminal-motion-off *::after {
   cursor: pointer;
 }
 
-html.zen-mode .term-toolbar {
+html.tabs-hidden .term-toolbar {
   display: none !important;
 }
 
-html.zen-mode #terminal-stage {
+html.tabs-hidden #terminal-stage {
   padding: 0;
 }
 
-html.zen-mode #main-workspace {
+html.tabs-hidden #main-workspace {
   padding: 0;
+}
+
+/* No tabs to show — don't waste the terminal viewport on an empty tab bar. */
+html.tabs-empty .term-toolbar {
+  display: none !important;
 }
 
 .command-palette {
@@ -2544,29 +2549,25 @@ html.zen-mode #main-workspace {
   background: var(--hover-overlay);
 }
 
-/* Zen rename modal
-
-
-
-/* Zen rename modal — minimal overlay for tab rename when tab bar hidden */
-.zen-rename-modal {
+/* Tab rename modal — minimal overlay for tab rename when the tab bar is hidden */
+.tab-rename-modal {
   position: fixed;
   inset: 0;
-  z-index: var(--layer-zen-rename);
+  z-index: var(--layer-tab-rename);
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.zen-rename-modal--hidden {
+.tab-rename-modal--hidden {
   display: none !important;
 }
-.zen-rename-backdrop {
+.tab-rename-backdrop {
   position: absolute;
   inset: 0;
   background: var(--backdrop-darker);
   backdrop-filter: blur(3px);
 }
-.zen-rename-card {
+.tab-rename-card {
   position: relative;
   z-index: 1;
   width: min(340px, calc(100vw - 40px));
@@ -2579,13 +2580,13 @@ html.zen-mode #main-workspace {
   overflow: hidden;
 }
 
-.zen-rename-form {
+.tab-rename-form {
   padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
-.zen-rename-input {
+.tab-rename-input {
   padding: 9px 11px;
   border: 1px solid var(--input-border);
   border-radius: 6px;
@@ -2595,16 +2596,16 @@ html.zen-mode #main-workspace {
   font-size: 13px;
   outline: none;
 }
-.zen-rename-input:focus {
+.tab-rename-input:focus {
   border-color: color-mix(in srgb, var(--accent-primary) 45%, var(--input-border));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-primary) 18%, transparent);
 }
-.zen-rename-actions {
+.tab-rename-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
 }
-.zen-rename-btn {
+.tab-rename-btn {
   border-radius: 6px;
   padding: 7px 16px;
   font: inherit;
@@ -2612,21 +2613,21 @@ html.zen-mode #main-workspace {
   font-weight: 600;
   cursor: pointer;
 }
-.zen-rename-cancel {
+.tab-rename-cancel {
   border: 1px solid var(--panel-border);
   background: transparent;
   color: var(--ui-chrome-muted);
 }
-.zen-rename-cancel:hover {
+.tab-rename-cancel:hover {
   color: var(--ui-chrome-fg);
   background: var(--hover-overlay-light);
 }
-.zen-rename-ok {
+.tab-rename-ok {
   border: none;
   background: var(--accent-primary);
   color: #fafafa;
 }
-.zen-rename-ok:hover {
+.tab-rename-ok:hover {
   filter: brightness(1.06);
 }
 

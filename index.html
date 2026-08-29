@@ -339,7 +339,7 @@
                 <div class="settings-toggles">
                   <label class="settings-checkbox-label"><span>Window motion</span><input class="settings-checkbox-input" type="checkbox" name="terminal_window_motion" checked /></label>
                   <label class="settings-checkbox-label"><span>Hide taskbar</span><input class="settings-checkbox-input" type="checkbox" name="hidden_from_taskbar" /></label>
-                  <label class="settings-checkbox-label"><span>Zen on launch</span><input class="settings-checkbox-input" type="checkbox" name="always_open_in_zen_mode" /></label>
+                  <label class="settings-checkbox-label" title="Start with the tab bar hidden"><span>Hide tabs on launch</span><input class="settings-checkbox-input" type="checkbox" name="always_hide_tabs" /></label>
                   <label class="settings-checkbox-label"><span>No tooltips</span><input class="settings-checkbox-input" type="checkbox" name="ui_disable_tooltips" /></label>
                   <label class="settings-checkbox-label"><span>Auto-copy</span><input class="settings-checkbox-input" type="checkbox" name="auto_copy_selection" /></label>
                   <label class="settings-checkbox-label" title="Right-click in a terminal pane pastes from the clipboard"><span>Right-click paste</span><input class="settings-checkbox-input" type="checkbox" name="right_click_paste" checked /></label>
@@ -426,14 +426,14 @@
 
       <div id="theme-builder-root" class="theme-builder-root theme-builder-root--hidden" aria-hidden="true"></div>
 
-      <div id="zen-rename-modal" class="zen-rename-modal zen-rename-modal--hidden" aria-hidden="true">
-        <div class="zen-rename-backdrop" data-zen-rename-close></div>
-        <div class="zen-rename-card">
-          <form class="zen-rename-form">
-            <input id="zen-rename-input" type="text" class="zen-rename-input" spellcheck="false" autocomplete="off" />
-            <div class="zen-rename-actions">
-              <button type="button" class="zen-rename-btn zen-rename-cancel" data-zen-rename-close>Cancel</button>
-              <button type="submit" class="zen-rename-btn zen-rename-ok">OK</button>
+      <div id="tab-rename-modal" class="tab-rename-modal tab-rename-modal--hidden" aria-hidden="true">
+        <div class="tab-rename-backdrop" data-tab-rename-close></div>
+        <div class="tab-rename-card">
+          <form class="tab-rename-form">
+            <input id="tab-rename-input" type="text" class="tab-rename-input" spellcheck="false" autocomplete="off" />
+            <div class="tab-rename-actions">
+              <button type="button" class="tab-rename-btn tab-rename-cancel" data-tab-rename-close>Cancel</button>
+              <button type="submit" class="tab-rename-btn tab-rename-ok">OK</button>
             </div>
           </form>
         </div>

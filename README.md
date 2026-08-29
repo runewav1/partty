@@ -28,7 +28,7 @@ https://github.com/user-attachments/assets/50b6efde-94e8-49dc-b8a8-38c7b454d877
 - Send a pane to a different tab. Pop a floating pane (set to follow) into any tab, not just its origin tab.
 - Open new panes with specific profiles -- shells, ssh profiles, WSL distributions.
 - Tabs, with full control; tab groups (with group colors), per-tab colors.
-- Hide the tab bar with "zen" via the command palette; a terminal with no distractions.
+- Hide the tab bar via the command palette or keybind; a terminal with no distractions.
 - Panes inherit the working directory of the terminal they split from, so you don't have to constantly Set-Location
   or cd to the directory you were in. They also inherit the profile/shell; if you're working with WSL, or SSH,
   a new pane split from that terminal inherits the same profile.

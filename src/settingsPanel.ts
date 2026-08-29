@@ -59,7 +59,7 @@ export type ParttyPrefs = {
   window_startup_visible?: boolean;
   ui_disable_tooltips: boolean;
   terminal_backspace_delete_selection: boolean;
-  always_open_in_zen_mode: boolean;
+  always_hide_tabs: boolean;
   terminal_no_gap: boolean;
   terminal_pane_gap: number;
   terminal_sandbox_padding: number;
@@ -243,7 +243,7 @@ export function createSettingsPanel(
       font_terminal: g("font_terminal"), font_ui: g("font_ui"),
       ui_disable_tooltips: gc("ui_disable_tooltips"),
       terminal_alt_click_moves_cursor: gc("terminal_alt_click_moves_cursor"), terminal_backspace_delete_selection: gc("terminal_backspace_delete_selection"),
-      always_open_in_zen_mode: gc("always_open_in_zen_mode"),
+      always_hide_tabs: gc("always_hide_tabs"),
       terminal_no_gap: terminal_pane_gap <= 0, terminal_pane_gap, terminal_sandbox_padding,
       terminal_no_round: gc("terminal_no_round"), terminal_no_pane_border: gc("terminal_no_pane_border"),
       terminal_no_focus_border: gc("terminal_no_focus_border"), split_layout_style,
@@ -546,7 +546,7 @@ export function createSettingsPanel(
     setChk("window_startup_visible", pr.window_startup_visible ?? true);
     setChk("ui_disable_tooltips", pr.ui_disable_tooltips ?? false);
     setChk("terminal_backspace_delete_selection", pr.terminal_backspace_delete_selection ?? true);
-    setChk("always_open_in_zen_mode", pr.always_open_in_zen_mode ?? false);
+    setChk("always_hide_tabs", pr.always_hide_tabs ?? false);
     setChk("terminal_no_round", pr.terminal_no_round ?? false);
     setChk("terminal_no_pane_border", pr.terminal_no_pane_border ?? false);
     setChk("terminal_no_focus_border", pr.terminal_no_focus_border ?? false);

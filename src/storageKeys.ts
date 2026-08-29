@@ -1,7 +1,7 @@
 export const TABS_STATE_KEY = "partty.tabs.v1";
 export const TAB_LAYOUT_PREFIX = "partty.tab.layout.v1.";
 export const PANE_LAYOUT_KEY = "partty.pane_layout.v1";
-export const ZEN_MODE_KEY = "partty.zen.enabled";
+export const TABS_HIDDEN_KEY = "partty.tabs-hidden.enabled";
 /** Set when shell / initial cwd change; next `partty-prepare-show` runs a full PTY reinit. */
 export const DEFER_PTY_REINIT_KEY = "partty.defer_pty_reinit";
 export const SESSION_SHED_ON_EXIT_KEY = "partty.runtime.session_shed_on_exit";
