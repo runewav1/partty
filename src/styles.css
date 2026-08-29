@@ -1876,6 +1876,10 @@ html.tabs-hidden #main-workspace {
   max-width: 96px;
   text-align: right;
 }
+/* Font-name comboboxes: neither full-row nor as tight as the narrow numeric inputs. */
+.settings-input--font {
+  max-width: 220px;
+}
 .settings-row select.settings-input {
   appearance: none;
   -webkit-appearance: none;

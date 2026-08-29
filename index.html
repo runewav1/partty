@@ -119,6 +119,34 @@
               <div class="settings-section-hd">Terminal</div>
               <div class="settings-section-bd">
                 <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">Font</span>
+                  <input id="setting-font-terminal" name="font_terminal" type="text" class="settings-input settings-input--font" list="font-suggestions" spellcheck="false" autocomplete="off" placeholder="default" />
+                </div>
+                <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">Font size</span>
+                  <input name="terminal_font_size" type="number" min="8" max="48" step="1" class="settings-input settings-input--narrow" />
+                </div>
+                <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">Font weight</span>
+                  <select name="terminal_font_weight" class="settings-input settings-input--narrow">
+                    <option value="normal">normal</option><option value="bold">bold</option><option value="100">100</option><option value="200">200</option><option value="300">300</option><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option><option value="800">800</option><option value="900">900</option>
+                  </select>
+                </div>
+                <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">Bold weight</span>
+                  <select name="terminal_font_weight_bold" class="settings-input settings-input--narrow">
+                    <option value="normal">normal</option><option value="bold">bold</option><option value="100">100</option><option value="200">200</option><option value="300">300</option><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option><option value="800">800</option><option value="900">900</option>
+                  </select>
+                </div>
+                <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">Line height</span>
+                  <input name="terminal_line_height" type="number" min="0.5" max="4" step="0.1" class="settings-input settings-input--narrow" />
+                </div>
+                <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label">Letter spacing</span>
+                  <input name="terminal_letter_spacing" type="number" min="-2" max="10" step="0.5" class="settings-input settings-input--narrow" />
+                </div>
+                <div class="settings-row settings-row--compact">
                   <span class="settings-row-label">Scrollback</span>
                   <input id="setting-scrollback" name="scrollback_lines" type="number" min="0" max="50000" step="1" class="settings-input settings-input--narrow" />
                 </div>
@@ -174,34 +202,6 @@
                   </div>
                   <label class="settings-checkbox-label"><span>Blinking cursor</span><input class="settings-checkbox-input" type="checkbox" name="terminal_cursor_blink" checked /></label>
                   <label class="settings-checkbox-label"><span>Alt+click cursor</span><input class="settings-checkbox-input" type="checkbox" name="terminal_alt_click_moves_cursor" checked /></label>
-                  <div class="settings-row settings-row--compact">
-                    <span class="settings-row-label">Font</span>
-                    <input id="setting-font-terminal" name="font_terminal" type="text" class="settings-input" list="font-suggestions" spellcheck="false" autocomplete="off" placeholder="default" />
-                  </div>
-                  <div class="settings-row settings-row--compact">
-                    <span class="settings-row-label">Font size</span>
-                    <input name="terminal_font_size" type="number" min="8" max="48" step="1" class="settings-input settings-input--narrow" />
-                  </div>
-                  <div class="settings-row settings-row--compact">
-                    <span class="settings-row-label">Font weight</span>
-                    <select name="terminal_font_weight" class="settings-input settings-input--narrow">
-                      <option value="normal">normal</option><option value="bold">bold</option><option value="100">100</option><option value="200">200</option><option value="300">300</option><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option><option value="800">800</option><option value="900">900</option>
-                    </select>
-                  </div>
-                  <div class="settings-row settings-row--compact">
-                    <span class="settings-row-label">Bold weight</span>
-                    <select name="terminal_font_weight_bold" class="settings-input settings-input--narrow">
-                      <option value="normal">normal</option><option value="bold">bold</option><option value="100">100</option><option value="200">200</option><option value="300">300</option><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option><option value="800">800</option><option value="900">900</option>
-                    </select>
-                  </div>
-                  <div class="settings-row settings-row--compact">
-                    <span class="settings-row-label">Line height</span>
-                    <input name="terminal_line_height" type="number" min="0.5" max="4" step="0.1" class="settings-input settings-input--narrow" />
-                  </div>
-                  <div class="settings-row settings-row--compact">
-                    <span class="settings-row-label">Letter spacing</span>
-                    <input name="terminal_letter_spacing" type="number" min="-2" max="10" step="0.5" class="settings-input settings-input--narrow" />
-                  </div>
                   <label class="settings-checkbox-label"><span>Bold = bright colors</span><input class="settings-checkbox-input" type="checkbox" name="terminal_draw_bold_bright" checked /></label>
                   <label class="settings-checkbox-label"><span>Box‑drawing glyphs</span><input class="settings-checkbox-input" type="checkbox" name="terminal_custom_glyphs" checked /></label>
                   <label class="settings-checkbox-label"><span>Square panes</span><input class="settings-checkbox-input" type="checkbox" name="terminal_no_round" /></label>
@@ -287,7 +287,7 @@
               <div class="settings-section-bd">
                 <div class="settings-row settings-row--compact">
                   <span class="settings-row-label">UI font</span>
-                  <input id="setting-font-ui" name="font_ui" type="text" class="settings-input" list="font-suggestions" spellcheck="false" autocomplete="off" placeholder="default" />
+                  <input id="setting-font-ui" name="font_ui" type="text" class="settings-input settings-input--font" list="font-suggestions" spellcheck="false" autocomplete="off" placeholder="default" />
                 </div>
                 <div class="settings-row settings-row--compact">
                   <span class="settings-row-label">Backdrop</span>
