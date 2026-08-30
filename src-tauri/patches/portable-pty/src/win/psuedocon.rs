@@ -21,6 +21,8 @@ use windows_sys::Win32::System::Threading::{
 };
 use windows_sys::core::HRESULT;
 
+// `HPCON` intentionally mirrors the Windows SDK typedef name.
+#[allow(clippy::upper_case_acronyms)]
 pub type HPCON = HANDLE;
 
 pub const PSUEDOCONSOLE_INHERIT_CURSOR: u32 = 0x1;
@@ -50,7 +52,7 @@ impl ConPtyFuncs {
         if module.is_null() {
             return None;
         }
-        let get = |name: &[u8]| unsafe { GetProcAddress(module, name.as_ptr() as *const u8) };
+        let get = |name: &[u8]| unsafe { GetProcAddress(module, name.as_ptr()) };
         // SAFETY: transmuting between function pointer types of the same
         // size; the exported signatures are fixed by the ConPTY API.
         let create = unsafe {

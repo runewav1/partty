@@ -155,8 +155,10 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
 
         fn wide_trim_nul(bytes: &[u8]) -> Vec<u16> {
             let mut v: Vec<u16> = bytes
-                .chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes(*c))
                 .collect();
             while let Some(0) = v.last() {
                 v.pop();
@@ -239,7 +241,7 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
                 log::trace!("adding SYS env: {:?} {:?}", name, value);
                 // Merge the system and user paths together
                 let value = if merge_path && name_lower == "path" {
-                    match env.get(&EnvEntry::map_key(name.clone().into())) {
+                    match env.get(&EnvEntry::map_key(name.clone())) {
                         Some(entry) => {
                             let mut result = OsString::new();
                             result.push(&entry.value);
@@ -253,10 +255,10 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
                     value
                 };
                 env.insert(
-                    EnvEntry::map_key(name.clone().into()),
+                    EnvEntry::map_key(name.clone()),
                     EnvEntry {
                         is_from_base_env: true,
-                        preferred_key: name.into(),
+                        preferred_key: name,
                         value,
                     },
                 );
@@ -395,7 +397,7 @@ impl CommandBuilder {
             EnvEntry {
                 is_from_base_env: false,
                 preferred_key: key,
-                value: value,
+                value,
             },
         );
     }
@@ -670,7 +672,7 @@ impl CommandBuilder {
             let extensions = self.get_env("PATHEXT").unwrap_or(OsStr::new(".EXE"));
             for path in std::env::split_paths(&path) {
                 // Check for exactly the user's string in this path dir
-                let candidate = path.join(&exe);
+                let candidate = path.join(exe);
                 if candidate.exists() {
                     return candidate.into_os_string();
                 }
@@ -682,7 +684,7 @@ impl CommandBuilder {
                     // PATHEXT includes the leading `.`, but `with_extension`
                     // doesn't want that
                     let ext = ext.to_str().expect("PATHEXT entries must be utf8");
-                    let path = path.join(&exe).with_extension(&ext[1..]);
+                    let path = path.join(exe).with_extension(&ext[1..]);
                     if path.exists() {
                         return path.into_os_string();
                     }
