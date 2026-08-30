@@ -284,8 +284,6 @@ pub struct Prefs {
     pub terminal_letter_spacing: f64,
     #[serde(default = "default_true")]
     pub terminal_draw_bold_bright: bool,
-    #[serde(default = "default_true")]
-    pub terminal_custom_glyphs: bool,
     #[serde(default)]
     pub terminal_smooth_scroll_duration: f64,
     #[serde(default = "default_scroll_sensitivity")]
@@ -409,7 +407,6 @@ impl Default for Prefs {
             terminal_line_height: default_line_height(),
             terminal_letter_spacing: default_letter_spacing(),
             terminal_draw_bold_bright: true,
-            terminal_custom_glyphs: true,
             terminal_smooth_scroll_duration: 0.0,
             terminal_scroll_sensitivity: default_scroll_sensitivity(),
             terminal_fast_scroll_sensitivity: default_fast_scroll_sensitivity(),
@@ -588,8 +585,6 @@ impl Default for ScrollSection {
 pub struct DisplaySection {
     #[serde(default = "default_true")]
     pub bright_bold: bool,
-    #[serde(default = "default_true")]
-    pub custom_glyphs: bool,
     #[serde(default = "default_terminal_backspace_delete_selection")]
     pub backspace_deletes_selection: bool,
 }
@@ -598,7 +593,6 @@ impl Default for DisplaySection {
     fn default() -> Self {
         Self {
             bright_bold: true,
-            custom_glyphs: true,
             backspace_deletes_selection: true,
         }
     }
@@ -1131,7 +1125,6 @@ impl From<ConfigToml> for Prefs {
             terminal_scroll_sensitivity: c.scroll.sensitivity,
             terminal_fast_scroll_sensitivity: c.scroll.fast_sensitivity,
             terminal_draw_bold_bright: c.display.bright_bold,
-            terminal_custom_glyphs: c.display.custom_glyphs,
             terminal_backspace_delete_selection: c.display.backspace_deletes_selection,
             blur_unfocused_panes: c.pane.blur,
             pane_blur_radius: c.pane.blur_radius,
@@ -1238,7 +1231,6 @@ impl From<&Prefs> for ConfigToml {
             },
             display: DisplaySection {
                 bright_bold: p.terminal_draw_bold_bright,
-                custom_glyphs: p.terminal_custom_glyphs,
                 backspace_deletes_selection: p.terminal_backspace_delete_selection,
             },
             pane: PaneSection {

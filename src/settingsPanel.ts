@@ -111,8 +111,6 @@ export type ParttyPrefs = {
   terminal_letter_spacing?: number;
   /** Draw bold text in bright ANSI colors. */
   terminal_draw_bold_bright?: boolean;
-  /** Draw box‑drawing characters with custom glyphs instead of font. */
-  terminal_custom_glyphs?: boolean;
   /** Smooth‑scroll duration in ms (0 = instant). */
   terminal_smooth_scroll_duration?: number;
   /** Normal scroll speed multiplier. */
@@ -303,7 +301,6 @@ export function createSettingsPanel(
       terminal_line_height: clampf(g("terminal_line_height"), 1, 0.5, 4),
       terminal_letter_spacing: clampf(g("terminal_letter_spacing"), 0, -2, 10),
       terminal_draw_bold_bright: gc("terminal_draw_bold_bright"),
-      terminal_custom_glyphs: gc("terminal_custom_glyphs"),
       terminal_smooth_scroll_duration: clampf(g("terminal_smooth_scroll_duration"), 0, 0, 1000),
       terminal_scroll_sensitivity: clampf(g("terminal_scroll_sensitivity"), 1, 0.1, 10),
       terminal_fast_scroll_sensitivity: clampf(g("terminal_fast_scroll_sensitivity"), 5, 1, 50),
@@ -520,7 +517,6 @@ export function createSettingsPanel(
     setVal("terminal_line_height", String(pr.terminal_line_height ?? 1));
     setVal("terminal_letter_spacing", String(pr.terminal_letter_spacing ?? 0));
     setChk("terminal_draw_bold_bright", pr.terminal_draw_bold_bright ?? true);
-    setChk("terminal_custom_glyphs", pr.terminal_custom_glyphs ?? true);
     setVal("terminal_smooth_scroll_duration", String(pr.terminal_smooth_scroll_duration ?? 0));
     setVal("terminal_scroll_sensitivity", String(pr.terminal_scroll_sensitivity ?? 1));
     setVal("terminal_fast_scroll_sensitivity", String(pr.terminal_fast_scroll_sensitivity ?? 5));

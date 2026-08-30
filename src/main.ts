@@ -747,10 +747,6 @@ async function boot(): Promise<void> {
       (persisted.prefs as Partial<ParttyPrefs>).terminal_draw_bold_bright ??
       true,
   };
-  const customGlyphsRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_custom_glyphs ?? true,
-  };
-  let lastCustomGlyphsApplied = customGlyphsRef.v;
   const smoothScrollRef = {
     v:
       (persisted.prefs as Partial<ParttyPrefs>)
@@ -2017,9 +2013,7 @@ async function boot(): Promise<void> {
       const started = performance.now();
       try {
         state.attempts++;
-        const addon = await createWebglAddon({
-          customGlyphs: customGlyphsRef.v,
-        });
+        const addon = await createWebglAddon();
         pt.term.loadAddon(addon);
         state.contextLossDispose = addon.onContextLoss(() => {
           parttyPerf.mark("webgl.context_loss");
@@ -5188,8 +5182,6 @@ async function boot(): Promise<void> {
               (saved as Partial<ParttyPrefs>).terminal_letter_spacing ?? 0;
             drawBoldBrightRef.v =
               (saved as Partial<ParttyPrefs>).terminal_draw_bold_bright ?? true;
-            customGlyphsRef.v =
-              (saved as Partial<ParttyPrefs>).terminal_custom_glyphs ?? true;
             smoothScrollRef.v =
               (saved as Partial<ParttyPrefs>).terminal_smooth_scroll_duration ??
               0;
@@ -5460,12 +5452,6 @@ async function boot(): Promise<void> {
         t.options.cursorStyle = cursorStyleRef.v;
       });
       host.setCursorStyle(cursorStyleRef.v);
-    }
-    if (customGlyphsRef.v !== lastCustomGlyphsApplied) {
-      lastCustomGlyphsApplied = customGlyphsRef.v;
-      // customGlyphs is now a constructor-only WebGL addon option; recreate.
-      shedWebgl();
-      void mountWebglForActivePanes();
     }
     lastPtyDims.clear();
     scheduleResizeImmediate(true);
