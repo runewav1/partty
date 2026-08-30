@@ -29,6 +29,7 @@ parking_lot = "0.12"
 memchr = "2"
 
 [target.'cfg(windows)'.dependencies]
+webview2-com = "0.38"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",

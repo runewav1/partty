@@ -503,6 +503,47 @@ fn register_main_window_events(handle: &AppHandle, win: &tauri::WebviewWindow) {
     });
 }
 
+/// Block every WebView2 permission prompt: auto-allow the Local Font Access
+/// permission (used by the settings font picker's `queryLocalFonts()`) and
+/// deny every other kind. Add further per-kind grants here as needed.
+#[cfg(windows)]
+fn attach_permission_handler(win: &tauri::WebviewWindow) {
+    let _ = win.with_webview(|webview| {
+        use webview2_com::{
+            Microsoft::Web::WebView2::Win32::{
+                COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_KIND_LOCAL_FONTS,
+                COREWEBVIEW2_PERMISSION_STATE_ALLOW, COREWEBVIEW2_PERMISSION_STATE_DENY,
+            },
+            PermissionRequestedEventHandler,
+        };
+        let controller = webview.controller();
+        if let Ok(core) = unsafe { controller.CoreWebView2() } {
+            let handler = unsafe {
+                PermissionRequestedEventHandler::create(Box::new(
+                    |_sender, args| {
+                        if let Some(args) = args {
+                            let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
+                            args.PermissionKind(&mut kind)?;
+                            let state = if kind == COREWEBVIEW2_PERMISSION_KIND_LOCAL_FONTS {
+                                COREWEBVIEW2_PERMISSION_STATE_ALLOW
+                            } else {
+                                COREWEBVIEW2_PERMISSION_STATE_DENY
+                            };
+                            args.SetState(state)?;
+                        }
+                        Ok(())
+                    },
+                ))
+            };
+            let mut token = Default::default();
+            let _ = unsafe { core.add_PermissionRequested(&handler, &mut token) };
+        }
+    });
+}
+
+#[cfg(not(windows))]
+fn attach_permission_handler(_win: &tauri::WebviewWindow) {}
+
 async fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
     let cfg = app
         .config()
@@ -518,6 +559,7 @@ async fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())?
         .visible(false);
     let win = builder.build().map_err(|e| e.to_string())?;
+    attach_permission_handler(&win);
 
     // Always start un-maximized — show then maximize gives Windows
     // a clean visible rect to compute the maximized bounds from.
@@ -1304,6 +1346,7 @@ pub fn run() {
             apply_window_effects(&win, &st.prefs);
 
             register_main_window_events(&handle, &win);
+            attach_permission_handler(&win);
 
             // Eagerly prime the warm PTY on boot so the very first pane
             // opens instantly instead of paying a cold-shell spawn cost.

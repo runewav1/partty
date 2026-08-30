@@ -179,6 +179,32 @@ async function discoverFontFamilies(): Promise<string[]> {
   return [...families].sort((a, b) => a.localeCompare(b));
 }
 
+/** Fill a font `<select>` with a leading "default" (empty) option + all families. */
+function populateFontSelect(select: HTMLSelectElement, families: string[], preferred: string): void {
+  const seen = new Set<string>();
+  select.innerHTML = "";
+  const def = document.createElement("option");
+  def.value = "";
+  def.textContent = "default";
+  select.appendChild(def);
+  seen.add("");
+  for (const family of families) {
+    if (seen.has(family)) continue;
+    seen.add(family);
+    const opt = document.createElement("option");
+    opt.value = family;
+    opt.textContent = family;
+    select.appendChild(opt);
+  }
+  if (preferred && !seen.has(preferred)) {
+    const opt = document.createElement("option");
+    opt.value = preferred;
+    opt.textContent = preferred;
+    select.appendChild(opt);
+  }
+  select.value = preferred;
+}
+
 export function createSettingsPanel(
   root: HTMLElement,
   onSaved?: (next: ParttyPrefs, previous: ParttyPrefs) => void | Promise<void>,
@@ -456,12 +482,12 @@ export function createSettingsPanel(
       profileSelect.value = preferred;
     }
 
-    const fontDatalist = form.querySelector("#font-suggestions") as HTMLDataListElement | null;
-    if (fontDatalist) {
-      fontDatalist.innerHTML = "";
-      for (const family of await discoverFontFamilies()) {
-        const opt = document.createElement("option"); opt.value = family; fontDatalist.appendChild(opt);
-      }
+    const fontTerminal = form.querySelector("#setting-font-terminal") as HTMLSelectElement | null;
+    const fontUi = form.querySelector("#setting-font-ui") as HTMLSelectElement | null;
+    if (fontTerminal || fontUi) {
+      const families = await discoverFontFamilies();
+      if (fontTerminal) populateFontSelect(fontTerminal, families, pr.font_terminal ?? "");
+      if (fontUi) populateFontSelect(fontUi, families, pr.font_ui ?? "");
     }
 
     const setVal = (n: string, v: string) => { const el = form.querySelector(`[name="${n}"]`) as HTMLInputElement | null; if (el) el.value = v; };

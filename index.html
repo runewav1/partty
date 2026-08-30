@@ -93,7 +93,6 @@
             <input id="settings-search" type="search" class="settings-input settings-search" placeholder="Search settings" spellcheck="false" autocomplete="off" />
           </div>
           <form id="settings-form" class="settings-panel-body partty-scroll-fade">
-            <datalist id="font-suggestions"></datalist>
 
             <div class="settings-section" data-section="shell">
               <div class="settings-section-hd">Profiles</div>
@@ -120,7 +119,7 @@
               <div class="settings-section-bd">
                 <div class="settings-row settings-row--compact">
                   <span class="settings-row-label">Font</span>
-                  <input id="setting-font-terminal" name="font_terminal" type="text" class="settings-input settings-input--font" list="font-suggestions" spellcheck="false" autocomplete="off" placeholder="default" />
+                  <select id="setting-font-terminal" name="font_terminal" class="settings-input settings-input--font"></select>
                 </div>
                 <div class="settings-row settings-row--compact">
                   <span class="settings-row-label">Font size</span>
@@ -287,7 +286,7 @@
               <div class="settings-section-bd">
                 <div class="settings-row settings-row--compact">
                   <span class="settings-row-label">UI font</span>
-                  <input id="setting-font-ui" name="font_ui" type="text" class="settings-input settings-input--font" list="font-suggestions" spellcheck="false" autocomplete="off" placeholder="default" />
+                  <select id="setting-font-ui" name="font_ui" class="settings-input settings-input--font"></select>
                 </div>
                 <div class="settings-row settings-row--compact">
                   <span class="settings-row-label">Backdrop</span>

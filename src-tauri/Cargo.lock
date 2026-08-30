@@ -2488,6 +2488,7 @@ dependencies = [
  "tauri-plugin-global-shortcut",
  "tauri-plugin-single-instance",
  "toml 1.1.4+spec-1.1.0",
+ "webview2-com",
  "windows-sys 0.61.2",
 ]
 
