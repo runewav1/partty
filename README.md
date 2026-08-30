@@ -135,26 +135,6 @@ To build the release binary, you can run:
 To build a *production* binary, we'd set `LTO = "fat"`, replacing `"thin"`, to have the compiler optimize further
 and shrink the binary size (which in current production builds to 9.8mb).
 
-### xterm.js beta (edge)
-
-Partty tracks the xterm.js `beta` npm dist-tag (`@xterm/*` at `"beta"` in `package.json`),
-so `npm install` resolves the latest published beta. The exact version pair verified and
-shipped with the initial beta migration (pin these in `package.json` to reproduce / rollback):
-
-```json
-"@xterm/xterm": "6.1.0-beta.303",
-"@xterm/addon-fit": "0.12.0-beta.300",
-"@xterm/addon-image": "0.10.0-beta.300",
-"@xterm/addon-ligatures": "0.11.0-beta.300",
-"@xterm/addon-serialize": "0.15.0-beta.300",
-"@xterm/addon-unicode-graphemes": "0.5.0-beta.300",
-"@xterm/addon-unicode11": "0.10.0-beta.300",
-"@xterm/addon-webgl": "0.20.0-beta.299"
-```
-
-All addons peer-depend on the matching `@xterm/xterm` beta, so keep the core + addons at the
-same beta revision when pinning.
-
 ## Roadmap
 
 Partty is *far from done*. Although it achieves very good performance metrics, pushing it to the very maximum
