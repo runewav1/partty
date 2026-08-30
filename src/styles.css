@@ -1265,7 +1265,9 @@ html.terminal-motion-off *::after {
 
 /* Keep scrollbar nodes in layout; display:none breaks wheel metrics after remount. */
 .pane-terminal-host .scrollbar.vertical,
-.pane-terminal-host .scrollbar.horizontal {
+.pane-terminal-host .scrollbar.horizontal,
+.pane-terminal-host .xterm-scrollbar.xterm-vertical,
+.pane-terminal-host .xterm-scrollbar.xterm-horizontal {
   opacity: 0 !important;
   width: 0 !important;
   height: 0 !important;
