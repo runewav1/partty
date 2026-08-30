@@ -147,8 +147,8 @@ impl PsuedoCon {
         let result = unsafe {
             (conpty().create)(
                 size,
-                input.as_raw_handle() as _,
-                output.as_raw_handle() as _,
+                input.as_raw_handle(),
+                output.as_raw_handle(),
                 PSUEDOCONSOLE_INHERIT_CURSOR
                     | PSEUDOCONSOLE_RESIZE_QUIRK
                     | PSEUDOCONSOLE_WIN32_INPUT_MODE
