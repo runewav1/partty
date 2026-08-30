@@ -303,10 +303,7 @@ export function createSettingsPanel(
       terminal_line_height: clampf(g("terminal_line_height"), 1, 0.5, 4),
       terminal_letter_spacing: clampf(g("terminal_letter_spacing"), 0, -2, 10),
       terminal_draw_bold_bright: gc("terminal_draw_bold_bright"),
-      // Edge branch: custom glyphs moved to the WebGL addon, so the stored
-      // glyph preference is carried through untouched — a Settings save never
-      // overwrites the stable branch's value.
-      terminal_custom_glyphs: previous.terminal_custom_glyphs ?? true,
+      terminal_custom_glyphs: gc("terminal_custom_glyphs"),
       terminal_smooth_scroll_duration: clampf(g("terminal_smooth_scroll_duration"), 0, 0, 1000),
       terminal_scroll_sensitivity: clampf(g("terminal_scroll_sensitivity"), 1, 0.1, 10),
       terminal_fast_scroll_sensitivity: clampf(g("terminal_fast_scroll_sensitivity"), 5, 1, 50),

@@ -1965,14 +1965,6 @@ html.tabs-hidden #main-workspace {
   outline: 2px solid color-mix(in srgb, var(--accent-primary) 55%, transparent);
   outline-offset: 2px;
 }
-.settings-checkbox-input:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-.settings-checkbox-input:disabled:hover { border-color: var(--input-border); }
-.settings-checkbox-label:has(.settings-checkbox-input:disabled) > span:first-child {
-  opacity: 0.7;
-}
 
 /* ── Toggle group wrappers (layout-neutral; each toggle is its own row) ── */
 .settings-toggles { display: contents; }
