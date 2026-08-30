@@ -2254,10 +2254,10 @@ async function boot(): Promise<void> {
   }
 
   /** Reclaim wheel for scrollback when mouse-tracking would swallow it. */
-  function attachTermWheelHandler(term: Terminal, paneId: string): void {
+  function attachTermWheelHandler(term: Terminal, getPaneId: () => string): void {
     term.attachCustomWheelEventHandler((ev) => {
       if (ev.ctrlKey) {
-        handlePaneZoomWheel(paneId, ev);
+        handlePaneZoomWheel(getPaneId(), ev);
         return false;
       }
       const forceScrollback =
@@ -2307,7 +2307,7 @@ async function boot(): Promise<void> {
     };
   }
 
-  function attachTermKeyHandler(term: Terminal, paneId: string): void {
+  function attachTermKeyHandler(term: Terminal, getPaneId: () => string): void {
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
 
@@ -2335,7 +2335,7 @@ async function boot(): Promise<void> {
         switch (m) {
           case "terminal_newline":
             e.preventDefault();
-            queuePtyWrite(paneId, "\n", true);
+            queuePtyWrite(getPaneId(), "\n", true);
             return false;
           case "pane_focus_left":
           case "pane_focus_right":
@@ -2402,7 +2402,7 @@ async function boot(): Promise<void> {
             return swapFocusedPaneWithAdjacent(e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown");
           case "pane_close":
             e.preventDefault();
-            void closeFocusedPane(paneId);
+            void closeFocusedPane(getPaneId());
             return false;
         }
         return true;
@@ -2456,7 +2456,7 @@ async function boot(): Promise<void> {
         }
         // DEL — same as xterm's default Backspace on Windows hosts.
         payload += "\x7f".repeat(cellCount);
-        queuePtyWrite(paneId, payload, true);
+        queuePtyWrite(getPaneId(), payload, true);
         return false;
       }
       return true;
@@ -2787,7 +2787,7 @@ async function boot(): Promise<void> {
         // how live output re-attaches without restarting the shell.
         const output = new Channel<ArrayBuffer>();
         output.onmessage = (buf: ArrayBuffer) => {
-          deliverDirectPtyOut(paneId, new Uint8Array(buf));
+          deliverDirectPtyOut(pt.paneId, new Uint8Array(buf));
         };
         await ptyEnsure(
           paneId,
@@ -3288,22 +3288,22 @@ async function boot(): Promise<void> {
           }
         },
         onPaneCreated: (id, pt) => {
-          attachTermKeyHandler(pt.term, id);
-          attachTermWheelHandler(pt.term, id);
+          attachTermKeyHandler(pt.term, () => pt.paneId);
+          attachTermWheelHandler(pt.term, () => pt.paneId);
           pt.term.onRender(() => {
             parttyPerf.finishTermRender(id);
           });
           pt.term.onData((data) => {
             parttyPerf.recordInputEvent();
-            queuePtyWrite(id, data);
+            queuePtyWrite(pt.paneId, data);
             if (keystrokeProcessTrackingEnabled) {
-              observeKeystrokeProcessInput(keystrokeProcessObserver, id, data);
+              observeKeystrokeProcessInput(keystrokeProcessObserver, pt.paneId, data);
             }
             // Notify extension PTY input subscribers (zero-cost when empty).
             if (extPtyInputSubs.length > 0) {
               for (const fn of extPtyInputSubs) {
                 try {
-                  fn(id, data);
+                  fn(pt.paneId, data);
                 } catch {
                   /* ignore */
                 }
@@ -3311,9 +3311,9 @@ async function boot(): Promise<void> {
             }
           });
           const onHostClick = (ev: MouseEvent) => {
-            if (handleCtrlClickToken(id, pt.term, pt.host, ev)) return;
+            if (handleCtrlClickToken(pt.paneId, pt.term, pt.host, ev)) return;
           };
-          const onHostWheel = (ev: WheelEvent) => handlePaneHostWheel(id, ev);
+          const onHostWheel = (ev: WheelEvent) => handlePaneHostWheel(pt.paneId, ev);
           let ctrlLinkHoverFrame: number | null = null;
           let latestCtrlLinkHoverEvent: MouseEvent | null = null;
           const onHostMouseMove = (ev: MouseEvent) => {
@@ -3325,7 +3325,7 @@ async function boot(): Promise<void> {
               ctrlLinkHoverFrame = null;
               const latest = latestCtrlLinkHoverEvent;
               latestCtrlLinkHoverEvent = null;
-              if (latest) updateCtrlLinkHover(id, pt.term, pt.host, latest);
+              if (latest) updateCtrlLinkHover(pt.paneId, pt.term, pt.host, latest);
             });
           };
           const onHostMouseLeave = () => {
@@ -3396,7 +3396,7 @@ async function boot(): Promise<void> {
           // restore — avoid a premature ensure that races rehydration.
           if (!document.documentElement.classList.contains("partty-booting")) {
             queueMicrotask(() => {
-              void ensurePtyForPane(id, pt, inheritedCwd);
+              void ensurePtyForPane(pt.paneId, pt, inheritedCwd);
             });
           }
           // Boot/rehydrate: prepare-show does one host repair; skip staggered bounce.

@@ -35,6 +35,8 @@ export type PaneTerminal = {
   host: HTMLElement;
   /** Row wrapping the terminal host element. */
   row: HTMLElement;
+  /** Current pane id in the owning host's terminal map (tracks renames). */
+  paneId: string;
 };
 
 export type FloatingPaneState = {
@@ -406,7 +408,7 @@ export class PaneHost {
     }
     for (const [id, pt] of Object.entries(init?.preloadedPanes ?? {})) {
       if (!findPaneLeaf(this.tree, id)) continue;
-      this.terminals.set(id, pt);
+      this.setTerminal(id, pt);
     }
     this.root = document.createElement("div");
     this.root.className = "pane-host";
@@ -601,6 +603,12 @@ export class PaneHost {
     return this.rootPaneId;
   }
 
+  /** Register a terminal under `id`, keeping its live pane id in sync. */
+  private setTerminal(id: string, pt: PaneTerminal): void {
+    pt.paneId = id;
+    this.terminals.set(id, pt);
+  }
+
   /** Retarget a live pane id without disposing the terminal. */
   rekeyPane(from: string, to: string): boolean {
     if (from === to) return true;
@@ -613,7 +621,7 @@ export class PaneHost {
     const pt = this.terminals.get(from);
     if (pt) {
       this.terminals.delete(from);
-      this.terminals.set(to, pt);
+      this.setTerminal(to, pt);
     }
     const fl = this.floating.get(from);
     if (fl) {
@@ -844,7 +852,7 @@ export class PaneHost {
     this.rootPaneId = snap.rootPaneId;
     this.floating.clear();
     for (const [id, state] of snap.floating) this.floating.set(id, state);
-    this.terminals.set(paneId, pt);
+    this.setTerminal(paneId, pt);
     this.paneMoveRollback = null;
     this.mountTree();
     this.opts.onPaneLayout?.();
@@ -858,7 +866,7 @@ export class PaneHost {
 
   receivePane(paneId: string, pt: PaneTerminal, dir: "h" | "v" = "h"): boolean {
     if (findPaneLeaf(this.tree, paneId)) return false;
-    this.terminals.set(paneId, pt);
+    this.setTerminal(paneId, pt);
     const inserted = this.insertPaneNearFocused(paneId, dir, false);
     if (!inserted) {
       this.terminals.delete(paneId);
@@ -895,7 +903,7 @@ export class PaneHost {
     }
     this.rootPaneId = paneId;
     this.tree = { kind: "leaf", id: paneId };
-    this.terminals.set(paneId, pt);
+    this.setTerminal(paneId, pt);
     this.focusedId = paneId;
     this.floating.delete(paneId);
     this.mountTree();
@@ -908,7 +916,7 @@ export class PaneHost {
   receivePaneAtRoot(paneId: string, pt: PaneTerminal, dir: "h" | "v" = "h"): boolean {
     if (findPaneLeaf(this.tree, paneId)) return false;
     if (this.floating.has(this.rootPaneId)) return false;
-    this.terminals.set(paneId, pt);
+    this.setTerminal(paneId, pt);
     const inserted = this.insertPaneAtRoot(paneId, dir);
     if (!inserted) {
       this.terminals.delete(paneId);
@@ -1992,10 +2000,11 @@ export class PaneHost {
           fit,
           host,
           row,
+          paneId: node.id,
         };
         scheduleLigaturesAddon(pt);
         scheduleImageAddon(pt, this.opts.sideloadOpenconsole);
-        this.terminals.set(node.id, pt);
+        this.setTerminal(node.id, pt);
         this.opts.onPaneCreated(node.id, pt);
       }
       this.applyLeafTheme(wrap, node.id, pt);
