@@ -519,21 +519,19 @@ fn attach_permission_handler(win: &tauri::WebviewWindow) {
         let controller = webview.controller();
         if let Ok(core) = unsafe { controller.CoreWebView2() } {
             let handler = unsafe {
-                PermissionRequestedEventHandler::create(Box::new(
-                    |_sender, args| {
-                        if let Some(args) = args {
-                            let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
-                            args.PermissionKind(&mut kind)?;
-                            let state = if kind == COREWEBVIEW2_PERMISSION_KIND_LOCAL_FONTS {
-                                COREWEBVIEW2_PERMISSION_STATE_ALLOW
-                            } else {
-                                COREWEBVIEW2_PERMISSION_STATE_DENY
-                            };
-                            args.SetState(state)?;
-                        }
-                        Ok(())
-                    },
-                ))
+                PermissionRequestedEventHandler::create(Box::new(|_sender, args| {
+                    if let Some(args) = args {
+                        let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
+                        args.PermissionKind(&mut kind)?;
+                        let state = if kind == COREWEBVIEW2_PERMISSION_KIND_LOCAL_FONTS {
+                            COREWEBVIEW2_PERMISSION_STATE_ALLOW
+                        } else {
+                            COREWEBVIEW2_PERMISSION_STATE_DENY
+                        };
+                        args.SetState(state)?;
+                    }
+                    Ok(())
+                }))
             };
             let mut token = Default::default();
             let _ = unsafe { core.add_PermissionRequested(&handler, &mut token) };
