@@ -301,7 +301,7 @@ impl ChildKiller for ProcessSignaller {
         if let Some(handle) = &self.handle {
             unsafe {
                 if windows_sys::Win32::System::Threading::TerminateProcess(
-                    handle.as_raw_handle() as _,
+                    handle.as_raw_handle(),
                     127,
                 ) == 0
                 {

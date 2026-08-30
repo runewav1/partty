@@ -113,8 +113,7 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
         fn open_reg(root: HKEY, subkey: &str) -> Option<HKEY> {
             let wide: Vec<u16> = subkey.encode_utf16().chain(std::iter::once(0)).collect();
             let mut key: HKEY = std::ptr::null_mut();
-            let status =
-                unsafe { RegOpenKeyExW(root, wide.as_ptr(), 0, KEY_READ, &mut key) };
+            let status = unsafe { RegOpenKeyExW(root, wide.as_ptr(), 0, KEY_READ, &mut key) };
             (status == 0).then_some(key)
         }
 
@@ -170,9 +169,8 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
             match vtype {
                 REG_EXPAND_SZ => {
                     let src = wide_trim_nul(bytes);
-                    let size = unsafe {
-                        ExpandEnvironmentStringsW(src.as_ptr(), std::ptr::null_mut(), 0)
-                    };
+                    let size =
+                        unsafe { ExpandEnvironmentStringsW(src.as_ptr(), std::ptr::null_mut(), 0) };
                     let mut buf = vec![0u16; size as usize + 1];
                     unsafe {
                         ExpandEnvironmentStringsW(src.as_ptr(), buf.as_mut_ptr(), buf.len() as u32)
@@ -265,9 +263,10 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
             }
         }
 
-        if let Some(sys_env) =
-            open_reg(HKEY_LOCAL_MACHINE, "System\\CurrentControlSet\\Control\\Session Manager\\Environment")
-        {
+        if let Some(sys_env) = open_reg(
+            HKEY_LOCAL_MACHINE,
+            "System\\CurrentControlSet\\Control\\Session Manager\\Environment",
+        ) {
             enumerate_env(sys_env, true, false, &mut env);
             unsafe {
                 RegCloseKey(sys_env);
