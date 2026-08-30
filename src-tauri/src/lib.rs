@@ -1074,7 +1074,7 @@ fn get_profile(id: String) -> Result<profiles::ProfileDto, String> {
 fn set_prefs(
     app: AppHandle,
     state: State<'_, AppState>,
-    prefs: prefs::Prefs,
+    mut prefs: prefs::Prefs,
 ) -> Result<(), String> {
     // Dev-only snapshot for the re-register diff below (release builds ignore
     // the dev override entirely, so the clone is compiled out).
@@ -1082,6 +1082,10 @@ fn set_prefs(
     let prev = state.persisted.lock().prefs.clone();
     {
         let mut p = state.persisted.lock();
+        // Edge branch: `customGlyphs` moved to the WebGL addon. Preserve the
+        // persisted glyph preference untouched so the stable branch's setting
+        // survives any runtime prefs write (settings save, theme `[prefs]`, etc.).
+        prefs.terminal_custom_glyphs = p.prefs.terminal_custom_glyphs;
         p.prefs = prefs.clone();
     }
     save_prefs(&prefs);

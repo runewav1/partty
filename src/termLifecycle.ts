@@ -79,7 +79,9 @@ export function firstContentScrollbackLine(term: Terminal): number {
   return limit;
 }
 
-export async function createWebglAddon(): Promise<WebglAddon> {
+export async function createWebglAddon(
+  options?: { customGlyphs?: boolean },
+): Promise<WebglAddon> {
   const { WebglAddon } = await import("@xterm/addon-webgl");
-  return new WebglAddon();
+  return new WebglAddon(options);
 }

@@ -750,6 +750,7 @@ async function boot(): Promise<void> {
   const customGlyphsRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).terminal_custom_glyphs ?? true,
   };
+  let lastCustomGlyphsApplied = customGlyphsRef.v;
   const smoothScrollRef = {
     v:
       (persisted.prefs as Partial<ParttyPrefs>)
@@ -2016,12 +2017,11 @@ async function boot(): Promise<void> {
       const started = performance.now();
       try {
         state.attempts++;
-        const addon = await createWebglAddon();
+        const addon = await createWebglAddon({
+          customGlyphs: customGlyphsRef.v,
+        });
         pt.term.loadAddon(addon);
-        const maybeContextLoss = addon as WebglAddon & {
-          onContextLoss?: (listener: () => void) => { dispose(): void };
-        };
-        state.contextLossDispose = maybeContextLoss.onContextLoss?.(() => {
+        state.contextLossDispose = addon.onContextLoss(() => {
           parttyPerf.mark("webgl.context_loss");
           disposeWebglForPane(paneId);
           void ensureWebglOnPane(paneId);
@@ -3223,7 +3223,6 @@ async function boot(): Promise<void> {
         lineHeight: lineHeightRef.v,
         letterSpacing: letterSpacingRef.v,
         drawBoldTextInBrightColors: drawBoldBrightRef.v,
-        customGlyphs: customGlyphsRef.v,
         smoothScrollDuration: smoothScrollRef.v,
         scrollSensitivity: scrollSensitivityRef.v,
         fastScrollSensitivity: fastScrollSensitivityRef.v,
@@ -5455,13 +5454,18 @@ async function boot(): Promise<void> {
         t.options.lineHeight = lineHeightRef.v;
         t.options.letterSpacing = letterSpacingRef.v;
         t.options.drawBoldTextInBrightColors = drawBoldBrightRef.v;
-        t.options.customGlyphs = customGlyphsRef.v;
         t.options.smoothScrollDuration = smoothScrollRef.v;
         t.options.scrollSensitivity = scrollSensitivityRef.v;
         t.options.fastScrollSensitivity = fastScrollSensitivityRef.v;
         t.options.cursorStyle = cursorStyleRef.v;
       });
       host.setCursorStyle(cursorStyleRef.v);
+    }
+    if (customGlyphsRef.v !== lastCustomGlyphsApplied) {
+      lastCustomGlyphsApplied = customGlyphsRef.v;
+      // customGlyphs is now a constructor-only WebGL addon option; recreate.
+      shedWebgl();
+      void mountWebglForActivePanes();
     }
     lastPtyDims.clear();
     scheduleResizeImmediate(true);

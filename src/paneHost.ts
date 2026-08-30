@@ -84,7 +84,6 @@ export type PaneHostOptions = {
   lineHeight?: number;
   letterSpacing?: number;
   drawBoldTextInBrightColors: boolean;
-  customGlyphs: boolean;
   smoothScrollDuration: number;
   scrollSensitivity?: number;
   fastScrollSensitivity?: number;
@@ -1959,7 +1958,6 @@ export class PaneHost {
           cursorInactiveStyle: this.opts.cursorInactiveStyle ?? "outline",
           cursorStyle: this.opts.cursorStyle,
           cursorWidth: this.opts.cursorWidth ?? 1,
-          customGlyphs: this.opts.customGlyphs,
           drawBoldTextInBrightColors: this.opts.drawBoldTextInBrightColors,
           fastScrollSensitivity: this.opts.fastScrollSensitivity ?? 5,
           fontFamily: this.opts.fontStack,
