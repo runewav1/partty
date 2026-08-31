@@ -120,8 +120,16 @@ Changing style does not rewrite existing trees.
 | `summon_at_cursor` | bool | `false` | place window at OS cursor on show |
 | `hidden_from_taskbar` | bool | `false` | |
 | `startup_visible` | bool | `true` | show window immediately on launch; disable to require summon keybind |
-| `effect` | string | `"transparent"` | `"off"` `"transparent"` |
-| `effect_opacity` | float | `0.0` | `0`–`1` |
+| `effect` | string | `"transparent"` | `"off"` `"transparent"` `"acrylic"` |
+| `effect_opacity` | float | `0.0` | `0`–`1` — backdrop opacity; used only by `"transparent"` |
+| `effect_acrylic_tint` | string | `"#1e1e1e"` | `#rrggbb` tint color over the acrylic blur |
+| `effect_acrylic_tint_alpha` | float | `0.55` | `0`–`1` — acrylic tint strength (higher = less backdrop shows through) |
+
+`effect` selects the window backdrop: `"off"` is an opaque window, `"transparent"` makes
+the webview background semi-transparent via `effect_opacity`, and `"acrylic"` applies a
+native acrylic blur (`SetWindowCompositionAttribute`) tinted by `effect_acrylic_tint` /
+`effect_acrylic_tint_alpha`. All three keys persist independently, so switching backdrops
+keeps each one's previous value.
 
 ## `[lifecycle]`
 

@@ -51,7 +51,7 @@ https://github.com/user-attachments/assets/50b6efde-94e8-49dc-b8a8-38c7b454d877
 - Summon and hide the window -- set the hide operation to destroy the webview, shave memory use
   to low native numbers and pop it back in immediately, returning to your workspace.
 - Move your window across monitors *faster* with a custom keybind.
-- Transparency or non transparency supported for the window backdrop.
+- Window backdrop: opaque, CSS-transparent, or native acrylic blur with a tunable tint.
 
 ### Customization
 
