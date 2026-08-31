@@ -117,9 +117,9 @@ explicitly white-listing its process name and/or white-listing its path.
 To run the dev build, clone the repository; then run:
 
 ``` shell
-> npm install
-> npm run build
-> npm run tauri dev
+> pnpm install
+> pnpm run build
+> pnpm run tauri dev
 ```
 
 This will run the dev script and start the dev build including the dev metrics panel, which is stubbed
@@ -129,7 +129,7 @@ which is explicitly introduced to help develop the application while using a rel
 To build the release binary, you can run:
 
 ```shell
-> npm run tauri build
+> pnpm run tauri build
 ```
 
 To build a *production* binary, we'd set `LTO = "fat"`, replacing `"thin"`, to have the compiler optimize further

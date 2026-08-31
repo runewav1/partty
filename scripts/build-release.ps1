@@ -71,8 +71,8 @@ if ($triple) {
 
 Push-Location $repoRoot
 try {
-  # node scripts/tauri.js build — not `npm run`, whose arg parsing strips
-  # --target (npm treats it as its own config).
+  # node scripts/tauri.js build — not `pnpm run`, whose arg parsing strips
+  # --target (pnpm treats it as its own config).
   if ($triple) {
     node scripts/tauri.js build --target $triple
   } else {

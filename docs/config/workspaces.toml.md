@@ -99,7 +99,7 @@ root = "C:\\Users\\Rune\\Development"
 logs = "/mnt/c/Users/Rune/Development"
 
 [layout.startup_commands]
-logs = "npm run dev"
+logs = "pnpm run dev"
 ```
 
 ### Themes
