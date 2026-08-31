@@ -290,12 +290,20 @@
                 <div class="settings-row settings-row--compact">
                   <span class="settings-row-label">Backdrop</span>
                   <select id="setting-window-effect-mode" name="window_effect_mode" class="settings-input settings-input--narrow">
-                    <option value="off">off</option><option value="transparent">transparent</option>
+                    <option value="off">off</option><option value="transparent">transparent</option><option value="acrylic">acrylic</option>
                   </select>
                 </div>
-                <div class="settings-row settings-row--compact">
+                <div class="settings-row settings-row--compact" data-backdrop-opt="transparent">
                   <span class="settings-row-label">Backdrop α</span>
                   <input id="setting-window-effect-opacity" name="window_effect_opacity" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
+                </div>
+                <div class="settings-row settings-row--compact" data-backdrop-opt="acrylic">
+                  <span class="settings-row-label">Acrylic tint</span>
+                  <input id="setting-window-effect-acrylic-tint" name="window_effect_acrylic_tint" type="text" class="settings-input settings-input--font" placeholder="#1e1e1e" spellcheck="false" autocomplete="off" />
+                </div>
+                <div class="settings-row settings-row--compact" data-backdrop-opt="acrylic">
+                  <span class="settings-row-label">Acrylic tint α</span>
+                  <input id="setting-window-effect-acrylic-tint-alpha" name="window_effect_acrylic_tint_alpha" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
                 </div>
               </div>
             </div>

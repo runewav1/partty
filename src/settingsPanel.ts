@@ -88,6 +88,8 @@ export type ParttyPrefs = {
   terminal_window_motion: boolean;
   window_effect_mode: string;
   window_effect_opacity: number;
+  window_effect_acrylic_tint: string;
+  window_effect_acrylic_tint_alpha: number;
   pane_corner_radius: number;
   /** `block` | `underline` | `bar` — terminal cursor style. */
   terminal_cursor_style: string;
@@ -230,7 +232,7 @@ export function createSettingsPanel(
     const terminal_animation_speed = ((v: string) => v === "off" || v === "fast" || v === "slow" ? v : "normal")(gs("terminal_animation_speed"));
     const terminal_animation_style = ((v: string) => v === "snappy" || v === "gentle" || v === "bouncy" ? v : "smooth")(gs("terminal_animation_style"));
     const split_layout_style = ((v: string) => v === "dwindle" || v === "master" ? v : "balanced")(gs("split_layout_style"));
-    const window_effect_mode = gs("window_effect_mode").replace(/-/g, "_") === "transparent" ? "transparent" : "off";
+    const window_effect_mode = (["off", "transparent", "acrylic"].includes(gs("window_effect_mode")) ? gs("window_effect_mode") : "off");
     const clamp01 = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fb; };
     const clampR = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(32, n)) : fb; };
     const clampG = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(32, n)) : fb; };
@@ -289,6 +291,8 @@ export function createSettingsPanel(
       terminal_animation_speed,
       terminal_animation_style, terminal_window_motion: gc("terminal_window_motion"),
       window_effect_mode, window_effect_opacity: clamp01(g("window_effect_opacity"), 0),
+      window_effect_acrylic_tint: g("window_effect_acrylic_tint").trim() || "#1e1e1e",
+      window_effect_acrylic_tint_alpha: clamp01(g("window_effect_acrylic_tint_alpha"), 0.55),
       pane_corner_radius: clampR(g("pane_corner_radius"), 6),
 
       terminal_cursor_style: ((v: string) => v === "underline" || v === "bar" ? v : "block")(gs("terminal_cursor_style")),
@@ -386,6 +390,16 @@ export function createSettingsPanel(
       const enabled = toggleEl?.checked ?? false;
       root.querySelectorAll('[data-child-of="process_notification_enabled"]').forEach((r) => {
         (r as HTMLElement).classList.toggle("settings-tree-hidden", !enabled);
+      });
+    }
+    // Backdrop: expose α only for "transparent"; the acrylic tint options only for "acrylic".
+    {
+      const modeEl = form?.querySelector('[name="window_effect_mode"]') as HTMLSelectElement | null;
+      const mode = modeEl?.value ?? "off";
+      root.querySelectorAll<HTMLElement>("[data-backdrop-opt]").forEach((row) => {
+        const show = row.dataset.backdropOpt === mode;
+        row.classList.toggle("settings-tree-hidden", !show);
+        row.style.display = show ? "" : "none";
       });
     }
   }
@@ -497,6 +511,8 @@ export function createSettingsPanel(
     setVal("scrollback_lines", String(p.scrollback_lines));
     setVal("snapshot_max_lines", String(p.snapshot_max_lines));
     setVal("window_effect_opacity", String(pr.window_effect_opacity ?? 0));
+    setVal("window_effect_acrylic_tint", pr.window_effect_acrylic_tint ?? "#1e1e1e");
+    setVal("window_effect_acrylic_tint_alpha", String(pr.window_effect_acrylic_tint_alpha ?? 0.55));
     setVal("pane_corner_radius", String(pr.pane_corner_radius ?? 6));
     setVal("terminal_pane_gap", String(pr.terminal_pane_gap ?? (pr.terminal_no_gap ? 0 : 6)));
     setVal("terminal_sandbox_padding", String(pr.terminal_sandbox_padding ?? 0));
@@ -505,7 +521,7 @@ export function createSettingsPanel(
     setSel("terminal_animation_speed", ((v?: string) => { v = (v ?? "normal").toLowerCase(); return v === "off" || v === "fast" || v === "slow" ? v : "normal"; })(pr.terminal_animation_speed));
     setSel("terminal_animation_style", ((v?: string) => { v = (v ?? "smooth").toLowerCase(); return v === "snappy" || v === "gentle" || v === "bouncy" ? v : "smooth"; })(pr.terminal_animation_style));
     setChk("terminal_window_motion", pr.terminal_window_motion ?? true);
-    setSel("window_effect_mode", (pr.window_effect_mode ?? "off").toLowerCase() === "transparent" ? "transparent" : "off");
+    setSel("window_effect_mode", (["off", "transparent", "acrylic"].includes((pr.window_effect_mode ?? "off").toLowerCase()) ? (pr.window_effect_mode ?? "off").toLowerCase() : "off"));
     setSel("terminal_cursor_style", ((v?: string) => v === "underline" || v === "bar" ? v : "block")(pr.terminal_cursor_style));
     setChk("terminal_cursor_blink", pr.terminal_cursor_blink ?? true);
     setSel("terminal_cursor_inactive_style", ((v?: string) => (v === "outline" || v === "block" || v === "bar" || v === "underline" || v === "none") ? v : "outline")(pr.terminal_cursor_inactive_style));
@@ -602,6 +618,8 @@ export function createSettingsPanel(
     varOpacityToggle?.addEventListener("change", () => applySettingsTree());
     const notifEnabledToggle = form?.querySelector('[name="process_notification_enabled"]') as HTMLInputElement | null;
     notifEnabledToggle?.addEventListener("change", () => applySettingsTree());
+    const backdropModeSelect = form?.querySelector('[name="window_effect_mode"]') as HTMLSelectElement | null;
+    backdropModeSelect?.addEventListener("change", () => applySettingsTree());
 
     root.querySelector(".settings-panel-backdrop")?.addEventListener("click", (e) => {
       if (e.target === e.currentTarget) close();

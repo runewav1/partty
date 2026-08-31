@@ -97,6 +97,12 @@ fn default_window_effect_mode() -> String {
 fn default_window_effect_opacity() -> f64 {
     0.0
 }
+fn default_window_effect_acrylic_tint() -> String {
+    "#1e1e1e".to_string()
+}
+fn default_window_effect_acrylic_tint_alpha() -> f64 {
+    0.55
+}
 fn default_pane_corner_radius() -> f64 {
     6.0
 }
@@ -260,6 +266,10 @@ pub struct Prefs {
     pub window_effect_mode: String,
     #[serde(default = "default_window_effect_opacity")]
     pub window_effect_opacity: f64,
+    #[serde(default = "default_window_effect_acrylic_tint")]
+    pub window_effect_acrylic_tint: String,
+    #[serde(default = "default_window_effect_acrylic_tint_alpha")]
+    pub window_effect_acrylic_tint_alpha: f64,
     #[serde(default = "default_pane_corner_radius")]
     pub pane_corner_radius: f64,
     #[serde(default = "default_cursor_style")]
@@ -395,6 +405,8 @@ impl Default for Prefs {
             profile_selection_aliases: HashMap::new(),
             window_effect_mode: default_window_effect_mode(),
             window_effect_opacity: default_window_effect_opacity(),
+            window_effect_acrylic_tint: default_window_effect_acrylic_tint(),
+            window_effect_acrylic_tint_alpha: default_window_effect_acrylic_tint_alpha(),
             pane_corner_radius: default_pane_corner_radius(),
             terminal_cursor_style: default_cursor_style(),
             terminal_cursor_blink: true,
@@ -844,6 +856,10 @@ pub struct WindowSection {
     pub effect: String,
     #[serde(default = "default_window_effect_opacity")]
     pub effect_opacity: f64,
+    #[serde(default = "default_window_effect_acrylic_tint")]
+    pub effect_acrylic_tint: String,
+    #[serde(default = "default_window_effect_acrylic_tint_alpha")]
+    pub effect_acrylic_tint_alpha: f64,
     #[serde(default = "default_true")]
     pub startup_visible: bool,
 }
@@ -856,6 +872,8 @@ impl Default for WindowSection {
             hidden_from_taskbar: false,
             effect: default_window_effect_mode(),
             effect_opacity: default_window_effect_opacity(),
+            effect_acrylic_tint: default_window_effect_acrylic_tint(),
+            effect_acrylic_tint_alpha: default_window_effect_acrylic_tint_alpha(),
             startup_visible: true,
         }
     }
@@ -1159,6 +1177,8 @@ impl From<ConfigToml> for Prefs {
             hidden_from_taskbar: c.window.hidden_from_taskbar,
             window_effect_mode: c.window.effect,
             window_effect_opacity: c.window.effect_opacity,
+            window_effect_acrylic_tint: c.window.effect_acrylic_tint,
+            window_effect_acrylic_tint_alpha: c.window.effect_acrylic_tint_alpha,
             window_startup_visible: c.window.startup_visible,
             shed_on_hide: c.lifecycle.shed_on_hide,
             webgl_shed_on_hide: c.lifecycle.webgl_shed_on_hide,
@@ -1275,6 +1295,8 @@ impl From<&Prefs> for ConfigToml {
                 hidden_from_taskbar: p.hidden_from_taskbar,
                 effect: p.window_effect_mode.clone(),
                 effect_opacity: p.window_effect_opacity,
+                effect_acrylic_tint: p.window_effect_acrylic_tint.clone(),
+                effect_acrylic_tint_alpha: p.window_effect_acrylic_tint_alpha,
                 startup_visible: p.window_startup_visible,
             },
             lifecycle: LifecycleSection {

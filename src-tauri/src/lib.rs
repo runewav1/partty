@@ -312,21 +312,112 @@ fn resolve_spawn(
     Ok((spawn_prefs, spawn_for_pty, want))
 }
 
-fn window_effect_config(prefs: &prefs::Prefs) -> Option<tauri::utils::config::WindowEffectsConfig> {
-    match prefs
-        .window_effect_mode
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
+/// Parse a `#rrggbb` tint string into (r, g, b); malformed input falls back to black.
+#[cfg(windows)]
+fn parse_hex_tint(s: &str) -> (u8, u8, u8) {
+    let hex = s.trim().trim_start_matches('#');
+    if hex.len() == 6
+        && let Ok(v) = u32::from_str_radix(hex, 16)
     {
-        "transparent" => None,
-        _ => None,
+        return ((v >> 16) as u8, (v >> 8) as u8, v as u8);
+    }
+    (0, 0, 0)
+}
+
+/// Drive the undocumented `SetWindowCompositionAttribute` (user32) accent policy
+/// directly — granular acrylic control isn't exposed through public Win32 APIs or
+/// tauri's effect API. Loaded at runtime like the rest of the ecosystem does.
+#[cfg(windows)]
+fn set_window_accent(win: &tauri::WebviewWindow, accent_state: u32, gradient_color: u32) {
+    use std::ffi::c_void;
+    use std::mem::transmute;
+    use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+
+    #[repr(C)]
+    struct AccentPolicy {
+        accent_state: u32,
+        accent_flags: u32,
+        gradient_color: u32,
+        animation_id: u32,
+    }
+
+    #[repr(C)]
+    struct WindowCompositionAttribData {
+        attribute: u32,
+        data: *mut c_void,
+        size: usize,
+    }
+
+    type SetWindowCompositionAttribute =
+        unsafe extern "system" fn(*mut c_void, *mut WindowCompositionAttribData) -> i32;
+
+    let hwnd = match win.hwnd() {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("partty: no hwnd for {}: {e}", win.label());
+            return;
+        }
+    };
+
+    let user32 = unsafe { GetModuleHandleW(windows_sys::core::w!("user32.dll")) };
+    if user32.is_null() {
+        return;
+    }
+    let proc = unsafe {
+        GetProcAddress(
+            user32,
+            c"SetWindowCompositionAttribute".as_ptr() as *const u8,
+        )
+    };
+    let Some(swca) = proc.map(|f| unsafe { transmute::<_, SetWindowCompositionAttribute>(f) })
+    else {
+        return;
+    };
+
+    // Acrylic uses no accent flags; blur/disabled use `2` (window-vibrancy parity).
+    let accent_flags = if accent_state == 4 { 0 } else { 2 };
+    let mut policy = AccentPolicy {
+        accent_state,
+        accent_flags,
+        gradient_color,
+        animation_id: 0,
+    };
+    let mut data = WindowCompositionAttribData {
+        attribute: 0x13, // WCA_ACCENT_POLICY
+        data: &mut policy as *mut AccentPolicy as *mut c_void,
+        size: std::mem::size_of::<AccentPolicy>(),
+    };
+    unsafe {
+        swca(hwnd.0, &mut data);
     }
 }
 
+/// Apply the native window backdrop for `window_effect_mode` (Windows).
+/// Only "acrylic" drives a native effect (custom SWCA); "transparent" and "off"
+/// clear any native effect — their visuals are CSS-driven via
+/// `--partty-app-bg-alpha`.
 fn apply_window_effects(win: &tauri::WebviewWindow, prefs: &prefs::Prefs) {
-    if let Err(e) = win.set_effects(window_effect_config(prefs)) {
-        eprintln!("partty: set window effects for {}: {e}", win.label());
+    #[cfg(windows)]
+    {
+        if prefs
+            .window_effect_mode
+            .trim()
+            .eq_ignore_ascii_case("acrylic")
+        {
+            let (r, g, b) = parse_hex_tint(&prefs.window_effect_acrylic_tint);
+            let a =
+                ((prefs.window_effect_acrylic_tint_alpha.clamp(0.0, 1.0)) * 255.0).round() as u32;
+            // Acrylic rejects a zero-alpha gradient; clamp to the smallest allowed.
+            let a = a.max(1);
+            let gradient = (a << 24) | ((b as u32) << 16) | ((g as u32) << 8) | r as u32;
+            set_window_accent(win, 4, gradient); // ACCENT_ENABLE_ACRYLICBLURBEHIND
+        } else {
+            set_window_accent(win, 0, 0); // ACCENT_DISABLED
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (win, prefs);
     }
 }
 

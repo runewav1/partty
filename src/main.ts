@@ -294,7 +294,11 @@ function applyTerminalDisplayPrefs(raw: Partial<ParttyPrefs>): void {
     typeof raw.window_effect_opacity === "number"
       ? raw.window_effect_opacity
       : 0;
-  const appAlpha = raw.window_effect_mode === "transparent" ? backdropAlpha : 1;
+  const appAlpha = raw.window_effect_mode === "transparent"
+    ? backdropAlpha
+    : raw.window_effect_mode === "acrylic"
+      ? 0
+      : 1;
   const paneRadius =
     typeof raw.pane_corner_radius === "number" ? raw.pane_corner_radius : 6;
   root.style.setProperty(
