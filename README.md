@@ -7,7 +7,7 @@
 A fast, fun, QoL-focused terminal workspace for Windows.
 
 Optimized for speed and minimizing latency, Partty achieves near-native input-to-render latency metrics,
-as well as frame rates up to ~70% of Windows Terminal, in a Tauri WebView2 sandbox otherwise notorious for
+as well as frame rates up to ~70% of Windows Terminal, in a WebView2 sandbox otherwise notorious for
 being slow (how???).
 
 Partty also includes a plethora of quality-of-life (QoL) features.
@@ -132,8 +132,7 @@ To build the release binary, you can run:
 > pnpm run tauri build
 ```
 
-To build a *production* binary, we'd set `LTO = "fat"`, replacing `"thin"`, to have the compiler optimize further
-and shrink the binary size (which in current production builds to 9.8mb).
+This will build and produce the partty.exe binary under `./src-tauri/target/release/`, alongside specific installer bundles.
 
 ## Roadmap
 
