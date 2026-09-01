@@ -151,7 +151,6 @@ import type {
   WorkspaceOpenMode,
 } from "./settingsPanel";
 import type { ExtensionManagerApi } from "./extensionManager";
-import type { ThemeBuilderApi } from "./themeBuilderModal";
 import type { ThemeModalApi } from "./themeModal";
 import {
   createByteChunkBuffer,
@@ -5021,14 +5020,12 @@ async function boot(): Promise<void> {
   }
 
   const settingsPanelEl = document.getElementById("settings-panel");
-  const themeBuilderRoot = document.getElementById("theme-builder-root");
   const themeModalRoot = document.getElementById("theme-modal-root");
 
   const extManagerEl = document.getElementById(
     "extension-manager",
   ) as HTMLElement | null;
 
-  const themeBuilderLazy = lazyCell<ThemeBuilderApi>();
   const themeModalLazy = lazyCell<ThemeModalApi>();
   let themeTargetPaneId: string | null = null;
   let paneThemeRestore: { id: string; theme: PaneThemePrefs | null } | null =
@@ -5041,24 +5038,9 @@ async function boot(): Promise<void> {
     }
     themeTargetPaneId = null;
     // The theme modal is the last surface in its flow; give focus back to
-    // the pane (the theme builder, when opened from it, re-focuses itself).
+    // the pane.
     focusActiveTerminal();
   }
-
-  const ensureThemeBuilder = (): Promise<ThemeBuilderApi | null> =>
-    !themeBuilderRoot
-      ? Promise.resolve(null)
-      : themeBuilderLazy.ensure(async () => {
-          const { createThemeBuilderModal } = await import("./themeBuilderModal");
-          return createThemeBuilderModal(
-            themeBuilderRoot as HTMLElement,
-            (prefs) => {
-              currentUiPrefs = prefs;
-              applyUiTheme(prefs);
-              refreshAllTerminalThemes();
-            },
-          );
-        });
 
   const ensureThemeModal = (): Promise<ThemeModalApi | null> =>
     !themeModalRoot
@@ -5075,9 +5057,6 @@ async function boot(): Promise<void> {
               currentUiPrefs = prefs;
               applyUiTheme(prefs);
               refreshAllTerminalThemes();
-            },
-            (request) => {
-              runLazy(ensureThemeBuilder, (tb) => tb.open(request));
             },
             resetThemeModalTarget,
           );
@@ -6127,17 +6106,6 @@ async function boot(): Promise<void> {
         run: () => openFocusedPaneTheme(),
       },
 
-      {
-        id: "open-theme-builder",
-        label: "Theme builder…",
-        keywords: "theme custom colors editor create css variables",
-        run: () => {
-          runLazy(ensureThemeModal, (tm) => {
-            tm.close();
-            runLazy(ensureThemeBuilder, (tb) => tb.open());
-          });
-        },
-      },
       // --- Terminal / session ---
       {
         id: "new-session",

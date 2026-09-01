@@ -172,11 +172,6 @@ export function createCommandPalette(mount: CommandPaletteMount): {
   }
 
   async function runCommand(cmd: PaletteCommand): Promise<void> {
-    // Keep palette shell open; host switches to builder UI.
-    if (cmd.id === "new-custom") {
-      await Promise.resolve(cmd.run());
-      return;
-    }
     closePalette(true);
     try {
       await Promise.resolve(cmd.run());

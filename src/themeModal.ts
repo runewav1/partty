@@ -9,7 +9,7 @@ import {
   type LexicalSearchItem,
 } from "./lexicalSearch";
 import type { ParttyPrefs } from "./settingsPanel";
-import { ensureCustomThemesLoaded, normalizePaneThemePrefs, pickUiPrefs, themeCssVarsForPrefs, THEME_OPTIONS, getThemePrefsCache, type ThemeCssVars, type UiThemePrefs } from "./uiTheme";
+import { ensureCustomThemesLoaded, normalizePaneThemePrefs, pickUiPrefs, themeCssVarsForPrefs, THEME_OPTIONS, getThemePrefsCache, type UiThemePrefs } from "./uiTheme";
 import { THEME_MODAL_POS_KEY } from "./storageKeys";
 
 type Persisted = { prefs: Record<string, unknown> };
@@ -26,11 +26,6 @@ export type ThemeModalOpenOptions = {
   onCommit?: (prefs: UiThemePrefs) => void | Promise<void>;
 };
 
-export type ThemeModalCloneRequest = {
-  vars: ThemeCssVars;
-  suggestedName: string;
-};
-
 type FlatThemeRow = LexicalSearchItem & {
   themeId: string;
   variantId: string;
@@ -40,7 +35,6 @@ type FlatThemeRow = LexicalSearchItem & {
 export function createThemeModal(
   root: HTMLElement,
   onPreview: (prefs: UiThemePrefs) => void,
-  onCloneTheme?: (request: ThemeModalCloneRequest) => void,
   onClosed?: () => void,
 ): ThemeModalApi {
   let open = false;
@@ -64,10 +58,6 @@ export function createThemeModal(
   }
   let allFlat: FlatThemeRow[] = [...builtinFlat];
   let flat: FlatThemeRow[] = [...builtinFlat];
-
-  function slugForRow(row: FlatThemeRow): string {
-    return `${row.themeId}-${row.variantId}`.replace(/^custom:/, "").replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase();
-  }
 
   function applyFilter(): void {
     flat = filterAndRankLexical(allFlat, normalizeQuery(searchInput.value));
@@ -110,21 +100,6 @@ export function createThemeModal(
         li.appendChild(palette);
       }
 
-      if (row.builtin && row.themeId !== "system" && onCloneTheme) {
-        const clone = document.createElement("button");
-        clone.type = "button";
-        clone.className = "theme-modal-clone";
-        clone.textContent = "Clone";
-        clone.addEventListener("click", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const cvars = themeCssVarsForPrefs({ ui_theme: row.themeId, ui_theme_variant: row.variantId });
-          const suggestedName = slugForRow(row);
-          close();
-          onCloneTheme({ vars: cvars, suggestedName });
-        });
-        li.appendChild(clone);
-      }
       li.addEventListener("mouseenter", () => {
         selectedFlat = i;
         updateSelection();
