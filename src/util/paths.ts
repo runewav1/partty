@@ -1,5 +1,9 @@
 /**
- * Unified shell-agnostic path translation.
+ * File-system path utilities: CWD normalization keys and shell-agnostic
+ * path translation.
+ *
+ * PTY output OSC interpretation (OSC 7 / 133 / 633) is handled by the Rust
+ * PTY host (pty.rs), which emits `pty-cwd` / `pty-title` / `pty-shell-event`.
  *
  * Any path pasted into a pane's shell must be translated from its origin
  * format (typically an NTFS Windows path) into the format the pane's shell
@@ -243,4 +247,16 @@ export function translatePathFromSource(
     return `/mnt/${msys[1].toLowerCase()}/${msys[2]}`;
   }
   return fwd;
+}
+
+/** Stable comparison for Windows paths (separators, casing, trailing slashes). */
+export function normalizeFsPathKey(p: string): string {
+  return p
+    .trim()
+    .replace(/^\\\\\?\\unc\\/i, "\\\\")
+    .replace(/^\\\\\?\\/i, "")
+    .replace(/^\/\/?\?\//i, "")
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "")
+    .toLowerCase();
 }

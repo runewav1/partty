@@ -74,6 +74,7 @@ import {
   type PaneNameParts,
 } from "./tabs/displayNames";
 import {
+  createTabCloseIcon,
   initTabBar,
   type TabBarItem,
   type TabRenderModel,
@@ -143,7 +144,6 @@ import {
 } from "./util/motion";
 import { filterAndRankLexical, normalizeQuery } from "./util/lexicalSearch";
 import pkg from "../package.json";
-import { normalizeFsPathKey } from "./util/oscCwd";
 import { lazyCell, runLazy } from "./util/lazyOnce";
 import type {
   ParttyPrefs,
@@ -174,15 +174,15 @@ import {
 } from "./pty/ptyIpc";
 import {
   expandRelativePath,
+  normalizeFsPathKey,
   pathStyleForProfile,
   quotePath,
+  sshPathStyleFromRemote,
   translatePasteText,
   translatePathFromSource,
-  sshPathStyleFromRemote,
   type PastePathSource,
   type PathStyle,
-} from "./util/pathTranslation";
-import { createTabCloseIcon } from "./app/toolbarIcons";
+} from "./util/paths";
 import { parttyPerf } from "./pty/perf";
 import type { DevMetricsOverlayApi } from "./app/devMetricsOverlay";
 import {
