@@ -173,7 +173,6 @@ import {
   ptyWrite,
 } from "./pty/ptyIpc";
 import {
-  expandRelativePath,
   normalizeFsPathKey,
   pathStyleForProfile,
   quotePath,
@@ -183,6 +182,15 @@ import {
   type PastePathSource,
   type PathStyle,
 } from "./util/paths";
+import { createTooltipController } from "./app/tooltips";
+import { escapeHtml } from "./util/html";
+import {
+  extractPathAtColumn,
+  extractRelativePathAtColumn,
+  extractUrlAtColumn,
+  getTerminalClickCell,
+  normalizeExternalUrl,
+} from "./util/linkExtraction";
 import { parttyPerf } from "./pty/perf";
 import type { DevMetricsOverlayApi } from "./app/devMetricsOverlay";
 import {
@@ -220,7 +228,6 @@ const PTY_OUTPUT_FLUSH_MS = 4;
 const PTY_OUTPUT_BACKGROUND_FLUSH_MS = 33;
 const PTY_OUTPUT_MAX_BATCH_BYTES = 128 * 1024;
 
-const TOOLTIP_STASH_ATTR = "data-partty-tooltip-title";
 const IDLE_WEBGL_MS = 400;
 
 type PersistedPayload = { prefs: Record<string, unknown> };
@@ -1029,7 +1036,6 @@ async function boot(): Promise<void> {
   let pendingPtyOutputTimer = 0;
   let liveCwd: string | null = null;
   let lastFocusedPaneId = "";
-  let tooltipObserver: MutationObserver | null = null;
 
   // ConPTY input buffers are small (~1–2KB). Fast shells drain fine; busy TUIs
   // (OpenCode, etc.) don't — a single large write silently drops. Chunk + pace.
@@ -1370,137 +1376,6 @@ async function boot(): Promise<void> {
     }
   }
 
-  const getTerminalClickCell = (
-    term: Terminal,
-    host: HTMLElement,
-    ev: MouseEvent,
-  ): { col: number; row: number } | null => {
-    const screen = host.querySelector(".xterm-screen") as HTMLElement | null;
-    if (!screen) return null;
-    const rect = screen.getBoundingClientRect();
-    if (
-      ev.clientX < rect.left ||
-      ev.clientX > rect.right ||
-      ev.clientY < rect.top ||
-      ev.clientY > rect.bottom
-    ) {
-      return null;
-    }
-    const cols = Math.max(1, term.cols);
-    const rows = Math.max(1, term.rows);
-    const cellW = rect.width / cols;
-    const cellH = rect.height / rows;
-    if (
-      !Number.isFinite(cellW) ||
-      !Number.isFinite(cellH) ||
-      cellW <= 0 ||
-      cellH <= 0
-    )
-      return null;
-    const col = Math.max(
-      0,
-      Math.min(cols - 1, Math.floor((ev.clientX - rect.left) / cellW)),
-    );
-    const row = Math.max(
-      0,
-      Math.min(rows - 1, Math.floor((ev.clientY - rect.top) / cellH)),
-    );
-    return { col, row };
-  };
-
-  const normalizeExternalUrl = (value: string): string | null => {
-    const raw = value.trim().replace(/[),.;:!?]+$/g, "");
-    if (!raw) return null;
-
-    const hasHttpScheme = /^https?:\/\//i.test(raw);
-    const isWww = /^www\./i.test(raw);
-    // Keep this allowlist aligned with the native open_external_url command.
-    const isLocalhost = /^localhost:\d+(?:[^\s<>"'`]*)?$/i.test(raw);
-    const isLoopback = /^(?:127\.0\.0\.1|\[::1\]|::1):\d+(?:[^\s<>"'`]*)?$/i.test(raw);
-    if (!(hasHttpScheme || isWww || isLocalhost || isLoopback)) return null;
-
-    const normalized = hasHttpScheme ? raw : `https://${raw}`;
-    try {
-      const url = new URL(normalized);
-      return url.protocol === "http:" || url.protocol === "https:"
-        ? url.toString()
-        : null;
-    } catch {
-      return null;
-    }
-  };
-
-  const extractUrlAtColumn = (line: string, column: number): string | null => {
-    const re =
-      /(?:https?:\/\/|www\.)[^\s<>"'`]+|(?:localhost|127\.0\.0\.1):\d+[^\s<>"'`]*|\[::1\]:\d+[^\s<>"'`]*|::1:\d+[^\s<>"'`]*/gi;
-    let m: RegExpExecArray | null = null;
-    while ((m = re.exec(line)) !== null) {
-      const start = m.index;
-      const end = start + m[0].length;
-      if (column < start || column >= end) continue;
-      return normalizeExternalUrl(m[0]);
-    }
-    return null;
-  };
-
-  /** Absolute / home-anchored paths only — avoids `foo/bar` false positives. */
-  const extractPathAtColumn = (line: string, column: number): string | null => {
-    const re =
-      /(?:"([^"\n]+)"|'([^'\n]+)'|(?:\\\\|\/\/)[^\s<>"'`]+|[A-Za-z]:[\\/][^\s<>"'`]+|~\/[^\s<>"'`]+|\/(?:home|Users|usr|etc|var|tmp|opt|mnt|root|dev|proc|sys|bin|lib|sbin|boot|media|run|snap)(?:\/[^\s<>"'`]*)?)/g;
-    let m: RegExpExecArray | null = null;
-    while ((m = re.exec(line)) !== null) {
-      const start = m.index;
-      const end = start + m[0].length;
-      if (column < start || column >= end) continue;
-      const quoted = m[1] ?? m[2];
-      let raw = (quoted ?? m[0]).replace(/[),.;:!?\]]+$/g, "");
-      if (!raw) continue;
-      // Quoted match must still look like a path.
-      if (quoted) {
-        const looksAbsolute =
-          /^[A-Za-z]:[\\/]/.test(raw) ||
-          /^\\\\|^\/\//.test(raw) ||
-          raw.startsWith("~/") ||
-          /^\/(?:home|Users|usr|etc|var|tmp|opt|mnt|root|dev|proc|sys|bin|lib|sbin|boot|media|run|snap)(?:\/|$)/.test(
-            raw,
-          );
-        if (!looksAbsolute) continue;
-      }
-      return raw;
-    }
-    return null;
-  };
-
-  /** Unquoted relative fragments containing a separator (`src/foo.rs`, `../x`), expanded against the pane cwd. */
-  const extractRelativePathAtColumn = (
-    line: string,
-    column: number,
-    cwd: string | null,
-  ): string | null => {
-    if (!cwd) return null;
-    const re = /\S+/g;
-    let m: RegExpExecArray | null = null;
-    while ((m = re.exec(line)) !== null) {
-      const start = m.index;
-      const end = start + m[0].length;
-      if (column < start || column >= end) continue;
-      let raw = m[0].replace(/[),.;:!?\]]+$/g, "");
-      if (!raw) continue;
-      if (!isRelativePathCandidate(raw)) continue;
-      return expandRelativePath(raw, cwd);
-    }
-    return null;
-  };
-
-  const isRelativePathCandidate = (tok: string): boolean => {
-    if (/^[\\/]/.test(tok)) return false; // absolute / UNC — handled elsewhere
-    if (/^[A-Za-z]:[\\/]/.test(tok)) return false; // drive absolute
-    if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(tok)) return false; // URL
-    if (!tok.includes("/") && !tok.includes("\\")) return false; // needs a separator
-    if (/^\.{1,2}$/.test(tok)) return false;
-    return true;
-  };
-
   const handleCtrlClickToken = (
     paneId: string,
     term: Terminal,
@@ -1625,72 +1500,9 @@ async function boot(): Promise<void> {
     host.classList.add("pane-terminal-host--ctrl-link-hover");
   };
 
-  const isTooltipSuppressed = (): boolean =>
-    disableTooltipsRef.v ||
-    document.documentElement.classList.contains("tabs-hidden");
-
-  const syncTooltipForElement = (el: HTMLElement, suppress: boolean): void => {
-    if (suppress) {
-      if (el.hasAttribute("title")) {
-        const title = el.getAttribute("title");
-        if (title != null) {
-          el.setAttribute(TOOLTIP_STASH_ATTR, title);
-          el.removeAttribute("title");
-        }
-      }
-      return;
-    }
-
-    if (!el.hasAttribute("title") && el.hasAttribute(TOOLTIP_STASH_ATTR)) {
-      const original = el.getAttribute(TOOLTIP_STASH_ATTR) ?? "";
-      el.setAttribute("title", original);
-      el.removeAttribute(TOOLTIP_STASH_ATTR);
-    }
-  };
-
-  const applyTooltipPolicy = (root: ParentNode = document): void => {
-    const suppress = isTooltipSuppressed();
-    document.documentElement.classList.toggle("tooltips-disabled", suppress);
-    const all = (root as Document | Element).querySelectorAll<HTMLElement>(
-      `[title], [${TOOLTIP_STASH_ATTR}]`,
-    );
-    all.forEach((el) => syncTooltipForElement(el, suppress));
-    if (root instanceof HTMLElement) syncTooltipForElement(root, suppress);
-  };
-
-  const ensureTooltipObserver = (): void => {
-    if (tooltipObserver) return;
-    tooltipObserver = new MutationObserver((mutations) => {
-      const suppress = isTooltipSuppressed();
-      for (const m of mutations) {
-        if (
-          m.type === "attributes" &&
-          m.target instanceof HTMLElement &&
-          m.attributeName === "title"
-        ) {
-          syncTooltipForElement(m.target, suppress);
-          continue;
-        }
-        if (m.type !== "childList") continue;
-        m.addedNodes.forEach((n) => {
-          if (!(n instanceof HTMLElement)) return;
-          syncTooltipForElement(n, suppress);
-          n.querySelectorAll<HTMLElement>(
-            "[title], [data-partty-tooltip-title]",
-          ).forEach((el) => syncTooltipForElement(el, suppress));
-        });
-      }
-    });
-    tooltipObserver.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["title"],
-    });
-  };
-
-  ensureTooltipObserver();
-  applyTooltipPolicy(document);
+  const tooltips = createTooltipController(() => disableTooltipsRef.v);
+  tooltips.ensureObserver();
+  tooltips.apply(document);
 
   function copyToClipboard(text: string): void {
     if (!text) return;
@@ -2680,7 +2492,7 @@ async function boot(): Promise<void> {
   function setTabsHidden(next: boolean): void {
     document.documentElement.classList.toggle("tabs-hidden", next);
     localStorage.setItem(TABS_HIDDEN_KEY, next ? "1" : "0");
-    applyTooltipPolicy(document);
+    tooltips.apply(document);
     scheduleResizeImmediate();
   }
 
@@ -5239,7 +5051,7 @@ async function boot(): Promise<void> {
                 host.setScrollbackLines(saved.scrollback_lines);
               }
             }
-            applyTooltipPolicy(document);
+            tooltips.apply(document);
             document.documentElement.classList.toggle(
               "pane-blur-unfocused",
               saved.blur_unfocused_panes,
@@ -5612,14 +5424,6 @@ async function boot(): Promise<void> {
       });
     }
     return items;
-  }
-
-  function escapeHtml(s: string): string {
-    return s
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
   }
 
   let processToastTimer = 0;
