@@ -9,11 +9,11 @@ export type ActiveProcessEntry = {
   shellCommand: boolean;
 };
 
-export function normalizeCommandLine(command: string): string {
+function normalizeCommandLine(command: string): string {
   return command.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "").trim();
 }
 
-export function firstCommandWord(command: string): string {
+function firstCommandWord(command: string): string {
   const trimmed = normalizeCommandLine(command);
   if (!trimmed) return "";
   const quoted = trimmed.match(/^(['"])(.+?)\1/);

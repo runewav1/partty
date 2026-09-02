@@ -11,10 +11,6 @@ export function pushStringChunk(buf: StringChunkBuffer, data: string): void {
   buf.totalChars += data.length;
 }
 
-export function peekStringChunkChars(buf: StringChunkBuffer): number {
-  return buf.totalChars;
-}
-
 export function drainStringChunks(buf: StringChunkBuffer): string {
   if (buf.totalChars === 0) return "";
   const out =

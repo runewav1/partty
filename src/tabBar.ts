@@ -25,7 +25,7 @@ export type TabBarLayout = {
   itemGap: string;
 };
 
-export const DEFAULT_TAB_BAR_LAYOUT: TabBarLayout = {
+const DEFAULT_TAB_BAR_LAYOUT: TabBarLayout = {
   tabJustify: "start",
   showSingleTab: false,
   omitDefaultClose: false,

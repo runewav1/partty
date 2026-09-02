@@ -173,7 +173,7 @@ export function getProfileById(
   return profiles.find((p) => p.id === id) ?? null;
 }
 
-export function resolveEffectiveSpawnProfile(
+function resolveEffectiveSpawnProfile(
   profileId: string,
   profiles: readonly ConnectionProfile[],
 ): ConnectionProfile | null {
@@ -209,21 +209,6 @@ export function resolveProfileShell(
   if (override) return override;
   if (spawn?.id === LOCAL_DEFAULT_PROFILE_ID || !spawn?.shell) return null;
   return globalShell.trim() || null;
-}
-
-export function profileKindLabel(kind: ProfileKind): string {
-  switch (kind) {
-    case "local":
-      return "Local";
-    case "wsl":
-      return "WSL";
-    case "ssh":
-      return "SSH";
-    default: {
-      const _exhaustive: never = kind;
-      return _exhaustive;
-    }
-  }
 }
 
 export function profileActionForPaletteCommandId(

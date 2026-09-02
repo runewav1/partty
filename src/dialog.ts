@@ -1,34 +1,12 @@
 /**
- * In-theme modal dialogs (alert / prompt / confirm) built from one factory.
- * Escape dismissal is handled by the shared overlay stack, so dialogs stack
- * correctly with any other open chrome.
+ * In-theme modal alert dialog. Escape dismissal is handled by the shared
+ * overlay stack, so dialogs stack correctly with any other open chrome.
  */
 
 import { mouseCursorForceVisible } from "./mouseCursor";
 import { pushOverlay } from "./overlayStack";
 
-type DialogButton = {
-  label: string;
-  kind?: "primary" | "danger" | "default";
-  /** Marks the button whose value is returned on Enter / autofocus target. */
-  primaryAction?: boolean;
-};
-
-type DialogSpec = {
-  title: string;
-  message: string;
-  role?: string;
-  input?: { value: string };
-  buttons: DialogButton[];
-};
-
-type DialogResult = {
-  /** Index into `spec.buttons`; -1 when dismissed (Escape). */
-  button: number;
-  text: string;
-};
-
-function showDialog(spec: DialogSpec): Promise<DialogResult> {
+function showAlertDialog(message: string, title: string): Promise<void> {
   return new Promise((resolve) => {
     mouseCursorForceVisible(true);
 
@@ -44,112 +22,41 @@ function showDialog(spec: DialogSpec): Promise<DialogResult> {
     backdrop.className = "partty-dialog-backdrop";
     const panel = document.createElement("div");
     panel.className = "partty-dialog-panel";
-    panel.setAttribute("role", spec.role ?? "dialog");
+    panel.setAttribute("role", "alertdialog");
 
-    const title = document.createElement("h2");
-    title.className = "partty-dialog-title";
-    title.textContent = spec.title;
+    const titleEl = document.createElement("h2");
+    titleEl.className = "partty-dialog-title";
+    titleEl.textContent = title;
     const msg = document.createElement("p");
     msg.className = "partty-dialog-msg";
-    msg.textContent = spec.message;
-    panel.append(title, msg);
-
-    let input: HTMLInputElement | null = null;
-    if (spec.input) {
-      input = document.createElement("input");
-      input.type = "text";
-      input.className = "partty-dialog-input";
-      input.spellcheck = false;
-      input.value = spec.input.value;
-      panel.appendChild(input);
-    }
+    msg.textContent = message;
+    panel.append(titleEl, msg);
 
     const actions = document.createElement("div");
     actions.className = "partty-dialog-actions";
     panel.appendChild(actions);
 
-    const finish = (button: number): void => {
+    const finish = (): void => {
       overlay.release();
       backdrop.remove();
       mouseCursorForceVisible(false);
-      resolve({ button, text: input?.value ?? "" });
+      resolve();
     };
-    const overlay = pushOverlay(() => finish(-1));
+    const overlay = pushOverlay(finish);
 
-    let focusTarget: HTMLElement | null = input;
-    spec.buttons.forEach((btn, i) => {
-      const el = document.createElement("button");
-      el.type = "button";
-      el.className =
-        btn.kind === "primary"
-          ? "partty-dialog-btn partty-dialog-btn--primary"
-          : btn.kind === "danger"
-            ? "partty-dialog-btn partty-dialog-btn--danger"
-            : "partty-dialog-btn";
-      el.textContent = btn.label;
-      el.addEventListener("click", () => finish(i));
-      actions.appendChild(el);
-      if (btn.primaryAction) {
-        if (!focusTarget) focusTarget = el;
-        if (input) {
-          input.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              finish(i);
-            }
-          });
-        }
-      }
-    });
+    const ok = document.createElement("button");
+    ok.type = "button";
+    ok.className = "partty-dialog-btn partty-dialog-btn--primary";
+    ok.textContent = "OK";
+    ok.addEventListener("click", finish);
+    actions.appendChild(ok);
 
     backdrop.appendChild(panel);
     host.appendChild(backdrop);
-    if (input) input.select();
-    focusTarget?.focus();
+    ok.focus();
   });
 }
 
 export function showAlert(message: string, title = "Partty"): Promise<void> {
-  return showDialog({
-    title,
-    message,
-    role: "alertdialog",
-    buttons: [{ label: "OK", kind: "primary", primaryAction: true }],
-  }).then(() => undefined);
-}
-
-export function showPrompt(
-  message: string,
-  defaultValue = "",
-  title = "Partty",
-): Promise<string | null> {
-  return showDialog({
-    title,
-    message,
-    input: { value: defaultValue },
-    buttons: [
-      { label: "Cancel" },
-      { label: "OK", kind: "primary", primaryAction: true },
-    ],
-  }).then((r) => (r.button === 1 ? r.text.trim() || null : null));
-}
-
-export function showConfirm(
-  message: string,
-  title = "Partty",
-  confirmLabel = "OK",
-  danger = false,
-): Promise<boolean> {
-  return showDialog({
-    title,
-    message,
-    buttons: [
-      { label: "Cancel" },
-      {
-        label: confirmLabel,
-        kind: danger ? "danger" : "primary",
-        primaryAction: true,
-      },
-    ],
-  }).then((r) => r.button === 1);
+  return showAlertDialog(message, title);
 }

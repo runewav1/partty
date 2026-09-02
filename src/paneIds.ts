@@ -21,7 +21,7 @@ export function parsePaneId(id: string): PaneIdParts | null {
 }
 
 /** Bijective base-26: 0→a … 25→z, 26→aa. */
-export function slotAt(index: number): string {
+function slotAt(index: number): string {
   let n = index + 1;
   let s = "";
   while (n > 0) {

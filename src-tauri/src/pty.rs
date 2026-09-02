@@ -1212,17 +1212,6 @@ pub struct PtySession {
 }
 
 impl PtySession {
-    pub fn spawn(
-        app: AppHandle,
-        session_id: String,
-        cols: u16,
-        rows: u16,
-        prefs: &Prefs,
-        initial_cwd: Option<String>,
-    ) -> Result<Self, String> {
-        Self::spawn_with_profile(app, session_id, cols, rows, prefs, initial_cwd, None)
-    }
-
     pub fn spawn_with_profile(
         app: AppHandle,
         session_id: String,

@@ -16,7 +16,7 @@ export type ParttyLifecyclePrefs = {
   focus_follows_cursor: boolean;
 };
 
-export const defaultLifecyclePrefs: ParttyLifecyclePrefs = {
+const defaultLifecyclePrefs: ParttyLifecyclePrefs = {
   webgl_shed_on_hide: true,
   discard_buffer_on_hide: false,
   scrollback_lines: 1000,
@@ -53,19 +53,6 @@ export function mergeLifecyclePrefs(raw: Record<string, unknown> | undefined): P
     destroy_webview_on_hide: b(raw.destroy_webview_on_hide, defaultLifecyclePrefs.destroy_webview_on_hide),
     focus_follows_cursor: b(raw.focus_follows_cursor, defaultLifecyclePrefs.focus_follows_cursor),
   };
-}
-
-/** Plain-text snapshot of the buffer (last up to `maxLines` logical lines). */
-export function capturePlainBuffer(term: Terminal, maxLines: number): string {
-  const cap = Math.max(1, Math.floor(maxLines));
-  const buf = term.buffer.active;
-  const n = buf.length;
-  const start = Math.max(0, n - cap);
-  const lines: string[] = [];
-  for (let i = start; i < n; i++) {
-    lines.push(buf.getLine(i)?.translateToString(false) ?? "");
-  }
-  return lines.join("\r\n");
 }
 
 /** First non-blank scrollback line (leading empty rows are unused capacity). */

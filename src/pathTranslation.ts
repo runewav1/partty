@@ -58,7 +58,7 @@ function inferPathStyle(path: string): PathStyle {
  * the default `automount.root` from wsl.conf. Distros configured with a
  * custom automount root are not detected here.
  */
-export function translatePath(raw: string, style: PathStyle): string {
+function translatePath(raw: string, style: PathStyle): string {
   if (style === "windows") return raw;
   const fwd = raw.replace(/\\/g, "/");
   if (style === "posix") return fwd;
@@ -96,7 +96,7 @@ export function quotePath(path: string, style: PathStyle): string {
  * Explorer's "Copy as path" does). Anything else — multi-line text, prose,
  * relative fragments without a separator — passes through untranslated.
  */
-export function isPathLike(text: string): boolean {
+function isPathLike(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed || /[\r\n]/.test(trimmed)) return false;
   const inner = stripMatchingQuotes(trimmed);

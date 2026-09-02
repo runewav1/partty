@@ -50,14 +50,6 @@ export function ptyResizeBatch(
   return invoke("pty_resize_batch", { items });
 }
 
-export function ptyResize(
-  sessionId: string,
-  cols: number,
-  rows: number,
-): Promise<void> {
-  return ptyResizeBatch([{ sessionId, cols, rows }]);
-}
-
 export function ptyWrite(sessionId: string, data: string): Promise<void> {
   return invoke("pty_write", { sessionId, data });
 }

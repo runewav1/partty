@@ -35,7 +35,7 @@ export type TabsStateV1 = {
   groups: TabGroup[];
 };
 
-export function migrateLayoutFromLegacyMain(layout: PersistedPaneLayout, tabId: string): PersistedPaneLayout {
+function migrateLayoutFromLegacyMain(layout: PersistedPaneLayout, tabId: string): PersistedPaneLayout {
   const rid = tabRootPaneId(tabId);
   function mapNode(n: PaneNode): PaneNode {
     if (n.kind === "leaf") {

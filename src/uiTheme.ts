@@ -18,8 +18,6 @@ export type PaneThemePrefs = Pick<UiThemePrefs, "ui_theme" | "ui_theme_variant">
 /** Cascadia Code (ligatures) ships with Windows 11 / modern Terminal; Consolas is the Win10+ fallback. */
 export const DEFAULT_TERMINAL_FONT_STACK = String.raw`"Cascadia Code",Consolas,"Courier New",monospace`;
 
-export const DEFAULT_UI_FONT = String.raw`"Segoe UI",system-ui,sans-serif`;
-
 export type ThemeCssVars = Record<string, string>;
 
 /** themeId -> variant -> CSS custom properties */
@@ -663,7 +661,7 @@ const customThemeVarsCache: Record<string, ThemeCssVars> = {};
 const themePrefsCache: Record<string, Record<string, unknown>> = {};
 let customThemesReady: Promise<void> | null = null;
 
-export function usesCustomThemeId(themeId: string | null | undefined): boolean {
+function usesCustomThemeId(themeId: string | null | undefined): boolean {
   return (themeId ?? "").startsWith("custom:");
 }
 
@@ -715,46 +713,8 @@ export async function loadCustomThemesIntoCache(): Promise<void> {
   }
 }
 
-export function registerCustomThemeInCache(slug: string, vars: ThemeCssVars): void {
-  customThemeVarsCache[slug] = vars;
-}
-
 export function getThemePrefsCache(): Record<string, Record<string, unknown>> {
   return themePrefsCache;
-}
-
-/** Keys written when saving the current appearance as a custom theme file. */
-export const THEME_EXPORT_CSS_KEYS: readonly string[] = [
-  "--term-bg",
-  "--term-fg",
-  "--term-cursor",
-  "--term-selection-bg",
-  "--ui-gray-900",
-  "--ui-gray-800",
-  "--ui-gray-700",
-  "--ui-gray-400",
-  "--ui-gray-300",
-  "--accent-primary",
-  "--accent-primary-light",
-  "--accent-primary-lighter",
-  "--panel-bg",
-  "--panel-border",
-  "--backdrop-darkest",
-  "--input-bg",
-  "--input-border",
-  "--pane-divider",
-  "--pane-divider-hover",
-];
-
-export function collectCurrentThemeCssVars(): ThemeCssVars {
-  const root = document.documentElement;
-  const cs = getComputedStyle(root);
-  const out: ThemeCssVars = {};
-  for (const key of THEME_EXPORT_CSS_KEYS) {
-    const v = cs.getPropertyValue(key).trim();
-    if (v) out[key] = v;
-  }
-  return out;
 }
 
 const INHERITED_THEME_KEYS = new Set([
@@ -950,7 +910,7 @@ export function themeCssVarsForPrefs(prefs: PaneThemePrefs): ThemeCssVars {
 }
 
 /** Remap neutral grays + hover overlays for light vs dark chrome. */
-export function syncUiGrayScale(): void {
+function syncUiGrayScale(): void {
   const root = document.documentElement;
   const bgRgb = termBackgroundRgb();
   if (!bgRgb) return;
@@ -982,7 +942,7 @@ export function syncUiGrayScale(): void {
 /**
  * Panel / modal label text: derive from `--panel-bg` when set (theme presets), else `--term-bg`.
  */
-export function syncUiChromeTextColors(): void {
+function syncUiChromeTextColors(): void {
   const root = document.documentElement;
   const cs = getComputedStyle(root);
   const panelBg = cs.getPropertyValue("--panel-bg").trim();
@@ -1016,7 +976,7 @@ export function syncUiChromeTextColors(): void {
 }
 
 /** Input / select text: readable on `--input-bg` (fixes light presets leaving `--input-text` from dark defaults). */
-export function syncInputTextColor(): void {
+function syncInputTextColor(): void {
   const root = document.documentElement;
   const cs = getComputedStyle(root);
   const bgStr = cs.getPropertyValue("--input-bg").trim() || cs.getPropertyValue("--term-bg").trim();
@@ -1034,7 +994,7 @@ export function syncInputTextColor(): void {
 }
 
 /** Ensures `--term-fg` / `--term-cursor` read clearly on `--term-bg` (fixes washed-out pairs). */
-export function syncTerminalFgContrast(): void {
+function syncTerminalFgContrast(): void {
   const root = document.documentElement;
   const cs = getComputedStyle(root);
   const bgStr = cs.getPropertyValue("--term-bg").trim();
@@ -1059,18 +1019,6 @@ export function syncTerminalFgContrast(): void {
       ? relLuminance(cursorRgb) <= 0.35 && luminanceContrast(bg, cursorRgb) >= 4.5
       : relLuminance(cursorRgb) >= 0.6 && luminanceContrast(bg, cursorRgb) >= 4.5);
   if (!cursorOk) root.style.setProperty("--term-cursor", next);
-}
-
-/** Live-preview CSS vars (theme builder) without changing font prefs. */
-export function previewThemeCssVars(vars: ThemeCssVars): void {
-  const root = document.documentElement;
-  for (const [k, v] of Object.entries(vars)) {
-    if (k.startsWith("--")) root.style.setProperty(k, v);
-  }
-  syncUiGrayScale();
-  syncUiChromeTextColors();
-  syncInputTextColor();
-  syncTerminalFgContrast();
 }
 
 /** Apply theme + fonts. Call after DOM ready; safe to call again when prefs change. */
@@ -1166,7 +1114,7 @@ export const THEME_OPTIONS: {
   ]},
 ];
 
-export function defaultVariantForTheme(themeId: string): string {
+function defaultVariantForTheme(themeId: string): string {
   const t = THEME_OPTIONS.find((x) => x.id === themeId);
   return t?.variants[0]?.id ?? "default";
 }

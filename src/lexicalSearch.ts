@@ -12,7 +12,7 @@ export function normalizeQuery(raw: string): string[] {
     .filter(Boolean);
 }
 
-export function tokenize(s: string): string[] {
+function tokenize(s: string): string[] {
   return s
     .toLowerCase()
     .split(/[^a-z0-9]+/)
@@ -35,7 +35,7 @@ function partMatches(part: string, hay: string, tokens: string[]): boolean {
  * Rank a match so shorter / label-primary hits win.
  * Returns null when the item does not match.
  */
-export function scoreLexicalMatch(
+function scoreLexicalMatch(
   item: LexicalSearchItem,
   parts: string[],
 ): number | null {

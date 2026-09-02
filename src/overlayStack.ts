@@ -49,8 +49,3 @@ export function pushOverlay(close: () => void): OverlayHandle {
     },
   };
 }
-
-/** Whether any overlay is currently open. */
-export function anyOverlayOpen(): boolean {
-  return stack.length > 0;
-}

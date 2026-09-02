@@ -973,80 +973,6 @@ fn pty_ensure(
 }
 
 #[tauri::command]
-// Command signature mirrors the IPC surface; grouping the args would churn
-// the frontend contract for no functional gain.
-#[allow(clippy::too_many_arguments)]
-fn pty_spawn(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    session_id: String,
-    cols: u16,
-    rows: u16,
-    initial_cwd: Option<String>,
-    shell: Option<String>,
-    profile_id: Option<String>,
-    startup_command: Option<String>,
-) -> Result<(), String> {
-    if let Some(old) = state.pty_panes.lock().remove(&session_id) {
-        old.kill();
-    }
-    state.pty_spawn_identity.lock().remove(&session_id);
-    let base = state.persisted.lock().prefs.clone();
-    let (spawn_prefs, profile, want) = resolve_spawn(
-        &base,
-        profile_id.as_deref(),
-        shell.as_deref(),
-        initial_cwd,
-        startup_command.as_deref(),
-    )?;
-
-    // Try to adopt a pre-warmed session (identity must match; cwd ignored for warm
-    // sessions since they start at the prefs default and the shell will cd via OSC).
-    let session: Arc<PtySession> = {
-        let warm = {
-            let mut g = state.warm_pty.lock();
-            if g.as_ref().map(|w| w.identity.as_str()) == Some(want.as_str()) {
-                g.take()
-            } else {
-                None
-            }
-        };
-        if let Some(warm) = warm {
-            // Adopt: update the session's session_id atomically and resize.
-            *warm.session.session_id.lock() = session_id.clone();
-            let _ = warm.session.resize(cols, rows);
-            warm.session
-        } else {
-            // Cold spawn.
-            Arc::new(PtySession::spawn_with_profile(
-                app.clone(),
-                session_id.clone(),
-                cols,
-                rows,
-                &spawn_prefs,
-                None,
-                profile.as_ref(),
-            )?)
-        }
-    };
-
-    state.pty_panes.lock().insert(session_id.clone(), session);
-    state
-        .pty_spawn_identity
-        .lock()
-        .insert(session_id, want.clone());
-
-    // Refill the warm slot in the background for the next split. The warm
-    // slot must not carry per-spawn startup commands.
-    let mut warm_profile = profile.clone();
-    if let Some(sp) = warm_profile.as_mut() {
-        sp.startup_command = None;
-    }
-    refill_warm_pty(&app, &spawn_prefs, want, warm_profile);
-    Ok(())
-}
-
-#[tauri::command]
 fn pty_write(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
     let session = {
         let g = state.pty_panes.lock();
@@ -1351,7 +1277,6 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             pty_ensure,
-            pty_spawn,
             pty_write,
             pty_replay_snapshot,
             pty_resize_batch,

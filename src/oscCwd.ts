@@ -1,9 +1,8 @@
 /**
- * File-system path utilities.
+ * File-system path utilities for CWD normalization.
  *
- * PTY output OSC interpretation is now handled exclusively by
- * `shellIntegration.ts` (processShellIntegration) which handles
- * OSC 7 (CWD), OSC 633, and OSC 133 in a single character pass.
+ * PTY output OSC interpretation (OSC 7 / 133 / 633) is handled by the Rust
+ * PTY host (pty.rs), which emits `pty-cwd` / `pty-title` / `pty-shell-event`.
  */
 
 /** Stable comparison for Windows paths (separators, casing, trailing slashes). */
@@ -16,19 +15,4 @@ export function normalizeFsPathKey(p: string): string {
     .replace(/\\/g, "/")
     .replace(/\/+$/, "")
     .toLowerCase();
-}
-
-/**
- * True only for paths the native Tauri filesystem backend can open directly.
- * Rejects WSL/POSIX cwd values so we don't pass non-absolute paths
- * to Rust commands that expect native Windows paths.
- */
-export function isNativeAbsoluteFsPath(path: string | null | undefined): path is string {
-  const p = path?.trim();
-  if (!p) return false;
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(p)) return false;
-  if (/^[a-zA-Z]:[\\/]/.test(p)) return true;
-  if (/^\\\\[^\\]+\\[^\\]+/.test(p)) return true;
-  if (/^\/\/[^/]+\/[^/]+/.test(p)) return true;
-  return false;
 }

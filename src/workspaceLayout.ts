@@ -96,7 +96,7 @@ export function seedPaneMapsFromLayout(
  * Starting directory for a workspace pane: explicit `paneCwds` entry, else the
  * selected profile's `initialCwd`, else the global `initial_cwd` preference.
  */
-export function resolvePaneStartupCwd(
+function resolvePaneStartupCwd(
   paneId: string,
   paneCwds: Record<string, string>,
   paneProfileIds: ReadonlyMap<string, string>,

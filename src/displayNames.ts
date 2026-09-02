@@ -15,7 +15,7 @@ export type PaneNameParts = {
   tabName: string;
 };
 
-export function cwdLastSegment(cwd: string | null | undefined): string | null {
+function cwdLastSegment(cwd: string | null | undefined): string | null {
   if (!cwd) return null;
   const base = cwdBasename(cwd).trim();
   return base || null;
@@ -30,7 +30,7 @@ function foldLabel(s: string): string {
 }
 
 /** True when `bit` restates `headline` (same tokens, possibly different punctuation). */
-export function labelRedundant(bit: string, headline: string): boolean {
+function labelRedundant(bit: string, headline: string): boolean {
   const b = foldLabel(bit);
   const h = foldLabel(headline);
   if (!b) return true;

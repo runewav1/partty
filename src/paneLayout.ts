@@ -15,12 +15,12 @@ export type PersistedPaneLayout = {
 };
 
 /** True when the tree contains at least one leaf pane. */
-export function hasLeafNodes(tree: PaneNode): boolean {
+function hasLeafNodes(tree: PaneNode): boolean {
   if (tree.kind === "leaf") return true;
   return hasLeafNodes(tree.a) || hasLeafNodes(tree.b);
 }
 
-export function validatePaneTree(node: unknown): node is PaneNode {
+function validatePaneTree(node: unknown): node is PaneNode {
   if (!node || typeof node !== "object") return false;
   const o = node as Record<string, unknown>;
   if (o.kind === "leaf") {
@@ -57,37 +57,6 @@ export function loadPaneLayout(): PersistedPaneLayout | null {
   } catch {
     return null;
   }
-}
-
-/** Walk the live pane DOM under `.pane-host` and build a tree (ratios reflect current drag state). */
-export function snapshotTreeFromPaneHost(root: HTMLElement): PaneNode | null {
-  const top = root.firstElementChild;
-  if (!top) return null;
-  return walkEl(top);
-}
-
-function walkEl(el: Element): PaneNode {
-  if (el.classList.contains("pane-leaf")) {
-    const id = el.getAttribute("data-pane-id");
-    if (!id) throw new Error("pane-leaf missing data-pane-id");
-    return { kind: "leaf", id };
-  }
-  if (el.classList.contains("pane-split")) {
-    const dir = el.getAttribute("data-split-dir") as "h" | "v" | null;
-    if (dir !== "h" && dir !== "v") throw new Error("pane-split missing dir");
-    const r = parseFloat(el.getAttribute("data-ratio") ?? "0.5");
-    const ratio = Number.isFinite(r) ? Math.max(0.05, Math.min(0.95, r)) : 0.5;
-    const cells = el.querySelectorAll(":scope > :not(.pane-gutter)");
-    if (cells.length < 2) throw new Error("pane-split missing children");
-    return {
-      kind: "split",
-      dir,
-      ratio,
-      a: walkEl(cells[0]),
-      b: walkEl(cells[1]),
-    };
-  }
-  throw new Error(`unexpected pane node: ${el.className}`);
 }
 
 export function clearPaneLayout(): void {

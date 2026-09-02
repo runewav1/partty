@@ -13,7 +13,7 @@ import {
   motionDisabled,
 } from "./motion";
 
-export const MAIN_PANE_ID = "main";
+const MAIN_PANE_ID = "main";
 
 export type PaneLeaf = { kind: "leaf"; id: string };
 export type PaneSplit = {
@@ -50,7 +50,7 @@ let sessionIdSequence = 0;
  * Stable per-terminal id for PTY association. Timestamp + sequence + a short
  * random marker: cheap, never recurring, and self-documenting for logging.
  */
-export function createSessionId(): string {
+function createSessionId(): string {
   const ts = Date.now().toString(36);
   const seq = (sessionIdSequence++).toString(36).padStart(2, "0");
   const marker = Math.random().toString(36).slice(2, 8);
