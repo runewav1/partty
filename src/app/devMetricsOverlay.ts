@@ -1,6 +1,6 @@
-import { parttyPerf } from "./perf";
+import { parttyPerf } from "./../pty/perf";
 import { attachDraggablePanel } from "./draggablePanel";
-import { DEV_OVERLAY_POS_KEY } from "./storageKeys";
+import { DEV_OVERLAY_POS_KEY } from "./../util/storageKeys";
 
 export type DevMetricsOverlayApi = {
   show(): void;

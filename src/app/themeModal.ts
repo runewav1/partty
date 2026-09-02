@@ -7,10 +7,10 @@ import {
   filterAndRankLexical,
   normalizeQuery,
   type LexicalSearchItem,
-} from "./lexicalSearch";
+} from "./../util/lexicalSearch";
 import type { ParttyPrefs } from "./settingsPanel";
-import { ensureCustomThemesLoaded, normalizePaneThemePrefs, pickUiPrefs, themeCssVarsForPrefs, THEME_OPTIONS, getThemePrefsCache, type UiThemePrefs } from "./uiTheme";
-import { THEME_MODAL_POS_KEY } from "./storageKeys";
+import { ensureCustomThemesLoaded, normalizePaneThemePrefs, pickUiPrefs, themeCssVarsForPrefs, THEME_OPTIONS, getThemePrefsCache, type UiThemePrefs } from "./../terminal/uiTheme";
+import { THEME_MODAL_POS_KEY } from "./../util/storageKeys";
 
 type Persisted = { prefs: Record<string, unknown> };
 

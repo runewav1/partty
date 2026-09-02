@@ -18,7 +18,7 @@ import {
   firstContentScrollbackLine,
   mergeLifecyclePrefs,
   type ParttyLifecyclePrefs,
-} from "./termLifecycle";
+} from "./terminal/termLifecycle";
 import {
   LOCAL_DEFAULT_PROFILE_ID,
   DEFAULT_PROFILE_BEHAVIOR,
@@ -35,7 +35,7 @@ import {
   type ConnectionProfile,
   type ProfileBehaviorPrefs,
   type ProfilePaletteAction,
-} from "./connectionProfiles";
+} from "./pty/connectionProfiles";
 import {
   findPaneLeaf,
   collectLeafIds,
@@ -45,12 +45,12 @@ import {
   type PaneTerminal,
   type SplitLayoutStyle,
   PaneHost,
-} from "./paneHost";
+} from "./terminal/paneHost";
 import {
   clearPaneLayout,
   isLayoutValidForRoot,
   type PersistedPaneLayout,
-} from "./paneLayout";
+} from "./terminal/paneLayout";
 import {
   duplicateTabLayout,
   initialLayoutForTab,
@@ -62,7 +62,7 @@ import {
   type TabRecord,
   type TabGroup,
   type TabsStateV1,
-} from "./tabsSession";
+} from "./tabs/tabsSession";
 import {
   applyUserTabRename,
   autoTabNameFromPane,
@@ -72,12 +72,12 @@ import {
   procPaletteHeadline,
   tabDisplayName as formatTabDisplayName,
   type PaneNameParts,
-} from "./displayNames";
+} from "./tabs/displayNames";
 import {
   initTabBar,
   type TabBarItem,
   type TabRenderModel,
-} from "./tabBar";
+} from "./app/tabBar";
 import {
   FOLLOW_TAB_MARK,
   emptyTabLayout,
@@ -86,15 +86,15 @@ import {
   nextSlot,
   parsePaneId,
   tabRootPaneId,
-} from "./paneIds";
-import { initParttyScrollFade } from "./scrollChrome";
-import { attachDraggablePanel } from "./draggablePanel";
+} from "./terminal/paneIds";
+import { initParttyScrollFade } from "./app/scrollChrome";
+import { attachDraggablePanel } from "./app/draggablePanel";
 import {
   queueWorkspaceStartupCommands,
   remapWorkspaceLayoutForTab,
   seedPaneMapsFromLayout,
-} from "./workspaceLayout";
-import { listWorkspaceIds, readWorkspace, type Workspace } from "./workspaces";
+} from "./tabs/workspaceLayout";
+import { listWorkspaceIds, readWorkspace, type Workspace } from "./tabs/workspaces";
 import {
   COMMAND_PALETTE_POS_KEY,
   DEFER_PTY_REINIT_KEY,
@@ -102,13 +102,13 @@ import {
   SETTINGS_PANEL_POS_KEY,
   TABS_HIDDEN_KEY,
   tabLayoutKey,
-} from "./storageKeys";
+} from "./util/storageKeys";
 import {
   getSessionShedOnExitMode,
   shedSessionLocalState,
   shouldShedSessionOnExitSilent,
   syncRuntimeShedFromPrefs,
-} from "./sessionShed";
+} from "./pty/sessionShed";
 import {
   applyUiTheme,
   buildXtermThemeFromPrefs,
@@ -123,35 +123,35 @@ import {
   type PaneThemePrefs,
   uiPrefsChanged,
   type UiThemePrefs,
-} from "./uiTheme";
-import type { ShellIntegrationState } from "./shellIntegration";
+} from "./terminal/uiTheme";
+import type { ShellIntegrationState } from "./pty/shellIntegration";
 import {
   createCommandPalette,
   type PaletteCommand,
-} from "./commandPalette";
+} from "./app/commandPalette";
 import {
   createKeybinds,
-} from "./keybinds";
-import { showAlert } from "./dialog";
-import { pushOverlay, type OverlayHandle } from "./overlayStack";
+} from "./terminal/keybinds";
+import { showAlert } from "./app/dialog";
+import { pushOverlay, type OverlayHandle } from "./app/overlayStack";
 import {
   afterAnimationFrames,
   animateClass,
   applyMotionPreferences,
   cancelElementAnimations,
   motionDisabled,
-} from "./motion";
-import { filterAndRankLexical, normalizeQuery } from "./lexicalSearch";
+} from "./util/motion";
+import { filterAndRankLexical, normalizeQuery } from "./util/lexicalSearch";
 import pkg from "../package.json";
-import { normalizeFsPathKey } from "./oscCwd";
-import { lazyCell, runLazy } from "./lazyOnce";
+import { normalizeFsPathKey } from "./util/oscCwd";
+import { lazyCell, runLazy } from "./util/lazyOnce";
 import type {
   ParttyPrefs,
   SettingsPanelApi,
   WorkspaceOpenMode,
-} from "./settingsPanel";
-import type { ExtensionManagerApi } from "./extensionManager";
-import type { ThemeModalApi } from "./themeModal";
+} from "./app/settingsPanel";
+import type { ExtensionManagerApi } from "./app/extensionManager";
+import type { ThemeModalApi } from "./app/themeModal";
 import {
   createByteChunkBuffer,
   createStringChunkBuffer,
@@ -162,7 +162,7 @@ import {
   pushStringChunk,
   type ByteChunkBuffer,
   type StringChunkBuffer,
-} from "./chunkBuffer";
+} from "./pty/chunkBuffer";
 import {
   ptyAckExit,
   ptyEnsure,
@@ -171,7 +171,7 @@ import {
   ptyReplaySnapshot,
   ptyResizeBatch,
   ptyWrite,
-} from "./ptyIpc";
+} from "./pty/ptyIpc";
 import {
   expandRelativePath,
   pathStyleForProfile,
@@ -181,16 +181,16 @@ import {
   sshPathStyleFromRemote,
   type PastePathSource,
   type PathStyle,
-} from "./pathTranslation";
-import { createTabCloseIcon } from "./toolbarIcons";
-import { parttyPerf } from "./perf";
-import type { DevMetricsOverlayApi } from "./devMetricsOverlay";
+} from "./util/pathTranslation";
+import { createTabCloseIcon } from "./app/toolbarIcons";
+import { parttyPerf } from "./pty/perf";
+import type { DevMetricsOverlayApi } from "./app/devMetricsOverlay";
 import {
   bindMouseCursorForceVisible,
   createMouseCursorController,
   mouseCursorForceVisible,
   type MouseCursorController,
-} from "./mouseCursor";
+} from "./app/mouseCursor";
 import {
   applyShellCommandLine,
   createActiveProcessEntry,
@@ -209,7 +209,7 @@ import {
   truncatePathTail,
   type ActiveProcessEntry,
   type KeystrokeProcessObserver,
-} from "./processTracking";
+} from "./pty/processTracking";
 
 // Terminal color constants with fallbacks
 // CSS variables are read after DOM is ready in boot()
@@ -5050,7 +5050,7 @@ async function boot(): Promise<void> {
     !themeModalRoot
       ? Promise.resolve(null)
       : themeModalLazy.ensure(async () => {
-          const { createThemeModal } = await import("./themeModal");
+          const { createThemeModal } = await import("./app/themeModal");
           return createThemeModal(
             themeModalRoot as HTMLElement,
             (prefs) => {
@@ -5102,7 +5102,7 @@ async function boot(): Promise<void> {
     !settingsPanelEl
       ? Promise.resolve(null)
       : settingsLazy.ensure(async () => {
-          const { createSettingsPanel } = await import("./settingsPanel");
+          const { createSettingsPanel } = await import("./app/settingsPanel");
           const card = settingsPanelEl.querySelector(".settings-panel-card");
           const head = settingsPanelEl.querySelector(".settings-panel-head");
           if (card instanceof HTMLElement && head instanceof HTMLElement) {
@@ -5297,7 +5297,7 @@ async function boot(): Promise<void> {
     !extManagerEl
       ? Promise.resolve(null)
       : extManagerLazy.ensure(async () => {
-          const { createExtensionManager } = await import("./extensionManager");
+          const { createExtensionManager } = await import("./app/extensionManager");
           const api = createExtensionManager(extManagerEl);
           extManagerEl
             .querySelector("#ext-close")
@@ -6942,7 +6942,7 @@ async function boot(): Promise<void> {
   });
 
   scheduleIdle(() => {
-    void import("./settingsPanel");
+    void import("./app/settingsPanel");
   });
 
   window.addEventListener("resize", () => scheduleResizeDebounced());
@@ -7585,7 +7585,7 @@ async function boot(): Promise<void> {
   }
 
   if (import.meta.env.DEV) {
-    const { createDevMetricsOverlay } = await import("./devMetricsOverlay");
+    const { createDevMetricsOverlay } = await import("./app/devMetricsOverlay");
     let devMetricsOverlay: DevMetricsOverlayApi | null = null;
     const appRoot = document.getElementById("app");
     const getFocusedPaneId = (): string | null | undefined =>

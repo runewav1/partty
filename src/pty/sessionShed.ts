@@ -1,4 +1,4 @@
-import { clearPaneLayout } from "./paneLayout";
+import { clearPaneLayout } from "./../terminal/paneLayout";
 import {
   COMMAND_PALETTE_POS_KEY,
   DEFER_PTY_REINIT_KEY,
@@ -9,7 +9,7 @@ import {
   TABS_HIDDEN_KEY,
   TABS_STATE_KEY,
   THEME_MODAL_POS_KEY,
-} from "./storageKeys";
+} from "./../util/storageKeys";
 
 export type SessionShedOnExitMode = "keep" | "shed" | "ask";
 

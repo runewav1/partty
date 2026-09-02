@@ -1,7 +1,7 @@
 import type { FloatingPaneState, PaneNode } from "./paneHost";
 import type { PaneThemePrefs } from "./uiTheme";
 import { findPaneLeaf } from "./paneHost";
-import { PANE_LAYOUT_KEY } from "./storageKeys";
+import { PANE_LAYOUT_KEY } from "./../util/storageKeys";
 
 export type PersistedPaneLayout = {
   v: 1;

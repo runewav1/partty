@@ -1,4 +1,4 @@
-import { PERF_CONSOLE_KEY, PERF_INTERVAL_MS_KEY, PERF_KEY } from "./storageKeys";
+import { PERF_CONSOLE_KEY, PERF_INTERVAL_MS_KEY, PERF_KEY } from "./../util/storageKeys";
 
 type TimingBucket = {
   count: number;

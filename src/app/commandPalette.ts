@@ -8,7 +8,7 @@ import {
   filterAndRankLexical,
   normalizeQuery,
   type LexicalSearchItem,
-} from "./lexicalSearch";
+} from "./../util/lexicalSearch";
 
 export type PaletteCommand = {
   id: string;

@@ -5,13 +5,13 @@ import type { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { Terminal, type ITheme, type ITerminalOptions } from "@xterm/xterm";
-import { parttyPerf } from "./perf";
+import { parttyPerf } from "./../pty/perf";
 import {
   afterAnimationFrames,
   animateClass,
   cancelElementAnimations,
   motionDisabled,
-} from "./motion";
+} from "./../util/motion";
 
 const MAIN_PANE_ID = "main";
 

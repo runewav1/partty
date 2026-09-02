@@ -1,7 +1,7 @@
-import type { PaneNode } from "./paneHost";
-import { emptyTabLayout, mapLayoutToTabKey, tabRootPaneId } from "./paneIds";
-import { loadPaneLayout, type PersistedPaneLayout } from "./paneLayout";
-import { TABS_STATE_KEY, tabLayoutKey } from "./storageKeys";
+import type { PaneNode } from "./../terminal/paneHost";
+import { emptyTabLayout, mapLayoutToTabKey, tabRootPaneId } from "./../terminal/paneIds";
+import { loadPaneLayout, type PersistedPaneLayout } from "./../terminal/paneLayout";
+import { TABS_STATE_KEY, tabLayoutKey } from "./../util/storageKeys";
 
 export function duplicateTabLayout(
   layout: PersistedPaneLayout,

@@ -20,13 +20,13 @@ export default defineConfig(({ mode }) => ({
       // (see https://github.com/isaacs/node-lru-cache/issues/401)
       "node:diagnostics_channel": path.resolve(
         __dirname,
-        "src/diagnosticsChannelShim.ts",
+        "src/vendor/diagnosticsChannelShim.ts",
       ),
       ...(mode === "production"
         ? {
-            [path.resolve(__dirname, "src/perf.ts")]: path.resolve(
+            [path.resolve(__dirname, "src/pty/perf.ts")]: path.resolve(
               __dirname,
-              "src/perf.stub.ts",
+              "src/pty/perf.stub.ts",
             ),
           }
         : {}),

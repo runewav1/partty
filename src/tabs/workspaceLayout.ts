@@ -3,11 +3,11 @@ import {
   LOCAL_DEFAULT_PROFILE_ID,
   resolveDefaultProfileId,
   type ConnectionProfile,
-} from "./connectionProfiles";
-import { collectLeafIds } from "./paneHost";
-import { mapLayoutToTabKey } from "./paneIds";
-import type { PersistedPaneLayout } from "./paneLayout";
-import { normalizePaneThemePrefs, type PaneThemePrefs } from "./uiTheme";
+} from "./../pty/connectionProfiles";
+import { collectLeafIds } from "./../terminal/paneHost";
+import { mapLayoutToTabKey } from "./../terminal/paneIds";
+import type { PersistedPaneLayout } from "./../terminal/paneLayout";
+import { normalizePaneThemePrefs, type PaneThemePrefs } from "./../terminal/uiTheme";
 import type { WorkspaceLayout } from "./workspaces";
 
 /** Runtime per-pane maps that a workspace layout seeds on load. */

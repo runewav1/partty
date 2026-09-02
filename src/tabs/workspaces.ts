@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { FloatingPaneState, PaneNode } from "./paneHost";
-import type { PaneThemePrefs } from "./uiTheme";
+import type { FloatingPaneState, PaneNode } from "./../terminal/paneHost";
+import type { PaneThemePrefs } from "./../terminal/uiTheme";
 
 /** Mirrors the Rust `WorkspaceLayoutDto` (`src-tauri/src/workspaces.rs`). */
 export type WorkspaceLayout = {
