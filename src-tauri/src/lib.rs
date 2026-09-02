@@ -37,7 +37,7 @@ pub struct AppState {
     /// Per-pane shell + cwd identity (for pref changes / respawn).
     pub pty_spawn_identity: Mutex<HashMap<String, String>>,
     /// Focus target for palette cwd + keyboard routing from frontend.
-    pub focused_pane_id: Mutex<Option<String>>,
+    pub focused_session_id: Mutex<Option<String>>,
     /// Set before programmatic destroy on hide so `ExitRequested` keeps the app alive.
     pub webview_destroyed_for_hide: AtomicBool,
     /// After recreating the main webview, hold `partty-prepare-show` until JS calls `webview_boot_complete`.
@@ -464,14 +464,14 @@ fn refill_warm_pty(
     });
 }
 
-fn kill_pane_session(state: &AppState, pane_id: &str) {
-    if let Some(s) = state.pty_panes.lock().remove(pane_id) {
+fn kill_pane_session(state: &AppState, session_id: &str) {
+    if let Some(s) = state.pty_panes.lock().remove(session_id) {
         s.kill();
     }
-    state.pty_spawn_identity.lock().remove(pane_id);
+    state.pty_spawn_identity.lock().remove(session_id);
     let next = state.pty_panes.lock().keys().next().cloned();
-    let mut f = state.focused_pane_id.lock();
-    if f.as_deref() == Some(pane_id) {
+    let mut f = state.focused_session_id.lock();
+    if f.as_deref() == Some(session_id) {
         *f = next;
     }
 }
@@ -481,7 +481,7 @@ fn clear_pty_session(state: &AppState) {
         s.kill();
     }
     state.pty_spawn_identity.lock().clear();
-    *state.focused_pane_id.lock() = None;
+    *state.focused_session_id.lock() = None;
 }
 
 fn cursor_physical_position() -> (i32, i32) {
@@ -874,7 +874,7 @@ async fn request_destroy_webview_for_hide(app: AppHandle) -> Result<(), String> 
 fn pty_ensure(
     app: AppHandle,
     state: State<'_, AppState>,
-    pane_id: String,
+    session_id: String,
     cols: u16,
     rows: u16,
     initial_cwd: Option<String>,
@@ -894,10 +894,10 @@ fn pty_ensure(
     let existing = {
         let panes = state.pty_panes.lock();
         let ids = state.pty_spawn_identity.lock();
-        if panes.get(&pane_id).is_some()
-            && ids.get(&pane_id).map(|x| x.as_str()) == Some(want.as_str())
+        if panes.get(&session_id).is_some()
+            && ids.get(&session_id).map(|x| x.as_str()) == Some(want.as_str())
         {
-            panes.get(&pane_id).cloned()
+            panes.get(&session_id).cloned()
         } else {
             None
         }
@@ -909,10 +909,10 @@ fn pty_ensure(
         let _ = session.resize(cols, rows);
         return Ok(());
     }
-    if let Some(old) = state.pty_panes.lock().remove(&pane_id) {
+    if let Some(old) = state.pty_panes.lock().remove(&session_id) {
         old.kill();
     }
-    state.pty_spawn_identity.lock().remove(&pane_id);
+    state.pty_spawn_identity.lock().remove(&session_id);
 
     // Only adopt the warm pool for the very first pane after a fresh boot
     // (empty pool). Splits carry profile and working-directory context from
@@ -929,13 +929,13 @@ fn pty_ensure(
     let session = if first_pane {
         match warm {
             Some(warm) => {
-                *warm.session.pane_id.lock() = pane_id.clone();
+                *warm.session.session_id.lock() = session_id.clone();
                 let _ = warm.session.resize(cols, rows);
                 warm.session
             }
             None => Arc::new(PtySession::spawn_with_profile(
                 app.clone(),
-                pane_id.clone(),
+                session_id.clone(),
                 cols,
                 rows,
                 &spawn_prefs,
@@ -946,7 +946,7 @@ fn pty_ensure(
     } else {
         Arc::new(PtySession::spawn_with_profile(
             app.clone(),
-            pane_id.clone(),
+            session_id.clone(),
             cols,
             rows,
             &spawn_prefs,
@@ -955,11 +955,11 @@ fn pty_ensure(
         )?)
     };
     session.set_output_channel(output);
-    state.pty_panes.lock().insert(pane_id.clone(), session);
+    state.pty_panes.lock().insert(session_id.clone(), session);
     state
         .pty_spawn_identity
         .lock()
-        .insert(pane_id, want.clone());
+        .insert(session_id, want.clone());
 
     // Prime the warm pool for the first pane split. The warm slot must not
     // carry per-spawn startup commands — a later adoption would unexpectedly
@@ -979,7 +979,7 @@ fn pty_ensure(
 fn pty_spawn(
     app: AppHandle,
     state: State<'_, AppState>,
-    pane_id: String,
+    session_id: String,
     cols: u16,
     rows: u16,
     initial_cwd: Option<String>,
@@ -987,10 +987,10 @@ fn pty_spawn(
     profile_id: Option<String>,
     startup_command: Option<String>,
 ) -> Result<(), String> {
-    if let Some(old) = state.pty_panes.lock().remove(&pane_id) {
+    if let Some(old) = state.pty_panes.lock().remove(&session_id) {
         old.kill();
     }
-    state.pty_spawn_identity.lock().remove(&pane_id);
+    state.pty_spawn_identity.lock().remove(&session_id);
     let base = state.persisted.lock().prefs.clone();
     let (spawn_prefs, profile, want) = resolve_spawn(
         &base,
@@ -1012,15 +1012,15 @@ fn pty_spawn(
             }
         };
         if let Some(warm) = warm {
-            // Adopt: update the session's pane_id atomically and resize.
-            *warm.session.pane_id.lock() = pane_id.clone();
+            // Adopt: update the session's session_id atomically and resize.
+            *warm.session.session_id.lock() = session_id.clone();
             let _ = warm.session.resize(cols, rows);
             warm.session
         } else {
             // Cold spawn.
             Arc::new(PtySession::spawn_with_profile(
                 app.clone(),
-                pane_id.clone(),
+                session_id.clone(),
                 cols,
                 rows,
                 &spawn_prefs,
@@ -1030,11 +1030,11 @@ fn pty_spawn(
         }
     };
 
-    state.pty_panes.lock().insert(pane_id.clone(), session);
+    state.pty_panes.lock().insert(session_id.clone(), session);
     state
         .pty_spawn_identity
         .lock()
-        .insert(pane_id, want.clone());
+        .insert(session_id, want.clone());
 
     // Refill the warm slot in the background for the next split. The warm
     // slot must not carry per-spawn startup commands.
@@ -1047,10 +1047,10 @@ fn pty_spawn(
 }
 
 #[tauri::command]
-fn pty_write(state: State<'_, AppState>, pane_id: String, data: String) -> Result<(), String> {
+fn pty_write(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
     let session = {
         let g = state.pty_panes.lock();
-        g.get(&pane_id).cloned()
+        g.get(&session_id).cloned()
     };
     let Some(s) = session else {
         return Err("no active pty for pane".into());
@@ -1059,10 +1059,10 @@ fn pty_write(state: State<'_, AppState>, pane_id: String, data: String) -> Resul
 }
 
 #[tauri::command]
-fn pty_replay_snapshot(state: State<'_, AppState>, pane_id: String) -> Result<Response, String> {
+fn pty_replay_snapshot(state: State<'_, AppState>, session_id: String) -> Result<Response, String> {
     let session = {
         let g = state.pty_panes.lock();
-        g.get(&pane_id).cloned()
+        g.get(&session_id).cloned()
     };
     Ok(Response::new(
         session.map(|s| s.replay_snapshot()).unwrap_or_default(),
@@ -1071,8 +1071,8 @@ fn pty_replay_snapshot(state: State<'_, AppState>, pane_id: String) -> Result<Re
 
 #[derive(serde::Deserialize)]
 struct PtyResizeEntry {
-    #[serde(rename = "paneId")]
-    pane_id: String,
+    #[serde(rename = "sessionId")]
+    session_id: String,
     cols: u16,
     rows: u16,
 }
@@ -1084,7 +1084,7 @@ fn pty_resize_batch(state: State<'_, AppState>, items: Vec<PtyResizeEntry>) -> R
     }
     let g = state.pty_panes.lock();
     for item in items {
-        if let Some(s) = g.get(&item.pane_id) {
+        if let Some(s) = g.get(&item.session_id) {
             s.resize(item.cols, item.rows)?;
         }
     }
@@ -1098,48 +1098,21 @@ fn pty_kill(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn pty_kill_pane(state: State<'_, AppState>, pane_id: String) -> Result<(), String> {
-    kill_pane_session(&state, &pane_id);
+fn pty_kill_pane(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+    kill_pane_session(&state, &session_id);
     Ok(())
 }
 
 #[tauri::command]
-fn pty_ack_exit(state: State<'_, AppState>, pane_id: String) -> Result<(), String> {
-    kill_pane_session(&state, &pane_id);
+fn pty_ack_exit(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+    kill_pane_session(&state, &session_id);
     Ok(())
 }
 
 #[tauri::command]
-fn pty_focus_pane(state: State<'_, AppState>, pane_id: String) -> Result<(), String> {
-    if state.pty_panes.lock().contains_key(&pane_id) {
-        *state.focused_pane_id.lock() = Some(pane_id);
-    }
-    Ok(())
-}
-
-#[tauri::command]
-fn pty_rename_pane(state: State<'_, AppState>, from: String, to: String) -> Result<(), String> {
-    if from == to {
-        return Ok(());
-    }
-    {
-        let panes = state.pty_panes.lock();
-        if panes.contains_key(&to) {
-            return Err(format!("pane id already in use: {to}"));
-        }
-    }
-    let session = state.pty_panes.lock().remove(&from);
-    let ident = state.pty_spawn_identity.lock().remove(&from);
-    if let Some(session) = session {
-        *session.pane_id.lock() = to.clone();
-        state.pty_panes.lock().insert(to.clone(), session);
-    }
-    if let Some(ident) = ident {
-        state.pty_spawn_identity.lock().insert(to.clone(), ident);
-    }
-    let mut focused = state.focused_pane_id.lock();
-    if focused.as_deref() == Some(from.as_str()) {
-        *focused = Some(to);
+fn pty_focus_pane(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+    if state.pty_panes.lock().contains_key(&session_id) {
+        *state.focused_session_id.lock() = Some(session_id);
     }
     Ok(())
 }
@@ -1366,7 +1339,7 @@ pub fn run() {
             persisted: Mutex::new(loaded.clone()),
             last_window_snapshot: Mutex::new(None),
             pty_spawn_identity: Mutex::new(HashMap::new()),
-            focused_pane_id: Mutex::new(None),
+            focused_session_id: Mutex::new(None),
             webview_destroyed_for_hide: AtomicBool::new(false),
             defer_prepare_show_until_webview_ready: AtomicBool::new(false),
             hide_destroy_generation: AtomicU64::new(0),
@@ -1386,7 +1359,6 @@ pub fn run() {
             pty_kill_pane,
             pty_ack_exit,
             pty_focus_pane,
-            pty_rename_pane,
             clipboard_read_text,
             get_persisted_state,
             get_app_session_id,

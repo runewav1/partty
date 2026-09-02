@@ -1,16 +1,22 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 
-/** Tauri deserializes command args with camelCase keys; Rust `pane_id` → `paneId`. */
+/**
+ * Tauri deserializes command args with camelCase keys; Rust `session_id` → `sessionId`.
+ *
+ * All PTY commands are keyed by the terminal's stable internal `sessionId`
+ * (never the positional pane id), so the session→process association is
+ * deterministic across pane moves, tab re-keys, and layout changes.
+ */
 
 /**
- * Output channel for a pane.  Raw PTY bytes arrive as `ArrayBuffer` chunks
+ * Output channel for a session. Raw PTY bytes arrive as `ArrayBuffer` chunks
  * (Tauri `InvokeResponseBody::Raw`); pass a fresh channel on every
  * ensure/resummon so a rebuilt webview re-subscribes.
  */
 export type PtyOutputChannel = Channel<ArrayBuffer>;
 
 export function ptyEnsure(
-  paneId: string,
+  sessionId: string,
   cols: number,
   rows: number,
   initialCwd?: string | null,
@@ -20,7 +26,7 @@ export function ptyEnsure(
   output?: PtyOutputChannel,
 ): Promise<void> {
   return invoke("pty_ensure", {
-    paneId,
+    sessionId,
     cols,
     rows,
     initialCwd: initialCwd || null,
@@ -32,7 +38,7 @@ export function ptyEnsure(
 }
 
 export type PtyResizeEntry = {
-  paneId: string;
+  sessionId: string;
   cols: number;
   rows: number;
 };
@@ -45,35 +51,30 @@ export function ptyResizeBatch(
 }
 
 export function ptyResize(
-  paneId: string,
+  sessionId: string,
   cols: number,
   rows: number,
 ): Promise<void> {
-  return ptyResizeBatch([{ paneId, cols, rows }]);
+  return ptyResizeBatch([{ sessionId, cols, rows }]);
 }
 
-export function ptyWrite(paneId: string, data: string): Promise<void> {
-  return invoke("pty_write", { paneId, data });
+export function ptyWrite(sessionId: string, data: string): Promise<void> {
+  return invoke("pty_write", { sessionId, data });
 }
 
-/** Raw replay buffer bytes for a pane (empty `ArrayBuffer` when none). */
-export function ptyReplaySnapshot(paneId: string): Promise<ArrayBuffer> {
-  return invoke<ArrayBuffer>("pty_replay_snapshot", { paneId });
+/** Raw replay buffer bytes for a session (empty `ArrayBuffer` when none). */
+export function ptyReplaySnapshot(sessionId: string): Promise<ArrayBuffer> {
+  return invoke<ArrayBuffer>("pty_replay_snapshot", { sessionId });
 }
 
-export function ptyKillPane(paneId: string): Promise<void> {
-  return invoke("pty_kill_pane", { paneId });
+export function ptyKillPane(sessionId: string): Promise<void> {
+  return invoke("pty_kill_pane", { sessionId });
 }
 
-export function ptyAckExit(paneId: string): Promise<void> {
-  return invoke("pty_ack_exit", { paneId });
+export function ptyAckExit(sessionId: string): Promise<void> {
+  return invoke("pty_ack_exit", { sessionId });
 }
 
-export function ptyFocusPane(paneId: string): Promise<void> {
-  return invoke("pty_focus_pane", { paneId });
-}
-
-export function ptyRenamePane(from: string, to: string): Promise<void> {
-  if (from === to) return Promise.resolve();
-  return invoke("pty_rename_pane", { from, to });
+export function ptyFocusPane(sessionId: string): Promise<void> {
+  return invoke("pty_focus_pane", { sessionId });
 }

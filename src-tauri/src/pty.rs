@@ -28,15 +28,16 @@ const PTY_REPLAY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 const PTY_PENDING_HOLD_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PtyExitEvent {
-    pub pane_id: String,
+    pub session_id: String,
 }
 
 /// CWD change extracted by the Rust-side OSC parser.
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PtyCwdEvent {
-    pub pane_id: String,
+    pub session_id: String,
     pub cwd: String,
     /// `IsWindows` from OSC 633 P when known (remote shell integration).
     pub remote_is_windows: Option<bool>,
@@ -57,14 +58,14 @@ pub enum ShellEventKind {
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PtyTitleEvent {
-    pub pane_id: String,
+    pub session_id: String,
     pub title: String,
 }
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PtyShellEvent {
-    pub pane_id: String,
+    pub session_id: String,
     #[serde(flatten)]
     pub event: ShellEventKind,
 }
@@ -1204,7 +1205,7 @@ pub struct PtySession {
     /// Emitted on `pty-output` / `pty-exit` for multi-pane routing.
     /// Stored behind a Mutex so that pre-warmed sessions can be adopted
     /// by a real pane without restarting the reader/emitter threads.
-    pub pane_id: Arc<parking_lot::Mutex<String>>,
+    pub session_id: Arc<parking_lot::Mutex<String>>,
     _reader: JoinHandle<()>,
     _emitter: JoinHandle<()>,
     _waiter: JoinHandle<()>,
@@ -1213,18 +1214,18 @@ pub struct PtySession {
 impl PtySession {
     pub fn spawn(
         app: AppHandle,
-        pane_id: String,
+        session_id: String,
         cols: u16,
         rows: u16,
         prefs: &Prefs,
         initial_cwd: Option<String>,
     ) -> Result<Self, String> {
-        Self::spawn_with_profile(app, pane_id, cols, rows, prefs, initial_cwd, None)
+        Self::spawn_with_profile(app, session_id, cols, rows, prefs, initial_cwd, None)
     }
 
     pub fn spawn_with_profile(
         app: AppHandle,
-        pane_id: String,
+        session_id: String,
         cols: u16,
         rows: u16,
         prefs: &Prefs,
@@ -1262,7 +1263,7 @@ impl PtySession {
         let replay_buffer = Arc::new(parking_lot::Mutex::new(Vec::with_capacity(256 * 1024)));
         let output_channel = Arc::new(parking_lot::Mutex::new(None));
 
-        let pane_id_arc = Arc::new(parking_lot::Mutex::new(pane_id.clone()));
+        let session_id_arc = Arc::new(parking_lot::Mutex::new(session_id.clone()));
 
         let (tx, rx) = sync_channel::<Vec<u8>>(48);
         let stop_reader = Arc::clone(&stop);
@@ -1291,7 +1292,7 @@ impl PtySession {
         let stop_emitter = Arc::clone(&stop);
         let replay_emitter = Arc::clone(&replay_buffer);
         let app_emit = app.clone();
-        let pane_id_emitter = Arc::clone(&pane_id_arc);
+        let session_id_emitter = Arc::clone(&session_id_arc);
         let output_channel_emitter = Arc::clone(&output_channel);
         // OSC 52 replies write back into the PTY; clone the writer for the
         // emitter thread (the `PtySession::write` path locks the same mutex).
@@ -1359,7 +1360,7 @@ impl PtySession {
                 }
 
                 if !pending.is_empty() {
-                    let pane = pane_id_emitter.lock().clone();
+                    let sid = session_id_emitter.lock().clone();
 
                     // Hold while JS has not finished scrollback restore.
                     let unlocked = app_emit
@@ -1392,7 +1393,7 @@ impl PtySession {
                                 let _ = app_emit.emit(
                                     "pty-cwd",
                                     PtyCwdEvent {
-                                        pane_id: pane.clone(),
+                                        session_id: sid.clone(),
                                         cwd,
                                         remote_is_windows,
                                     },
@@ -1402,7 +1403,7 @@ impl PtySession {
                                 let _ = app_emit.emit(
                                     "pty-title",
                                     PtyTitleEvent {
-                                        pane_id: pane.clone(),
+                                        session_id: sid.clone(),
                                         title,
                                     },
                                 );
@@ -1411,7 +1412,7 @@ impl PtySession {
                                 let _ = app_emit.emit(
                                     "pty-shell-event",
                                     PtyShellEvent {
-                                        pane_id: pane.clone(),
+                                        session_id: sid.clone(),
                                         event: ShellEventKind::PromptStart,
                                     },
                                 );
@@ -1420,7 +1421,7 @@ impl PtySession {
                                 let _ = app_emit.emit(
                                     "pty-shell-event",
                                     PtyShellEvent {
-                                        pane_id: pane.clone(),
+                                        session_id: sid.clone(),
                                         event: ShellEventKind::PromptEnd,
                                     },
                                 );
@@ -1429,7 +1430,7 @@ impl PtySession {
                                 let _ = app_emit.emit(
                                     "pty-shell-event",
                                     PtyShellEvent {
-                                        pane_id: pane.clone(),
+                                        session_id: sid.clone(),
                                         event: ShellEventKind::PreExec,
                                     },
                                 );
@@ -1438,7 +1439,7 @@ impl PtySession {
                                 let _ = app_emit.emit(
                                     "pty-shell-event",
                                     PtyShellEvent {
-                                        pane_id: pane.clone(),
+                                        session_id: sid.clone(),
                                         event: ShellEventKind::CommandDone { exit_code: code },
                                     },
                                 );
@@ -1447,7 +1448,7 @@ impl PtySession {
                                 let _ = app_emit.emit(
                                     "pty-shell-event",
                                     PtyShellEvent {
-                                        pane_id: pane.clone(),
+                                        session_id: sid.clone(),
                                         event: ShellEventKind::CommandLine { text: text_ev },
                                     },
                                 );
@@ -1556,7 +1557,7 @@ impl PtySession {
             });
         let stop_waiter = Arc::clone(&stop);
         let app_waiter = app.clone();
-        let pane_id_waiter = Arc::clone(&pane_id_arc);
+        let session_id_waiter = Arc::clone(&session_id_arc);
         let _waiter = thread::spawn(move || {
             let Some(handle) = exit_handle else {
                 return;
@@ -1567,8 +1568,8 @@ impl PtySession {
             if stop_waiter.load(Ordering::SeqCst) {
                 return;
             }
-            let pid = pane_id_waiter.lock().clone();
-            let _ = app_waiter.emit("pty-exit", PtyExitEvent { pane_id: pid });
+            let sid = session_id_waiter.lock().clone();
+            let _ = app_waiter.emit("pty-exit", PtyExitEvent { session_id: sid });
         });
 
         Ok(Self {
@@ -1578,7 +1579,7 @@ impl PtySession {
             stop,
             replay_buffer,
             output_channel,
-            pane_id: pane_id_arc,
+            session_id: session_id_arc,
             _reader,
             _emitter,
             _waiter,

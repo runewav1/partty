@@ -168,7 +168,6 @@ import {
   ptyEnsure,
   ptyFocusPane,
   ptyKillPane,
-  ptyRenamePane,
   ptyReplaySnapshot,
   ptyResizeBatch,
   ptyWrite,
@@ -361,7 +360,7 @@ function isPaneLayoutUsable(p: PersistedPaneLayout): boolean {
   return findPaneLeaf(p.tree, p.focusedId) != null;
 }
 
-type PtyExitEvent = { pane_id: string };
+type PtyExitEvent = { sessionId: string };
 type PaneWebglStatus = "pending" | "ready" | "failed" | "disposed";
 type PaneWebglState = {
   status: PaneWebglStatus;
@@ -490,6 +489,9 @@ async function boot(): Promise<void> {
   const paneProgramNames = new Map<string, string>();
   const paneThemes = new Map<string, PaneThemePrefs>();
   const lastPtyDims = new Map<string, { cols: number; rows: number }>();
+  /** Stable sessionId → live terminal. PTY association keys on `sessionId`;
+   * `pt.paneId` is read at use-time so it tracks re-keys. */
+  const paneBySessionId = new Map<string, PaneTerminal>();
   const pendingNewPaneCwd = { v: null as string | null };
   const pendingPaneSpawnCwd = new Map<string, string>();
   const pendingNewPaneProfile = { v: null as string | null };
@@ -1087,8 +1089,10 @@ async function boot(): Promise<void> {
   /** Write to PTY, chunking large payloads so ConPTY doesn't drop bytes. */
   function writePtyPayload(paneId: string, data: string): Promise<void> {
     if (!data) return Promise.resolve();
+    const sessionId = getPaneTerminalById(paneId)?.sessionId;
+    if (!sessionId) return Promise.reject(new Error(`no session for ${paneId}`));
     if (!isBulkPtyInput(data)) {
-      return ptyWrite(paneId, data).catch((e) => {
+      return ptyWrite(sessionId, data).catch((e) => {
         console.error("pty_write", e);
       });
     }
@@ -1102,13 +1106,13 @@ async function boot(): Promise<void> {
           if (queuedBuf && queuedBuf.totalChars > 0) {
             pendingPtyWriteByPane.delete(paneId);
             const queued = drainStringChunks(queuedBuf);
-            await ptyWrite(paneId, queued).catch((e) =>
+            await ptyWrite(sessionId, queued).catch((e) =>
               console.error("pty_write", e),
             );
           }
           for (let i = 0; i < data.length; i += PTY_CHUNK_CHARS) {
             const chunk = data.slice(i, i + PTY_CHUNK_CHARS);
-            await ptyWrite(paneId, chunk).catch((e) =>
+            await ptyWrite(sessionId, chunk).catch((e) =>
               console.error("pty_write", e),
             );
             if (i + PTY_CHUNK_CHARS < data.length) {
@@ -1121,7 +1125,7 @@ async function boot(): Promise<void> {
           if (afterBuf && afterBuf.totalChars > 0) {
             pendingPtyWriteByPane.delete(paneId);
             const after = drainStringChunks(afterBuf);
-            await ptyWrite(paneId, after).catch((e) =>
+            await ptyWrite(sessionId, after).catch((e) =>
               console.error("pty_write", e),
             );
           }
@@ -1744,10 +1748,10 @@ async function boot(): Promise<void> {
   function focusActiveTerminal(): void {
     const id = lastFocusedPaneId || paneHost?.getFocusedPaneId();
     if (!id) return;
-    const term = getPaneTerminalById(id)?.term ?? null;
-    if (!term) return;
-    term.focus();
-    void ptyFocusPane(id).catch(() => {});
+    const pt = getPaneTerminalById(id) ?? null;
+    if (!pt) return;
+    pt.term.focus();
+    void ptyFocusPane(pt.sessionId).catch(() => {});
   }
 
   function focusedPaneId(): string | null {
@@ -1889,7 +1893,8 @@ async function boot(): Promise<void> {
     if (treeIds.length <= 1) return;
 
     try {
-      await ptyKillPane(id);
+      const pt = ownerHost.getPaneTerminal(id);
+      if (pt) await ptyKillPane(pt.sessionId);
       if (!ownerHost.removePane(id)) return;
       parttyPerf.resetPane(id);
       persistHostLayout(ownerHost);
@@ -1928,17 +1933,15 @@ async function boot(): Promise<void> {
   async function closeAllChildPanes(): Promise<void> {
     const removed = paneHost?.closeAllChildPanes() ?? [];
     for (const id of removed) {
-      try {
-        await ptyKillPane(id);
-        parttyPerf.resetPane(id);
-      } catch (e) {
-        console.warn("pty_kill_pane", e);
-      }
+      parttyPerf.resetPane(id);
     }
     const r = paneHost?.getRootPaneId();
     if (r) {
-      paneHost?.getPaneTerminal(r)?.term.focus();
-      void ptyFocusPane(r).catch(() => {});
+      const pt = paneHost?.getPaneTerminal(r);
+      if (pt) {
+        pt.term.focus();
+        void ptyFocusPane(pt.sessionId).catch(() => {});
+      }
     }
     scheduleResizeImmediate();
   }
@@ -2083,7 +2086,7 @@ async function boot(): Promise<void> {
     backendReplayRestoredPanes.add(paneId);
     if (!isTerminalVisiblyEmpty(pt.term)) return;
     try {
-      const snapshot = await ptyReplaySnapshot(paneId);
+      const snapshot = await ptyReplaySnapshot(pt.sessionId);
       if (snapshot && snapshot.byteLength > 0) {
         pt.term.write(new Uint8Array(snapshot));
       }
@@ -2516,7 +2519,7 @@ async function boot(): Promise<void> {
   function runLayoutPassForHost(host: PaneHost, forceRefresh = false): void {
     const passStarted = performance.now();
     let paneCount = 0;
-    const resizeBatch: Array<{ paneId: string; cols: number; rows: number }> =
+    const resizeBatch: Array<{ sessionId: string; cols: number; rows: number }> =
       [];
     const refreshPanes: PaneTerminal[] = [];
 
@@ -2535,7 +2538,7 @@ async function boot(): Promise<void> {
         return;
       }
       lastPtyDims.set(paneId, safe);
-      resizeBatch.push({ paneId, cols: safe.cols, rows: safe.rows });
+      resizeBatch.push({ sessionId: pt.sessionId, cols: safe.cols, rows: safe.rows });
       refreshPanes.push(pt);
     });
 
@@ -2787,7 +2790,7 @@ async function boot(): Promise<void> {
           deliverDirectPtyOut(pt.paneId, new Uint8Array(buf));
         };
         await ptyEnsure(
-          paneId,
+          pt.sessionId,
           safe.cols,
           safe.rows,
           effectiveCwd,
@@ -2918,7 +2921,6 @@ async function boot(): Promise<void> {
     if (from === to) return;
     if (!host.rekeyPane(from, to)) return;
     rekeyPaneRuntimeState(from, to);
-    void ptyRenamePane(from, to).catch(() => {});
   }
 
   function allocPaneIdForTab(tabId: string): string {
@@ -3259,8 +3261,8 @@ async function boot(): Promise<void> {
               const tr = pt.term.buffer.active.cursorY;
               if (tr >= 0 && tr < pt.term.rows) pt.term.refresh(tr, tr);
             });
+            void ptyFocusPane(pt.sessionId).catch(() => {});
           }
-          void ptyFocusPane(id).catch(() => {});
           const hint = paneCwdHints.get(id);
           if (hint) {
             liveCwd = hint;
@@ -3284,6 +3286,7 @@ async function boot(): Promise<void> {
           }
         },
         onPaneCreated: (id, pt) => {
+          paneBySessionId.set(pt.sessionId, pt);
           attachTermKeyHandler(pt.term, () => pt.paneId);
           attachTermWheelHandler(pt.term, () => pt.paneId);
           pt.term.onRender(() => {
@@ -3410,8 +3413,9 @@ async function boot(): Promise<void> {
             }
           }
         },
-  onPaneDisposed: (pid) => {
-    void ptyKillPane(pid).catch(() => {});
+  onPaneDisposed: (pid, sessionId) => {
+    void ptyKillPane(sessionId).catch(() => {});
+    paneBySessionId.delete(sessionId);
     paneThemes.delete(pid);
     cleanupPaneVisualState(pid);
     parttyPerf.resetPane(pid);
@@ -5794,7 +5798,9 @@ async function boot(): Promise<void> {
       }
       return;
     }
-    void ptyWrite(targetPaneId, `${command}\r`).catch((e) =>
+    const targetSessionId = getPaneTerminalById(targetPaneId)?.sessionId;
+    if (!targetSessionId) return;
+    void ptyWrite(targetSessionId, `${command}\r`).catch((e) =>
       console.warn("pty_write @pane:", e),
     );
   }
@@ -6720,10 +6726,12 @@ async function boot(): Promise<void> {
   }
 
   await Promise.all([
-    listen<{ paneId: string; cwd: string; remoteIsWindows?: boolean | null }>(
+    listen<{ sessionId: string; cwd: string; remoteIsWindows?: boolean | null }>(
       "pty-cwd",
       (event) => {
-      const { paneId, cwd, remoteIsWindows } = event.payload;
+      const { sessionId, cwd, remoteIsWindows } = event.payload;
+      const paneId = paneBySessionId.get(sessionId)?.paneId;
+      if (!paneId) return;
       const profile = resolvePaneProfile(paneId);
       if (profile?.kind === "ssh" && !profileHasRemoteIntegration(profile)) {
         return;
@@ -6747,8 +6755,10 @@ async function boot(): Promise<void> {
       liveCwd = cwd;
     }),
 
-    listen<{ paneId: string; title: string }>("pty-title", (event) => {
-      const { paneId, title } = event.payload;
+    listen<{ sessionId: string; title: string }>("pty-title", (event) => {
+      const { sessionId, title } = event.payload;
+      const paneId = paneBySessionId.get(sessionId)?.paneId;
+      if (!paneId) return;
       if (title) {
         paneProgramNames.set(paneId, title);
       } else {
@@ -6758,12 +6768,14 @@ async function boot(): Promise<void> {
     }),
 
     listen<{
-      paneId: string;
+      sessionId: string;
       kind: string;
       exitCode?: number | null;
       text?: string;
     }>("pty-shell-event", (event) => {
-      const { paneId, kind, text, exitCode } = event.payload;
+      const { sessionId, kind, text, exitCode } = event.payload;
+      const paneId = paneBySessionId.get(sessionId)?.paneId;
+      if (!paneId) return;
       switch (kind) {
         case "commandLine": {
           if (!text) break;
@@ -6826,20 +6838,22 @@ async function boot(): Promise<void> {
     }),
 
     listen<PtyExitEvent>("pty-exit", async (event) => {
-      const { pane_id } = event.payload;
-      const pending = pendingPtyOutputByPane.get(pane_id);
+      const { sessionId } = event.payload;
+      const paneId = paneBySessionId.get(sessionId)?.paneId;
+      if (!paneId) return;
+      const pending = pendingPtyOutputByPane.get(paneId);
       if (pending) {
-        pendingPtyOutputByPane.delete(pane_id);
+        pendingPtyOutputByPane.delete(paneId);
         processPtyOutputBatch(
-          pane_id,
+          paneId,
           drainByteChunks(pending.chunks),
           pending.eventCount,
           pending.queuedAt,
         );
       }
-      await ptyAckExit(pane_id);
-      finishActiveProcess(pane_id, Date.now());
-      await closePaneOnShellExit(pane_id);
+      await ptyAckExit(sessionId);
+      finishActiveProcess(paneId, Date.now());
+      await closePaneOnShellExit(paneId);
     }),
     listen("pty-session-shed", () => {
       liveCwd = null;
@@ -7363,7 +7377,8 @@ async function boot(): Promise<void> {
             if (tabId) closeTab(tabId);
             return;
           }
-          void ptyKillPane(paneId).catch(() => {});
+          const pt = host.getPaneTerminal(paneId);
+          if (pt) void ptyKillPane(pt.sessionId).catch(() => {});
           host.removePane(paneId);
         },
         splitPane(paneId: string, dir: "h" | "v") {

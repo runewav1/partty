@@ -37,7 +37,25 @@ export type PaneTerminal = {
   row: HTMLElement;
   /** Current pane id in the owning host's terminal map (tracks renames). */
   paneId: string;
+  /** Stable per-terminal id used for PTY association. Never changes when the
+   * pane is re-keyed or moved between tabs, so the session always resolves to
+   * the same process deterministically. */
+  sessionId: string;
 };
+
+/** Monotonic component so ids never recur, even within the same millisecond. */
+let sessionIdSequence = 0;
+
+/**
+ * Stable per-terminal id for PTY association. Timestamp + sequence + a short
+ * random marker: cheap, never recurring, and self-documenting for logging.
+ */
+export function createSessionId(): string {
+  const ts = Date.now().toString(36);
+  const seq = (sessionIdSequence++).toString(36).padStart(2, "0");
+  const marker = Math.random().toString(36).slice(2, 8);
+  return `${ts}-${seq}${marker}`;
+}
 
 export type FloatingPaneState = {
   x: number;
@@ -96,7 +114,7 @@ export type PaneHostOptions = {
   onPaneFocus: (paneId: string) => void;
   onPaneSwapAdjacent?: (paneId: string, dir: "h" | "v") => boolean;
   onPaneCreated: (paneId: string, pt: PaneTerminal) => void;
-  onPaneDisposed: (paneId: string) => void;
+  onPaneDisposed: (paneId: string, sessionId: string) => void;
   /** When true, skip the pane-enter scale/fade (e.g. webview rehydrate boot). */
   suppressEnterAnimation?: () => boolean;
   /** Called after internal layout changes (split, gutter drag, mount) so PTY cols/rows stay in sync. */
@@ -843,7 +861,7 @@ export class PaneHost {
           /* ignore */
         }
         this.terminals.delete(this.rootPaneId);
-        this.opts.onPaneDisposed(this.rootPaneId);
+        this.opts.onPaneDisposed(this.rootPaneId, placeholderPt.sessionId);
       }
     }
     this.tree = snap.tree;
@@ -898,7 +916,7 @@ export class PaneHost {
         /* ignore */
       }
       this.terminals.delete(placeholderId);
-      this.opts.onPaneDisposed(placeholderId);
+      this.opts.onPaneDisposed(placeholderId, placeholderPt.sessionId);
     }
     this.rootPaneId = paneId;
     this.tree = { kind: "leaf", id: paneId };
@@ -1133,7 +1151,7 @@ export class PaneHost {
           /* ignore */
         }
         this.terminals.delete(paneId);
-        if (notifyDisposed) this.opts.onPaneDisposed(paneId);
+        if (notifyDisposed) this.opts.onPaneDisposed(paneId, pt.sessionId);
       }
       this.mountTree();
       this.opts.onPaneLayout?.();
@@ -1177,7 +1195,7 @@ export class PaneHost {
           /* ignore */
         }
         this.terminals.delete(paneId);
-        this.opts.onPaneDisposed(paneId);
+        this.opts.onPaneDisposed(paneId, pt.sessionId);
       }
     }
     this.tree = { kind: "leaf", id: this.rootPaneId };
@@ -1429,7 +1447,7 @@ export class PaneHost {
       } catch {
         /* ignore */
       }
-      this.opts.onPaneDisposed(id);
+      this.opts.onPaneDisposed(id, pt.sessionId);
     }
     this.terminals.clear();
     this.root.remove();
@@ -1999,6 +2017,7 @@ export class PaneHost {
           host,
           row,
           paneId: node.id,
+          sessionId: createSessionId(),
         };
         scheduleLigaturesAddon(pt);
         scheduleImageAddon(pt, this.opts.sideloadOpenconsole);
