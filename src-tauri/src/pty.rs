@@ -1984,10 +1984,8 @@ fn wsl_distro_command(
 
     match detect_wsl_login_shell(distro) {
         WslLoginShell::Zsh => {
-            let script = write_shell_integration_script(
-                "shell_int.partty.zsh",
-                SHELL_INTEGRATION_ZSH,
-            )?;
+            let script =
+                write_shell_integration_script("shell_int.partty.zsh", SHELL_INTEGRATION_ZSH)?;
             let script_wsl = windows_path_to_wsl_mnt(&script)?;
             let zdot = ensure_zsh_zdot(&script_wsl, startup)?;
             let zdot_wsl = windows_path_to_wsl_mnt(&zdot)?;
@@ -2005,10 +2003,8 @@ fn wsl_distro_command(
         }
         WslLoginShell::Bash | WslLoginShell::Unknown => {
             // Prefer bash injection; Unknown falls back to bash (default on most distros).
-            let script = write_shell_integration_script(
-                "shell_int.partty.bash",
-                SHELL_INTEGRATION_BASH,
-            )?;
+            let script =
+                write_shell_integration_script("shell_int.partty.bash", SHELL_INTEGRATION_BASH)?;
             let script_wsl = windows_path_to_wsl_mnt(&script)?;
             let init = write_shell_integration_script(
                 "partty-wsl-bash-init.sh",
@@ -2165,9 +2161,7 @@ fn ensure_zsh_zdot(
     integration_script_unix: &str,
     startup: Option<&str>,
 ) -> Result<PathBuf, String> {
-    let dir = std::env::temp_dir()
-        .join("shell_int.partty")
-        .join("zdot");
+    let dir = std::env::temp_dir().join("shell_int.partty").join("zdot");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let zshrc = dir.join(".zshrc");
     let mut contents = format!(
@@ -2363,10 +2357,8 @@ fn windows_shell_command(
                 cached_resolve("powershell", || resolve_on_path("powershell.exe"))
                     .unwrap_or_else(|| PathBuf::from("powershell.exe"))
             };
-            let script = write_shell_integration_script(
-                "shell_int.partty.ps1",
-                SHELL_INTEGRATION_PWSH,
-            )?;
+            let script =
+                write_shell_integration_script("shell_int.partty.ps1", SHELL_INTEGRATION_PWSH)?;
             let command = append_ps_command(
                 format!(". '{}'", script.to_string_lossy().replace('\'', "''")),
                 startup,
@@ -2385,10 +2377,8 @@ fn windows_shell_command(
         }
         ShellKind::Bash => {
             let bash = resolve_bash_executable(prefs)?;
-            let script = write_shell_integration_script(
-                "shell_int.partty.bash",
-                SHELL_INTEGRATION_BASH,
-            )?;
+            let script =
+                write_shell_integration_script("shell_int.partty.bash", SHELL_INTEGRATION_BASH)?;
             let script_unix = script.to_string_lossy().replace('\\', "/");
             let init = write_shell_integration_script(
                 "partty-bash-init.sh",
@@ -2406,10 +2396,8 @@ fn windows_shell_command(
             apply_cwd(c, prefs)
         }
         ShellKind::Zsh => {
-            let script = write_shell_integration_script(
-                "shell_int.partty.zsh",
-                SHELL_INTEGRATION_ZSH,
-            )?;
+            let script =
+                write_shell_integration_script("shell_int.partty.zsh", SHELL_INTEGRATION_ZSH)?;
             // Use forward slashes so zsh (often MSYS-based) can source the script.
             let script_unix = script.to_string_lossy().replace('\\', "/");
             let zdot = ensure_zsh_zdot(&script_unix, startup)?;
@@ -2510,7 +2498,7 @@ fn detect_shell_kind(prefs: &Prefs) -> ShellKind {
 mod tests {
     use super::{
         detected_shell_profile_field, is_git_bash_path, is_wsl_bash_shim, looks_like_unix_root,
-        osc633_normalize_cwd, osc_unescape, shell_escape, split_commandline,
+        osc_unescape, osc633_normalize_cwd, shell_escape, split_commandline,
         windows_path_to_wsl_mnt,
     };
     use std::path::{Path, PathBuf};
@@ -2612,7 +2600,11 @@ mod tests {
         ];
         for case in cases {
             let escaped = shell_escape(case);
-            assert_eq!(osc_unescape(&escaped), case, "round-trip failed for {case:?}");
+            assert_eq!(
+                osc_unescape(&escaped),
+                case,
+                "round-trip failed for {case:?}"
+            );
         }
     }
 }
