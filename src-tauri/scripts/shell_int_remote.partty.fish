@@ -1,9 +1,9 @@
 # Partty shell integration for fish on remote SSH hosts (OSC 633 / OSC 7).
 #
 # Install: copy to the remote machine and source from ~/.config/fish/config.fish:
-#   source /path/to/partty-shell-integration-remote.fish
+#   source /path/to/shell_int_remote.partty.fish
 #
-# Windows remotes: use partty-shell-integration-remote.ps1 in $PROFILE instead.
+# Windows remotes: use shell_int_remote.partty.ps1 in $PROFILE instead.
 #
 # Once loaded, set integration = true on the matching Partty SSH profile.
 

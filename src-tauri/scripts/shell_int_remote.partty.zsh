@@ -2,9 +2,9 @@
 # Partty shell integration for zsh on remote SSH hosts (OSC 633 / OSC 7).
 #
 # Install: copy to the remote machine and source from ~/.zshrc:
-#   source /path/to/partty-shell-integration-remote.zsh
+#   source /path/to/shell_int_remote.partty.zsh
 #
-# Windows remotes: use partty-shell-integration-remote.ps1 in $PROFILE instead.
+# Windows remotes: use shell_int_remote.partty.ps1 in $PROFILE instead.
 #
 # Once loaded, set integration = true on the matching Partty SSH profile.
 
@@ -33,14 +33,14 @@ __partty_get_cwd() {
 }
 
 __partty_path_to_uri() {
-  local path="${1//\\//}"
+  local p="${1//\\//}"
   local encoded=""
   local char
   local i
-  for ((i = 1; i <= ${#path}; i++)); do
-    char="${path[i]}"
+  for ((i = 1; i <= ${#p}; i++)); do
+    char="${p[i]}"
     case "$char" in
-      [a-zA-Z0-9._~:/-]) encoded+="$char" ;;
+      [a-zA-Z0-9._~:/_-]) encoded+="$char" ;;
       ' ') encoded+="%20" ;;
       *) encoded+=$(printf '%%%02X' "'$char") ;;
     esac
@@ -59,7 +59,10 @@ __partty_path_to_uri() {
 __partty_emit_osc() {
   local code="$1"; shift
   local payload="$code"
-  (( $# > 0 )) && payload+=";$*"
+  local arg
+  for arg in "$@"; do
+    payload+=";${arg}"
+  done
   print -Pn "\e]${payload}\a"
 }
 

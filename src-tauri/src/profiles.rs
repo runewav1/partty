@@ -56,7 +56,7 @@ pub struct ConnectionProfile {
     /// When set, structured `ssh_*` fields are ignored.
     #[serde(default)]
     pub commandline: Option<String>,
-    /// SSH only: remote shell has Partty integration loaded (see `partty-shell-integration-remote.*`).
+    /// SSH only: remote shell has Partty integration loaded (see `shell_int_remote.partty.*`).
     /// Enables live remote CWD tracking for path features.
     #[serde(default)]
     pub integration: bool,

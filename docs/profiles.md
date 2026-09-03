@@ -130,10 +130,10 @@ Partty does not inject integration on SSH sessions. Install a remote script on t
 
 | Remote shell | Script (in repo) |
 |--------------|------------------|
-| bash | `src-tauri/scripts/partty-shell-integration-remote.bash` |
-| zsh | `src-tauri/scripts/partty-shell-integration-remote.zsh` |
-| fish | `src-tauri/scripts/partty-shell-integration-remote.fish` |
-| PowerShell (Windows SSH) | `src-tauri/scripts/partty-shell-integration-remote.ps1` |
+| bash | `src-tauri/scripts/shell_int_remote.partty.bash` |
+| zsh | `src-tauri/scripts/shell_int_remote.partty.zsh` |
+| fish | `src-tauri/scripts/shell_int_remote.partty.fish` |
+| PowerShell (Windows SSH) | `src-tauri/scripts/shell_int_remote.partty.ps1` |
 
 After the script is loaded in the remote session, set `integration = true` on the matching SSH profile. Partty then stores live OSC CWD updates for that pane (path expansion). Without `integration = true`, OSC CWD from SSH panes is ignored. Remote CWD is **not** used for split inherit or SSH spawn.
 

@@ -11,7 +11,6 @@ $Global:__ParttyState = @{
     Initialized         = $true
     OriginalPrompt      = $null
     LastHistoryId       = -1
-    LastExitCode        = 0
     IsInExecution       = $false
     HasPSReadLine       = $false
     OriginalPSConsoleHostReadLine = $null
@@ -32,14 +31,15 @@ function __Partty-Escape-Value {
         return ""
     }
     $result = [System.Text.StringBuilder]::new($Value.Length * 2)
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($Value)
-    foreach ($byte in $bytes) {
-        # Escape control chars (0x00-0x1F), semicolon, backslash, and DEL
-        if ($byte -lt 0x20 -or $byte -eq 0x3B -or $byte -eq 0x5C -or $byte -eq 0x7F) {
-            [void]$result.Append('\x{0:x2}' -f $byte)
+    foreach ($ch in $Value.ToCharArray()) {
+        $code = [int]$ch
+        # Escape control chars (0x00-0x1F), semicolon, backslash, and DEL.
+        # Non-ASCII characters pass through verbatim as their original char.
+        if ($code -lt 0x20 -or $code -eq 0x3B -or $code -eq 0x5C -or $code -eq 0x7F) {
+            [void]$result.Append('\x{0:x2}' -f $code)
         }
         else {
-            [void]$result.Append([char]$byte)
+            [void]$result.Append($ch)
         }
     }
     return $result.ToString()
@@ -108,13 +108,13 @@ function __Partty-Get-SafeCwd {
 function __Partty-Emit-OSC {
     param(
         [string]$Code,
-        [string[]]$Args
+        [string[]]$Params
     )
     $esc = [char]0x1b
     $bel = [char]0x07
     $payload = $Code
-    if ($Args -and $Args.Count -gt 0) {
-        $payload += ";" + ($Args -join ";")
+    if ($Params -and $Params.Count -gt 0) {
+        $payload += ";" + ($Params -join ";")
     }
     [Console]::Write("${esc}]${payload}${bel}")
 }
@@ -212,7 +212,6 @@ function Global:Prompt {
     }
 
     $Global:__ParttyState.LastHistoryId = $currentHistoryId
-    $Global:__ParttyState.LastExitCode = $reportedExitCode
     return $result
 }
 
@@ -226,7 +225,7 @@ if (Get-Module -Name PSReadLine -ErrorAction SilentlyContinue) {
         $commandLine = $Global:__ParttyState.OriginalPSConsoleHostReadLine.Invoke()
         $Global:__ParttyState.IsInExecution = $true
         if (-not [string]::IsNullOrWhiteSpace($commandLine)) {
-            __Partty-Emit-OSC "633" @("E", (__Partty-Escape-Value $commandLine.Trim()))
+            __Partty-Emit-OSC "633" @("E", (__Partty-Escape-Value $commandLine))
         }
         __Partty-Emit-OSC "633" @("C")
         return $commandLine

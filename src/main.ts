@@ -205,18 +205,14 @@ import {
   displayProcessCommand,
   markProcessExecStart,
   mergeProcessCommand,
-  needsKeystrokeProcessTracking,
   NOTIF_COMMAND_MAX,
   NOTIF_CWD_MAX,
   NOTIF_DETAIL_MAX,
   NOTIF_PANE_MAX,
-  observeKeystrokeProcessInput,
   processDurationMs,
-  shouldEndOnPromptStart,
   truncateEnd,
   truncatePathTail,
   type ActiveProcessEntry,
-  type KeystrokeProcessObserver,
 } from "./pty/processTracking";
 
 // Terminal color constants with fallbacks
@@ -886,8 +882,6 @@ async function boot(): Promise<void> {
   const activeProcesses = new Map<string, ActiveProcessEntry>();
   /** Latest OSC 633;E line per pane, merged until pre-exec or finish. */
   const pendingShellCommandLine = new Map<string, string>();
-  const processInputBuffers = new Map<string, string>();
-  let keystrokeProcessTrackingEnabled = false;
   const paneHostCleanups = new Map<string, Array<() => void>>();
   /** Extension PTY input subscribers — zero-cost when empty. */
   const extPtyInputSubs: Array<(paneId: string, data: string) => void> = [];
@@ -997,37 +991,6 @@ async function boot(): Promise<void> {
       extCursorMoveSubs.delete(paneId);
     }
   }
-
-  const syncKeystrokeProcessTracking = (): void => {
-    keystrokeProcessTrackingEnabled = needsKeystrokeProcessTracking(
-      processNotificationEnabledRef.v,
-      extProcStartSubs.length,
-    );
-    if (!keystrokeProcessTrackingEnabled) processInputBuffers.clear();
-  };
-  const keystrokeProcessObserver: KeystrokeProcessObserver = {
-    buffers: processInputBuffers,
-    onCommandEnter: (paneId, cmd) => {
-      if (activeProcesses.has(paneId)) return;
-      const proc = createActiveProcessEntry(cmd, paneCwdHints.get(paneId) || "");
-      activeProcesses.set(paneId, proc);
-      if (extProcStartSubs.length > 0) {
-        const start = {
-          paneId,
-          command: displayProcessCommand(cmd),
-          cwd: proc.cwd,
-        };
-        for (const fn of extProcStartSubs) {
-          try {
-            fn(start);
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-    },
-  };
-  syncKeystrokeProcessTracking();
 
   const pendingPtyWriteByPane = new Map<string, StringChunkBuffer>();
   const pendingPtyOutputByPane = new Map<string, PendingPtyOutput>();
@@ -1196,6 +1159,8 @@ async function boot(): Promise<void> {
   ): void {
     const entry = activeProcesses.get(paneId);
     if (!entry) return;
+    // Authoritative completion of the OSC command path: this is the future
+    // record point for an atuin-style history DB (command, cwd, exit, duration).
     const command = displayProcessCommand(entry.command);
     const durMs = processDurationMs(entry, endedAt);
     if (durMs / 1000 >= processNotificationThresholdRef.v) {
@@ -1526,7 +1491,6 @@ async function boot(): Promise<void> {
     pendingPtyOutputByPane.delete(paneId);
     activeProcesses.delete(paneId);
     pendingShellCommandLine.delete(paneId);
-    processInputBuffers.delete(paneId);
     backendReplayRestoredPanes.delete(paneId);
   }
 
@@ -2713,7 +2677,6 @@ async function boot(): Promise<void> {
     rekeyKeyed(pendingPaneSpawnStartup, from, to);
     rekeyKeyed(activeProcesses, from, to);
     rekeyKeyed(pendingShellCommandLine, from, to);
-    rekeyKeyed(processInputBuffers, from, to);
     rekeyKeyed(paneHostCleanups, from, to);
     rekeyKeyed(extCursorMoveSubs, from, to);
     rekeyKeyed(extCursorHiddenOriginal, from, to);
@@ -3107,9 +3070,6 @@ async function boot(): Promise<void> {
           pt.term.onData((data) => {
             parttyPerf.recordInputEvent();
             queuePtyWrite(pt.paneId, data);
-            if (keystrokeProcessTrackingEnabled) {
-              observeKeystrokeProcessInput(keystrokeProcessObserver, pt.paneId, data);
-            }
             // Notify extension PTY input subscribers (zero-cost when empty).
             if (extPtyInputSubs.length > 0) {
               for (const fn of extPtyInputSubs) {
@@ -5020,7 +4980,6 @@ async function boot(): Promise<void> {
             processNotificationEnabledRef.v =
               (saved as Partial<ParttyPrefs>).process_notification_enabled ??
               false;
-            syncKeystrokeProcessTracking();
             cursorFollowWindowMoveRef.v = Boolean(
               (saved as Partial<ParttyPrefs>).cursor_follow_window_move,
             );
@@ -6633,7 +6592,7 @@ async function boot(): Promise<void> {
           paneProgramNames.delete(paneId);
           refreshTabLabelForPane(paneId);
           const entry = activeProcesses.get(paneId);
-          if (entry && shouldEndOnPromptStart(entry)) {
+          if (entry) {
             finishActiveProcess(paneId, Date.now());
           }
           break;
@@ -6847,11 +6806,9 @@ async function boot(): Promise<void> {
           fn: (proc: { paneId: string; command: string; cwd: string }) => void,
         ) {
           extProcStartSubs.push(fn);
-          syncKeystrokeProcessTracking();
           return () => {
             const idx = extProcStartSubs.indexOf(fn);
             if (idx !== -1) extProcStartSubs.splice(idx, 1);
-            syncKeystrokeProcessTracking();
           };
         },
         onProcessEnd(

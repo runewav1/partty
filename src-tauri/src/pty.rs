@@ -18,9 +18,9 @@ use tauri::{AppHandle, Emitter, Manager};
 use windows_sys::Win32::Foundation::{DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE};
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, INFINITE, WaitForSingleObject};
 
-const SHELL_INTEGRATION_PWSH: &str = include_str!("../scripts/partty-shell-integration.ps1");
-const SHELL_INTEGRATION_BASH: &str = include_str!("../scripts/partty-shell-integration.bash");
-const SHELL_INTEGRATION_ZSH: &str = include_str!("../scripts/partty-shell-integration.zsh");
+const SHELL_INTEGRATION_PWSH: &str = include_str!("../scripts/shell_int.partty.ps1");
+const SHELL_INTEGRATION_BASH: &str = include_str!("../scripts/shell_int.partty.bash");
+const SHELL_INTEGRATION_ZSH: &str = include_str!("../scripts/shell_int.partty.zsh");
 const PTY_OUTPUT_BATCH_BYTES: usize = 128 * 1024;
 const PTY_OUTPUT_BATCH_MS: u64 = 3;
 const PTY_REPLAY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
@@ -80,7 +80,7 @@ pub struct PtyShellEvent {
 // OSC can never grow memory without bound.
 // ────────────────────────────────────────────────────────────────────────────
 
-const MAX_OSC_LEN: usize = 64 * 1024;
+const MAX_OSC_LEN: usize = 256 * 1024;
 
 enum OscSideEvent {
     Cwd(String),
@@ -1057,6 +1057,23 @@ fn osc_unescape(s: &str) -> String {
     out
 }
 
+/// The escape contract shared by the shell-integration scripts (pwsh/bash/zsh):
+/// control chars, `;`, `\`, and DEL become `\xHH`; everything else (including
+/// non-ASCII) passes through verbatim as its original char.
+#[cfg(test)]
+fn shell_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 8);
+    for c in s.chars() {
+        let code = c as u32;
+        if code < 0x20 || code == 0x3B || code == 0x5C || code == 0x7F {
+            out.push_str(&format!("\\x{:02x}", code));
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Extract a local path from an OSC 7 `file://` payload.
 fn osc7_parse_cwd(payload: &str) -> Option<String> {
     let raw = payload.trim();
@@ -1968,7 +1985,7 @@ fn wsl_distro_command(
     match detect_wsl_login_shell(distro) {
         WslLoginShell::Zsh => {
             let script = write_shell_integration_script(
-                "partty-shell-integration.zsh",
+                "shell_int.partty.zsh",
                 SHELL_INTEGRATION_ZSH,
             )?;
             let script_wsl = windows_path_to_wsl_mnt(&script)?;
@@ -1989,7 +2006,7 @@ fn wsl_distro_command(
         WslLoginShell::Bash | WslLoginShell::Unknown => {
             // Prefer bash injection; Unknown falls back to bash (default on most distros).
             let script = write_shell_integration_script(
-                "partty-shell-integration.bash",
+                "shell_int.partty.bash",
                 SHELL_INTEGRATION_BASH,
             )?;
             let script_wsl = windows_path_to_wsl_mnt(&script)?;
@@ -2149,7 +2166,7 @@ fn ensure_zsh_zdot(
     startup: Option<&str>,
 ) -> Result<PathBuf, String> {
     let dir = std::env::temp_dir()
-        .join("partty-shell-integration")
+        .join("shell_int.partty")
         .join("zdot");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let zshrc = dir.join(".zshrc");
@@ -2291,7 +2308,7 @@ fn write_shell_integration_script(name: &str, contents: &str) -> Result<PathBuf,
     static CACHE: Mutex<Option<std::collections::HashMap<String, PathBuf>>> = Mutex::new(None);
     let mut cache = CACHE.lock().unwrap();
     let map = cache.get_or_insert_with(std::collections::HashMap::new);
-    let dir = std::env::temp_dir().join("partty-shell-integration");
+    let dir = std::env::temp_dir().join("shell_int.partty");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(name);
     // Always rewrite so rebuilt binaries refresh script contents in-process caches.
@@ -2347,7 +2364,7 @@ fn windows_shell_command(
                     .unwrap_or_else(|| PathBuf::from("powershell.exe"))
             };
             let script = write_shell_integration_script(
-                "partty-shell-integration.ps1",
+                "shell_int.partty.ps1",
                 SHELL_INTEGRATION_PWSH,
             )?;
             let command = append_ps_command(
@@ -2369,7 +2386,7 @@ fn windows_shell_command(
         ShellKind::Bash => {
             let bash = resolve_bash_executable(prefs)?;
             let script = write_shell_integration_script(
-                "partty-shell-integration.bash",
+                "shell_int.partty.bash",
                 SHELL_INTEGRATION_BASH,
             )?;
             let script_unix = script.to_string_lossy().replace('\\', "/");
@@ -2390,7 +2407,7 @@ fn windows_shell_command(
         }
         ShellKind::Zsh => {
             let script = write_shell_integration_script(
-                "partty-shell-integration.zsh",
+                "shell_int.partty.zsh",
                 SHELL_INTEGRATION_ZSH,
             )?;
             // Use forward slashes so zsh (often MSYS-based) can source the script.
@@ -2493,7 +2510,8 @@ fn detect_shell_kind(prefs: &Prefs) -> ShellKind {
 mod tests {
     use super::{
         detected_shell_profile_field, is_git_bash_path, is_wsl_bash_shim, looks_like_unix_root,
-        osc633_normalize_cwd, split_commandline, windows_path_to_wsl_mnt,
+        osc633_normalize_cwd, osc_unescape, shell_escape, split_commandline,
+        windows_path_to_wsl_mnt,
     };
     use std::path::{Path, PathBuf};
 
@@ -2549,10 +2567,10 @@ mod tests {
 
     #[test]
     fn windows_to_wsl_mnt_path() {
-        let p = PathBuf::from(r"C:\Users\me\AppData\Local\Temp\partty-shell-integration\x.bash");
+        let p = PathBuf::from(r"C:\Users\me\AppData\Local\Temp\shell_int.partty\x.bash");
         assert_eq!(
             windows_path_to_wsl_mnt(&p).unwrap(),
-            "/mnt/c/Users/me/AppData/Local/Temp/partty-shell-integration/x.bash"
+            "/mnt/c/Users/me/AppData/Local/Temp/shell_int.partty/x.bash"
         );
     }
 
@@ -2577,5 +2595,24 @@ mod tests {
             detected_shell_profile_field("pwsh", r"C:\Tools\pwsh.exe"),
             "pwsh"
         );
+    }
+
+    #[test]
+    fn osc_unescape_roundtrips_shell_escape() {
+        let cases = [
+            "git status",
+            "ls -la && git log --oneline",
+            "echo \"$HOME\" && printf '%s' '\\x41'",
+            "café naïve — 日本語",
+            "semi;colon;and\\backslash",
+            "multi\nline\ncommand",
+            "ctrl\0\x07\x1b\x7f chars",
+            "  leading and trailing  ",
+            &"x".repeat(255 * 1024), // long line, just under the OSC cap
+        ];
+        for case in cases {
+            let escaped = shell_escape(case);
+            assert_eq!(osc_unescape(&escaped), case, "round-trip failed for {case:?}");
+        }
     }
 }

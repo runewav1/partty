@@ -39,30 +39,30 @@ __partty_escape_value() {
 }
 
 __partty_msys_to_win_path() {
-  local path="$1"
-  if [[ "$path" =~ '^/([a-zA-Z])(/.*)?$' ]]; then
+  local p="$1"
+  if [[ "$p" =~ '^/([a-zA-Z])(/.*)?$' ]]; then
     print -rn -- "${(U)match[1]}:${match[2]}"; return
   fi
-  if [[ "$path" =~ '^/cygdrive/([a-zA-Z])(/.*)?$' ]]; then
+  if [[ "$p" =~ '^/cygdrive/([a-zA-Z])(/.*)?$' ]]; then
     print -rn -- "${(U)match[1]}:${match[2]}"; return
   fi
   if (( $+commands[cygpath] )); then
-    cygpath -w "$path" 2>/dev/null && return
+    cygpath -w "$p" 2>/dev/null && return
   fi
-  print -rn -- "$path"
+  print -rn -- "$p"
 }
 
 __partty_wsl_to_win_path() {
-  local path="$1"
-  [[ "$path" =~ '^[A-Za-z]:' || "$path" == \\\\* || "$path" == //* ]] && {
-    print -rn -- "$path"; return
+  local p="$1"
+  [[ "$p" =~ '^[A-Za-z]:' || "$p" == \\\\* || "$p" == //* ]] && {
+    print -rn -- "$p"; return
   }
   if (( $+commands[wslpath] )); then
     local win_path
-    win_path="$(wslpath -w "$path" 2>/dev/null)"
+    win_path="$(wslpath -w "$p" 2>/dev/null)"
     [[ -n "$win_path" ]] && { print -rn -- "$win_path"; return; }
   fi
-  print -rn -- "$path"
+  print -rn -- "$p"
 }
 
 __partty_get_cwd() {
@@ -75,14 +75,14 @@ __partty_get_cwd() {
 }
 
 __partty_path_to_uri() {
-  local path="${1//\\//}"
+  local p="${1//\\//}"
   local encoded=""
   local char
   local i
-  for ((i = 1; i <= ${#path}; i++)); do
-    char="${path[i]}"
+  for ((i = 1; i <= ${#p}; i++)); do
+    char="${p[i]}"
     case "$char" in
-      [a-zA-Z0-9._~:/-]) encoded+="$char" ;;
+      [a-zA-Z0-9._~:/_-]) encoded+="$char" ;;
       ' ') encoded+="%20" ;;
       *) encoded+=$(printf '%%%02X' "'$char") ;;
     esac
@@ -101,7 +101,10 @@ __partty_path_to_uri() {
 __partty_emit_osc() {
   local code="$1"; shift
   local payload="$code"
-  (( $# > 0 )) && payload+=";$*"
+  local arg
+  for arg in "$@"; do
+    payload+=";${arg}"
+  done
   print -Pn "\e]${payload}\a"
 }
 
