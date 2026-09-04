@@ -384,7 +384,7 @@ export class PaneHost {
     const id = leaf?.dataset.paneId;
     if (!id || !this.floating.get(id)?.follow) return;
     if (!findPaneLeaf(this.tree, id)) return;
-    this.setFocusedPaneId(id);
+    this.focusPane(id, { retainHostFocus: true });
   };
 
   private readonly onPaneAltDragPointerDown = (e: PointerEvent): void => {
@@ -642,6 +642,8 @@ export class PaneHost {
     }
     const fl = this.floating.get(from);
     if (fl) {
+      // Follow shells are keyed by pane id — drop the old-id copy on rekey.
+      if (fl.follow) this.removeFollowMountLeaf(from);
       this.floating.delete(from);
       this.floating.set(to, fl);
     }
@@ -1186,6 +1188,7 @@ export class PaneHost {
       return removed;
     }
     for (const paneId of removed) {
+      if (this.floating.get(paneId)?.follow) this.removeFollowMountLeaf(paneId);
       const pt = this.terminals.get(paneId);
       if (pt) {
         try {
@@ -1380,8 +1383,8 @@ export class PaneHost {
 
   private removeFollowMountLeaf(paneId: string): void {
     this.opts.followMount
-      ?.querySelector(`.pane-leaf[data-pane-id="${CSS.escape(paneId)}"]`)
-      ?.remove();
+      ?.querySelectorAll(`.pane-leaf[data-pane-id="${CSS.escape(paneId)}"]`)
+      .forEach((el) => el.remove());
   }
 
   /** Drop follow-layer shells before re-mounting (root is cleared; followMount is not). */
@@ -1441,6 +1444,7 @@ export class PaneHost {
     this.resizeObs?.disconnect();
     this.resizeObs = null;
     for (const [id, pt] of this.terminals) {
+      if (this.floating.get(id)?.follow) this.removeFollowMountLeaf(id);
       try {
         pt.fit.dispose();
         pt.term.dispose();
@@ -1464,9 +1468,11 @@ export class PaneHost {
     }
     this.prepareFollowMount();
     for (const paneId of this.getFloatingIdsInTreeOrder()) {
-      const el = this.renderNode({ kind: "leaf", id: paneId });
       const state = this.floating.get(paneId);
       if (!state) continue;
+      // followMount (unlike root) is not cleared below — drop any prior copy.
+      if (state.follow) this.removeFollowMountLeaf(paneId);
+      const el = this.renderNode({ kind: "leaf", id: paneId });
       el.classList.add("pane-leaf--floating");
       if (state.follow) el.classList.add("pane-leaf--floating-follow");
       const animateFloatingEnter = this.justFloated.delete(paneId);

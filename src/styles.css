@@ -1010,6 +1010,11 @@ html.pane-blur-unfocused .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--
   filter: blur(calc(var(--pane-blur-radius, 1.6) * 1px)) saturate(0.92);
 }
 
+/* Non-follow floats blur when unfocused even without a tiled split present. */
+html.pane-blur-unfocused .pane-host .pane-leaf--floating:not(.pane-leaf--focused) {
+  filter: blur(calc(var(--pane-blur-radius, 1.6) * 1px)) saturate(0.92);
+}
+
 /* Focused split pane scales up slightly; inactive panes scale down (intensity via --pane-focus-scale-delta). */
 html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--focused):not(.pane-leaf--floating):not(.pane-leaf--swapping):not(.pane-leaf--entering):not(.pane-leaf--leaving) {
   transform: scale(calc(1 - var(--pane-focus-scale-delta, 0.006)));
