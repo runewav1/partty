@@ -1540,48 +1540,55 @@ export class PaneHost {
       });
     });
 
-    this.root.querySelectorAll<HTMLElement>(".pane-corner-handle").forEach((corner) => {
-      corner.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const leaf = corner.closest(".pane-leaf") as HTMLElement | null;
-        if (!leaf) return;
-        const paneId = leaf.dataset.paneId;
-        if (paneId && this.floating.has(paneId)) {
+    // Float resize handles live in the host root (regular floats) and the
+    // follow layer (follow floats) — wire both.
+    const resizeMounts = [this.root, this.opts.followMount].filter(
+      (m): m is HTMLElement => !!m,
+    );
+    for (const mount of resizeMounts) {
+      mount.querySelectorAll<HTMLElement>(".pane-corner-handle").forEach((corner) => {
+        corner.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const leaf = corner.closest(".pane-leaf") as HTMLElement | null;
+          if (!leaf) return;
+          const paneId = leaf.dataset.paneId;
+          if (paneId && this.floating.has(paneId)) {
+            this.beginFloatingPaneResize(
+              leaf,
+              paneId,
+              e,
+              corner.dataset.edgeX as ResizeEdgeX | undefined,
+              corner.dataset.edgeY as ResizeEdgeY | undefined,
+            );
+            return;
+          }
+          this.beginCornerResize(
+            e,
+            leaf,
+            corner.dataset.edgeX as CornerEdge | undefined,
+            corner.dataset.edgeY as CornerEdge | undefined,
+          );
+        });
+      });
+
+      mount.querySelectorAll<HTMLElement>(".pane-floating-resize").forEach((edge) => {
+        edge.addEventListener("pointerdown", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const leaf = edge.closest(".pane-leaf") as HTMLElement | null;
+          const paneId = leaf?.dataset.paneId;
+          if (!leaf || !paneId || !this.floating.has(paneId)) return;
           this.beginFloatingPaneResize(
             leaf,
             paneId,
             e,
-            corner.dataset.edgeX as ResizeEdgeX | undefined,
-            corner.dataset.edgeY as ResizeEdgeY | undefined,
+            edge.dataset.edgeX as ResizeEdgeX | undefined,
+            edge.dataset.edgeY as ResizeEdgeY | undefined,
           );
-          return;
-        }
-        this.beginCornerResize(
-          e,
-          leaf,
-          corner.dataset.edgeX as CornerEdge | undefined,
-          corner.dataset.edgeY as CornerEdge | undefined,
-        );
+        });
       });
-    });
-
-    this.root.querySelectorAll<HTMLElement>(".pane-floating-resize").forEach((edge) => {
-      edge.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const leaf = edge.closest(".pane-leaf") as HTMLElement | null;
-        const paneId = leaf?.dataset.paneId;
-        if (!leaf || !paneId || !this.floating.has(paneId)) return;
-        this.beginFloatingPaneResize(
-          leaf,
-          paneId,
-          e,
-          edge.dataset.edgeX as ResizeEdgeX | undefined,
-          edge.dataset.edgeY as ResizeEdgeY | undefined,
-        );
-      });
-    });
+    }
   }
 
   /** Ctrl+Alt+primary-button drag from a pane leaf to swap with another pane. */
