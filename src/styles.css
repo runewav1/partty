@@ -857,22 +857,22 @@ html.terminal-no-round .term-tab-group {
   outline-offset: -2px;
 }
 
-@keyframes pane-swap-flip {
+@keyframes pane-layout-flip {
   from {
-    transform: translate(var(--pane-swap-dx), var(--pane-swap-dy))
-      scale(var(--pane-swap-sx), var(--pane-swap-sy));
+    transform: translate(var(--pane-motion-dx), var(--pane-motion-dy))
+      scale(var(--pane-motion-sx), var(--pane-motion-sy));
   }
   to {
     transform: translate(0, 0) scale(1, 1);
   }
 }
 
-.pane-leaf--swapping {
+.pane-leaf--moving {
   z-index: 3;
   will-change: transform, opacity;
   pointer-events: none;
   transform-origin: 0 0;
-  animation: pane-swap-flip var(--motion-medium) var(--motion-ease-emphasized)
+  animation: pane-layout-flip var(--motion-medium) var(--motion-ease-emphasized)
     forwards;
 }
 
@@ -1013,14 +1013,14 @@ html.pane-blur-unfocused .pane-host .pane-leaf--floating:not(.pane-leaf--focused
 }
 
 /* Focused split pane scales up slightly; inactive panes scale down (intensity via --pane-focus-scale-delta). */
-html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--focused):not(.pane-leaf--floating):not(.pane-leaf--swapping):not(.pane-leaf--entering):not(.pane-leaf--leaving) {
+html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf:not(.pane-leaf--focused):not(.pane-leaf--floating):not(.pane-leaf--moving):not(.pane-leaf--entering):not(.pane-leaf--leaving) {
   scale: calc(1 - var(--pane-focus-scale-delta, 0.006));
   transform-origin: center center;
   transition: var(--motion-pane-focus-transition);
   z-index: 0;
 }
 
-html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf.pane-leaf--focused:not(.pane-leaf--floating):not(.pane-leaf--swapping) {
+html.pane-focus-scale .pane-host:has(.pane-split) .pane-leaf.pane-leaf--focused:not(.pane-leaf--floating):not(.pane-leaf--moving) {
   scale: calc(1 + var(--pane-focus-scale-delta, 0.006));
   transform-origin: center center;
   transition: var(--motion-pane-focus-transition);

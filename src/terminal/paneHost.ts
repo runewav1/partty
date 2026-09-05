@@ -9,7 +9,6 @@ import { parttyPerf } from "./../pty/perf";
 import {
   afterAnimationFrames,
   animateClass,
-  cancelElementAnimations,
   motionDisabled,
 } from "./../util/motion";
 
@@ -163,6 +162,8 @@ export type LeafGeometry = {
   cx: number;
   cy: number;
 };
+
+type PaneMotionSnapshot = Map<string, DOMRect>;
 
 type FocusDir =
   | "h"
@@ -1031,10 +1032,12 @@ export class PaneHost {
   }
 
   private insertPaneAtRoot(paneId: string, dir: "h" | "v"): boolean {
+    const motion = this.capturePaneMotion();
     const style = this.layoutStyle();
     if (style === "master") {
       if (this.insertIntoMasterStack(paneId)) {
         this.mountTree();
+        this.playPaneMotion(motion);
         this.opts.onPaneLayout?.();
         return true;
       }
@@ -1055,6 +1058,7 @@ export class PaneHost {
     if (!next) return false;
     this.tree = next;
     this.mountTree();
+    this.playPaneMotion(motion);
     this.opts.onPaneLayout?.();
     return true;
   }
@@ -1065,12 +1069,14 @@ export class PaneHost {
     createTerminal: boolean,
   ): string | null {
     if (this.floating.has(this.focusedId)) return null;
+    const motion = this.capturePaneMotion();
     const style = this.layoutStyle();
     const from = this.focusedId;
 
     if (style === "master" && this.insertIntoMasterStack(paneId)) {
       // New windows join the stack (Hyprland master default).
       this.mountTree();
+      this.playPaneMotion(motion);
       this.opts.onPaneLayout?.();
       this.setFocusedPaneId(paneId);
       return createTerminal || this.terminals.has(paneId) ? paneId : null;
@@ -1089,6 +1095,7 @@ export class PaneHost {
     if (!next) return null;
     this.tree = next;
     this.mountTree();
+    this.playPaneMotion(motion);
     this.opts.onPaneLayout?.();
     this.setFocusedPaneId(paneId);
     return createTerminal || this.terminals.has(paneId) ? paneId : null;
@@ -1138,6 +1145,7 @@ export class PaneHost {
     if (!findPaneLeaf(this.tree, paneId)) return false;
 
     const leafEl = this.leafEl(paneId);
+    const motion = this.capturePaneMotion(ids.filter((id) => id !== paneId));
 
     const notifyDisposed = opts?.notifyDisposed !== false;
     const run = (): void => {
@@ -1156,6 +1164,7 @@ export class PaneHost {
         if (notifyDisposed) this.opts.onPaneDisposed(paneId, pt.sessionId);
       }
       this.mountTree();
+      this.playPaneMotion(motion);
       this.opts.onPaneLayout?.();
       const globalId = this.opts.getGlobalFocusedPaneId?.();
       if (globalId === paneId || this.focusedId === paneId) {
@@ -1223,43 +1232,32 @@ export class PaneHost {
     const ids: string[] = [];
     collectLeafIds(this.tree, ids);
     if (ids.length < 2) return false;
-    // Skip the pre-mount rect capture (forced reflow) entirely when motion
-    // is disabled — the flip is never played.
-    const before = this.shouldAnimatePaneMotion()
-      ? this.captureLeafRects([idA, idB])
-      : new Map<string, DOMRect>();
+    const motion = this.capturePaneMotion([idA, idB]);
     const next = swapLeafNodesInTree(this.tree, idA, idB);
     if (!next) return false;
     this.tree = next;
     this.mountTree();
-    this.playPaneSwapFlip(before);
+    this.playPaneMotion(motion);
     this.opts.onPaneLayout?.();
     this.opts.onPaneReorder?.();
     this.setFocusedPaneId(idA);
     return true;
   }
 
-  private captureLeafRects(ids: string[]): Map<string, DOMRect> {
-    const out = new Map<string, DOMRect>();
+  private capturePaneMotion(ids = this.getLeafIdsInOrder()): PaneMotionSnapshot {
+    if (motionDisabled()) return new Map();
+    const rects = new Map<string, DOMRect>();
     for (const id of ids) {
-      const leaf = this.root.querySelector(
-        `.pane-leaf[data-pane-id="${CSS.escape(id)}"]`,
-      ) as HTMLElement | null;
-      if (leaf) out.set(id, leaf.getBoundingClientRect());
+      const leaf = this.leafEl(id);
+      if (leaf) rects.set(id, leaf.getBoundingClientRect());
     }
-    return out;
+    return rects;
   }
 
-  private shouldAnimatePaneMotion(): boolean {
-    return !motionDisabled();
-  }
-
-  private playPaneSwapFlip(before: Map<string, DOMRect>): void {
-    if (!this.shouldAnimatePaneMotion() || before.size === 0) return;
-    for (const [id, rect] of before) {
-      const leaf = this.root.querySelector(
-        `.pane-leaf[data-pane-id="${CSS.escape(id)}"]`,
-      ) as HTMLElement | null;
+  private playPaneMotion(snapshot: PaneMotionSnapshot): void {
+    const moving: HTMLElement[] = [];
+    for (const [id, rect] of snapshot) {
+      const leaf = this.leafEl(id);
       if (!leaf) continue;
       const after = leaf.getBoundingClientRect();
       const dx = rect.left - after.left;
@@ -1269,16 +1267,19 @@ export class PaneHost {
       if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(sx - 1) < 0.01 && Math.abs(sy - 1) < 0.01) {
         continue;
       }
-      cancelElementAnimations(leaf);
-      leaf.style.setProperty("--pane-swap-dx", `${dx}px`);
-      leaf.style.setProperty("--pane-swap-dy", `${dy}px`);
-      leaf.style.setProperty("--pane-swap-sx", String(sx));
-      leaf.style.setProperty("--pane-swap-sy", String(sy));
-      animateClass(leaf, "pane-leaf--swapping", () => {
-        leaf.style.removeProperty("--pane-swap-dx");
-        leaf.style.removeProperty("--pane-swap-dy");
-        leaf.style.removeProperty("--pane-swap-sx");
-        leaf.style.removeProperty("--pane-swap-sy");
+      leaf.style.setProperty("--pane-motion-dx", `${dx}px`);
+      leaf.style.setProperty("--pane-motion-dy", `${dy}px`);
+      leaf.style.setProperty("--pane-motion-sx", String(sx));
+      leaf.style.setProperty("--pane-motion-sy", String(sy));
+      moving.push(leaf);
+    }
+
+    for (const leaf of moving) {
+      animateClass(leaf, "pane-leaf--moving", () => {
+        leaf.style.removeProperty("--pane-motion-dx");
+        leaf.style.removeProperty("--pane-motion-dy");
+        leaf.style.removeProperty("--pane-motion-sx");
+        leaf.style.removeProperty("--pane-motion-sy");
       });
     }
   }
@@ -1322,9 +1323,11 @@ export class PaneHost {
   togglePaneFloating(paneId: string): boolean {
     if (!findPaneLeaf(this.tree, paneId)) return false;
     if (this.floating.has(paneId)) {
+      const motion = this.capturePaneMotion();
       this.floating.delete(paneId);
       this.justTiled.add(paneId);
       this.mountTree();
+      this.playPaneMotion(motion);
       this.setFocusedPaneId(paneId);
       this.opts.onPaneLayout?.();
       this.opts.onPaneReorder?.();
@@ -1334,6 +1337,7 @@ export class PaneHost {
     const ids: string[] = [];
     collectLeafIds(this.tree, ids);
     if (ids.length - this.floating.size <= 1) return false;
+    const motion = this.capturePaneMotion();
     const leaf = this.root.querySelector(`.pane-leaf[data-pane-id="${CSS.escape(paneId)}"]`) as HTMLElement | null;
     const hostRect = this.root.getBoundingClientRect();
     const rect = leaf?.getBoundingClientRect();
@@ -1346,6 +1350,7 @@ export class PaneHost {
     this.floating.set(paneId, { x, y, width, height, z: this.floatingZ++ });
     this.justFloated.add(paneId);
     this.mountTree();
+    this.playPaneMotion(motion);
     this.setFocusedPaneId(paneId);
     this.opts.onPaneLayout?.();
     this.opts.onPaneReorder?.();
@@ -1430,6 +1435,11 @@ export class PaneHost {
   }
 
   dispose(): void {
+    if (this.layoutDragDepth > 0) {
+      this.layoutDragDepth = 0;
+      this.root.classList.remove("pane-host--layout-dragging");
+      this.opts.onPaneLayoutDrag?.(false);
+    }
     this.root.removeEventListener("pointerdown", this.onPaneAltDragPointerDown, true);
     this.opts.followMount?.removeEventListener(
       "pointerdown",
