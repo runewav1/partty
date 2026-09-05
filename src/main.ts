@@ -141,6 +141,7 @@ import {
   applyMotionPreferences,
   cancelElementAnimations,
   motionDisabled,
+  motionDurationMs,
 } from "./util/motion";
 import { filterAndRankLexical, normalizeQuery } from "./util/lexicalSearch";
 import pkg from "../package.json";
@@ -824,6 +825,10 @@ async function boot(): Promise<void> {
   };
   const windowMotionRef = {
     v: (persisted.prefs as Partial<ParttyPrefs>).terminal_window_motion ?? true,
+  };
+  const applyRuntimeDisplayPrefs = (raw: Partial<ParttyPrefs>): void => {
+    applyTerminalDisplayPrefs(raw);
+    windowMotionRef.v = raw.terminal_window_motion ?? true;
   };
   const quietPaneDeferralRef = {
     v: Boolean((persisted.prefs as Partial<ParttyPrefs>).quiet_pane_deferral),
@@ -1639,10 +1644,9 @@ async function boot(): Promise<void> {
     if (!currentId) return false;
     const swapped = host.swapPaneWithAdjacent(currentId, key);
     if (swapped) {
-      const motionOn = !motionDisabled();
       scheduleCursorWarpToPane(currentId, {
         force: true,
-        delayMs: motionOn ? 480 : 0,
+        delayMs: motionDurationMs("medium"),
       });
     }
     return swapped;
@@ -3440,10 +3444,9 @@ async function boot(): Promise<void> {
     );
     renderTabsBar();
     getFocusedTerm()?.focus();
-    const tabMotionOn = !motionDisabled();
     scheduleCursorWarpToPane(lastFocusedPaneId, {
       force: true,
-      delayMs: tabMotionOn ? 420 : 0,
+      delayMs: motionDurationMs("medium"),
     });
     // Notify extension subscribers on tab switch (onPaneFocus only fires within a tab).
     if (extFocusSubs.length > 0 && lastFocusedPaneId) {
@@ -4825,10 +4828,15 @@ async function boot(): Promise<void> {
           const { createThemeModal } = await import("./app/themeModal");
           return createThemeModal(
             themeModalRoot as HTMLElement,
-            (prefs) => {
+            (prefs, committed) => {
               if (themeTargetPaneId) {
                 applyPaneTheme(themeTargetPaneId, prefs);
                 return;
+              }
+              if (committed) {
+                persisted.prefs =
+                  committed as unknown as Record<string, unknown>;
+                applyRuntimeDisplayPrefs(committed);
               }
               currentUiPrefs = prefs;
               applyUiTheme(prefs);
@@ -4999,12 +5007,10 @@ async function boot(): Promise<void> {
               ),
             );
             mouseCursorController?.sync();
-            windowMotionRef.v =
-              (saved as Partial<ParttyPrefs>).terminal_window_motion ?? true;
             quietPaneDeferralRef.v = Boolean(
               (saved as Partial<ParttyPrefs>).quiet_pane_deferral,
             );
-            applyTerminalDisplayPrefs(saved);
+            applyRuntimeDisplayPrefs(saved);
             if (saved.scrollback_lines !== previous.scrollback_lines) {
               for (const host of tabPaneHosts.values()) {
                 host.setScrollbackLines(saved.scrollback_lines);

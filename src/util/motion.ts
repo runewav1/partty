@@ -8,13 +8,14 @@
 
 const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
 const activeClassAnimations = new WeakMap<HTMLElement, () => void>();
+let durationScale = 1;
 
-function animationScaleForPreference(value: unknown): string {
+function animationScaleForPreference(value: unknown): number {
   const raw = typeof value === "string" ? value.toLowerCase() : "normal";
-  if (raw === "off") return "0";
-  if (raw === "fast") return "0.55";
-  if (raw === "slow") return "1.65";
-  return "1";
+  if (raw === "off") return 0;
+  if (raw === "fast") return 0.55;
+  if (raw === "slow") return 1.65;
+  return 1;
 }
 
 function motionStyleForPreference(value: unknown): string {
@@ -23,13 +24,23 @@ function motionStyleForPreference(value: unknown): string {
   return "smooth";
 }
 
+function motionFeelScale(style: string): number {
+  if (style === "snappy") return 0.72;
+  if (style === "gentle") return 1.28;
+  if (style === "bouncy") return 1.08;
+  return 1;
+}
+
 /** Apply persisted motion preferences to the shared CSS motion tokens. */
 export function applyMotionPreferences(speed: unknown, style: unknown): void {
   const root = document.documentElement;
   const scale = animationScaleForPreference(speed);
-  root.classList.toggle("terminal-motion-off", scale === "0");
-  root.style.setProperty("--partty-animation-scale", scale);
-  root.dataset.motionStyle = motionStyleForPreference(style);
+  const normalizedStyle = motionStyleForPreference(style);
+  durationScale = scale * motionFeelScale(normalizedStyle);
+  root.classList.toggle("terminal-motion-off", scale === 0);
+  root.style.setProperty("--partty-animation-scale", String(scale));
+  root.style.setProperty("--motion-feel", String(motionFeelScale(normalizedStyle)));
+  root.dataset.motionStyle = normalizedStyle;
 }
 
 /** True when animations should be skipped (OS setting or app motion=off). */
@@ -38,6 +49,15 @@ export function motionDisabled(): boolean {
     reducedMotionQuery.matches ||
     document.documentElement.classList.contains("terminal-motion-off")
   );
+}
+
+/** Resolve a shared duration using the same speed + feel multipliers as CSS. */
+export function motionDurationMs(
+  duration: "fast" | "medium" | "slow",
+): number {
+  if (motionDisabled()) return 0;
+  const baseMs = duration === "fast" ? 130 : duration === "slow" ? 280 : 200;
+  return baseMs * durationScale;
 }
 
 /** Cancel in-flight CSS animations/transitions on an element (and optionally descendants). */
@@ -111,7 +131,7 @@ export function animateClass(
   el: HTMLElement,
   className: string,
   onFinish?: () => void,
-  safetyTimeoutMs = 600,
+  safetyTimeoutMs = 700,
 ): void {
   runClassAnimation(el, className, safetyTimeoutMs, onFinish);
 }

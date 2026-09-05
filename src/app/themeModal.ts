@@ -34,7 +34,7 @@ type FlatThemeRow = LexicalSearchItem & {
 
 export function createThemeModal(
   root: HTMLElement,
-  onPreview: (prefs: UiThemePrefs) => void,
+  onPreview: (prefs: UiThemePrefs, committedPrefs?: ParttyPrefs) => void,
   onClosed?: () => void,
 ): ThemeModalApi {
   let open = false;
@@ -232,7 +232,7 @@ export function createThemeModal(
       }
       await invoke("set_prefs", { prefs: next });
       initial = null;
-      onPreview(picked);
+      onPreview(picked, next);
       close();
     } catch (e) {
       console.error("theme commit", e);
