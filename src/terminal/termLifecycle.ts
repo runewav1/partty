@@ -103,6 +103,8 @@ export function firstContentScrollbackLine(term: Terminal): number {
 }
 
 export async function createWebglAddon(): Promise<WebglAddon> {
-	const { WebglAddon } = await import("@xterm/addon-webgl");
-	return new WebglAddon();
+	const { WebglAddon: WebglAddonConstructor } = await import(
+		"@xterm/addon-webgl"
+	);
+	return new WebglAddonConstructor();
 }

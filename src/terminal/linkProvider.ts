@@ -83,7 +83,7 @@ export function registerTerminalLinkProvider(
 		for (const match of matches) {
 			const start = logical.positions[match.start];
 			const end = logical.positions[match.end - 1];
-			if (!start || !end) continue;
+			if (!(start && end)) continue;
 			const link: CachedLink = {
 				range: {
 					start: { x: start.x + 1, y: start.y + 1 },

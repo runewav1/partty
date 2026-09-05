@@ -14,6 +14,19 @@ import {
 
 const MAIN_PANE_ID = "main";
 
+export type XtermFontWeight =
+	| "normal"
+	| "bold"
+	| "100"
+	| "200"
+	| "300"
+	| "400"
+	| "500"
+	| "600"
+	| "700"
+	| "800"
+	| "900";
+
 export type PaneLeaf = { kind: "leaf"; id: string };
 export type PaneSplit = {
 	kind: "split";
@@ -278,10 +291,10 @@ function scheduleLigaturesAddon(pt: PaneTerminal): void {
 			pt.ligatures = ligaturesAddon;
 		});
 	};
-	if (typeof requestIdleCallback !== "undefined") {
-		requestIdleCallback(() => attach(), { timeout: 2000 });
-	} else {
+	if (typeof requestIdleCallback === "undefined") {
 		queueMicrotask(attach);
+	} else {
+		requestIdleCallback(() => attach(), { timeout: 2000 });
 	}
 }
 
@@ -301,10 +314,10 @@ function scheduleImageAddon(pt: PaneTerminal, enabled: boolean): void {
 			pt.image = imageAddon;
 		});
 	};
-	if (typeof requestIdleCallback !== "undefined") {
-		requestIdleCallback(() => attach(), { timeout: 2000 });
-	} else {
+	if (typeof requestIdleCallback === "undefined") {
 		queueMicrotask(attach);
+	} else {
+		requestIdleCallback(() => attach(), { timeout: 2000 });
 	}
 }
 
@@ -399,18 +412,18 @@ export class PaneHost {
 			".pane-leaf",
 		) as HTMLElement | null;
 		const id = leaf?.dataset.paneId;
-		if (!id || !this.floating.get(id)?.follow) return;
+		if (!(id && this.floating.get(id)?.follow)) return;
 		if (!findPaneLeaf(this.tree, id)) return;
 		this.focusPane(id, { retainHostFocus: true });
 	};
 
 	private readonly onPaneAltDragPointerDown = (e: PointerEvent): void => {
-		if (!e.altKey || !e.ctrlKey || e.button !== 0) return;
+		if (!(e.altKey && e.ctrlKey) || e.button !== 0) return;
 		const t = e.target as HTMLElement | null;
 		if (!t) return;
 		if (t.closest(".pane-gutter") || t.closest(".pane-corner-handle")) return;
 		const leaf = t.closest(".pane-leaf") as HTMLElement | null;
-		if (!leaf || !this.ownsLeafElement(leaf)) return;
+		if (!(leaf && this.ownsLeafElement(leaf))) return;
 		const paneId = leaf.dataset.paneId;
 		if (!paneId) return;
 		const ids: string[] = [];
@@ -1289,7 +1302,7 @@ export class PaneHost {
 	swapPanes(idA: string, idB: string): boolean {
 		if (idA === idB) return false;
 		if (this.floating.has(idA) || this.floating.has(idB)) return false;
-		if (!findPaneLeaf(this.tree, idA) || !findPaneLeaf(this.tree, idB))
+		if (!(findPaneLeaf(this.tree, idA) && findPaneLeaf(this.tree, idB)))
 			return false;
 		const ids: string[] = [];
 		collectLeafIds(this.tree, ids);
@@ -1485,7 +1498,9 @@ export class PaneHost {
 	private removeFollowMountLeaf(paneId: string): void {
 		this.opts.followMount
 			?.querySelectorAll(`.pane-leaf[data-pane-id="${CSS.escape(paneId)}"]`)
-			.forEach((el) => el.remove());
+			.forEach((el) => {
+				el.remove();
+			});
 	}
 
 	/** Drop follow-layer shells before re-mounting (root is cleared; followMount is not). */
@@ -1635,7 +1650,7 @@ export class PaneHost {
 			const leaf = (e.target as HTMLElement).closest(
 				".pane-leaf",
 			) as HTMLElement | null;
-			if (!leaf || !this.ownsLeafElement(leaf)) return;
+			if (!(leaf && this.ownsLeafElement(leaf))) return;
 			const id = leaf.dataset.paneId;
 			if (id) this.setFocusedPaneId(id);
 		};
@@ -1696,7 +1711,7 @@ export class PaneHost {
 						e.stopPropagation();
 						const leaf = edge.closest(".pane-leaf") as HTMLElement | null;
 						const paneId = leaf?.dataset.paneId;
-						if (!leaf || !paneId || !this.floating.has(paneId)) return;
+						if (!(leaf && paneId && this.floating.has(paneId))) return;
 						this.beginFloatingPaneResize(
 							leaf,
 							paneId,
@@ -1715,7 +1730,7 @@ export class PaneHost {
 		paneId: string,
 		e: PointerEvent,
 	): void {
-		const DRAG_THRESHOLD = 6;
+		const DragThreshold = 6;
 		const startX = e.clientX;
 		const startY = e.clientY;
 		let preview: HTMLElement | null = null;
@@ -1735,7 +1750,7 @@ export class PaneHost {
 		const onMove = (ev: PointerEvent): void => {
 			if (!active) {
 				if (
-					Math.hypot(ev.clientX - startX, ev.clientY - startY) < DRAG_THRESHOLD
+					Math.hypot(ev.clientX - startX, ev.clientY - startY) < DragThreshold
 				)
 					return;
 				active = true;
@@ -1961,7 +1976,7 @@ export class PaneHost {
 		const vInfo = edgeY
 			? this.findAncestorSplitForLeaf(leaf, "v", edgeY)
 			: null;
-		if (!hInfo && !vInfo) return;
+		if (!(hInfo || vInfo)) return;
 		this.beginLayoutDrag();
 		const startX = e.clientX;
 		const startY = e.clientY;
@@ -2185,8 +2200,9 @@ export class PaneHost {
 					fastScrollSensitivity: this.opts.fastScrollSensitivity ?? 5,
 					fontFamily: this.opts.fontStack,
 					fontSize: this.opts.fontSize,
-					fontWeight: (this.opts.fontWeight ?? "normal") as any,
-					fontWeightBold: (this.opts.fontWeightBold ?? "bold") as any,
+					fontWeight: (this.opts.fontWeight ?? "normal") as XtermFontWeight,
+					fontWeightBold: (this.opts.fontWeightBold ??
+						"bold") as XtermFontWeight,
 					letterSpacing: this.opts.letterSpacing ?? 0,
 					lineHeight: this.opts.lineHeight ?? 1,
 					logLevel: "off",

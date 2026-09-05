@@ -258,23 +258,23 @@ export function createSettingsPanel(
 		).toLowerCase();
 	}
 
-	async function buildPrefs(previous: ParttyPrefs): Promise<ParttyPrefs> {
+	function buildPrefs(previous: ParttyPrefs): ParttyPrefs {
 		const cwd = g("initial_cwd");
-		const session_shed_on_exit = ((v: string) =>
+		const sessionShedOnExit = ((v: string) =>
 			v === "shed" || v === "ask" ? v : "keep")(gs("session_shed_on_exit"));
-		const terminal_animation_speed = ((v: string) =>
+		const terminalAnimationSpeed = ((v: string) =>
 			v === "off" || v === "fast" || v === "slow" ? v : "normal")(
 			gs("terminal_animation_speed"),
 		);
-		const terminal_animation_style = ((v: string) =>
+		const terminalAnimationStyle = ((v: string) =>
 			v === "snappy" || v === "gentle" || v === "bouncy" ? v : "smooth")(
 			gs("terminal_animation_style"),
 		);
-		const split_layout_style = ((v: string) =>
+		const splitLayoutStyle = ((v: string) =>
 			v === "dwindle" || v === "master" ? v : "balanced")(
 			gs("split_layout_style"),
 		);
-		const window_effect_mode = ["off", "transparent", "acrylic"].includes(
+		const windowEffectMode = ["off", "transparent", "acrylic"].includes(
 			gs("window_effect_mode"),
 		)
 			? gs("window_effect_mode")
@@ -299,11 +299,11 @@ export function createSettingsPanel(
 			const n = Number.parseFloat(raw);
 			return Number.isFinite(n) ? Math.max(1, Math.min(10, n)) : fb;
 		};
-		const terminal_pane_gap = clampG(
+		const terminalPaneGap = clampG(
 			g("terminal_pane_gap"),
 			previous.terminal_pane_gap ?? 6,
 		);
-		const terminal_sandbox_padding = clampG(
+		const terminalSandboxPadding = clampG(
 			g("terminal_sandbox_padding"),
 			previous.terminal_sandbox_padding ?? 0,
 		);
@@ -317,11 +317,11 @@ export function createSettingsPanel(
 			discard_buffer_on_hide: gc("discard_buffer_on_hide"),
 			scrollback_lines: Math.max(
 				0,
-				Math.min(50000, parseInt(g("scrollback_lines"), 10) || 0),
+				Math.min(50_000, Number.parseInt(g("scrollback_lines"), 10) || 0),
 			),
 			snapshot_max_lines: Math.max(
 				50,
-				Math.min(50000, parseInt(g("snapshot_max_lines"), 10) || 2500),
+				Math.min(50_000, Number.parseInt(g("snapshot_max_lines"), 10) || 2500),
 			),
 			preload_pty_on_startup: gc("preload_pty_on_startup"),
 			preload_webgl_on_startup: gc("preload_webgl_on_startup"),
@@ -343,7 +343,7 @@ export function createSettingsPanel(
 			auto_copy_selection: gc("auto_copy_selection"),
 			right_click_paste: gc("right_click_paste"),
 			osc52: gc("osc52"),
-			session_shed_on_exit,
+			session_shed_on_exit: sessionShedOnExit,
 			retain_session_state: gc("retain_session_state"),
 			summon_spawn_at_cursor: gc("summon_spawn_at_cursor"),
 			cursor_follow_window_move: gc("cursor_follow_window_move"),
@@ -359,13 +359,13 @@ export function createSettingsPanel(
 			terminal_backspace_delete_selection: gc(
 				"terminal_backspace_delete_selection",
 			),
-			terminal_no_gap: terminal_pane_gap <= 0,
-			terminal_pane_gap,
-			terminal_sandbox_padding,
+			terminal_no_gap: terminalPaneGap <= 0,
+			terminal_pane_gap: terminalPaneGap,
+			terminal_sandbox_padding: terminalSandboxPadding,
 			terminal_no_round: gc("terminal_no_round"),
 			terminal_no_pane_border: gc("terminal_no_pane_border"),
 			terminal_no_focus_border: gc("terminal_no_focus_border"),
-			split_layout_style,
+			split_layout_style: splitLayoutStyle,
 			terminal_sideload_openconsole: gc("terminal_sideload_openconsole"),
 			quiet_pane_deferral: gc("quiet_pane_deferral"),
 			default_profile_id:
@@ -386,10 +386,10 @@ export function createSettingsPanel(
 			editor_command: previous.editor_command ?? "",
 			// Config-only `[workspaces]` — carried through unchanged (see above).
 			workspace_open_mode: previous.workspace_open_mode ?? "new-tab",
-			terminal_animation_speed,
-			terminal_animation_style,
+			terminal_animation_speed: terminalAnimationSpeed,
+			terminal_animation_style: terminalAnimationStyle,
 			terminal_window_motion: gc("terminal_window_motion"),
-			window_effect_mode,
+			window_effect_mode: windowEffectMode,
 			window_effect_opacity: clamp01(g("window_effect_opacity"), 0),
 			window_effect_acrylic_tint:
 				g("window_effect_acrylic_tint").trim() || "#1e1e1e",
@@ -438,7 +438,7 @@ export function createSettingsPanel(
 			process_notification_show_for: ((): number => {
 				const raw = g("process_notification_show_for");
 				const n = Number.parseFloat(raw);
-				return Number.isFinite(n) ? Math.max(1000, Math.min(30000, n)) : 5000;
+				return Number.isFinite(n) ? Math.max(1000, Math.min(30_000, n)) : 5000;
 			})(),
 			process_notification_show_ms: gc("process_notification_show_ms"),
 			process_notification_transparent: gc("process_notification_transparent"),
@@ -452,8 +452,8 @@ export function createSettingsPanel(
 				? Math.max(
 						1000,
 						Math.min(
-							60000,
-							parseInt(g("dev_perf_console_interval_ms"), 10) || 5000,
+							60_000,
+							Number.parseInt(g("dev_perf_console_interval_ms"), 10) || 5000,
 						),
 					)
 				: 5000,
@@ -476,6 +476,7 @@ export function createSettingsPanel(
 			await invoke("set_prefs", { prefs: merged });
 			await onSaved?.(merged, previous);
 		} catch (err) {
+			// biome-ignore lint/suspicious/noConsole: Persisting settings failures must remain visible during development.
 			console.error("set_prefs", err);
 		} finally {
 			saving = false;
@@ -977,7 +978,7 @@ export function createSettingsPanel(
 				"#settings-search",
 			) as HTMLInputElement | null;
 			if (search) search.value = "";
-			void loadAndRender();
+			loadAndRender();
 			requestAnimationFrame(() => {
 				(
 					root.querySelector("#settings-search") as HTMLInputElement | null

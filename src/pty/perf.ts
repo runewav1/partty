@@ -119,8 +119,8 @@ function readConsoleEnabled(): boolean {
 function readIntervalMs(): number {
 	try {
 		const raw = localStorage.getItem(PERF_INTERVAL_MS_KEY);
-		const n = raw ? Number.parseInt(raw, 10) : NaN;
-		return Number.isFinite(n) ? Math.max(1000, Math.min(60000, n)) : 5000;
+		const n = raw ? Number.parseInt(raw, 10) : Number.NaN;
+		return Number.isFinite(n) ? Math.max(1000, Math.min(60_000, n)) : 5000;
 	} catch {
 		return 5000;
 	}
@@ -135,8 +135,9 @@ function clearConsoleTimer(): void {
 
 function syncConsoleTimer(): void {
 	clearConsoleTimer();
-	if (!parttyPerf.enabled || !parttyPerf.consoleEnabled) return;
+	if (!(parttyPerf.enabled && parttyPerf.consoleEnabled)) return;
 	consoleTimer = window.setInterval(() => {
+		// biome-ignore lint/suspicious/noConsole: This optional diagnostics timer intentionally writes performance snapshots to the console.
 		console.debug("[partty:perf]", parttyPerf.snapshot());
 	}, parttyPerf.consoleIntervalMs);
 }
@@ -265,7 +266,7 @@ export const parttyPerf = {
 		) {
 			this.consoleIntervalMs = Math.max(
 				1000,
-				Math.min(60000, Math.floor(opts.consoleIntervalMs)),
+				Math.min(60_000, Math.floor(opts.consoleIntervalMs)),
 			);
 		}
 		try {
@@ -293,11 +294,11 @@ export const parttyPerf = {
 		counters[name] = (counters[name] ?? 0) + amount;
 	},
 	gauge(name: string, value: number): void {
-		if (!this.enabled || !Number.isFinite(value)) return;
+		if (!(this.enabled && Number.isFinite(value))) return;
 		gauges[name] = value;
 	},
 	time(name: string, ms: number): void {
-		if (!this.enabled || !Number.isFinite(ms)) return;
+		if (!(this.enabled && Number.isFinite(ms))) return;
 		const bucket = timings[name] ?? {
 			count: 0,
 			totalMs: 0,
@@ -334,7 +335,7 @@ export const parttyPerf = {
 		bucket[name] = (bucket[name] ?? 0) + amount;
 	},
 	paneGauge(paneId: string, name: string, value: number): void {
-		if (!this.enabled || !Number.isFinite(value)) return;
+		if (!(this.enabled && Number.isFinite(value))) return;
 		let bucket = paneGauges.get(paneId);
 		if (!bucket) {
 			bucket = {};
@@ -343,7 +344,7 @@ export const parttyPerf = {
 		bucket[name] = value;
 	},
 	paneTime(paneId: string, name: string, ms: number): void {
-		if (!this.enabled || !Number.isFinite(ms)) return;
+		if (!(this.enabled && Number.isFinite(ms))) return;
 		let bucket = paneTimings.get(paneId);
 		if (!bucket) {
 			bucket = {};
@@ -370,7 +371,7 @@ export const parttyPerf = {
 		const counters = paneCounters.get(paneId);
 		const gauges = paneGauges.get(paneId);
 		const timings = paneTimings.get(paneId);
-		if (!counters && !gauges && !timings) return null;
+		if (!(counters || gauges || timings)) return null;
 		return {
 			counters: counters ? { ...counters } : {},
 			gauges: gauges ? { ...gauges } : {},

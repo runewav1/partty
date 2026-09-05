@@ -58,6 +58,7 @@ export type TabBarItem = {
 	id: string;
 	slot: TabBarSlot;
 	order?: number;
+	// biome-ignore lint/suspicious/noConfusingVoidType: Mount callbacks may optionally return an unmount function.
 	mount: (el: HTMLElement) => void | (() => void);
 	update?: (el: HTMLElement) => void;
 };

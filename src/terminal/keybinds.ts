@@ -61,8 +61,8 @@ function keyMatches(ek: string, bk: string): boolean {
 
 function digitIndex(e: KeyboardEvent): number {
 	const c = e.code;
-	if (c && c.startsWith("Digit")) {
-		const n = parseInt(c.slice(5), 10);
+	if (c?.startsWith("Digit")) {
+		const n = Number.parseInt(c.slice(5), 10);
 		if (Number.isFinite(n)) return n;
 	}
 	if (c === "Numpad0") return 0;
@@ -144,7 +144,7 @@ export function createKeybinds(): KeybindsApi {
 		for (const [action, raw] of Object.entries(bind)) {
 			const p = parseBinding(raw);
 			parsed[action] = p;
-			if (p && p.param) {
+			if (p?.param) {
 				paramParsed[action] = { ...p, param: false, key: "" };
 			}
 		}
@@ -165,7 +165,7 @@ export function createKeybinds(): KeybindsApi {
 		readyResolve();
 	}
 
-	void load();
+	load();
 
 	return {
 		ready: readyPromise,

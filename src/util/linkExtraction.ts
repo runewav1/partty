@@ -15,18 +15,27 @@ const ABSOLUTE_PATH_RE =
 const TOKEN_RE = /\S+/g;
 const TRAILING_PUNCTUATION_RE = /[),.;:!?\]]+$/g;
 const URL_TRAILING_PUNCTUATION_RE = /[),.;:!?]+$/g;
+const HTTP_SCHEME_RE = /^https?:\/\//i;
+const WWW_RE = /^www\./i;
+const LOCALHOST_RE = /^localhost:\d+(?:[^\s<>"'`]*)?$/i;
+const LOOPBACK_RE = /^(?:127\.0\.0\.1|\[::1\]|::1):\d+(?:[^\s<>"'`]*)?$/i;
+const ROOTED_PATH_RE = /^[\\/]/;
+const DRIVE_PATH_RE = /^[A-Za-z]:[\\/]/;
+const SCHEME_PATH_RE = /^[A-Za-z][A-Za-z0-9+.-]*:\/\//;
+const DOT_PATH_RE = /^\.{1,2}$/;
+const UNC_PATH_RE = /^\\\\|^\/\//;
+const POSIX_ROOT_PATH_RE =
+	/^\/(?:home|Users|usr|etc|var|tmp|opt|mnt|root|dev|proc|sys|bin|lib|sbin|boot|media|run|snap)(?:\/|$)/;
 
 export function normalizeExternalUrl(value: string): string | null {
 	const raw = value.trim().replace(URL_TRAILING_PUNCTUATION_RE, "");
 	if (!raw) return null;
 
-	const hasHttpScheme = /^https?:\/\//i.test(raw);
-	const isWww = /^www\./i.test(raw);
+	const hasHttpScheme = HTTP_SCHEME_RE.test(raw);
+	const isWww = WWW_RE.test(raw);
 	// Keep this allowlist aligned with the native open_external_url command.
-	const isLocalhost = /^localhost:\d+(?:[^\s<>"'`]*)?$/i.test(raw);
-	const isLoopback = /^(?:127\.0\.0\.1|\[::1\]|::1):\d+(?:[^\s<>"'`]*)?$/i.test(
-		raw,
-	);
+	const isLocalhost = LOCALHOST_RE.test(raw);
+	const isLoopback = LOOPBACK_RE.test(raw);
 	if (!(hasHttpScheme || isWww || isLocalhost || isLoopback)) return null;
 
 	const normalized = hasHttpScheme ? raw : `https://${raw}`;
@@ -48,7 +57,7 @@ export function findTerminalLinkMatches(
 	for (const m of line.matchAll(URL_RE)) {
 		const text = m[0].replace(URL_TRAILING_PUNCTUATION_RE, "");
 		const value = normalizeExternalUrl(text);
-		if (!text || !value) continue;
+		if (!(text && value)) continue;
 		matches.push({
 			kind: "url",
 			start: m.index,
@@ -90,22 +99,20 @@ export function findTerminalLinkMatches(
 }
 
 function isRelativePathCandidate(tok: string): boolean {
-	if (/^[\\/]/.test(tok)) return false; // absolute / UNC — handled elsewhere
-	if (/^[A-Za-z]:[\\/]/.test(tok)) return false; // drive absolute
-	if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(tok)) return false; // URL
-	if (!tok.includes("/") && !tok.includes("\\")) return false; // needs a separator
-	if (/^\.{1,2}$/.test(tok)) return false;
+	if (ROOTED_PATH_RE.test(tok)) return false; // absolute / UNC — handled elsewhere
+	if (DRIVE_PATH_RE.test(tok)) return false; // drive absolute
+	if (SCHEME_PATH_RE.test(tok)) return false; // URL
+	if (!(tok.includes("/") || tok.includes("\\"))) return false; // needs a separator
+	if (DOT_PATH_RE.test(tok)) return false;
 	return true;
 }
 
 function isAbsolutePath(path: string): boolean {
 	return (
-		/^[A-Za-z]:[\\/]/.test(path) ||
-		/^\\\\|^\/\//.test(path) ||
+		DRIVE_PATH_RE.test(path) ||
+		UNC_PATH_RE.test(path) ||
 		path.startsWith("~/") ||
-		/^\/(?:home|Users|usr|etc|var|tmp|opt|mnt|root|dev|proc|sys|bin|lib|sbin|boot|media|run|snap)(?:\/|$)/.test(
-			path,
-		)
+		POSIX_ROOT_PATH_RE.test(path)
 	);
 }
 

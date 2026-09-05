@@ -46,7 +46,9 @@ export function createTooltipController(
 		const all = (root as Document | Element).querySelectorAll<HTMLElement>(
 			`[title], [${TOOLTIP_STASH_ATTR}]`,
 		);
-		all.forEach((el) => syncTooltipForElement(el, suppress));
+		all.forEach((el) => {
+			syncTooltipForElement(el, suppress);
+		});
 		if (root instanceof HTMLElement) syncTooltipForElement(root, suppress);
 	};
 
@@ -69,7 +71,9 @@ export function createTooltipController(
 					syncTooltipForElement(n, suppress);
 					n.querySelectorAll<HTMLElement>(
 						"[title], [data-partty-tooltip-title]",
-					).forEach((el) => syncTooltipForElement(el, suppress));
+					).forEach((el) => {
+						syncTooltipForElement(el, suppress);
+					});
 				});
 			}
 		});

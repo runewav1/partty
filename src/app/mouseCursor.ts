@@ -50,9 +50,11 @@ export function createMouseCursorController(
 
 	/** Best-effort OS API; broken on Windows WebView2 — CSS is the real hide path. */
 	function setOsVisible(visible: boolean): void {
-		void getWindow()
+		getWindow()
 			.setCursorVisible(visible)
-			.catch(() => {});
+			.catch(() => {
+				// CSS remains the fallback when the OS API is unavailable.
+			});
 	}
 
 	function showCursor(): void {

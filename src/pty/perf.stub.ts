@@ -54,9 +54,19 @@ export const parttyPerf = {
 	getInputRate(): number {
 		return 0;
 	},
-	beginPtyRoundtrip(): void {},
-	completePtyRoundtrip(): void {},
-	beginTermWrite(): void {},
-	finishTermRender(): void {},
-	reset(): void {},
+	beginPtyRoundtrip(): void {
+		// Performance instrumentation is disabled in production builds.
+	},
+	completePtyRoundtrip(): void {
+		// Performance instrumentation is disabled in production builds.
+	},
+	beginTermWrite(): void {
+		// Performance instrumentation is disabled in production builds.
+	},
+	finishTermRender(): void {
+		// Performance instrumentation is disabled in production builds.
+	},
+	reset(): void {
+		// Performance instrumentation is disabled in production builds.
+	},
 };

@@ -179,7 +179,7 @@ export function persistLayoutForTab(
 export function nextTabName(tabs: TabRecord[]): string {
 	let max = 0;
 	for (const t of tabs) {
-		const n = parseInt(t.name, 10);
+		const n = Number.parseInt(t.name, 10);
 		if (Number.isFinite(n) && n > max) max = n;
 	}
 	return String(max + 1);

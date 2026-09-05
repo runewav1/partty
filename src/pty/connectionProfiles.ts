@@ -4,6 +4,9 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
+const PROFILE_QUERY_REGEX =
+	/^@profile:(new-tab|split-h|split-v|float)(?:\s+(.*))?$/i;
+
 export const LOCAL_DEFAULT_PROFILE_ID = "local-default";
 
 export type ProfileKind = "local" | "wsl" | "ssh";
@@ -241,9 +244,7 @@ export function profileActionForPaletteCommandId(
 export function parseProfilePickerQuery(
 	query: string,
 ): { action: ProfilePaletteAction; filter: string } | null {
-	const m = query
-		.trimStart()
-		.match(/^@profile:(new-tab|split-h|split-v|float)(?:\s+(.*))?$/i);
+	const m = query.trimStart().match(PROFILE_QUERY_REGEX);
 	if (!m) return null;
 	const action = m[1]!.toLowerCase() as ProfilePaletteAction;
 	return { action, filter: (m[2] ?? "").trim() };

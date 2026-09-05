@@ -11,6 +11,31 @@
  * profile/shell, path translation, and shell-appropriate quoting.
  */
 
+const SHELL_PATH_REGEX = /(^|[\\/])(bash|sh|zsh|ksh|dash)(\.exe)?$/;
+const MSYS_SHELL_REGEX = /git[- ]?bash|msys|cygwin/;
+const WINDOWS_PATH_REGEX = /^[A-Za-z]:\//;
+const UNC_PATH_REGEX = /^\/\/(?!\/)/;
+const WSL_PATH_REGEX = /^\/mnt\/[a-z]\//;
+const POSIX_PATH_REGEX = /^\/(?!\/)/;
+const WINDOWS_SOURCE_PATH_REGEX = /^[a-zA-Z]:[\\/]/;
+const UNC_SOURCE_PATH_REGEX = /^(\\\\|\/\/)/;
+const TRAILING_SEPARATOR_REGEX = /\/+$/;
+const WSL_NETWORK_PATH_REGEX = /^\/\/(?:wsl\$|wsl\.localhost)\/([^/]+)\/(.+)$/;
+const DRIVE_PATH_REGEX = /^([a-zA-Z]):\/(.*)$/;
+const WINDOWS_QUOTED_PATH_REGEX = /[\s"&|<>^%]/;
+const POSIX_QUOTED_PATH_REGEX = /[\s'"$`\\]/;
+const NEWLINE_REGEX = /[\r\n]/;
+const ABSOLUTE_WINDOWS_PATH_REGEX = /^[a-zA-Z]:[\\/]/;
+const UNC_OR_ROOT_PATH_REGEX = /^(\\\\|\/\/)/;
+const ROOTED_PATH_REGEX = /^[\\/]/;
+const WSL_DISTRO_PATH_REGEX = /^\/\/wsl(?:\$|\.localhost)\/([^/]+)\//;
+const MULTI_SEPARATOR_REGEX = /[\\/]+/;
+const MNT_DRIVE_PATH_REGEX = /^\/mnt\/([a-z])\/(.+)$/;
+const MSYS_DRIVE_PATH_REGEX = /^\/([a-zA-Z])\/(.+)$/;
+const UNC_PREFIX_REGEX = /^\\\\\?\\unc\\/i;
+const DEVICE_PREFIX_REGEX = /^\\\\\?\\/i;
+const UNC_QUERY_PREFIX_REGEX = /^\/\/\?\//i;
+
 export type PathStyle = "windows" | "msys" | "wsl" | "posix";
 
 export type PastePathSource = {
@@ -29,8 +54,7 @@ export function pathStyleForProfile(
 ): PathStyle {
 	if (profile?.kind === "wsl") return "wsl";
 	const shell = shellOverride.trim().replace(/\\/g, "/").toLowerCase();
-	return /(^|[\\/])(bash|sh|zsh|ksh|dash)(\.exe)?$/.test(shell) ||
-		/git[- ]?bash|msys|cygwin/.test(shell)
+	return SHELL_PATH_REGEX.test(shell) || MSYS_SHELL_REGEX.test(shell)
 		? "msys"
 		: "windows";
 }
@@ -41,7 +65,7 @@ export function sshPathStyleFromRemote(
 ): PathStyle {
 	if (remoteIsWindows === true) return "windows";
 	if (remoteIsWindows === false) return "posix";
-	if (cwd && (/^[A-Za-z]:[\\/]/.test(cwd) || cwd.startsWith("\\\\"))) {
+	if (cwd && (WINDOWS_SOURCE_PATH_REGEX.test(cwd) || cwd.startsWith("\\\\"))) {
 		return "windows";
 	}
 	return "posix";
@@ -49,9 +73,10 @@ export function sshPathStyleFromRemote(
 
 function inferPathStyle(path: string): PathStyle {
 	const fwd = path.replace(/\\/g, "/");
-	if (/^[A-Za-z]:\//.test(fwd) || /^\/\/(?!\/)/.test(fwd)) return "windows";
-	if (/^\/mnt\/[a-z]\//.test(fwd)) return "wsl";
-	if (/^\/(?!\/)/.test(fwd)) return "posix";
+	if (WINDOWS_PATH_REGEX.test(fwd) || UNC_PATH_REGEX.test(fwd))
+		return "windows";
+	if (WSL_PATH_REGEX.test(fwd)) return "wsl";
+	if (POSIX_PATH_REGEX.test(fwd)) return "posix";
 	return "windows";
 }
 
@@ -69,12 +94,12 @@ function translatePath(raw: string, style: PathStyle): string {
 	// \\wsl$\<distro>\... or \\wsl.localhost\<distro>\... — Linux filesystem
 	// paths. WSL strips the distro (the target distro's own filesystem); msys
 	// keeps the UNC server form, forward-slashed (//wsl$/distro/...).
-	const wsl = fwd.match(/^\/\/(?:wsl\$|wsl\.localhost)\/([^/]+)\/(.+)$/);
+	const wsl = fwd.match(WSL_NETWORK_PATH_REGEX);
 	if (wsl) {
 		return style === "wsl" ? `/${wsl[2]}` : fwd;
 	}
 	// C:\... -> /c/... (msys) or /mnt/c/... (wsl)
-	const drv = fwd.match(/^([a-zA-Z]):\/(.*)$/);
+	const drv = fwd.match(DRIVE_PATH_REGEX);
 	if (drv) {
 		const drive = drv[1].toLowerCase();
 		return style === "wsl" ? `/mnt/${drive}/${drv[2]}` : `/${drive}/${drv[2]}`;
@@ -86,10 +111,14 @@ function translatePath(raw: string, style: PathStyle): string {
 /** Quote a path for insertion into the pane shell's input. */
 export function quotePath(path: string, style: PathStyle): string {
 	if (style === "windows") {
-		return /[\s"&|<>^%]/.test(path) ? `"${path.replace(/"/g, '\\"')}"` : path;
+		return WINDOWS_QUOTED_PATH_REGEX.test(path)
+			? `"${path.replace(/"/g, '\\"')}"`
+			: path;
 	}
 	// msys, wsl, posix — shell-style quoting
-	return /[\s'"$`\\]/.test(path) ? `'${path.replace(/'/g, `'\\''`)}'` : path;
+	return POSIX_QUOTED_PATH_REGEX.test(path)
+		? `'${path.replace(/'/g, `'\\''`)}'`
+		: path;
 }
 
 /**
@@ -100,12 +129,12 @@ export function quotePath(path: string, style: PathStyle): string {
  */
 function isPathLike(text: string): boolean {
 	const trimmed = text.trim();
-	if (!trimmed || /[\r\n]/.test(trimmed)) return false;
+	if (!trimmed || NEWLINE_REGEX.test(trimmed)) return false;
 	const inner = stripMatchingQuotes(trimmed);
 	return (
-		/^[a-zA-Z]:[\\/]/.test(inner) || // C:\... or C:/...
-		/^(\\\\|\/\/)/.test(inner) || // \\server\share or //wsl$...
-		/^[\\/]/.test(inner) // \foo or /foo
+		ABSOLUTE_WINDOWS_PATH_REGEX.test(inner) || // C:\... or C:/...
+		UNC_OR_ROOT_PATH_REGEX.test(inner) || // \\server\share or //wsl$...
+		ROOTED_PATH_REGEX.test(inner) // \foo or /foo
 	);
 }
 
@@ -128,9 +157,7 @@ function stripMatchingQuotes(text: string): string {
  */
 function wslDistroFromCwd(cwd: string | null): string | null {
 	if (!cwd) return null;
-	const m = cwd
-		.replace(/\\/g, "/")
-		.match(/^\/\/wsl(?:\$|\.localhost)\/([^/]+)\//);
+	const m = cwd.replace(/\\/g, "/").match(WSL_DISTRO_PATH_REGEX);
 	return m ? m[1] : null;
 }
 
@@ -168,8 +195,8 @@ export function expandRelativePath(rel: string, cwd: string): string {
 	const isUnc = cwd.startsWith("\\\\");
 	const isPosix = cwd.startsWith("/");
 	const sep = isPosix ? "/" : "\\";
-	const parts = cwd.split(/[\\/]+/).filter(Boolean);
-	for (const seg of rel.split(/[\\/]+/)) {
+	const parts = cwd.split(MULTI_SEPARATOR_REGEX).filter(Boolean);
+	for (const seg of rel.split(MULTI_SEPARATOR_REGEX)) {
 		if (!seg || seg === ".") continue;
 		if (seg === "..") {
 			parts.pop();
@@ -196,18 +223,21 @@ export function expandRelativePath(rel: string, cwd: string): string {
  * Known limitation (mirrors `translatePath`): WSL drive-letter paths assume
  * the default `automount.root = /mnt` (`/mnt/c/...` → `C:\...`).
  */
+
 export function translatePathFromSource(
 	raw: string,
 	style: PathStyle,
 	sourceCwd: string | null,
 ): string {
 	const fwd = raw.replace(/\\/g, "/");
-	const posixAbs = /^\/(?!\/)/.test(fwd) && !/^[a-zA-Z]:\//.test(fwd);
-	const sourceIsPosix =
-		!!sourceCwd && sourceCwd.replace(/\\/g, "/").startsWith("/");
+	const posixAbs = POSIX_PATH_REGEX.test(fwd) && !WINDOWS_PATH_REGEX.test(fwd);
+	const sourceIsPosix = sourceCwd?.replace(/\\/g, "/").startsWith("/");
 
 	if (style === "posix") {
-		if (/^[a-zA-Z]:[\\/]/.test(fwd) || /^(\\\\|\/\/)/.test(fwd)) {
+		if (
+			WINDOWS_SOURCE_PATH_REGEX.test(fwd) ||
+			UNC_SOURCE_PATH_REGEX.test(fwd)
+		) {
 			return translatePath(fwd, "posix");
 		}
 		return fwd;
@@ -216,20 +246,20 @@ export function translatePathFromSource(
 	if (style === "windows") {
 		if (!posixAbs) return raw;
 		// /mnt/c/... → C:\... (default automount root)
-		const mnt = fwd.match(/^\/mnt\/([a-z])\/(.+)$/);
+		const mnt = fwd.match(MNT_DRIVE_PATH_REGEX);
 		if (mnt) return `${mnt[1].toUpperCase()}:\\${mnt[2].replace(/\//g, "\\")}`;
 		// /home/user/... → \\wsl$\<distro>\home\user\...
 		const distro = wslDistroFromCwd(sourceCwd);
 		if (distro) return `\\\\wsl$\\${distro}${fwd.replace(/\//g, "\\")}`;
 		// /c/... → C:\... — msys drive form, only from a Windows-shell pane
-		const msys = fwd.match(/^\/([a-zA-Z])\/(.+)$/);
+		const msys = fwd.match(MSYS_DRIVE_PATH_REGEX);
 		if (msys && !sourceIsPosix) {
 			return `${msys[1].toUpperCase()}:\\${msys[2].replace(/\//g, "\\")}`;
 		}
 		return raw;
 	}
 
-	if (/^[a-zA-Z]:[\\/]/.test(fwd) || /^(\\\\|\/\/)/.test(fwd)) {
+	if (WINDOWS_SOURCE_PATH_REGEX.test(fwd) || UNC_SOURCE_PATH_REGEX.test(fwd)) {
 		return translatePath(fwd, style);
 	}
 
@@ -240,7 +270,7 @@ export function translatePathFromSource(
 	}
 
 	// WSL target: /c/... → /mnt/c/... (msys drive form from a Windows shell).
-	const msys = fwd.match(/^\/([a-zA-Z])\/(.+)$/);
+	const msys = fwd.match(MSYS_DRIVE_PATH_REGEX);
 	if (msys && !sourceIsPosix) {
 		return `/mnt/${msys[1].toLowerCase()}/${msys[2]}`;
 	}
@@ -251,10 +281,10 @@ export function translatePathFromSource(
 export function normalizeFsPathKey(p: string): string {
 	return p
 		.trim()
-		.replace(/^\\\\\?\\unc\\/i, "\\\\")
-		.replace(/^\\\\\?\\/i, "")
-		.replace(/^\/\/?\?\//i, "")
+		.replace(UNC_PREFIX_REGEX, "\\\\")
+		.replace(DEVICE_PREFIX_REGEX, "")
+		.replace(UNC_QUERY_PREFIX_REGEX, "")
 		.replace(/\\/g, "/")
-		.replace(/\/+$/, "")
+		.replace(TRAILING_SEPARATOR_REGEX, "")
 		.toLowerCase();
 }

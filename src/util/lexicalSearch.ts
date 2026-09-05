@@ -4,15 +4,15 @@
  * (e.g. "git dark" → "GitHub — Dark").
  */
 
+const WHITESPACE_RE = /\s+/;
+const NON_ALPHANUMERIC_RE = /[^a-z0-9]+/;
+
 export function normalizeQuery(raw: string): string[] {
-	return raw.trim().toLowerCase().split(/\s+/).filter(Boolean);
+	return raw.trim().toLowerCase().split(WHITESPACE_RE).filter(Boolean);
 }
 
 function tokenize(s: string): string[] {
-	return s
-		.toLowerCase()
-		.split(/[^a-z0-9]+/)
-		.filter(Boolean);
+	return s.toLowerCase().split(NON_ALPHANUMERIC_RE).filter(Boolean);
 }
 
 export type LexicalSearchItem = {
@@ -50,10 +50,10 @@ function scoreLexicalMatch(
 	let score = 0;
 
 	if (label === q) score += 10_000;
-	else if (label.startsWith(q)) score += 5_000;
+	else if (label.startsWith(q)) score += 5000;
 
 	if (parts.every((p) => partMatches(p, label, labelTokens))) {
-		score += 2_000;
+		score += 2000;
 		score += Math.max(0, 400 - labelTokens.length * 80);
 		const covered = labelTokens.filter((w) =>
 			parts.some((p) => w === p || w.startsWith(p)),

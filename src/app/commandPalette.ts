@@ -139,7 +139,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 				del.addEventListener("click", (e) => {
 					e.preventDefault();
 					e.stopPropagation();
-					void Promise.resolve(cmd.remove?.()).then(() => {
+					Promise.resolve(cmd.remove?.()).then(() => {
 						applyFilter();
 					});
 				});
@@ -196,7 +196,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 		if (open || opening) return;
 		opening = true;
 		pendingOpen = opts ?? null;
-		void (async () => {
+		(async () => {
 			try {
 				await onBeforeOpen?.();
 				if (open) return;
@@ -257,7 +257,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 		const idx = Number((t as HTMLElement).dataset.index);
 		if (Number.isFinite(idx) && idx >= 0 && idx < filtered.length) {
 			selected = idx;
-			void runSelected();
+			runSelected();
 		}
 	}
 
@@ -284,7 +284,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 		if (e.key === "Enter") {
 			e.preventDefault();
 			e.stopPropagation();
-			void runSelected();
+			runSelected();
 			return;
 		}
 		if (e.key === "Tab" && onTabComplete) {
@@ -311,7 +311,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 			if (cmd) {
 				e.preventDefault();
 				e.stopPropagation();
-				void runCommand(cmd);
+				runCommand(cmd);
 			}
 		}
 	}

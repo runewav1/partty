@@ -246,6 +246,7 @@ export function createThemeModal(
 			onPreview(picked, next);
 			close();
 		} catch (e) {
+			// biome-ignore lint/suspicious/noConsole: Theme commit failures must remain visible during development.
 			console.error("theme commit", e);
 		}
 	}

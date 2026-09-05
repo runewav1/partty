@@ -1,4 +1,12 @@
 /** Tracked foreground command in a pane (shell-integration observed). */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: Strip terminal control characters from shell-integration payloads.
+const CONTROL_CHARACTERS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+const QUOTED_COMMAND = /^(['"])(.+?)\1/;
+const COMMAND_TOKEN = /^[^\s|&;<>]+/;
+const WHITESPACE = /\s+/;
+const HAS_WHITESPACE = /\s/;
+const PATH_SEPARATOR = /[\\/]/;
+
 export type ActiveProcessEntry = {
 	command: string;
 	startedAt: number;
@@ -8,16 +16,16 @@ export type ActiveProcessEntry = {
 };
 
 function normalizeCommandLine(command: string): string {
-	return command.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "").trim();
+	return command.replace(CONTROL_CHARACTERS, "").trim();
 }
 
 function firstCommandWord(command: string): string {
 	const trimmed = normalizeCommandLine(command);
 	if (!trimmed) return "";
-	const quoted = trimmed.match(/^(['"])(.+?)\1/);
+	const quoted = trimmed.match(QUOTED_COMMAND);
 	if (quoted) return quoted[2] ?? trimmed;
-	const token = trimmed.match(/^[^\s|&;<>]+/);
-	return token?.[0] ?? trimmed.split(/\s+/)[0] ?? trimmed;
+	const token = trimmed.match(COMMAND_TOKEN);
+	return token?.[0] ?? trimmed.split(WHITESPACE)[0] ?? trimmed;
 }
 
 /**
@@ -44,7 +52,7 @@ export function mergeProcessCommand(current: string, incoming: string): string {
 	}
 
 	// Bare fragment that appears as a token inside the current line.
-	const curTokens = cur.split(/\s+/);
+	const curTokens = cur.split(WHITESPACE);
 	if (curTokens.some((t) => t.toLowerCase() === incLower)) return cur;
 	if (inc.length < cur.length) return cur;
 
@@ -55,7 +63,7 @@ export function mergeProcessCommand(current: string, incoming: string): string {
 export function displayProcessCommand(command: string): string {
 	const normalized = normalizeCommandLine(command);
 	if (!normalized) return "";
-	if (/\s/.test(normalized)) return normalized;
+	if (HAS_WHITESPACE.test(normalized)) return normalized;
 	return normalized;
 }
 
@@ -78,7 +86,7 @@ export function truncateEnd(text: string, max: number): string {
  */
 export function truncatePathTail(path: string, max: number): string {
 	if (path.length <= max) return path;
-	const parts = path.split(/[\\/]/).filter(Boolean);
+	const parts = path.split(PATH_SEPARATOR).filter(Boolean);
 	if (parts.length < 2) return truncateEnd(path, max);
 	let tail = parts[parts.length - 1];
 	for (let i = parts.length - 2; i >= 0; i--) {

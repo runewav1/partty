@@ -31,7 +31,7 @@ function validatePaneTree(node: unknown): node is PaneNode {
 		const ratio = o.ratio;
 		if (dir !== "h" && dir !== "v") return false;
 		if (typeof ratio !== "number" || ratio < 0.05 || ratio > 0.95) return false;
-		if (!validatePaneTree(o.a) || !validatePaneTree(o.b)) return false;
+		if (!(validatePaneTree(o.a) && validatePaneTree(o.b))) return false;
 		return true;
 	}
 	return false;
@@ -73,6 +73,6 @@ export function isLayoutValidForRoot(
 	rootId: string,
 ): boolean {
 	return (
-		validatePaneTree(layout.tree) && findPaneLeaf(layout.tree, rootId) != null
+		validatePaneTree(layout.tree) && findPaneLeaf(layout.tree, rootId) !== null
 	);
 }

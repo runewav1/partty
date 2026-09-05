@@ -20,7 +20,7 @@ export function createDevMetricsOverlay(
 	const { root, getFocusedPaneId } = opts;
 	let visible = false;
 	let timer = 0;
-	const UPDATE_INTERVAL_MS = 250;
+	const UpdateIntervalMs = 250;
 
 	const el = document.createElement("div");
 	el.id = "dev-metrics-overlay";
@@ -64,17 +64,17 @@ export function createDevMetricsOverlay(
 	attachDraggablePanel(el, handle, DEV_OVERLAY_POS_KEY);
 
 	function fmtBytes(n: number): string {
-		if (n >= 1073741824) return `${(n / 1073741824).toFixed(1)} GiB`;
-		if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MiB`;
+		if (n >= 1_073_741_824) return `${(n / 1_073_741_824).toFixed(1)} GiB`;
+		if (n >= 1_048_576) return `${(n / 1_048_576).toFixed(1)} MiB`;
 		if (n >= 1024) return `${(n / 1024).toFixed(1)} KiB`;
 		return `${n.toFixed(0)} B`;
 	}
 
 	function fmtRate(bytesPerSec: number): string {
-		if (bytesPerSec >= 1073741824)
-			return `${(bytesPerSec / 1073741824).toFixed(1)} GiB/s`;
-		if (bytesPerSec >= 1048576)
-			return `${(bytesPerSec / 1048576).toFixed(1)} MiB/s`;
+		if (bytesPerSec >= 1_073_741_824)
+			return `${(bytesPerSec / 1_073_741_824).toFixed(1)} GiB/s`;
+		if (bytesPerSec >= 1_048_576)
+			return `${(bytesPerSec / 1_048_576).toFixed(1)} MiB/s`;
 		if (bytesPerSec >= 1024) return `${(bytesPerSec / 1024).toFixed(1)} KiB/s`;
 		return `${bytesPerSec.toFixed(0)} B/s`;
 	}
@@ -183,7 +183,7 @@ export function createDevMetricsOverlay(
 				}
 			}
 
-			html += `</div></div>`;
+			html += "</div></div>";
 		}
 		container.innerHTML = html;
 	}
@@ -205,7 +205,7 @@ export function createDevMetricsOverlay(
 		);
 		if (globalContainer) updateGlobal(globalContainer);
 		if (paneContainer) updatePanes(paneContainer);
-		timer = window.setTimeout(tick, UPDATE_INTERVAL_MS);
+		timer = window.setTimeout(tick, UpdateIntervalMs);
 	}
 
 	function show(): void {

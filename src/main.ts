@@ -149,6 +149,7 @@ import {
 	type PaneHostInit,
 	type PaneTerminal,
 	type SplitLayoutStyle,
+	type XtermFontWeight,
 } from "./terminal/paneHost";
 import {
 	emptyTabLayout,
@@ -243,8 +244,7 @@ function ptyDims(fit: FitAddon): { cols: number; rows: number } | null {
 	const cols = Math.floor(Number(d.cols));
 	const rows = Math.floor(Number(d.rows));
 	if (
-		!Number.isFinite(cols) ||
-		!Number.isFinite(rows) ||
+		!(Number.isFinite(cols) && Number.isFinite(rows)) ||
 		cols < 2 ||
 		rows < 1
 	) {
@@ -258,16 +258,16 @@ function clampPtyColsRows(
 	rows: number,
 ): { cols: number; rows: number } {
 	return {
-		cols: Math.max(2, Math.min(65535, Math.floor(cols))),
-		rows: Math.max(1, Math.min(65535, Math.floor(rows))),
+		cols: Math.max(2, Math.min(65_535, Math.floor(cols))),
+		rows: Math.max(1, Math.min(65_535, Math.floor(rows))),
 	};
 }
 
 function scheduleIdle(cb: () => void, timeout = IDLE_WEBGL_MS): void {
-	if (typeof requestIdleCallback !== "undefined") {
-		requestIdleCallback(() => cb(), { timeout });
-	} else {
+	if (typeof requestIdleCallback === "undefined") {
 		setTimeout(cb, 1);
+	} else {
+		requestIdleCallback(() => cb(), { timeout });
 	}
 }
 
@@ -421,7 +421,9 @@ function terminalFontStackFromDocument(): string {
 
 async function boot(): Promise<void> {
 	if (!import.meta.env.DEV) {
-		document.querySelectorAll("[data-dev-only]").forEach((el) => el.remove());
+		document.querySelectorAll("[data-dev-only]").forEach((el) => {
+			el.remove();
+		});
 	}
 	const k = createKeybinds();
 
@@ -803,7 +805,7 @@ async function boot(): Promise<void> {
 	};
 	const processNotificationShowForRef = {
 		v: ((p) =>
-			Number.isFinite(p) ? Math.max(1000, Math.min(30000, p)) : 5000)(
+			Number.isFinite(p) ? Math.max(1000, Math.min(30_000, p)) : 5000)(
 			(persisted.prefs as Partial<ParttyPrefs>).process_notification_show_for ??
 				5000,
 		),
@@ -1012,9 +1014,9 @@ async function boot(): Promise<void> {
 
 	// ConPTY input buffers are small (~1–2KB). Fast shells drain fine; busy TUIs
 	// (OpenCode, etc.) don't — a single large write silently drops. Chunk + pace.
-	const PTY_BULK_CHARS = 512;
-	const PTY_CHUNK_CHARS = 256;
-	const PTY_CHUNK_DELAY_MS = 4;
+	const PtyBulkChars = 512;
+	const PtyChunkChars = 256;
+	const PtyChunkDelayMs = 4;
 	/** Serializes bulk/chunked writes per pane so they don't race RAF keystrokes. */
 	const ptyBulkWriteTailByPane = new Map<string, Promise<void>>();
 	const ptyBulkActiveByPane = new Set<string>();
@@ -1060,7 +1062,7 @@ async function boot(): Promise<void> {
 	};
 
 	const isBulkPtyInput = (data: string): boolean =>
-		data.length > PTY_BULK_CHARS || data.includes("\x1b[200~");
+		data.length > PtyBulkChars || data.includes("\x1b[200~");
 
 	const sleepMs = (ms: number): Promise<void> =>
 		new Promise((resolve) => setTimeout(resolve, ms));
@@ -1090,13 +1092,13 @@ async function boot(): Promise<void> {
 							console.error("pty_write", e),
 						);
 					}
-					for (let i = 0; i < data.length; i += PTY_CHUNK_CHARS) {
-						const chunk = data.slice(i, i + PTY_CHUNK_CHARS);
+					for (let i = 0; i < data.length; i += PtyChunkChars) {
+						const chunk = data.slice(i, i + PtyChunkChars);
 						await ptyWrite(sessionId, chunk).catch((e) =>
 							console.error("pty_write", e),
 						);
-						if (i + PTY_CHUNK_CHARS < data.length) {
-							await sleepMs(PTY_CHUNK_DELAY_MS);
+						if (i + PtyChunkChars < data.length) {
+							await sleepMs(PtyChunkDelayMs);
 						}
 					}
 				} finally {
@@ -1560,15 +1562,15 @@ async function boot(): Promise<void> {
 		const tab = tabsState.tabs.find((t) => t.id === tabId);
 		if (!tab) return;
 		let dirty = false;
-		if (!tab.userName) {
+		if (tab.userName) {
+			dirty = true;
+		} else {
 			const next = autoTabNameFromPane(paneNameParts(paneId));
 			if (tab.name !== next) {
 				tab.name = next;
 				saveTabsState(tabsState);
 				dirty = true;
 			}
-		} else {
-			dirty = true;
 		}
 		if (dirty) renderTabsBar();
 	}
@@ -1617,7 +1619,7 @@ async function boot(): Promise<void> {
 		if (!id) return;
 		const ownerHost = getPaneHostByPaneId(id);
 		const activeHost = paneHost;
-		if (!ownerHost || !activeHost) return;
+		if (!(ownerHost && activeHost)) return;
 
 		if (
 			ownerHost === activeHost &&
@@ -1837,7 +1839,7 @@ async function boot(): Promise<void> {
 
 	function toggleFocusedPaneFloating(): boolean {
 		const id = focusedPaneId();
-		if (!id || !paneHost) return false;
+		if (!(id && paneHost)) return false;
 		const ownerHost = getPaneHostByPaneId(id);
 		if (!ownerHost) return false;
 
@@ -1941,7 +1943,7 @@ async function boot(): Promise<void> {
 
 	function zoomPaneTerminal(paneId: string, direction: number): void {
 		const pt = paneHost?.getPaneTerminal(paneId);
-		if (!pt || !paneHost) return;
+		if (!(pt && paneHost)) return;
 		const current = Number(pt.term.options.fontSize ?? 12);
 		const next = Math.max(6, Math.min(32, current + direction));
 		if (next === current) return;
@@ -1981,7 +1983,7 @@ async function boot(): Promise<void> {
 		const fast = ev.altKey
 			? Math.max(1, Number(term.options.fastScrollSensitivity) || 5)
 			: 1;
-		const delta = ev.deltaY !== 0 ? ev.deltaY : ev.deltaX;
+		const delta = ev.deltaY === 0 ? ev.deltaX : ev.deltaY;
 		let lines: number;
 		if (ev.deltaMode === WheelEvent.DOM_DELTA_LINE) {
 			lines = delta * sens;
@@ -2167,10 +2169,7 @@ async function boot(): Promise<void> {
 			}
 
 			if (
-				!e.ctrlKey &&
-				!e.shiftKey &&
-				!e.altKey &&
-				!e.metaKey &&
+				!(e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) &&
 				e.key === "Backspace" &&
 				term.hasSelection() &&
 				backspaceDeleteSelectionRef.v
@@ -2640,7 +2639,7 @@ async function boot(): Promise<void> {
 		tabsState.tabs.find((t) => t.id === tabsState.activeTabId)?.id ??
 		tabsState.tabs[0]?.id ??
 		"tab-1";
-	tabsState = { ...tabsState, activeTabId: activeTabId };
+	tabsState = { ...tabsState, activeTabId };
 	saveTabsState(tabsState);
 	const tabPaneHosts = new Map<string, PaneHost>();
 	const tabPaneShells = new Map<string, HTMLElement>();
@@ -2765,8 +2764,12 @@ async function boot(): Promise<void> {
 			}
 		}
 		if (planned.length === 0) return;
-		planned.forEach((move, i) => retargetPaneId(move.host, move.from, `#${i}`));
-		planned.forEach((move, i) => retargetPaneId(move.host, `#${i}`, move.to));
+		planned.forEach((move, i) => {
+			retargetPaneId(move.host, move.from, `#${i}`);
+		});
+		planned.forEach((move, i) => {
+			retargetPaneId(move.host, `#${i}`, move.to);
+		});
 	}
 
 	function layoutNeedsLiveHost(layout: PersistedPaneLayout): boolean {
@@ -2831,7 +2834,7 @@ async function boot(): Promise<void> {
 	let lastPointerPos: { x: number; y: number } | null = null;
 
 	function focusPaneUnderPointer(): void {
-		if (!focusFollowsRef.v || !lastPointerPos) return;
+		if (!(focusFollowsRef.v && lastPointerPos)) return;
 		const leaf = document
 			.elementFromPoint(lastPointerPos.x, lastPointerPos.y)
 			?.closest(".pane-leaf") as HTMLElement | null;
@@ -2852,7 +2855,7 @@ async function boot(): Promise<void> {
 				.elementFromPoint(ev.clientX, ev.clientY)
 				?.closest(".pane-leaf") as HTMLElement | null;
 			const id = leaf?.dataset.paneId;
-			if (!id || !getPaneHostByPaneId(id)) return;
+			if (!(id && getPaneHostByPaneId(id))) return;
 			const current = focusedPaneId();
 			if (id === current) return;
 			pendingPointerFocusId = id;
@@ -2884,7 +2887,7 @@ async function boot(): Promise<void> {
 		opts: CursorWarpOptions = {},
 	): void {
 		if (!cursorWarpReady) return;
-		if (!opts.bypassPanePref && !cursorFollowPaneFocusRef.v) return;
+		if (!(opts.bypassPanePref || cursorFollowPaneFocusRef.v)) return;
 		if (!opts.force && focusFollowsRef.v) return;
 
 		const run = (): void => {
@@ -3090,7 +3093,7 @@ async function boot(): Promise<void> {
 						handlePaneHostWheel(pt.paneId, ev);
 					pt.host.addEventListener("wheel", onHostWheel, { passive: false });
 					const onSelDispose = pt.term.onSelectionChange(() => {
-						if (!autoCopySelectionRef.v || !pt.term.hasSelection()) return;
+						if (!(autoCopySelectionRef.v && pt.term.hasSelection())) return;
 						copyToClipboard(pt.term.getSelection());
 					});
 
@@ -3272,7 +3275,7 @@ async function boot(): Promise<void> {
 	function layoutForPaneHost(host: PaneHost): PersistedPaneLayout | null {
 		const tree = host.getTree();
 		const rid = host.getRootPaneId();
-		if (!tree || !findPaneLeaf(tree, rid)) return null;
+		if (!(tree && findPaneLeaf(tree, rid))) return null;
 		const panes = host.getPaneDescriptors();
 		return {
 			v: 1,
@@ -3547,7 +3550,7 @@ async function boot(): Promise<void> {
 		const sourceTabId = activeTabId;
 		const sourceHost = paneHost;
 		const paneId = sourceHost?.getFocusedPaneId();
-		if (!sourceHost || !paneId) return;
+		if (!(sourceHost && paneId)) return;
 
 		const closingSourceTab = sourceHost.isPristineRootTab();
 		const pt = takePaneForTransfer(sourceHost, paneId);
@@ -3571,7 +3574,7 @@ async function boot(): Promise<void> {
 		if (existing) {
 			targetTabId = existing.id;
 			const host = ensureTabPaneHost(targetTabId);
-			if (!host || !receiveTransferredPane(host, paneId, pt)) {
+			if (!(host && receiveTransferredPane(host, paneId, pt))) {
 				sourceHost.restoreTakenPane(paneId, pt);
 				return;
 			}
@@ -3760,7 +3763,7 @@ async function boot(): Promise<void> {
 		const form = modal?.querySelector(
 			".tab-rename-form",
 		) as HTMLFormElement | null;
-		if (!modal || !input || !form) return;
+		if (!(modal && input && form)) return;
 		const tab = tabsState.tabs.find((t) => t.id === renamingTabId);
 		input.value = tab?.name ?? "";
 		modal.classList.remove("tab-rename-modal--hidden");
@@ -4295,7 +4298,6 @@ async function boot(): Promise<void> {
 				e.preventDefault();
 				e.stopPropagation();
 				void setWindowMaximized(false);
-				return;
 			}
 		},
 		true,
@@ -4307,7 +4309,7 @@ async function boot(): Promise<void> {
 			const target = e.target as HTMLElement | null;
 			if (!target) return;
 			const terminalRoot = document.getElementById("terminal-pane-root");
-			if (!terminalRoot || !terminalRoot.contains(target)) return;
+			if (!terminalRoot?.contains(target)) return;
 			if (
 				target.closest(
 					"input, textarea, select, button, [contenteditable='true']",
@@ -4492,9 +4494,9 @@ async function boot(): Promise<void> {
 					e.stopPropagation();
 					const from = tabDragId;
 					tabDragId = null;
-					document
-						.querySelectorAll(".term-tab--dragging")
-						.forEach((el) => el.classList.remove("term-tab--dragging"));
+					document.querySelectorAll(".term-tab--dragging").forEach((el) => {
+						el.classList.remove("term-tab--dragging");
+					});
 					if (!from) return;
 					tabsState = {
 						...tabsState,
@@ -4658,12 +4660,12 @@ async function boot(): Promise<void> {
 		tabDragId = null;
 		groupDragId = null;
 		suppressTabClickUntilMs = performance.now() + 150;
-		document
-			.querySelectorAll(".term-tab--dragging")
-			.forEach((el) => el.classList.remove("term-tab--dragging"));
-		document
-			.querySelectorAll(".term-tab-group--dragging")
-			.forEach((el) => el.classList.remove("term-tab-group--dragging"));
+		document.querySelectorAll(".term-tab--dragging").forEach((el) => {
+			el.classList.remove("term-tab--dragging");
+		});
+		document.querySelectorAll(".term-tab-group--dragging").forEach((el) => {
+			el.classList.remove("term-tab-group--dragging");
+		});
 
 		// Handle tab reordering
 		if (fromTab) {
@@ -4671,7 +4673,7 @@ async function boot(): Promise<void> {
 				".term-tab",
 			) as HTMLElement | null;
 			const toTabId = over?.dataset.tabId;
-			if (!fromTab || !toTabId || fromTab === toTabId) return;
+			if (!(fromTab && toTabId) || fromTab === toTabId) return;
 			const a = tabsState.tabs.findIndex((x) => x.id === fromTab);
 			const b = tabsState.tabs.findIndex((x) => x.id === toTabId);
 			if (a < 0 || b < 0) return;
@@ -4679,7 +4681,9 @@ async function boot(): Promise<void> {
 			const [mv] = next.splice(a, 1);
 			next.splice(b, 0, mv);
 			// Update order values
-			next.forEach((tab, i) => (tab.order = i));
+			next.forEach((tab, i) => {
+				tab.order = i;
+			});
 			tabsState = { ...tabsState, tabs: next };
 			saveTabsState(tabsState);
 			syncLivePaneIds();
@@ -4694,7 +4698,7 @@ async function boot(): Promise<void> {
 			const toGroup = tabsState.groups.find((g) =>
 				over?.textContent?.includes(g.name),
 			);
-			if (!fromGroup || !toGroup || fromGroup === toGroup.id) return;
+			if (!(fromGroup && toGroup) || fromGroup === toGroup.id) return;
 			const a = tabsState.groups.findIndex((x) => x.id === fromGroup);
 			const b = tabsState.groups.findIndex((x) => x.id === toGroup.id);
 			if (a < 0 || b < 0) return;
@@ -4702,7 +4706,9 @@ async function boot(): Promise<void> {
 			const [mv] = next.splice(a, 1);
 			next.splice(b, 0, mv);
 			// Update order values
-			next.forEach((group, i) => (group.order = i));
+			next.forEach((group, i) => {
+				group.order = i;
+			});
 			tabsState = { ...tabsState, groups: next };
 			saveTabsState(tabsState);
 			renderTabsBar();
@@ -4796,9 +4802,8 @@ async function boot(): Promise<void> {
 	}
 
 	const ensureThemeModal = (): Promise<ThemeModalApi | null> =>
-		!themeModalRoot
-			? Promise.resolve(null)
-			: themeModalLazy.ensure(async () => {
+		themeModalRoot
+			? themeModalLazy.ensure(async () => {
 					const { createThemeModal } = await import("./app/themeModal");
 					return createThemeModal(
 						themeModalRoot as HTMLElement,
@@ -4820,7 +4825,8 @@ async function boot(): Promise<void> {
 						},
 						resetThemeModalTarget,
 					);
-				});
+				})
+			: Promise.resolve(null);
 
 	function openFocusedPaneTheme(): void {
 		const paneId = paneHost?.getFocusedPaneId();
@@ -4853,9 +4859,8 @@ async function boot(): Promise<void> {
 	const settingsLazy = lazyCell<SettingsPanelApi>();
 
 	const ensureSettingsPanel = (): Promise<SettingsPanelApi | null> =>
-		!settingsPanelEl
-			? Promise.resolve(null)
-			: settingsLazy.ensure(async () => {
+		settingsPanelEl
+			? settingsLazy.ensure(async () => {
 					const { createSettingsPanel } = await import("./app/settingsPanel");
 					const card = settingsPanelEl.querySelector(".settings-panel-card");
 					const head = settingsPanelEl.querySelector(".settings-panel-head");
@@ -4897,7 +4902,7 @@ async function boot(): Promise<void> {
 										{},
 								),
 							};
-							void (profilesReady = refreshProfilesList());
+							profilesReady = refreshProfilesList();
 							disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
 							altClickCursorRef.v =
 								saved.terminal_alt_click_moves_cursor ?? true;
@@ -4956,7 +4961,7 @@ async function boot(): Promise<void> {
 							if (typeof showFor === "number" && Number.isFinite(showFor)) {
 								processNotificationShowForRef.v = Math.max(
 									1000,
-									Math.min(30000, showFor),
+									Math.min(30_000, showFor),
 								);
 							}
 							processNotificationShowMsRef.v =
@@ -5047,14 +5052,14 @@ async function boot(): Promise<void> {
 						// tab-switch focus approach; settings never changes tabs/panes).
 						focusActiveTerminal,
 					);
-				});
+				})
+			: Promise.resolve(null);
 
 	const extManagerLazy = lazyCell<ExtensionManagerApi>();
 
 	const ensureExtensionManager = (): Promise<ExtensionManagerApi | null> =>
-		!extManagerEl
-			? Promise.resolve(null)
-			: extManagerLazy.ensure(async () => {
+		extManagerEl
+			? extManagerLazy.ensure(async () => {
 					const { createExtensionManager } = await import(
 						"./app/extensionManager"
 					);
@@ -5063,7 +5068,8 @@ async function boot(): Promise<void> {
 						.querySelector("#ext-close")
 						?.addEventListener("click", () => api.close());
 					return api;
-				});
+				})
+			: Promise.resolve(null);
 
 	window.addEventListener(
 		"keydown",
@@ -5129,7 +5135,7 @@ async function boot(): Promise<void> {
 		"contextmenu",
 		(e) => {
 			const target = e.target as Node | null;
-			if (!target || !terminalContent?.contains(target)) return;
+			if (!(target && terminalContent?.contains(target))) return;
 			e.preventDefault();
 			if (!rightClickPasteRef.v) {
 				getFocusedTerm()?.focus();
@@ -5191,8 +5197,8 @@ async function boot(): Promise<void> {
 				t.options.cursorWidth = cursorWidthRef.v;
 				t.options.altClickMovesCursor = altClickCursorRef.v;
 				t.options.fontSize = fontSizeRef.v;
-				t.options.fontWeight = fontWeightRef.v as any;
-				t.options.fontWeightBold = fontWeightBoldRef.v as any;
+				t.options.fontWeight = fontWeightRef.v as XtermFontWeight;
+				t.options.fontWeightBold = fontWeightBoldRef.v as XtermFontWeight;
 				t.options.lineHeight = lineHeightRef.v;
 				t.options.letterSpacing = letterSpacingRef.v;
 				t.options.drawBoldTextInBrightColors = drawBoldBrightRef.v;
@@ -5593,7 +5599,7 @@ async function boot(): Promise<void> {
 		}
 	}
 
-	const PROFILE_ACTION_LABEL: Record<ProfilePaletteAction, string> = {
+	const ProfileActionLabel: Record<ProfilePaletteAction, string> = {
 		"new-tab": "New tab",
 		"split-h": "Split right",
 		"split-v": "Split down",
@@ -5653,10 +5659,10 @@ async function boot(): Promise<void> {
 		action: ProfilePaletteAction,
 		filter: string,
 	): PaletteCommand[] {
-		const actionLabel = PROFILE_ACTION_LABEL[action];
-		const idToAlias = !filter.trim()
-			? profileIdAliasMap(profileBehaviorRef.v.profile_selection_aliases)
-			: null;
+		const actionLabel = ProfileActionLabel[action];
+		const idToAlias = filter.trim()
+			? null
+			: profileIdAliasMap(profileBehaviorRef.v.profile_selection_aliases);
 		// Same token-based ranking as the palette / theme / workspace search.
 		const ranked = filterAndRankLexical(
 			profilesList.map((p) => ({
@@ -6020,7 +6026,7 @@ async function boot(): Promise<void> {
 						closeHelpPanel();
 						// Don't block open on profile re-detection (shell/WSL probes).
 						// Cache from boot / settings save is enough; refresh in background.
-						void (profilesReady = refreshProfilesList());
+						profilesReady = refreshProfilesList();
 					},
 					onClosed: () => {
 						profilePickerSession = null;
@@ -6032,8 +6038,7 @@ async function boot(): Promise<void> {
 					onTabComplete: (currentInput: string, selected) => {
 						if (
 							currentInput.startsWith("@pane:") &&
-							selected &&
-							selected.id.startsWith("pane-target-")
+							selected?.id.startsWith("pane-target-")
 						) {
 							return `@pane:${selected.id.slice("pane-target-".length)} `;
 						}
@@ -6298,7 +6303,17 @@ async function boot(): Promise<void> {
 		if (!lp.destroy_webview_on_hide) return;
 
 		const buffers: Record<string, string> = {};
-		if (!lp.discard_buffer_on_hide) {
+		if (lp.discard_buffer_on_hide) {
+			for (const host of tabPaneHosts.values()) {
+				host.forEachPane((_id, pt) => {
+					try {
+						pt.term.reset();
+					} catch {
+						/* ignore */
+					}
+				});
+			}
+		} else {
 			const jobs: Promise<void>[] = [];
 			for (const host of tabPaneHosts.values()) {
 				host.forEachPane((id, pt) => {
@@ -6322,16 +6337,6 @@ async function boot(): Promise<void> {
 				});
 			}
 			await Promise.all(jobs);
-		} else {
-			for (const host of tabPaneHosts.values()) {
-				host.forEachPane((_id, pt) => {
-					try {
-						pt.term.reset();
-					} catch {
-						/* ignore */
-					}
-				});
-			}
 		}
 
 		try {
@@ -6937,7 +6942,7 @@ async function boot(): Promise<void> {
 					if (typeof paneId !== "string" || !paneId) return null;
 					const found = getPaneTerminalById(paneId);
 					const element = found?.term.element;
-					if (!found || !element) return null;
+					if (!(found && element)) return null;
 					// Non-nullable locals so closures keep their types.
 					const term = found.term;
 

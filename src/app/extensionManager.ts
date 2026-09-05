@@ -57,20 +57,18 @@ export function createExtensionManager(el: HTMLElement): ExtensionManagerApi {
 			)
 			.join("");
 
-		list
-			.querySelectorAll<HTMLInputElement>(
-				".settings-checkbox-input[data-ext-id]",
-			)
-			.forEach((input) => {
-				input.addEventListener("change", async () => {
-					const id = input.dataset.extId!;
-					const enabled = input.checked;
-					await invoke("set_extension_enabled", { id, enabled }).catch(
-						() => {},
-					);
-					setTimeout(() => render(), 100);
+		for (const input of list.querySelectorAll<HTMLInputElement>(
+			".settings-checkbox-input[data-ext-id]",
+		)) {
+			input.addEventListener("change", async () => {
+				const id = input.dataset.extId!;
+				const enabled = input.checked;
+				await invoke("set_extension_enabled", { id, enabled }).catch(() => {
+					// Keep the current UI state when persistence fails.
 				});
+				setTimeout(() => render(), 100);
 			});
+		}
 	}
 
 	function esc(s: string): string {
@@ -110,6 +108,8 @@ export function createExtensionManager(el: HTMLElement): ExtensionManagerApi {
 		},
 		close: closeImpl,
 		isOpen: () => open,
-		dispose: () => {},
+		dispose: () => {
+			// The panel has no resources beyond the shared DOM mount.
+		},
 	};
 }

@@ -1,0 +1,140 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.12/schema.json",
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	},
+	"files": {
+		"includes": [
+			"**",
+			"!!**/dist",
+			"!!**/node_modules",
+			"!!**/src/vendor",
+			"!!**/*.css"
+		]
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab"
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "recommended",
+			"a11y": "warn",
+			"complexity": {
+				"recommended": true,
+				"noExcessiveLinesPerFunction": "off",
+				"noImportantStyles": "off"
+			},
+			"correctness": "error",
+			"performance": "warn",
+			"security": {
+				"recommended": true,
+				"noSecrets": "warn"
+			},
+			"style": "off",
+			"suspicious": {
+				"recommended": true,
+				"noConsole": "warn"
+			}
+		}
+	},
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "double"
+		},
+		"linter": {
+			"enabled": true
+		},
+		"globals": ["api"]
+	},
+	"overrides": [
+		{
+			"includes": ["extensions/index.example.js"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noConsole": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["vite.config.ts", "scripts/tauri.js"],
+			"linter": {
+				"rules": {
+					"correctness": {
+						"noNodejsModules": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/pty/perf.stub.ts"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noEmptyBlockStatements": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/app/devMetricsOverlay.ts"],
+			"linter": {
+				"rules": {
+					"security": {
+						"noSecrets": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/terminal/keybinds.ts", "src/terminal/paneHost.ts"],
+			"linter": {
+				"rules": {
+					"security": {
+						"noSecrets": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["**/*.css", "index.html"],
+			"linter": {
+				"rules": {
+					"complexity": {
+						"noImportantStyles": "off"
+					}
+				}
+			}
+		},
+		{
+			"includes": ["src/main.ts"],
+			"linter": {
+				"rules": {
+					"performance": {
+						"noAwaitInLoops": "off",
+						"useTopLevelRegex": "off"
+					},
+					"security": {
+						"noSecrets": "off"
+					},
+					"suspicious": {
+						"noConsole": "off"
+					}
+				}
+			}
+		}
+	],
+	"assist": {
+		"enabled": true,
+		"actions": {
+			"source": {
+				"organizeImports": "on"
+			}
+		}
+	}
+}

@@ -18,7 +18,11 @@ export type PaneThemePrefs = Pick<
 >;
 
 /** Cascadia Code (ligatures) ships with Windows 11 / modern Terminal; Consolas is the Win10+ fallback. */
-export const DEFAULT_TERMINAL_FONT_STACK = String.raw`"Cascadia Code",Consolas,"Courier New",monospace`;
+export const DEFAULT_TERMINAL_FONT_STACK =
+	'"Cascadia Code",Consolas,"Courier New",monospace';
+
+const HEX_COLOR_RE = /^#([0-9a-fA-F]{6})$/;
+const RGB_COLOR_RE = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/;
 
 export type ThemeCssVars = Record<string, string>;
 
@@ -706,13 +710,16 @@ export async function loadCustomThemesIntoCache(): Promise<void> {
 	}
 	try {
 		const names = await invoke<string[]>("list_themes");
-		for (const name of names) {
-			const info = await invoke<ThemeInfo>("read_theme", { name });
+		const themes = await Promise.all(
+			names.map((name) => invoke<ThemeInfo>("read_theme", { name })),
+		);
+		for (let i = 0; i < names.length; i++) {
+			const info = themes[i];
 			if (info.colors && Object.keys(info.colors).length) {
-				customThemeVarsCache[name] = info.colors;
+				customThemeVarsCache[names[i]] = info.colors;
 			}
 			if (info.prefs) {
-				themePrefsCache[name] = info.prefs;
+				themePrefsCache[names[i]] = info.prefs;
 			}
 		}
 	} catch {
@@ -777,12 +784,12 @@ function resolvePreset(themeId: string, variant: string): ThemeCssVars {
 
 function parseCssColorToRgb(s: string): [number, number, number] | null {
 	const t = s.trim();
-	const hex = t.match(/^#([0-9a-fA-F]{6})$/);
+	const hex = t.match(HEX_COLOR_RE);
 	if (hex) {
-		const n = parseInt(hex[1], 16);
+		const n = Number.parseInt(hex[1], 16);
 		return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 	}
-	const rgb = t.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+	const rgb = t.match(RGB_COLOR_RE);
 	if (rgb) return [+rgb[1], +rgb[2], +rgb[3]];
 	return null;
 }
@@ -791,7 +798,7 @@ function parseCssColorToRgb(s: string): [number, number, number] | null {
 function relLuminance(rgb: [number, number, number]): number {
 	const lin = rgb.map((c) => {
 		const x = c / 255;
-		return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+		return x <= 0.039_28 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
 	});
 	return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
 }
@@ -1041,7 +1048,7 @@ function syncTerminalFgContrast(): void {
 	const fgStr = cs.getPropertyValue("--term-fg").trim();
 	const bg = parseCssColorToRgb(bgStr);
 	const fg = parseCssColorToRgb(fgStr);
-	if (!bg || !fg) return;
+	if (!(bg && fg)) return;
 	const lumBg = relLuminance(bg);
 	const lumFg = relLuminance(fg);
 	const lightBg = lumBg > 0.45;

@@ -113,12 +113,14 @@ export type TabGroupInfo = {
 	tabIds: string[];
 };
 
+export type ThemeData = Record<string, unknown>;
+
 export type TabBarItem = {
 	id: string;
 	slot: TabBarSlot;
 	order?: number;
 	/** Called once. Return a disposer (clearInterval, etc.). */
-	mount: (el: HTMLElement) => void | (() => void);
+	mount: (el: HTMLElement) => undefined | (() => void);
 	/** Called after each host strip rebuild. `el` is the same node as mount. */
 	update?: (el: HTMLElement) => void;
 };
@@ -194,8 +196,11 @@ export type ExtensionApi = {
 	setPref<T>(key: string, value: T): void;
 
 	// ── Theme ──
-	getAppTheme(): { ui: any; terminal: any };
-	getPaneTheme(paneId: string): { theme: any; override: any | null };
+	getAppTheme(): { ui: ThemeData; terminal: ThemeData };
+	getPaneTheme(paneId: string): {
+		theme: ThemeData;
+		override: ThemeData | null;
+	};
 
 	// ── Pane queries ──
 	getFocusedPaneId(): string | null;
