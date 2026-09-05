@@ -1312,7 +1312,7 @@ html.terminal-motion-off *::after {
   cursor: text;
 }
 
-.pane-terminal-host--ctrl-link-hover .xterm-screen {
+.xterm.xterm-cursor-pointer .xterm-screen {
   cursor: pointer;
 }
 

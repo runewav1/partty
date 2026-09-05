@@ -188,12 +188,13 @@ import {
 import { createTooltipController } from "./app/tooltips";
 import { escapeHtml } from "./util/html";
 import {
-  extractPathAtColumn,
-  extractRelativePathAtColumn,
-  extractUrlAtColumn,
-  getTerminalClickCell,
   normalizeExternalUrl,
+  type TerminalLinkMatch,
 } from "./util/linkExtraction";
+import {
+  registerTerminalLinkProvider,
+  type TerminalLinkProviderController,
+} from "./terminal/linkProvider";
 import { parttyPerf } from "./pty/perf";
 import type { DevMetricsOverlayApi } from "./app/devMetricsOverlay";
 import {
@@ -890,6 +891,7 @@ async function boot(): Promise<void> {
   /** Latest OSC 633;E line per pane, merged until pre-exec or finish. */
   const pendingShellCommandLine = new Map<string, string>();
   const paneHostCleanups = new Map<string, Array<() => void>>();
+  const paneLinkProviders = new Map<string, TerminalLinkProviderController>();
   /** Extension PTY input subscribers — zero-cost when empty. */
   const extPtyInputSubs: Array<(paneId: string, data: string) => void> = [];
   /** Extension PTY output subscribers — zero-cost when empty. */
@@ -1348,48 +1350,27 @@ async function boot(): Promise<void> {
     }
   }
 
-  const handleCtrlClickToken = (
+  const handleTerminalLinkActivation = (
     paneId: string,
-    term: Terminal,
-    host: HTMLElement,
     ev: MouseEvent,
-  ): boolean => {
-    if (!(ev.ctrlKey || ev.metaKey) || ev.button !== 0) return false;
-    const cell = getTerminalClickCell(term, host, ev);
-    if (!cell) return false;
-    const b = term.buffer.active;
-    const clickAbsY = b.viewportY + cell.row;
-    const line = b.getLine(clickAbsY)?.translateToString(false) ?? "";
-    if (!line) return false;
-
-    // Ctrl+Alt+click runs the `[editor]` custom operation on a path.
+    match: TerminalLinkMatch,
+  ): void => {
+    if (!(ev.ctrlKey || ev.metaKey) || ev.button !== 0) return;
+    // Ctrl+Alt+click is reserved for the configured editor path action.
     if (ev.altKey) {
-      return handleCtrlAltClickPath(paneId, line, cell.col, ev);
+      if (match.kind === "path") handleCtrlAltClickPath(paneId, match.value, ev);
+      return;
     }
-
-    // URLs win over paths when both could match.
-    const url = extractUrlAtColumn(line, cell.col);
-    if (url) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      void invoke("open_external_url", { url }).catch(
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (match.kind === "url") {
+      void invoke("open_external_url", { url: match.value }).catch(
         (e) => void showAlert(String(e), "Open link"),
       );
-      return true;
+      return;
     }
-
-    const cwd = paneEffectiveCwd(paneId);
-    const path =
-      extractPathAtColumn(line, cell.col) ??
-      extractRelativePathAtColumn(line, cell.col, cwd);
-    if (path) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      rememberClipboardPath(paneId, path);
-      copyToClipboard(path);
-      return true;
-    }
-    return false;
+    rememberClipboardPath(paneId, match.value);
+    copyToClipboard(match.value);
   };
 
   /**
@@ -1401,17 +1382,12 @@ async function boot(): Promise<void> {
    */
   const handleCtrlAltClickPath = (
     paneId: string,
-    line: string,
-    col: number,
+    raw: string,
     ev: MouseEvent,
   ): boolean => {
     const editor = editorConfigRef.v;
     if (!editor.command) return false;
     const cwd = paneEffectiveCwd(paneId);
-    const raw =
-      extractPathAtColumn(line, col) ??
-      extractRelativePathAtColumn(line, col, cwd);
-    if (!raw) return false;
     ev.preventDefault();
     ev.stopPropagation();
 
@@ -1436,42 +1412,6 @@ async function boot(): Promise<void> {
     return true;
   };
 
-  const updateCtrlLinkHover = (
-    paneId: string,
-    term: Terminal,
-    host: HTMLElement,
-    ev: MouseEvent,
-  ): void => {
-    const clear = () => {
-      host.classList.remove("pane-terminal-host--ctrl-link-hover");
-    };
-    const ctrl = ev.ctrlKey || ev.metaKey;
-    const altEditor = ev.altKey && !!editorConfigRef.v.command;
-    if (!ctrl && !altEditor) {
-      clear();
-      return;
-    }
-    const cell = getTerminalClickCell(term, host, ev);
-    if (!cell) {
-      clear();
-      return;
-    }
-    const b = term.buffer.active;
-    const clickAbsY = b.viewportY + cell.row;
-    const line = b.getLine(clickAbsY)?.translateToString(false) ?? "";
-    const cwd = paneEffectiveCwd(paneId);
-    const pathHit =
-      !!line &&
-      (!!extractPathAtColumn(line, cell.col) ||
-        !!extractRelativePathAtColumn(line, cell.col, cwd));
-    const hit = !!line && ((ctrl && !!extractUrlAtColumn(line, cell.col)) || pathHit);
-    if (!hit) {
-      clear();
-      return;
-    }
-    host.classList.add("pane-terminal-host--ctrl-link-hover");
-  };
-
   const tooltips = createTooltipController(() => disableTooltipsRef.v);
   tooltips.ensureObserver();
   tooltips.apply(document);
@@ -1488,6 +1428,8 @@ async function boot(): Promise<void> {
       for (const fn of cleanups) fn();
       paneHostCleanups.delete(paneId);
     }
+    paneLinkProviders.get(paneId)?.dispose();
+    paneLinkProviders.delete(paneId);
     disposeWebglForPane(paneId);
     paneShellState.delete(paneId);
     paneCwdHints.delete(paneId);
@@ -2684,6 +2626,7 @@ async function boot(): Promise<void> {
     rekeyKeyed(activeProcesses, from, to);
     rekeyKeyed(pendingShellCommandLine, from, to);
     rekeyKeyed(paneHostCleanups, from, to);
+    rekeyKeyed(paneLinkProviders, from, to);
     rekeyKeyed(extCursorMoveSubs, from, to);
     rekeyKeyed(extCursorHiddenOriginal, from, to);
     rekeyKeyed(pendingPtyWriteByPane, from, to);
@@ -3038,6 +2981,7 @@ async function boot(): Promise<void> {
           // so Ctrl+Arrow hops stay visually instant.
           if (pt) {
             pt.term.focus();
+            paneLinkProviders.get(id)?.scheduleViewportPrewarm();
             requestAnimationFrame(() => {
               const tr = pt.term.buffer.active.cursorY;
               if (tr >= 0 && tr < pt.term.rows) pt.term.refresh(tr, tr);
@@ -3070,6 +3014,13 @@ async function boot(): Promise<void> {
           paneBySessionId.set(pt.sessionId, pt);
           attachTermKeyHandler(pt.term, () => pt.paneId);
           attachTermWheelHandler(pt.term, () => pt.paneId);
+          const linkProvider = registerTerminalLinkProvider(pt.term, {
+            getCwd: () => paneEffectiveCwd(pt.paneId),
+            isFocused: () => focusedPaneId() === pt.paneId,
+            activate: (event, match) =>
+              handleTerminalLinkActivation(pt.paneId, event, match),
+          });
+          paneLinkProviders.set(id, linkProvider);
           pt.term.onRender(() => {
             parttyPerf.finishTermRender(id);
           });
@@ -3087,36 +3038,8 @@ async function boot(): Promise<void> {
               }
             }
           });
-          const onHostClick = (ev: MouseEvent) => {
-            if (handleCtrlClickToken(pt.paneId, pt.term, pt.host, ev)) return;
-          };
           const onHostWheel = (ev: WheelEvent) => handlePaneHostWheel(pt.paneId, ev);
-          let ctrlLinkHoverFrame: number | null = null;
-          let latestCtrlLinkHoverEvent: MouseEvent | null = null;
-          const onHostMouseMove = (ev: MouseEvent) => {
-            // Pointer events can arrive much faster than the display refreshes.
-            // Coalesce them so link/path regex work runs at most once per frame.
-            latestCtrlLinkHoverEvent = ev;
-            if (ctrlLinkHoverFrame !== null) return;
-            ctrlLinkHoverFrame = requestAnimationFrame(() => {
-              ctrlLinkHoverFrame = null;
-              const latest = latestCtrlLinkHoverEvent;
-              latestCtrlLinkHoverEvent = null;
-              if (latest) updateCtrlLinkHover(pt.paneId, pt.term, pt.host, latest);
-            });
-          };
-          const onHostMouseLeave = () => {
-            if (ctrlLinkHoverFrame !== null) {
-              cancelAnimationFrame(ctrlLinkHoverFrame);
-              ctrlLinkHoverFrame = null;
-            }
-            latestCtrlLinkHoverEvent = null;
-            pt.host.classList.remove("pane-terminal-host--ctrl-link-hover");
-          };
-          pt.host.addEventListener("click", onHostClick);
           pt.host.addEventListener("wheel", onHostWheel, { passive: false });
-          pt.host.addEventListener("mousemove", onHostMouseMove);
-          pt.host.addEventListener("mouseleave", onHostMouseLeave);
           const onSelDispose = pt.term.onSelectionChange(() => {
             if (!autoCopySelectionRef.v || !pt.term.hasSelection()) return;
             copyToClipboard(pt.term.getSelection());
@@ -3124,17 +3047,7 @@ async function boot(): Promise<void> {
 
           // Register cleanup for pane teardown.
           paneHostCleanups.set(id, [
-            () => {
-              if (ctrlLinkHoverFrame !== null) {
-                cancelAnimationFrame(ctrlLinkHoverFrame);
-                ctrlLinkHoverFrame = null;
-              }
-              latestCtrlLinkHoverEvent = null;
-            },
-            () => pt.host.removeEventListener("click", onHostClick),
             () => pt.host.removeEventListener("wheel", onHostWheel),
-            () => pt.host.removeEventListener("mousemove", onHostMouseMove),
-            () => pt.host.removeEventListener("mouseleave", onHostMouseLeave),
             () => onSelDispose.dispose(),
           ]);
           if (lp.preload_webgl_on_startup) void ensureWebglOnPane(id);
@@ -6526,6 +6439,7 @@ async function boot(): Promise<void> {
         paneRemoteIsWindows.set(paneId, remoteIsWindows);
       }
       paneCwdHints.set(paneId, cwd);
+      paneLinkProviders.get(paneId)?.invalidate();
       if (extCwdChangeSubs.length > 0) {
         for (const fn of extCwdChangeSubs) {
           try {

@@ -1,53 +1,23 @@
-import type { Terminal } from "@xterm/xterm";
-
 import { expandRelativePath } from "./paths";
 
-/**
- * Extract URLs, absolute paths, and relative path fragments from a terminal
- * line at a given column — the ctrl+click / ctrl+alt+click tokenizers.
- * All functions are pure over their inputs; callers wire pane cwd + shell style.
- */
+export type TerminalLinkMatch = {
+  kind: "url" | "path";
+  start: number;
+  end: number;
+  text: string;
+  value: string;
+};
 
-export function getTerminalClickCell(
-  term: Terminal,
-  host: HTMLElement,
-  ev: MouseEvent,
-): { col: number; row: number } | null {
-  const screen = host.querySelector(".xterm-screen") as HTMLElement | null;
-  if (!screen) return null;
-  const rect = screen.getBoundingClientRect();
-  if (
-    ev.clientX < rect.left ||
-    ev.clientX > rect.right ||
-    ev.clientY < rect.top ||
-    ev.clientY > rect.bottom
-  ) {
-    return null;
-  }
-  const cols = Math.max(1, term.cols);
-  const rows = Math.max(1, term.rows);
-  const cellW = rect.width / cols;
-  const cellH = rect.height / rows;
-  if (
-    !Number.isFinite(cellW) ||
-    !Number.isFinite(cellH) ||
-    cellW <= 0 ||
-    cellH <= 0
-  )
-    return null;
-  const col = Math.max(
-    0,
-    Math.min(cols - 1, Math.floor((ev.clientX - rect.left) / cellW)),
-  );
-  const row = Math.max(
-    0,
-    Math.min(rows - 1, Math.floor((ev.clientY - rect.top) / cellH)),
-  );
-  return { col, row };
-}
+const URL_RE =
+  /(?:https?:\/\/|www\.)[^\s<>"'`]+|(?:localhost|127\.0\.0\.1):\d+[^\s<>"'`]*|\[::1\]:\d+[^\s<>"'`]*|::1:\d+[^\s<>"'`]*/gi;
+const ABSOLUTE_PATH_RE =
+  /(?:"([^"\n]+)"|'([^'\n]+)'|(?:\\\\|\/\/)[^\s<>"'`]+|[A-Za-z]:[\\/][^\s<>"'`]+|~\/[^\s<>"'`]+|\/(?:home|Users|usr|etc|var|tmp|opt|mnt|root|dev|proc|sys|bin|lib|sbin|boot|media|run|snap)(?:\/[^\s<>"'`]*)?)/g;
+const TOKEN_RE = /\S+/g;
+const TRAILING_PUNCTUATION_RE = /[),.;:!?\]]+$/g;
+const URL_TRAILING_PUNCTUATION_RE = /[),.;:!?]+$/g;
 
 export function normalizeExternalUrl(value: string): string | null {
-  const raw = value.trim().replace(/[),.;:!?]+$/g, "");
+  const raw = value.trim().replace(URL_TRAILING_PUNCTUATION_RE, "");
   if (!raw) return null;
 
   const hasHttpScheme = /^https?:\/\//i.test(raw);
@@ -68,66 +38,53 @@ export function normalizeExternalUrl(value: string): string | null {
   }
 }
 
-export function extractUrlAtColumn(line: string, column: number): string | null {
-  const re =
-    /(?:https?:\/\/|www\.)[^\s<>"'`]+|(?:localhost|127\.0\.0\.1):\d+[^\s<>"'`]*|\[::1\]:\d+[^\s<>"'`]*|::1:\d+[^\s<>"'`]*/gi;
-  let m: RegExpExecArray | null = null;
-  while ((m = re.exec(line)) !== null) {
-    const start = m.index;
-    const end = start + m[0].length;
-    if (column < start || column >= end) continue;
-    return normalizeExternalUrl(m[0]);
-  }
-  return null;
-}
-
-/** Absolute / home-anchored paths only — avoids `foo/bar` false positives. */
-export function extractPathAtColumn(line: string, column: number): string | null {
-  const re =
-    /(?:"([^"\n]+)"|'([^'\n]+)'|(?:\\\\|\/\/)[^\s<>"'`]+|[A-Za-z]:[\\/][^\s<>"'`]+|~\/[^\s<>"'`]+|\/(?:home|Users|usr|etc|var|tmp|opt|mnt|root|dev|proc|sys|bin|lib|sbin|boot|media|run|snap)(?:\/[^\s<>"'`]*)?)/g;
-  let m: RegExpExecArray | null = null;
-  while ((m = re.exec(line)) !== null) {
-    const start = m.index;
-    const end = start + m[0].length;
-    if (column < start || column >= end) continue;
-    const quoted = m[1] ?? m[2];
-    let raw = (quoted ?? m[0]).replace(/[),.;:!?\]]+$/g, "");
-    if (!raw) continue;
-    // Quoted match must still look like a path.
-    if (quoted) {
-      const looksAbsolute =
-        /^[A-Za-z]:[\\/]/.test(raw) ||
-        /^\\\\|^\/\//.test(raw) ||
-        raw.startsWith("~/") ||
-        /^\/(?:home|Users|usr|etc|var|tmp|opt|mnt|root|dev|proc|sys|bin|lib|sbin|boot|media|run|snap)(?:\/|$)/.test(
-          raw,
-        );
-      if (!looksAbsolute) continue;
-    }
-    return raw;
-  }
-  return null;
-}
-
-/** Unquoted relative fragments containing a separator (`src/foo.rs`, `../x`), expanded against the pane cwd. */
-export function extractRelativePathAtColumn(
+export function findTerminalLinkMatches(
   line: string,
-  column: number,
   cwd: string | null,
-): string | null {
-  if (!cwd) return null;
-  const re = /\S+/g;
-  let m: RegExpExecArray | null = null;
-  while ((m = re.exec(line)) !== null) {
-    const start = m.index;
-    const end = start + m[0].length;
-    if (column < start || column >= end) continue;
-    let raw = m[0].replace(/[),.;:!?\]]+$/g, "");
-    if (!raw) continue;
-    if (!isRelativePathCandidate(raw)) continue;
-    return expandRelativePath(raw, cwd);
+): TerminalLinkMatch[] {
+  const matches: TerminalLinkMatch[] = [];
+  for (const m of line.matchAll(URL_RE)) {
+    const text = m[0].replace(URL_TRAILING_PUNCTUATION_RE, "");
+    const value = normalizeExternalUrl(text);
+    if (!text || !value) continue;
+    matches.push({
+      kind: "url",
+      start: m.index,
+      end: m.index + text.length,
+      text,
+      value,
+    });
   }
-  return null;
+
+  for (const m of line.matchAll(ABSOLUTE_PATH_RE)) {
+    const quoted = m[1] ?? m[2];
+    const raw = (quoted ?? m[0]).replace(TRAILING_PUNCTUATION_RE, "");
+    if (!raw) continue;
+    if (quoted && !isAbsolutePath(raw)) continue;
+    const quoteOffset = quoted ? 1 : 0;
+    addPathMatch(matches, {
+      kind: "path",
+      start: m.index + quoteOffset,
+      end: m.index + quoteOffset + raw.length,
+      text: raw,
+      value: raw,
+    });
+  }
+
+  if (cwd) {
+    for (const m of line.matchAll(TOKEN_RE)) {
+      const raw = m[0].replace(TRAILING_PUNCTUATION_RE, "");
+      if (!isRelativePathCandidate(raw)) continue;
+      addPathMatch(matches, {
+        kind: "path",
+        start: m.index,
+        end: m.index + raw.length,
+        text: raw,
+        value: expandRelativePath(raw, cwd),
+      });
+    }
+  }
+  return matches.sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
 function isRelativePathCandidate(tok: string): boolean {
@@ -137,4 +94,24 @@ function isRelativePathCandidate(tok: string): boolean {
   if (!tok.includes("/") && !tok.includes("\\")) return false; // needs a separator
   if (/^\.{1,2}$/.test(tok)) return false;
   return true;
+}
+
+function isAbsolutePath(path: string): boolean {
+  return (
+    /^[A-Za-z]:[\\/]/.test(path) ||
+    /^\\\\|^\/\//.test(path) ||
+    path.startsWith("~/") ||
+    /^\/(?:home|Users|usr|etc|var|tmp|opt|mnt|root|dev|proc|sys|bin|lib|sbin|boot|media|run|snap)(?:\/|$)/.test(
+      path,
+    )
+  );
+}
+
+function addPathMatch(
+  matches: TerminalLinkMatch[],
+  path: TerminalLinkMatch,
+): void {
+  if (!matches.some((m) => path.start < m.end && m.start < path.end)) {
+    matches.push(path);
+  }
 }
