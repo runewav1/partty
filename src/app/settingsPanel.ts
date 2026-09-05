@@ -1,661 +1,990 @@
 import { invoke } from "@tauri-apps/api/core";
-import { mouseCursorForceVisible } from "./mouseCursor";
-import { pushOverlay, type OverlayHandle } from "./overlayStack";
 import { hideSurface, showSurface } from "./../util/motion";
+import { mouseCursorForceVisible } from "./mouseCursor";
+import { type OverlayHandle, pushOverlay } from "./overlayStack";
 
 /** Where a workspace opens when loaded: `new-tab` (default) | `replace` current tab. */
 export type WorkspaceOpenMode = "new-tab" | "replace";
 
 /** Mirrors `prefs::Prefs` JSON (snake_case). */
 export type ParttyPrefs = {
-  shell: string;
-  shed_on_hide: boolean;
-  always_on_top: boolean;
-  initial_cwd: string | null;
-  webgl_shed_on_hide: boolean;
-  discard_buffer_on_hide: boolean;
-  scrollback_lines: number;
-  snapshot_max_lines: number;
-  preload_pty_on_startup: boolean;
-  preload_webgl_on_startup: boolean;
-  defer_window_show_until_prepared: boolean;
-  destroy_webview_on_hide: boolean;
-  focus_follows_cursor: boolean;
-  blur_unfocused_panes: boolean;
-  /** Blur radius in px for unfocused split panes (default 1.6). */
-  pane_blur_radius?: number;
-  pane_opacity_focused?: number;
-  pane_opacity_unfocused?: number;
-  pane_variable_opacity?: boolean;
-  /** Slight scale emphasis on the focused split pane. */
-  focus_pane_scale?: boolean;
-  /** Focus scale intensity 0–1 (default 0.45). */
-  pane_focus_scale_intensity?: number;
-  auto_copy_selection: boolean;
-  /** Right-click in the terminal pastes from the clipboard. */
-  right_click_paste?: boolean;
-  /** OSC 52 clipboard integration: remote programs can read/write the local clipboard. */
-  osc52?: boolean;
-  /**
-   * Use a sideloaded `conpty.dll`/`OpenConsole.exe` next to the binary as the
-   * ConPTY host, enabling image protocols (sixel/kitty/iTerm) that the inbox
-   * conhost filters out. Also loads the terminal image addon.
-   */
-  terminal_sideload_openconsole?: boolean;
-  /** Retain pane layouts, working directories, and tab state when the window closes. */
-  retain_session_state?: boolean;
-  ui_theme: string;
-  ui_theme_variant: string;
-  font_terminal: string;
-  font_ui: string;
-  session_shed_on_exit: string;
-  /** Config-only `[workspaces]` — not in the form; carried through unchanged. */
-  workspace_open_mode?: WorkspaceOpenMode;
-  summon_spawn_at_cursor: boolean;
-  cursor_follow_window_move: boolean;
-  /** Warp OS cursor onto the focused pane when focus context changes. */
-  cursor_follow_pane_focus?: boolean;
-  hidden_from_taskbar: boolean;
-  /** Show the window immediately on app launch instead of waiting for summon. */
-  window_startup_visible?: boolean;
-  ui_disable_tooltips: boolean;
-  terminal_backspace_delete_selection: boolean;
-  terminal_no_gap: boolean;
-  terminal_pane_gap: number;
-  terminal_sandbox_padding: number;
-  terminal_no_round: boolean;
-  terminal_no_pane_border: boolean;
-  terminal_no_focus_border: boolean;
-  split_layout_style: string;
-  quiet_pane_deferral: boolean;
-  /** Default connection profile id for new tabs / non-inherited panes. */
-  default_profile_id: string;
-  /** New splits inherit the parent pane's profile. */
-  inherit_profile_on_split: boolean;
-  /** New splits inherit the parent pane's cwd (Windows-native path). */
-  inherit_cwd_on_split: boolean;
-  /** Tab on New tab / Split palette rows opens a profile picker. */
-  palette_tab_profile_picker: boolean;
-  /** New tabs use `default_profile_id` (vs inheriting focused pane). */
-  new_tab_uses_default_profile: boolean;
-  /** Profile ids hidden from pickers (`[profiles].omit`). */
-  profile_omit?: string[];
-  /** Show icons in the `@profile` palette (`[profiles].palette_icons`). */
-  palette_profile_icons?: boolean;
-  /** Config-only `[profiles.selection_aliases]` — preserved on Settings save. */
-  profile_selection_aliases?: Record<string, string>;
-  terminal_animation_speed: string;
-  terminal_animation_style: string;
-  terminal_window_motion: boolean;
-  window_effect_mode: string;
-  window_effect_opacity: number;
-  window_effect_acrylic_tint: string;
-  window_effect_acrylic_tint_alpha: number;
-  pane_corner_radius: number;
-  /** `block` | `underline` | `bar` — terminal cursor style. */
-  terminal_cursor_style: string;
-  /** Whether the cursor blinks. */
-  terminal_cursor_blink?: boolean;
-  /** `outline` | `block` | `bar` | `underline` | `none` — cursor style when unfocused. */
-  terminal_cursor_inactive_style?: string;
-  /** Cursor width in px when cursor_style is `bar`. */
-  terminal_cursor_width?: number;
-  /** Alt+click repositions the terminal cursor to the click position. */
-  terminal_alt_click_moves_cursor?: boolean;
-  /** Terminal font size in px. */
-  terminal_font_size?: number;
-  /** Font weight for non‑bold text (CSS value). */
-  terminal_font_weight?: string;
-  /** Font weight for bold text (CSS value). */
-  terminal_font_weight_bold?: string;
-  /** Line height multiplier. */
-  terminal_line_height?: number;
-  /** Letter spacing in px. */
-  terminal_letter_spacing?: number;
-  /** Draw bold text in bright ANSI colors. */
-  terminal_draw_bold_bright?: boolean;
-  /** Smooth‑scroll duration in ms (0 = instant). */
-  terminal_smooth_scroll_duration?: number;
-  /** Normal scroll speed multiplier. */
-  terminal_scroll_sensitivity?: number;
-  /** Fast (Alt+wheel) scroll speed multiplier. */
-  terminal_fast_scroll_sensitivity?: number;
-  /** Minimum seconds a command must run before a completion toast is shown (default 5.0). */
-  process_notification_threshold: number;
-  /** How long the toast stays visible in ms (default 5000, min 1000, max 30000). */
-  process_notification_show_for: number;
-  /** Show millisecond precision in completion toasts. */
-  process_notification_show_ms?: boolean;
-  /** Use translucent process completion toasts. */
-  process_notification_transparent?: boolean;
-  /** Disable all process completion notifications. */
-  process_notification_enabled?: boolean;
-  /** Always hide the OS mouse cursor (overrides idle hide). */
-  mouse_hidden?: boolean;
-  /** Hide the OS mouse cursor after pointer inactivity. */
-  mouse_hide_on_idle?: boolean;
-  /** Seconds before idle hide (default 3). */
-  mouse_idle_seconds?: number;
-  /** Developer metrics collection. Off by default. */
-  dev_perf_enabled?: boolean;
-  /** Print metrics snapshots to the console while enabled. */
-  dev_perf_console?: boolean;
-  /** Console snapshot interval in ms. */
-  dev_perf_console_interval_ms?: number;
-  /** Dev-only `window_toggle` global shortcut override (ignored by release builds). */
-  dev_window_toggle_override?: string | null;
-  /** `[editor]` split direction for ctrl+alt+click (`"v"` | `"h"`). */
-  editor_split_type?: string;
-  /** `[editor]` profile id for the editor split (empty → default profile). */
-  editor_profile?: string;
-  /** `[editor]` command template with `~path~` placeholder (empty → ctrl+alt+click disabled). */
-  editor_command?: string;
+	shell: string;
+	shed_on_hide: boolean;
+	always_on_top: boolean;
+	initial_cwd: string | null;
+	webgl_shed_on_hide: boolean;
+	discard_buffer_on_hide: boolean;
+	scrollback_lines: number;
+	snapshot_max_lines: number;
+	preload_pty_on_startup: boolean;
+	preload_webgl_on_startup: boolean;
+	defer_window_show_until_prepared: boolean;
+	destroy_webview_on_hide: boolean;
+	focus_follows_cursor: boolean;
+	blur_unfocused_panes: boolean;
+	/** Blur radius in px for unfocused split panes (default 1.6). */
+	pane_blur_radius?: number;
+	pane_opacity_focused?: number;
+	pane_opacity_unfocused?: number;
+	pane_variable_opacity?: boolean;
+	/** Slight scale emphasis on the focused split pane. */
+	focus_pane_scale?: boolean;
+	/** Focus scale intensity 0–1 (default 0.45). */
+	pane_focus_scale_intensity?: number;
+	auto_copy_selection: boolean;
+	/** Right-click in the terminal pastes from the clipboard. */
+	right_click_paste?: boolean;
+	/** OSC 52 clipboard integration: remote programs can read/write the local clipboard. */
+	osc52?: boolean;
+	/**
+	 * Use a sideloaded `conpty.dll`/`OpenConsole.exe` next to the binary as the
+	 * ConPTY host, enabling image protocols (sixel/kitty/iTerm) that the inbox
+	 * conhost filters out. Also loads the terminal image addon.
+	 */
+	terminal_sideload_openconsole?: boolean;
+	/** Retain pane layouts, working directories, and tab state when the window closes. */
+	retain_session_state?: boolean;
+	ui_theme: string;
+	ui_theme_variant: string;
+	font_terminal: string;
+	font_ui: string;
+	session_shed_on_exit: string;
+	/** Config-only `[workspaces]` — not in the form; carried through unchanged. */
+	workspace_open_mode?: WorkspaceOpenMode;
+	summon_spawn_at_cursor: boolean;
+	cursor_follow_window_move: boolean;
+	/** Warp OS cursor onto the focused pane when focus context changes. */
+	cursor_follow_pane_focus?: boolean;
+	hidden_from_taskbar: boolean;
+	/** Show the window immediately on app launch instead of waiting for summon. */
+	window_startup_visible?: boolean;
+	ui_disable_tooltips: boolean;
+	terminal_backspace_delete_selection: boolean;
+	terminal_no_gap: boolean;
+	terminal_pane_gap: number;
+	terminal_sandbox_padding: number;
+	terminal_no_round: boolean;
+	terminal_no_pane_border: boolean;
+	terminal_no_focus_border: boolean;
+	split_layout_style: string;
+	quiet_pane_deferral: boolean;
+	/** Default connection profile id for new tabs / non-inherited panes. */
+	default_profile_id: string;
+	/** New splits inherit the parent pane's profile. */
+	inherit_profile_on_split: boolean;
+	/** New splits inherit the parent pane's cwd (Windows-native path). */
+	inherit_cwd_on_split: boolean;
+	/** Tab on New tab / Split palette rows opens a profile picker. */
+	palette_tab_profile_picker: boolean;
+	/** New tabs use `default_profile_id` (vs inheriting focused pane). */
+	new_tab_uses_default_profile: boolean;
+	/** Profile ids hidden from pickers (`[profiles].omit`). */
+	profile_omit?: string[];
+	/** Show icons in the `@profile` palette (`[profiles].palette_icons`). */
+	palette_profile_icons?: boolean;
+	/** Config-only `[profiles.selection_aliases]` — preserved on Settings save. */
+	profile_selection_aliases?: Record<string, string>;
+	terminal_animation_speed: string;
+	terminal_animation_style: string;
+	terminal_window_motion: boolean;
+	window_effect_mode: string;
+	window_effect_opacity: number;
+	window_effect_acrylic_tint: string;
+	window_effect_acrylic_tint_alpha: number;
+	pane_corner_radius: number;
+	/** `block` | `underline` | `bar` — terminal cursor style. */
+	terminal_cursor_style: string;
+	/** Whether the cursor blinks. */
+	terminal_cursor_blink?: boolean;
+	/** `outline` | `block` | `bar` | `underline` | `none` — cursor style when unfocused. */
+	terminal_cursor_inactive_style?: string;
+	/** Cursor width in px when cursor_style is `bar`. */
+	terminal_cursor_width?: number;
+	/** Alt+click repositions the terminal cursor to the click position. */
+	terminal_alt_click_moves_cursor?: boolean;
+	/** Terminal font size in px. */
+	terminal_font_size?: number;
+	/** Font weight for non‑bold text (CSS value). */
+	terminal_font_weight?: string;
+	/** Font weight for bold text (CSS value). */
+	terminal_font_weight_bold?: string;
+	/** Line height multiplier. */
+	terminal_line_height?: number;
+	/** Letter spacing in px. */
+	terminal_letter_spacing?: number;
+	/** Draw bold text in bright ANSI colors. */
+	terminal_draw_bold_bright?: boolean;
+	/** Smooth‑scroll duration in ms (0 = instant). */
+	terminal_smooth_scroll_duration?: number;
+	/** Normal scroll speed multiplier. */
+	terminal_scroll_sensitivity?: number;
+	/** Fast (Alt+wheel) scroll speed multiplier. */
+	terminal_fast_scroll_sensitivity?: number;
+	/** Minimum seconds a command must run before a completion toast is shown (default 5.0). */
+	process_notification_threshold: number;
+	/** How long the toast stays visible in ms (default 5000, min 1000, max 30000). */
+	process_notification_show_for: number;
+	/** Show millisecond precision in completion toasts. */
+	process_notification_show_ms?: boolean;
+	/** Use translucent process completion toasts. */
+	process_notification_transparent?: boolean;
+	/** Disable all process completion notifications. */
+	process_notification_enabled?: boolean;
+	/** Always hide the OS mouse cursor (overrides idle hide). */
+	mouse_hidden?: boolean;
+	/** Hide the OS mouse cursor after pointer inactivity. */
+	mouse_hide_on_idle?: boolean;
+	/** Seconds before idle hide (default 3). */
+	mouse_idle_seconds?: number;
+	/** Developer metrics collection. Off by default. */
+	dev_perf_enabled?: boolean;
+	/** Print metrics snapshots to the console while enabled. */
+	dev_perf_console?: boolean;
+	/** Console snapshot interval in ms. */
+	dev_perf_console_interval_ms?: number;
+	/** Dev-only `window_toggle` global shortcut override (ignored by release builds). */
+	dev_window_toggle_override?: string | null;
+	/** `[editor]` split direction for ctrl+alt+click (`"v"` | `"h"`). */
+	editor_split_type?: string;
+	/** `[editor]` profile id for the editor split (empty → default profile). */
+	editor_profile?: string;
+	/** `[editor]` command template with `~path~` placeholder (empty → ctrl+alt+click disabled). */
+	editor_command?: string;
 };
 
 type Persisted = { window: Record<string, unknown>; prefs: ParttyPrefs };
-type LocalFontDescriptor = { family: string; fullName?: string; postscriptName?: string };
+type LocalFontDescriptor = {
+	family: string;
+	fullName?: string;
+	postscriptName?: string;
+};
 
 declare global {
-  interface Window {
-    queryLocalFonts?: () => Promise<LocalFontDescriptor[]>;
-  }
+	interface Window {
+		queryLocalFonts?: () => Promise<LocalFontDescriptor[]>;
+	}
 }
 
-export type SettingsPanelApi = { open(): void; close(): void; isOpen(): boolean };
+export type SettingsPanelApi = {
+	open(): void;
+	close(): void;
+	isOpen(): boolean;
+};
 
 const FALLBACK_FONT_FAMILIES = [
-  "JetBrains Mono", "Cascadia Code", "Cascadia Mono", "Consolas", "Fira Code",
-  "Hack", "Iosevka", "IBM Plex Mono", "Segoe UI", "Inter", "Arial", "system-ui",
+	"JetBrains Mono",
+	"Cascadia Code",
+	"Cascadia Mono",
+	"Consolas",
+	"Fira Code",
+	"Hack",
+	"Iosevka",
+	"IBM Plex Mono",
+	"Segoe UI",
+	"Inter",
+	"Arial",
+	"system-ui",
 ];
 
 async function discoverFontFamilies(): Promise<string[]> {
-  const families = new Set<string>(FALLBACK_FONT_FAMILIES);
-  try {
-    const fonts = await window.queryLocalFonts?.();
-    for (const font of fonts ?? []) {
-      const family = font.family?.trim();
-      if (family) families.add(family);
-    }
-  } catch { /* fallback ok */ }
-  return [...families].sort((a, b) => a.localeCompare(b));
+	const families = new Set<string>(FALLBACK_FONT_FAMILIES);
+	try {
+		const fonts = await window.queryLocalFonts?.();
+		for (const font of fonts ?? []) {
+			const family = font.family?.trim();
+			if (family) families.add(family);
+		}
+	} catch {
+		/* fallback ok */
+	}
+	return [...families].sort((a, b) => a.localeCompare(b));
 }
 
 /** Fill a font `<select>` with a leading "default" (empty) option + all families. */
-function populateFontSelect(select: HTMLSelectElement, families: string[], preferred: string): void {
-  const seen = new Set<string>();
-  select.innerHTML = "";
-  const def = document.createElement("option");
-  def.value = "";
-  def.textContent = "default";
-  select.appendChild(def);
-  seen.add("");
-  for (const family of families) {
-    if (seen.has(family)) continue;
-    seen.add(family);
-    const opt = document.createElement("option");
-    opt.value = family;
-    opt.textContent = family;
-    select.appendChild(opt);
-  }
-  if (preferred && !seen.has(preferred)) {
-    const opt = document.createElement("option");
-    opt.value = preferred;
-    opt.textContent = preferred;
-    select.appendChild(opt);
-  }
-  select.value = preferred;
+function populateFontSelect(
+	select: HTMLSelectElement,
+	families: string[],
+	preferred: string,
+): void {
+	const seen = new Set<string>();
+	select.innerHTML = "";
+	const def = document.createElement("option");
+	def.value = "";
+	def.textContent = "default";
+	select.appendChild(def);
+	seen.add("");
+	for (const family of families) {
+		if (seen.has(family)) continue;
+		seen.add(family);
+		const opt = document.createElement("option");
+		opt.value = family;
+		opt.textContent = family;
+		select.appendChild(opt);
+	}
+	if (preferred && !seen.has(preferred)) {
+		const opt = document.createElement("option");
+		opt.value = preferred;
+		opt.textContent = preferred;
+		select.appendChild(opt);
+	}
+	select.value = preferred;
 }
 
 export function createSettingsPanel(
-  root: HTMLElement,
-  onSaved?: (next: ParttyPrefs, previous: ParttyPrefs) => void | Promise<void>,
-  onClosed?: () => void,
+	root: HTMLElement,
+	onSaved?: (next: ParttyPrefs, previous: ParttyPrefs) => void | Promise<void>,
+	onClosed?: () => void,
 ): SettingsPanelApi {
-  let open = false;
-  let saving = false;
-  let overlay: OverlayHandle | null = null;
+	let open = false;
+	let saving = false;
+	let overlay: OverlayHandle | null = null;
 
-  const form = root.querySelector("#settings-form") as HTMLFormElement | null;
+	const form = root.querySelector("#settings-form") as HTMLFormElement | null;
 
-  function g(n: string): string {
-    return ((form?.querySelector(`[name="${n}"]`) as HTMLInputElement)?.value ?? "").trim();
-  }
-  function gc(n: string): boolean {
-    return (form?.querySelector(`[name="${n}"]`) as HTMLInputElement)?.checked ?? false;
-  }
-  function gs(n: string): string {
-    return ((form?.querySelector(`[name="${n}"]`) as HTMLSelectElement)?.value ?? "").toLowerCase();
-  }
+	function g(n: string): string {
+		return (
+			(form?.querySelector(`[name="${n}"]`) as HTMLInputElement)?.value ?? ""
+		).trim();
+	}
+	function gc(n: string): boolean {
+		return (
+			(form?.querySelector(`[name="${n}"]`) as HTMLInputElement)?.checked ??
+			false
+		);
+	}
+	function gs(n: string): string {
+		return (
+			(form?.querySelector(`[name="${n}"]`) as HTMLSelectElement)?.value ?? ""
+		).toLowerCase();
+	}
 
-  async function buildPrefs(previous: ParttyPrefs): Promise<ParttyPrefs> {
-    const cwd = g("initial_cwd");
-    const session_shed_on_exit = ((v: string) => v === "shed" || v === "ask" ? v : "keep")(gs("session_shed_on_exit"));
-    const terminal_animation_speed = ((v: string) => v === "off" || v === "fast" || v === "slow" ? v : "normal")(gs("terminal_animation_speed"));
-    const terminal_animation_style = ((v: string) => v === "snappy" || v === "gentle" || v === "bouncy" ? v : "smooth")(gs("terminal_animation_style"));
-    const split_layout_style = ((v: string) => v === "dwindle" || v === "master" ? v : "balanced")(gs("split_layout_style"));
-    const window_effect_mode = (["off", "transparent", "acrylic"].includes(gs("window_effect_mode")) ? gs("window_effect_mode") : "off");
-    const clamp01 = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fb; };
-    const clampR = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(32, n)) : fb; };
-    const clampG = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(0, Math.min(32, n)) : fb; };
-    const clampf = (raw: string, fb: number, min: number, max: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fb; };
-    const clamp1p = (raw: string, fb: number) => { const n = Number.parseFloat(raw); return Number.isFinite(n) ? Math.max(1, Math.min(10, n)) : fb; };
-    const terminal_pane_gap = clampG(g("terminal_pane_gap"), previous.terminal_pane_gap ?? 6);
-    const terminal_sandbox_padding = clampG(g("terminal_sandbox_padding"), previous.terminal_sandbox_padding ?? 0);
+	async function buildPrefs(previous: ParttyPrefs): Promise<ParttyPrefs> {
+		const cwd = g("initial_cwd");
+		const session_shed_on_exit = ((v: string) =>
+			v === "shed" || v === "ask" ? v : "keep")(gs("session_shed_on_exit"));
+		const terminal_animation_speed = ((v: string) =>
+			v === "off" || v === "fast" || v === "slow" ? v : "normal")(
+			gs("terminal_animation_speed"),
+		);
+		const terminal_animation_style = ((v: string) =>
+			v === "snappy" || v === "gentle" || v === "bouncy" ? v : "smooth")(
+			gs("terminal_animation_style"),
+		);
+		const split_layout_style = ((v: string) =>
+			v === "dwindle" || v === "master" ? v : "balanced")(
+			gs("split_layout_style"),
+		);
+		const window_effect_mode = ["off", "transparent", "acrylic"].includes(
+			gs("window_effect_mode"),
+		)
+			? gs("window_effect_mode")
+			: "off";
+		const clamp01 = (raw: string, fb: number) => {
+			const n = Number.parseFloat(raw);
+			return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fb;
+		};
+		const clampR = (raw: string, fb: number) => {
+			const n = Number.parseFloat(raw);
+			return Number.isFinite(n) ? Math.max(0, Math.min(32, n)) : fb;
+		};
+		const clampG = (raw: string, fb: number) => {
+			const n = Number.parseFloat(raw);
+			return Number.isFinite(n) ? Math.max(0, Math.min(32, n)) : fb;
+		};
+		const clampf = (raw: string, fb: number, min: number, max: number) => {
+			const n = Number.parseFloat(raw);
+			return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fb;
+		};
+		const clamp1p = (raw: string, fb: number) => {
+			const n = Number.parseFloat(raw);
+			return Number.isFinite(n) ? Math.max(1, Math.min(10, n)) : fb;
+		};
+		const terminal_pane_gap = clampG(
+			g("terminal_pane_gap"),
+			previous.terminal_pane_gap ?? 6,
+		);
+		const terminal_sandbox_padding = clampG(
+			g("terminal_sandbox_padding"),
+			previous.terminal_sandbox_padding ?? 0,
+		);
 
-    return {
-      shell: previous.shell || "pwsh", shed_on_hide: gc("shed_on_hide"), always_on_top: gc("always_on_top"),
-      initial_cwd: cwd || null, webgl_shed_on_hide: gc("webgl_shed_on_hide"), discard_buffer_on_hide: gc("discard_buffer_on_hide"),
-      scrollback_lines: Math.max(0, Math.min(50000, parseInt(g("scrollback_lines"), 10) || 0)),
-      snapshot_max_lines: Math.max(50, Math.min(50000, parseInt(g("snapshot_max_lines"), 10) || 2500)),
-      preload_pty_on_startup: gc("preload_pty_on_startup"), preload_webgl_on_startup: gc("preload_webgl_on_startup"),
-      defer_window_show_until_prepared: gc("defer_window_show_until_prepared"),
-      destroy_webview_on_hide: gc("destroy_webview_on_hide"), focus_follows_cursor: gc("focus_follows_cursor"),
-      blur_unfocused_panes: gc("blur_unfocused_panes"), pane_blur_radius: clampf(g("pane_blur_radius"), 1.6, 0, 10),
-      pane_opacity_focused: clamp01(g("pane_opacity_focused"), 1.0),
-      pane_opacity_unfocused: clamp01(g("pane_opacity_unfocused"), 1.0),
-      pane_variable_opacity: gc("pane_variable_opacity"),
-      focus_pane_scale: gc("focus_pane_scale"), pane_focus_scale_intensity: clampf(g("pane_focus_scale_intensity"), 0.45, 0, 1),
-      auto_copy_selection: gc("auto_copy_selection"),
-      right_click_paste: gc("right_click_paste"),
-      osc52: gc("osc52"),
-      session_shed_on_exit,
-      retain_session_state: gc("retain_session_state"),
-      summon_spawn_at_cursor: gc("summon_spawn_at_cursor"),
-      cursor_follow_window_move: gc("cursor_follow_window_move"),
-      cursor_follow_pane_focus: gc("cursor_follow_pane_focus"),
-      hidden_from_taskbar: gc("hidden_from_taskbar"),
-      window_startup_visible: gc("window_startup_visible"),
-      ui_theme: previous.ui_theme, ui_theme_variant: previous.ui_theme_variant,
-      font_terminal: g("font_terminal"), font_ui: g("font_ui"),
-      ui_disable_tooltips: gc("ui_disable_tooltips"),
-      terminal_alt_click_moves_cursor: gc("terminal_alt_click_moves_cursor"), terminal_backspace_delete_selection: gc("terminal_backspace_delete_selection"),
-      terminal_no_gap: terminal_pane_gap <= 0, terminal_pane_gap, terminal_sandbox_padding,
-      terminal_no_round: gc("terminal_no_round"), terminal_no_pane_border: gc("terminal_no_pane_border"),
-      terminal_no_focus_border: gc("terminal_no_focus_border"), split_layout_style,
-      terminal_sideload_openconsole: gc("terminal_sideload_openconsole"),
-      quiet_pane_deferral: gc("quiet_pane_deferral"),
-      default_profile_id: g("default_profile_id") || previous.default_profile_id || "local-default",
-      inherit_profile_on_split: gc("inherit_profile_on_split"),
-      inherit_cwd_on_split: gc("inherit_cwd_on_split"),
-      palette_tab_profile_picker: gc("palette_tab_profile_picker"),
-      new_tab_uses_default_profile: gc("new_tab_uses_default_profile"),
-      profile_omit: previous.profile_omit ?? [],
-      palette_profile_icons: previous.palette_profile_icons ?? true,
-      profile_selection_aliases: previous.profile_selection_aliases ?? {},
-      // Config-only `[editor]` — not in the form; carried through unchanged
-      // so a Settings save never clobbers a hand-written section.
-      editor_split_type: previous.editor_split_type ?? "v",
-      editor_profile: previous.editor_profile ?? "",
-      editor_command: previous.editor_command ?? "",
-      // Config-only `[workspaces]` — carried through unchanged (see above).
-      workspace_open_mode: previous.workspace_open_mode ?? "new-tab",
-      terminal_animation_speed,
-      terminal_animation_style, terminal_window_motion: gc("terminal_window_motion"),
-      window_effect_mode, window_effect_opacity: clamp01(g("window_effect_opacity"), 0),
-      window_effect_acrylic_tint: g("window_effect_acrylic_tint").trim() || "#1e1e1e",
-      window_effect_acrylic_tint_alpha: clamp01(g("window_effect_acrylic_tint_alpha"), 0.55),
-      pane_corner_radius: clampR(g("pane_corner_radius"), 6),
+		return {
+			shell: previous.shell || "pwsh",
+			shed_on_hide: gc("shed_on_hide"),
+			always_on_top: gc("always_on_top"),
+			initial_cwd: cwd || null,
+			webgl_shed_on_hide: gc("webgl_shed_on_hide"),
+			discard_buffer_on_hide: gc("discard_buffer_on_hide"),
+			scrollback_lines: Math.max(
+				0,
+				Math.min(50000, parseInt(g("scrollback_lines"), 10) || 0),
+			),
+			snapshot_max_lines: Math.max(
+				50,
+				Math.min(50000, parseInt(g("snapshot_max_lines"), 10) || 2500),
+			),
+			preload_pty_on_startup: gc("preload_pty_on_startup"),
+			preload_webgl_on_startup: gc("preload_webgl_on_startup"),
+			defer_window_show_until_prepared: gc("defer_window_show_until_prepared"),
+			destroy_webview_on_hide: gc("destroy_webview_on_hide"),
+			focus_follows_cursor: gc("focus_follows_cursor"),
+			blur_unfocused_panes: gc("blur_unfocused_panes"),
+			pane_blur_radius: clampf(g("pane_blur_radius"), 1.6, 0, 10),
+			pane_opacity_focused: clamp01(g("pane_opacity_focused"), 1.0),
+			pane_opacity_unfocused: clamp01(g("pane_opacity_unfocused"), 1.0),
+			pane_variable_opacity: gc("pane_variable_opacity"),
+			focus_pane_scale: gc("focus_pane_scale"),
+			pane_focus_scale_intensity: clampf(
+				g("pane_focus_scale_intensity"),
+				0.45,
+				0,
+				1,
+			),
+			auto_copy_selection: gc("auto_copy_selection"),
+			right_click_paste: gc("right_click_paste"),
+			osc52: gc("osc52"),
+			session_shed_on_exit,
+			retain_session_state: gc("retain_session_state"),
+			summon_spawn_at_cursor: gc("summon_spawn_at_cursor"),
+			cursor_follow_window_move: gc("cursor_follow_window_move"),
+			cursor_follow_pane_focus: gc("cursor_follow_pane_focus"),
+			hidden_from_taskbar: gc("hidden_from_taskbar"),
+			window_startup_visible: gc("window_startup_visible"),
+			ui_theme: previous.ui_theme,
+			ui_theme_variant: previous.ui_theme_variant,
+			font_terminal: g("font_terminal"),
+			font_ui: g("font_ui"),
+			ui_disable_tooltips: gc("ui_disable_tooltips"),
+			terminal_alt_click_moves_cursor: gc("terminal_alt_click_moves_cursor"),
+			terminal_backspace_delete_selection: gc(
+				"terminal_backspace_delete_selection",
+			),
+			terminal_no_gap: terminal_pane_gap <= 0,
+			terminal_pane_gap,
+			terminal_sandbox_padding,
+			terminal_no_round: gc("terminal_no_round"),
+			terminal_no_pane_border: gc("terminal_no_pane_border"),
+			terminal_no_focus_border: gc("terminal_no_focus_border"),
+			split_layout_style,
+			terminal_sideload_openconsole: gc("terminal_sideload_openconsole"),
+			quiet_pane_deferral: gc("quiet_pane_deferral"),
+			default_profile_id:
+				g("default_profile_id") ||
+				previous.default_profile_id ||
+				"local-default",
+			inherit_profile_on_split: gc("inherit_profile_on_split"),
+			inherit_cwd_on_split: gc("inherit_cwd_on_split"),
+			palette_tab_profile_picker: gc("palette_tab_profile_picker"),
+			new_tab_uses_default_profile: gc("new_tab_uses_default_profile"),
+			profile_omit: previous.profile_omit ?? [],
+			palette_profile_icons: previous.palette_profile_icons ?? true,
+			profile_selection_aliases: previous.profile_selection_aliases ?? {},
+			// Config-only `[editor]` — not in the form; carried through unchanged
+			// so a Settings save never clobbers a hand-written section.
+			editor_split_type: previous.editor_split_type ?? "v",
+			editor_profile: previous.editor_profile ?? "",
+			editor_command: previous.editor_command ?? "",
+			// Config-only `[workspaces]` — carried through unchanged (see above).
+			workspace_open_mode: previous.workspace_open_mode ?? "new-tab",
+			terminal_animation_speed,
+			terminal_animation_style,
+			terminal_window_motion: gc("terminal_window_motion"),
+			window_effect_mode,
+			window_effect_opacity: clamp01(g("window_effect_opacity"), 0),
+			window_effect_acrylic_tint:
+				g("window_effect_acrylic_tint").trim() || "#1e1e1e",
+			window_effect_acrylic_tint_alpha: clamp01(
+				g("window_effect_acrylic_tint_alpha"),
+				0.55,
+			),
+			pane_corner_radius: clampR(g("pane_corner_radius"), 6),
 
-      terminal_cursor_style: ((v: string) => v === "underline" || v === "bar" ? v : "block")(gs("terminal_cursor_style")),
-      terminal_cursor_blink: gc("terminal_cursor_blink"),
-      terminal_cursor_inactive_style: gs("terminal_cursor_inactive_style"),
-      terminal_cursor_width: clamp1p(g("terminal_cursor_width"), 1),
-      terminal_font_size: clampf(g("terminal_font_size"), 12, 8, 48),
-      terminal_font_weight: g("terminal_font_weight") || "normal",
-      terminal_font_weight_bold: g("terminal_font_weight_bold") || "bold",
-      terminal_line_height: clampf(g("terminal_line_height"), 1, 0.5, 4),
-      terminal_letter_spacing: clampf(g("terminal_letter_spacing"), 0, -2, 10),
-      terminal_draw_bold_bright: gc("terminal_draw_bold_bright"),
-      terminal_smooth_scroll_duration: clampf(g("terminal_smooth_scroll_duration"), 0, 0, 1000),
-      terminal_scroll_sensitivity: clampf(g("terminal_scroll_sensitivity"), 1, 0.1, 10),
-      terminal_fast_scroll_sensitivity: clampf(g("terminal_fast_scroll_sensitivity"), 5, 1, 50),
-      process_notification_threshold: ((): number => {
-        const raw = g("process_notification_threshold");
-        const n = Number.parseFloat(raw);
-        return Number.isFinite(n) ? Math.max(0.1, n) : 5.0;
-      })(),
-      process_notification_show_for: ((): number => {
-        const raw = g("process_notification_show_for");
-        const n = Number.parseFloat(raw);
-        return Number.isFinite(n) ? Math.max(1000, Math.min(30000, n)) : 5000;
-      })(),
-      process_notification_show_ms: gc("process_notification_show_ms"),
-      process_notification_transparent: gc("process_notification_transparent"),
-      process_notification_enabled: gc("process_notification_enabled"),
-      mouse_hidden: gc("mouse_hidden"),
-      mouse_hide_on_idle: gc("mouse_hide_on_idle"),
-      mouse_idle_seconds: clampf(g("mouse_idle_seconds"), 3, 0.5, 300),
-      dev_perf_enabled: import.meta.env.DEV ? gc("dev_perf_enabled") : false,
-      dev_perf_console: import.meta.env.DEV ? gc("dev_perf_console") : false,
-      dev_perf_console_interval_ms: import.meta.env.DEV
-        ? Math.max(1000, Math.min(60000, parseInt(g("dev_perf_console_interval_ms"), 10) || 5000))
-        : 5000,
-      // Dev-only: read from the field in dev; release preserves the stored
-      // value untouched so a release save never clears the dev override.
-      dev_window_toggle_override: import.meta.env.DEV
-        ? (g("dev_window_toggle_override") || null)
-        : (previous.dev_window_toggle_override ?? null),
-    };
-  }
+			terminal_cursor_style: ((v: string) =>
+				v === "underline" || v === "bar" ? v : "block")(
+				gs("terminal_cursor_style"),
+			),
+			terminal_cursor_blink: gc("terminal_cursor_blink"),
+			terminal_cursor_inactive_style: gs("terminal_cursor_inactive_style"),
+			terminal_cursor_width: clamp1p(g("terminal_cursor_width"), 1),
+			terminal_font_size: clampf(g("terminal_font_size"), 12, 8, 48),
+			terminal_font_weight: g("terminal_font_weight") || "normal",
+			terminal_font_weight_bold: g("terminal_font_weight_bold") || "bold",
+			terminal_line_height: clampf(g("terminal_line_height"), 1, 0.5, 4),
+			terminal_letter_spacing: clampf(g("terminal_letter_spacing"), 0, -2, 10),
+			terminal_draw_bold_bright: gc("terminal_draw_bold_bright"),
+			terminal_smooth_scroll_duration: clampf(
+				g("terminal_smooth_scroll_duration"),
+				0,
+				0,
+				1000,
+			),
+			terminal_scroll_sensitivity: clampf(
+				g("terminal_scroll_sensitivity"),
+				1,
+				0.1,
+				10,
+			),
+			terminal_fast_scroll_sensitivity: clampf(
+				g("terminal_fast_scroll_sensitivity"),
+				5,
+				1,
+				50,
+			),
+			process_notification_threshold: ((): number => {
+				const raw = g("process_notification_threshold");
+				const n = Number.parseFloat(raw);
+				return Number.isFinite(n) ? Math.max(0.1, n) : 5.0;
+			})(),
+			process_notification_show_for: ((): number => {
+				const raw = g("process_notification_show_for");
+				const n = Number.parseFloat(raw);
+				return Number.isFinite(n) ? Math.max(1000, Math.min(30000, n)) : 5000;
+			})(),
+			process_notification_show_ms: gc("process_notification_show_ms"),
+			process_notification_transparent: gc("process_notification_transparent"),
+			process_notification_enabled: gc("process_notification_enabled"),
+			mouse_hidden: gc("mouse_hidden"),
+			mouse_hide_on_idle: gc("mouse_hide_on_idle"),
+			mouse_idle_seconds: clampf(g("mouse_idle_seconds"), 3, 0.5, 300),
+			dev_perf_enabled: import.meta.env.DEV ? gc("dev_perf_enabled") : false,
+			dev_perf_console: import.meta.env.DEV ? gc("dev_perf_console") : false,
+			dev_perf_console_interval_ms: import.meta.env.DEV
+				? Math.max(
+						1000,
+						Math.min(
+							60000,
+							parseInt(g("dev_perf_console_interval_ms"), 10) || 5000,
+						),
+					)
+				: 5000,
+			// Dev-only: read from the field in dev; release preserves the stored
+			// value untouched so a release save never clears the dev override.
+			dev_window_toggle_override: import.meta.env.DEV
+				? g("dev_window_toggle_override") || null
+				: (previous.dev_window_toggle_override ?? null),
+		};
+	}
 
-  async function doSave(): Promise<void> {
-    if (saving) return;
-    saving = true;
-    try {
-      const data = await invoke<Persisted>("get_persisted_state");
-      const previous = { ...(data.prefs as ParttyPrefs) };
-      const next = await buildPrefs(previous);
-      const merged = { ...previous, ...next };
-      await invoke("set_prefs", { prefs: merged });
-      await onSaved?.(merged, previous);
-    } catch (err) {
-      console.error("set_prefs", err);
-    } finally {
-      saving = false;
-    }
-    // Dev tree: console snapshots are only meaningful when metrics are enabled.
-    {
-      const perfEnabledEl = form?.querySelector('[name="dev_perf_enabled"]') as HTMLInputElement | null;
-      const perfEnabled = perfEnabledEl?.checked ?? false;
-      root.querySelectorAll('[data-child-of="dev_perf_enabled"]').forEach((r) => {
-        (r as HTMLElement).classList.toggle("settings-tree-hidden", !perfEnabled);
-      });
-    }
-  }
+	async function doSave(): Promise<void> {
+		if (saving) return;
+		saving = true;
+		try {
+			const data = await invoke<Persisted>("get_persisted_state");
+			const previous = { ...(data.prefs as ParttyPrefs) };
+			const next = await buildPrefs(previous);
+			const merged = { ...previous, ...next };
+			await invoke("set_prefs", { prefs: merged });
+			await onSaved?.(merged, previous);
+		} catch (err) {
+			console.error("set_prefs", err);
+		} finally {
+			saving = false;
+		}
+		// Dev tree: console snapshots are only meaningful when metrics are enabled.
+		{
+			const perfEnabledEl = form?.querySelector(
+				'[name="dev_perf_enabled"]',
+			) as HTMLInputElement | null;
+			const perfEnabled = perfEnabledEl?.checked ?? false;
+			root
+				.querySelectorAll('[data-child-of="dev_perf_enabled"]')
+				.forEach((r) => {
+					(r as HTMLElement).classList.toggle(
+						"settings-tree-hidden",
+						!perfEnabled,
+					);
+				});
+		}
+	}
 
-  function applySettingsTree(): void {
-    // Mouse: idle options are inactive while "hide mouse" is on.
-    {
-      const mouseHiddenEl = form?.querySelector('[name="mouse_hidden"]') as HTMLInputElement | null;
-      const mouseHidden = mouseHiddenEl?.checked ?? false;
-      root.querySelectorAll('[data-child-of="mouse_hidden"]').forEach((r) => {
-        (r as HTMLElement).classList.toggle("settings-tree-hidden", mouseHidden);
-      });
-      const hideOnIdleEl = form?.querySelector('[name="mouse_hide_on_idle"]') as HTMLInputElement | null;
-      const hideOnIdle = hideOnIdleEl?.checked ?? false;
-      root.querySelectorAll('[data-child-of="mouse_hide_on_idle"]').forEach((r) => {
-        (r as HTMLElement).classList.toggle("settings-tree-hidden", !hideOnIdle || mouseHidden);
-      });
-    }
-    // Variable opacity: sub-options dimmed when toggle is off.
-    {
-      const toggleEl = form?.querySelector('[name="pane_variable_opacity"]') as HTMLInputElement | null;
-      const enabled = toggleEl?.checked ?? false;
-      root.querySelectorAll('[data-child-of="pane_variable_opacity"]').forEach((r) => {
-        (r as HTMLElement).classList.toggle("settings-tree-hidden", !enabled);
-      });
-    }
-    // Notifications: dim sub-options when disabled.
-    {
-      const toggleEl = form?.querySelector('[name="process_notification_enabled"]') as HTMLInputElement | null;
-      const enabled = toggleEl?.checked ?? false;
-      root.querySelectorAll('[data-child-of="process_notification_enabled"]').forEach((r) => {
-        (r as HTMLElement).classList.toggle("settings-tree-hidden", !enabled);
-      });
-    }
-    // Backdrop: expose α only for "transparent"; the acrylic tint options only for "acrylic".
-    {
-      const modeEl = form?.querySelector('[name="window_effect_mode"]') as HTMLSelectElement | null;
-      const mode = modeEl?.value ?? "off";
-      root.querySelectorAll<HTMLElement>("[data-backdrop-opt]").forEach((row) => {
-        const show = row.dataset.backdropOpt === mode;
-        row.classList.toggle("settings-tree-hidden", !show);
-        row.style.display = show ? "" : "none";
-      });
-    }
-  }
+	function applySettingsTree(): void {
+		// Mouse: idle options are inactive while "hide mouse" is on.
+		{
+			const mouseHiddenEl = form?.querySelector(
+				'[name="mouse_hidden"]',
+			) as HTMLInputElement | null;
+			const mouseHidden = mouseHiddenEl?.checked ?? false;
+			root.querySelectorAll('[data-child-of="mouse_hidden"]').forEach((r) => {
+				(r as HTMLElement).classList.toggle(
+					"settings-tree-hidden",
+					mouseHidden,
+				);
+			});
+			const hideOnIdleEl = form?.querySelector(
+				'[name="mouse_hide_on_idle"]',
+			) as HTMLInputElement | null;
+			const hideOnIdle = hideOnIdleEl?.checked ?? false;
+			root
+				.querySelectorAll('[data-child-of="mouse_hide_on_idle"]')
+				.forEach((r) => {
+					(r as HTMLElement).classList.toggle(
+						"settings-tree-hidden",
+						!hideOnIdle || mouseHidden,
+					);
+				});
+		}
+		// Variable opacity: sub-options dimmed when toggle is off.
+		{
+			const toggleEl = form?.querySelector(
+				'[name="pane_variable_opacity"]',
+			) as HTMLInputElement | null;
+			const enabled = toggleEl?.checked ?? false;
+			root
+				.querySelectorAll('[data-child-of="pane_variable_opacity"]')
+				.forEach((r) => {
+					(r as HTMLElement).classList.toggle("settings-tree-hidden", !enabled);
+				});
+		}
+		// Notifications: dim sub-options when disabled.
+		{
+			const toggleEl = form?.querySelector(
+				'[name="process_notification_enabled"]',
+			) as HTMLInputElement | null;
+			const enabled = toggleEl?.checked ?? false;
+			root
+				.querySelectorAll('[data-child-of="process_notification_enabled"]')
+				.forEach((r) => {
+					(r as HTMLElement).classList.toggle("settings-tree-hidden", !enabled);
+				});
+		}
+		// Backdrop: expose α only for "transparent"; the acrylic tint options only for "acrylic".
+		{
+			const modeEl = form?.querySelector(
+				'[name="window_effect_mode"]',
+			) as HTMLSelectElement | null;
+			const mode = modeEl?.value ?? "off";
+			root
+				.querySelectorAll<HTMLElement>("[data-backdrop-opt]")
+				.forEach((row) => {
+					const show = row.dataset.backdropOpt === mode;
+					row.classList.toggle("settings-tree-hidden", !show);
+					row.style.display = show ? "" : "none";
+				});
+		}
+	}
 
-  function switchSettingsTab(tab: string): void {
-    const sections = root.querySelectorAll<HTMLElement>(".settings-section");
-    for (const section of sections) {
-      section.hidden = (section.dataset.section ?? "") !== tab;
-    }
-    root.querySelectorAll(".settings-tab").forEach((t) => {
-      t.classList.toggle("settings-tab--active", (t as HTMLElement).dataset.section === tab);
-      t.setAttribute("aria-selected", (t as HTMLElement).dataset.section === tab ? "true" : "false");
-    });
-  }
+	function switchSettingsTab(tab: string): void {
+		const sections = root.querySelectorAll<HTMLElement>(".settings-section");
+		for (const section of sections) {
+			section.hidden = (section.dataset.section ?? "") !== tab;
+		}
+		root.querySelectorAll(".settings-tab").forEach((t) => {
+			t.classList.toggle(
+				"settings-tab--active",
+				(t as HTMLElement).dataset.section === tab,
+			);
+			t.setAttribute(
+				"aria-selected",
+				(t as HTMLElement).dataset.section === tab ? "true" : "false",
+			);
+		});
+	}
 
-  function applySettingsSearch(): void {
-    const input = root.querySelector("#settings-search") as HTMLInputElement | null;
-    const q = input?.value.trim().toLowerCase() ?? "";
-    const sections = root.querySelectorAll<HTMLElement>(".settings-section");
+	function applySettingsSearch(): void {
+		const input = root.querySelector(
+			"#settings-search",
+		) as HTMLInputElement | null;
+		const q = input?.value.trim().toLowerCase() ?? "";
+		const sections = root.querySelectorAll<HTMLElement>(".settings-section");
 
-    if (q.length === 0) {
-      // Restore tab view
-      for (const section of sections) section.hidden = true;
-      const activeTab = root.querySelector(".settings-tab--active") as HTMLElement | null;
-      switchSettingsTab(activeTab?.dataset.section ?? "shell");
-      return;
-    }
+		if (q.length === 0) {
+			// Restore tab view
+			for (const section of sections) section.hidden = true;
+			const activeTab = root.querySelector(
+				".settings-tab--active",
+			) as HTMLElement | null;
+			switchSettingsTab(activeTab?.dataset.section ?? "shell");
+			return;
+		}
 
-    // Search mode: show matching rows across all sections
-    for (const section of sections) {
-      let anyVisible = false;
-      const rows = section.querySelectorAll<HTMLElement>(".settings-row, .settings-checkbox-label, .settings-toggle-desc, .settings-subsection-hd");
-      for (const row of rows) {
-        if (row.closest(".settings-tree-hidden")) {
-          (row as HTMLElement).hidden = true;
-          continue;
-        }
-        const controls = [...row.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select")]
-          .map((el) => `${el.name ?? ""} ${el.id ?? ""} ${"placeholder" in el ? (el as HTMLInputElement).placeholder : ""}`)
-          .join(" ");
-        const text = `${row.textContent ?? ""} ${controls}`.toLowerCase().replace(/[_-]/g, " ");
-        const visible = text.includes(q);
-        (row as HTMLElement).hidden = !visible;
-        if (visible) anyVisible = true;
-      }
-      section.hidden = !anyVisible;
-    }
+		// Search mode: show matching rows across all sections
+		for (const section of sections) {
+			let anyVisible = false;
+			const rows = section.querySelectorAll<HTMLElement>(
+				".settings-row, .settings-checkbox-label, .settings-toggle-desc, .settings-subsection-hd",
+			);
+			for (const row of rows) {
+				if (row.closest(".settings-tree-hidden")) {
+					(row as HTMLElement).hidden = true;
+					continue;
+				}
+				const controls = [
+					...row.querySelectorAll<
+						HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+					>("input, textarea, select"),
+				]
+					.map(
+						(el) =>
+							`${el.name ?? ""} ${el.id ?? ""} ${"placeholder" in el ? (el as HTMLInputElement).placeholder : ""}`,
+					)
+					.join(" ");
+				const text = `${row.textContent ?? ""} ${controls}`
+					.toLowerCase()
+					.replace(/[_-]/g, " ");
+				const visible = text.includes(q);
+				(row as HTMLElement).hidden = !visible;
+				if (visible) anyVisible = true;
+			}
+			section.hidden = !anyVisible;
+		}
 
-    // Highlight tabs with matches
-    root.querySelectorAll(".settings-tab").forEach((tab) => {
-      const t = tab as HTMLElement;
-      const sec = t.dataset.section ?? "";
-      const hasMatches = root.querySelector(`.settings-section[data-section="${sec}"]:not([hidden])`);
-      t.classList.toggle("settings-tab--dim", !hasMatches);
-    });
-  }
+		// Highlight tabs with matches
+		root.querySelectorAll(".settings-tab").forEach((tab) => {
+			const t = tab as HTMLElement;
+			const sec = t.dataset.section ?? "";
+			const hasMatches = root.querySelector(
+				`.settings-section[data-section="${sec}"]:not([hidden])`,
+			);
+			t.classList.toggle("settings-tab--dim", !hasMatches);
+		});
+	}
 
-  async function loadAndRender(): Promise<void> {
-    const data = await invoke<Persisted>("get_persisted_state");
-    const p = data.prefs;
-    if (!form) return;
-    const pr = p as Partial<ParttyPrefs>;
+	async function loadAndRender(): Promise<void> {
+		const data = await invoke<Persisted>("get_persisted_state");
+		const p = data.prefs;
+		if (!form) return;
+		const pr = p as Partial<ParttyPrefs>;
 
-    const profileSelect = form.querySelector(
-      "#setting-default-profile-id",
-    ) as HTMLSelectElement | null;
-    if (profileSelect) {
-      profileSelect.innerHTML = "";
-      let profiles: Array<{ id: string; name: string; kind?: string }> = [];
-      try {
-        profiles = await invoke("list_profiles");
-      } catch {
-        /* ok */
-      }
-      if (!profiles.length) {
-        profiles = [{ id: "local-default", name: "Local (default shell)", kind: "local" }];
-      }
-      const preferred = pr.default_profile_id ?? "local-default";
-      for (const prof of profiles) {
-        const opt = document.createElement("option");
-        opt.value = prof.id;
-        opt.textContent = prof.name;
-        profileSelect.appendChild(opt);
-      }
-      if (![...profileSelect.options].some((o) => o.value === preferred)) {
-        const opt = document.createElement("option");
-        opt.value = preferred;
-        opt.textContent = preferred;
-        profileSelect.appendChild(opt);
-      }
-      profileSelect.value = preferred;
-    }
+		const profileSelect = form.querySelector(
+			"#setting-default-profile-id",
+		) as HTMLSelectElement | null;
+		if (profileSelect) {
+			profileSelect.innerHTML = "";
+			let profiles: Array<{ id: string; name: string; kind?: string }> = [];
+			try {
+				profiles = await invoke("list_profiles");
+			} catch {
+				/* ok */
+			}
+			if (!profiles.length) {
+				profiles = [
+					{ id: "local-default", name: "Local (default shell)", kind: "local" },
+				];
+			}
+			const preferred = pr.default_profile_id ?? "local-default";
+			for (const prof of profiles) {
+				const opt = document.createElement("option");
+				opt.value = prof.id;
+				opt.textContent = prof.name;
+				profileSelect.appendChild(opt);
+			}
+			if (![...profileSelect.options].some((o) => o.value === preferred)) {
+				const opt = document.createElement("option");
+				opt.value = preferred;
+				opt.textContent = preferred;
+				profileSelect.appendChild(opt);
+			}
+			profileSelect.value = preferred;
+		}
 
-    const fontTerminal = form.querySelector("#setting-font-terminal") as HTMLSelectElement | null;
-    const fontUi = form.querySelector("#setting-font-ui") as HTMLSelectElement | null;
-    if (fontTerminal || fontUi) {
-      const families = await discoverFontFamilies();
-      if (fontTerminal) populateFontSelect(fontTerminal, families, pr.font_terminal ?? "");
-      if (fontUi) populateFontSelect(fontUi, families, pr.font_ui ?? "");
-    }
+		const fontTerminal = form.querySelector(
+			"#setting-font-terminal",
+		) as HTMLSelectElement | null;
+		const fontUi = form.querySelector(
+			"#setting-font-ui",
+		) as HTMLSelectElement | null;
+		if (fontTerminal || fontUi) {
+			const families = await discoverFontFamilies();
+			if (fontTerminal)
+				populateFontSelect(fontTerminal, families, pr.font_terminal ?? "");
+			if (fontUi) populateFontSelect(fontUi, families, pr.font_ui ?? "");
+		}
 
-    const setVal = (n: string, v: string) => { const el = form.querySelector(`[name="${n}"]`) as HTMLInputElement | null; if (el) el.value = v; };
-    const setChk = (n: keyof ParttyPrefs, v: boolean) => { const el = form.querySelector(`[name="${n}"]`) as HTMLInputElement | null; if (el) el.checked = v; };
-    const setSel = (n: string, v: string) => { const el = form.querySelector(`[name="${n}"]`) as HTMLSelectElement | null; if (el) el.value = v; };
+		const setVal = (n: string, v: string) => {
+			const el = form.querySelector(`[name="${n}"]`) as HTMLInputElement | null;
+			if (el) el.value = v;
+		};
+		const setChk = (n: keyof ParttyPrefs, v: boolean) => {
+			const el = form.querySelector(`[name="${n}"]`) as HTMLInputElement | null;
+			if (el) el.checked = v;
+		};
+		const setSel = (n: string, v: string) => {
+			const el = form.querySelector(
+				`[name="${n}"]`,
+			) as HTMLSelectElement | null;
+			if (el) el.value = v;
+		};
 
-    setVal("initial_cwd", p.initial_cwd ?? "");
-    setVal("font_terminal", pr.font_terminal ?? "");
-    setVal("font_ui", pr.font_ui ?? "");
-    setVal("scrollback_lines", String(p.scrollback_lines));
-    setVal("snapshot_max_lines", String(p.snapshot_max_lines));
-    setVal("window_effect_opacity", String(pr.window_effect_opacity ?? 0));
-    setVal("window_effect_acrylic_tint", pr.window_effect_acrylic_tint ?? "#1e1e1e");
-    setVal("window_effect_acrylic_tint_alpha", String(pr.window_effect_acrylic_tint_alpha ?? 0.55));
-    setVal("pane_corner_radius", String(pr.pane_corner_radius ?? 6));
-    setVal("terminal_pane_gap", String(pr.terminal_pane_gap ?? (pr.terminal_no_gap ? 0 : 6)));
-    setVal("terminal_sandbox_padding", String(pr.terminal_sandbox_padding ?? 0));
+		setVal("initial_cwd", p.initial_cwd ?? "");
+		setVal("font_terminal", pr.font_terminal ?? "");
+		setVal("font_ui", pr.font_ui ?? "");
+		setVal("scrollback_lines", String(p.scrollback_lines));
+		setVal("snapshot_max_lines", String(p.snapshot_max_lines));
+		setVal("window_effect_opacity", String(pr.window_effect_opacity ?? 0));
+		setVal(
+			"window_effect_acrylic_tint",
+			pr.window_effect_acrylic_tint ?? "#1e1e1e",
+		);
+		setVal(
+			"window_effect_acrylic_tint_alpha",
+			String(pr.window_effect_acrylic_tint_alpha ?? 0.55),
+		);
+		setVal("pane_corner_radius", String(pr.pane_corner_radius ?? 6));
+		setVal(
+			"terminal_pane_gap",
+			String(pr.terminal_pane_gap ?? (pr.terminal_no_gap ? 0 : 6)),
+		);
+		setVal(
+			"terminal_sandbox_padding",
+			String(pr.terminal_sandbox_padding ?? 0),
+		);
 
-    setSel("session_shed_on_exit", ((v?: string) => { v = (v ?? "keep").toLowerCase(); return v === "shed" ? "shed" : v === "ask" ? "ask" : "keep"; })(pr.session_shed_on_exit));
-    setSel("terminal_animation_speed", ((v?: string) => { v = (v ?? "normal").toLowerCase(); return v === "off" || v === "fast" || v === "slow" ? v : "normal"; })(pr.terminal_animation_speed));
-    setSel("terminal_animation_style", ((v?: string) => { v = (v ?? "smooth").toLowerCase(); return v === "snappy" || v === "gentle" || v === "bouncy" ? v : "smooth"; })(pr.terminal_animation_style));
-    setChk("terminal_window_motion", pr.terminal_window_motion ?? true);
-    setSel("window_effect_mode", (["off", "transparent", "acrylic"].includes((pr.window_effect_mode ?? "off").toLowerCase()) ? (pr.window_effect_mode ?? "off").toLowerCase() : "off"));
-    setSel("terminal_cursor_style", ((v?: string) => v === "underline" || v === "bar" ? v : "block")(pr.terminal_cursor_style));
-    setChk("terminal_cursor_blink", pr.terminal_cursor_blink ?? true);
-    setSel("terminal_cursor_inactive_style", ((v?: string) => (v === "outline" || v === "block" || v === "bar" || v === "underline" || v === "none") ? v : "outline")(pr.terminal_cursor_inactive_style));
-    setVal("terminal_cursor_width", String(pr.terminal_cursor_width ?? 1));
-    setChk("terminal_alt_click_moves_cursor", pr.terminal_alt_click_moves_cursor ?? true);
-    setVal("terminal_font_size", String(pr.terminal_font_size ?? 12));
-    setVal("terminal_font_weight", pr.terminal_font_weight ?? "normal");
-    setVal("terminal_font_weight_bold", pr.terminal_font_weight_bold ?? "bold");
-    setVal("terminal_line_height", String(pr.terminal_line_height ?? 1));
-    setVal("terminal_letter_spacing", String(pr.terminal_letter_spacing ?? 0));
-    setChk("terminal_draw_bold_bright", pr.terminal_draw_bold_bright ?? true);
-    setVal("terminal_smooth_scroll_duration", String(pr.terminal_smooth_scroll_duration ?? 0));
-    setVal("terminal_scroll_sensitivity", String(pr.terminal_scroll_sensitivity ?? 1));
-    setVal("terminal_fast_scroll_sensitivity", String(pr.terminal_fast_scroll_sensitivity ?? 5));
-    setVal("process_notification_threshold", String(pr.process_notification_threshold ?? 5.0));
-    setVal("process_notification_show_for", String(pr.process_notification_show_for ?? 5000));
-    setChk("process_notification_show_ms", pr.process_notification_show_ms ?? false);
-    setChk("process_notification_transparent", pr.process_notification_transparent ?? false);
-    setChk("process_notification_enabled", pr.process_notification_enabled ?? false);
-    setChk("mouse_hidden", pr.mouse_hidden ?? false);
-    setChk("mouse_hide_on_idle", pr.mouse_hide_on_idle ?? false);
-    setVal("mouse_idle_seconds", String(pr.mouse_idle_seconds ?? 3));
-    setChk("dev_perf_enabled", pr.dev_perf_enabled ?? false);
-    setChk("dev_perf_console", pr.dev_perf_console ?? false);
-    setVal("dev_perf_console_interval_ms", String(pr.dev_perf_console_interval_ms ?? 5000));
-    setVal("dev_window_toggle_override", pr.dev_window_toggle_override ?? "");
-    setSel("split_layout_style", ((v?: string) => { v = (v ?? "balanced").toLowerCase(); return v === "dwindle" || v === "master" ? v : "balanced"; })(pr.split_layout_style));
-    setChk("quiet_pane_deferral", pr.quiet_pane_deferral ?? false);
-    setChk("inherit_profile_on_split", pr.inherit_profile_on_split ?? true);
-    setChk("inherit_cwd_on_split", pr.inherit_cwd_on_split ?? true);
-    setChk("palette_tab_profile_picker", pr.palette_tab_profile_picker ?? true);
-    setChk("new_tab_uses_default_profile", pr.new_tab_uses_default_profile ?? true);
+		setSel(
+			"session_shed_on_exit",
+			((v?: string) => {
+				v = (v ?? "keep").toLowerCase();
+				return v === "shed" ? "shed" : v === "ask" ? "ask" : "keep";
+			})(pr.session_shed_on_exit),
+		);
+		setSel(
+			"terminal_animation_speed",
+			((v?: string) => {
+				v = (v ?? "normal").toLowerCase();
+				return v === "off" || v === "fast" || v === "slow" ? v : "normal";
+			})(pr.terminal_animation_speed),
+		);
+		setSel(
+			"terminal_animation_style",
+			((v?: string) => {
+				v = (v ?? "smooth").toLowerCase();
+				return v === "snappy" || v === "gentle" || v === "bouncy"
+					? v
+					: "smooth";
+			})(pr.terminal_animation_style),
+		);
+		setChk("terminal_window_motion", pr.terminal_window_motion ?? true);
+		setSel(
+			"window_effect_mode",
+			["off", "transparent", "acrylic"].includes(
+				(pr.window_effect_mode ?? "off").toLowerCase(),
+			)
+				? (pr.window_effect_mode ?? "off").toLowerCase()
+				: "off",
+		);
+		setSel(
+			"terminal_cursor_style",
+			((v?: string) => (v === "underline" || v === "bar" ? v : "block"))(
+				pr.terminal_cursor_style,
+			),
+		);
+		setChk("terminal_cursor_blink", pr.terminal_cursor_blink ?? true);
+		setSel(
+			"terminal_cursor_inactive_style",
+			((v?: string) =>
+				v === "outline" ||
+				v === "block" ||
+				v === "bar" ||
+				v === "underline" ||
+				v === "none"
+					? v
+					: "outline")(pr.terminal_cursor_inactive_style),
+		);
+		setVal("terminal_cursor_width", String(pr.terminal_cursor_width ?? 1));
+		setChk(
+			"terminal_alt_click_moves_cursor",
+			pr.terminal_alt_click_moves_cursor ?? true,
+		);
+		setVal("terminal_font_size", String(pr.terminal_font_size ?? 12));
+		setVal("terminal_font_weight", pr.terminal_font_weight ?? "normal");
+		setVal("terminal_font_weight_bold", pr.terminal_font_weight_bold ?? "bold");
+		setVal("terminal_line_height", String(pr.terminal_line_height ?? 1));
+		setVal("terminal_letter_spacing", String(pr.terminal_letter_spacing ?? 0));
+		setChk("terminal_draw_bold_bright", pr.terminal_draw_bold_bright ?? true);
+		setVal(
+			"terminal_smooth_scroll_duration",
+			String(pr.terminal_smooth_scroll_duration ?? 0),
+		);
+		setVal(
+			"terminal_scroll_sensitivity",
+			String(pr.terminal_scroll_sensitivity ?? 1),
+		);
+		setVal(
+			"terminal_fast_scroll_sensitivity",
+			String(pr.terminal_fast_scroll_sensitivity ?? 5),
+		);
+		setVal(
+			"process_notification_threshold",
+			String(pr.process_notification_threshold ?? 5.0),
+		);
+		setVal(
+			"process_notification_show_for",
+			String(pr.process_notification_show_for ?? 5000),
+		);
+		setChk(
+			"process_notification_show_ms",
+			pr.process_notification_show_ms ?? false,
+		);
+		setChk(
+			"process_notification_transparent",
+			pr.process_notification_transparent ?? false,
+		);
+		setChk(
+			"process_notification_enabled",
+			pr.process_notification_enabled ?? false,
+		);
+		setChk("mouse_hidden", pr.mouse_hidden ?? false);
+		setChk("mouse_hide_on_idle", pr.mouse_hide_on_idle ?? false);
+		setVal("mouse_idle_seconds", String(pr.mouse_idle_seconds ?? 3));
+		setChk("dev_perf_enabled", pr.dev_perf_enabled ?? false);
+		setChk("dev_perf_console", pr.dev_perf_console ?? false);
+		setVal(
+			"dev_perf_console_interval_ms",
+			String(pr.dev_perf_console_interval_ms ?? 5000),
+		);
+		setVal("dev_window_toggle_override", pr.dev_window_toggle_override ?? "");
+		setSel(
+			"split_layout_style",
+			((v?: string) => {
+				v = (v ?? "balanced").toLowerCase();
+				return v === "dwindle" || v === "master" ? v : "balanced";
+			})(pr.split_layout_style),
+		);
+		setChk("quiet_pane_deferral", pr.quiet_pane_deferral ?? false);
+		setChk("inherit_profile_on_split", pr.inherit_profile_on_split ?? true);
+		setChk("inherit_cwd_on_split", pr.inherit_cwd_on_split ?? true);
+		setChk("palette_tab_profile_picker", pr.palette_tab_profile_picker ?? true);
+		setChk(
+			"new_tab_uses_default_profile",
+			pr.new_tab_uses_default_profile ?? true,
+		);
 
-    setChk("shed_on_hide", p.shed_on_hide);
-    setChk("always_on_top", p.always_on_top);
-    setChk("webgl_shed_on_hide", p.webgl_shed_on_hide);
-    setChk("discard_buffer_on_hide", p.discard_buffer_on_hide);
-    setChk("preload_pty_on_startup", p.preload_pty_on_startup);
-    setChk("preload_webgl_on_startup", p.preload_webgl_on_startup);
-    setChk("defer_window_show_until_prepared", p.defer_window_show_until_prepared);
-    setChk("destroy_webview_on_hide", p.destroy_webview_on_hide);
-    setChk("focus_follows_cursor", p.focus_follows_cursor);
-    setChk("blur_unfocused_panes", pr.blur_unfocused_panes ?? false);
-    setVal("pane_blur_radius", String(pr.pane_blur_radius ?? 1.6));
-    setVal("pane_opacity_focused", String(pr.pane_opacity_focused ?? 1.0));
-    setVal("pane_opacity_unfocused", String(pr.pane_opacity_unfocused ?? 1.0));
-    setChk("pane_variable_opacity", pr.pane_variable_opacity ?? false);
-    setChk("focus_pane_scale", pr.focus_pane_scale ?? true);
-    setVal("pane_focus_scale_intensity", String(pr.pane_focus_scale_intensity ?? 0.45));
-    setChk("auto_copy_selection", pr.auto_copy_selection ?? false);
-    setChk("right_click_paste", pr.right_click_paste ?? true);
-    setChk("osc52", pr.osc52 ?? true);
-    setChk("retain_session_state", pr.retain_session_state ?? true);
-    setChk("summon_spawn_at_cursor", pr.summon_spawn_at_cursor ?? false);
-    setChk("cursor_follow_window_move", pr.cursor_follow_window_move ?? false);
-    setChk("cursor_follow_pane_focus", pr.cursor_follow_pane_focus ?? true);
-    setChk("hidden_from_taskbar", pr.hidden_from_taskbar ?? false);
-    setChk("window_startup_visible", pr.window_startup_visible ?? true);
-    setChk("ui_disable_tooltips", pr.ui_disable_tooltips ?? false);
-    setChk("terminal_backspace_delete_selection", pr.terminal_backspace_delete_selection ?? true);
-    setChk("terminal_no_round", pr.terminal_no_round ?? false);
-    setChk("terminal_no_pane_border", pr.terminal_no_pane_border ?? false);
-    setChk("terminal_no_focus_border", pr.terminal_no_focus_border ?? false);
-    setChk("terminal_sideload_openconsole", pr.terminal_sideload_openconsole ?? false);
+		setChk("shed_on_hide", p.shed_on_hide);
+		setChk("always_on_top", p.always_on_top);
+		setChk("webgl_shed_on_hide", p.webgl_shed_on_hide);
+		setChk("discard_buffer_on_hide", p.discard_buffer_on_hide);
+		setChk("preload_pty_on_startup", p.preload_pty_on_startup);
+		setChk("preload_webgl_on_startup", p.preload_webgl_on_startup);
+		setChk(
+			"defer_window_show_until_prepared",
+			p.defer_window_show_until_prepared,
+		);
+		setChk("destroy_webview_on_hide", p.destroy_webview_on_hide);
+		setChk("focus_follows_cursor", p.focus_follows_cursor);
+		setChk("blur_unfocused_panes", pr.blur_unfocused_panes ?? false);
+		setVal("pane_blur_radius", String(pr.pane_blur_radius ?? 1.6));
+		setVal("pane_opacity_focused", String(pr.pane_opacity_focused ?? 1.0));
+		setVal("pane_opacity_unfocused", String(pr.pane_opacity_unfocused ?? 1.0));
+		setChk("pane_variable_opacity", pr.pane_variable_opacity ?? false);
+		setChk("focus_pane_scale", pr.focus_pane_scale ?? true);
+		setVal(
+			"pane_focus_scale_intensity",
+			String(pr.pane_focus_scale_intensity ?? 0.45),
+		);
+		setChk("auto_copy_selection", pr.auto_copy_selection ?? false);
+		setChk("right_click_paste", pr.right_click_paste ?? true);
+		setChk("osc52", pr.osc52 ?? true);
+		setChk("retain_session_state", pr.retain_session_state ?? true);
+		setChk("summon_spawn_at_cursor", pr.summon_spawn_at_cursor ?? false);
+		setChk("cursor_follow_window_move", pr.cursor_follow_window_move ?? false);
+		setChk("cursor_follow_pane_focus", pr.cursor_follow_pane_focus ?? true);
+		setChk("hidden_from_taskbar", pr.hidden_from_taskbar ?? false);
+		setChk("window_startup_visible", pr.window_startup_visible ?? true);
+		setChk("ui_disable_tooltips", pr.ui_disable_tooltips ?? false);
+		setChk(
+			"terminal_backspace_delete_selection",
+			pr.terminal_backspace_delete_selection ?? true,
+		);
+		setChk("terminal_no_round", pr.terminal_no_round ?? false);
+		setChk("terminal_no_pane_border", pr.terminal_no_pane_border ?? false);
+		setChk("terminal_no_focus_border", pr.terminal_no_focus_border ?? false);
+		setChk(
+			"terminal_sideload_openconsole",
+			pr.terminal_sideload_openconsole ?? false,
+		);
 
-    applySettingsTree();
-    applySettingsSearch();
-  }
+		applySettingsTree();
+		applySettingsSearch();
+	}
 
-  function close(save = true): void {
-    if (!open) return;
-    open = false;
-    overlay?.release();
-    overlay = null;
-    mouseCursorForceVisible(false);
-    root.setAttribute("aria-hidden", "true");
-    if (save) void doSave();
-    onClosed?.();
-    hideSurface(root, "settings-panel--hidden");
-  }
+	function close(save = true): void {
+		if (!open) return;
+		open = false;
+		overlay?.release();
+		overlay = null;
+		mouseCursorForceVisible(false);
+		root.setAttribute("aria-hidden", "true");
+		if (save) void doSave();
+		onClosed?.();
+		hideSurface(root, "settings-panel--hidden");
+	}
 
-  let listenersInstalled = false;
-  function ensureListeners(): void {
-    if (listenersInstalled) return;
-    listenersInstalled = true;
+	let listenersInstalled = false;
+	function ensureListeners(): void {
+		if (listenersInstalled) return;
+		listenersInstalled = true;
 
-    const mouseHiddenToggle = form?.querySelector('[name="mouse_hidden"]') as HTMLInputElement | null;
-    mouseHiddenToggle?.addEventListener("change", () => applySettingsTree());
-    const mouseIdleToggle = form?.querySelector('[name="mouse_hide_on_idle"]') as HTMLInputElement | null;
-    mouseIdleToggle?.addEventListener("change", () => applySettingsTree());
-    const devPerfToggle = form?.querySelector('[name="dev_perf_enabled"]') as HTMLInputElement | null;
-    devPerfToggle?.addEventListener("change", () => { applySettingsTree(); applySettingsSearch(); });
-    const varOpacityToggle = form?.querySelector('[name="pane_variable_opacity"]') as HTMLInputElement | null;
-    varOpacityToggle?.addEventListener("change", () => applySettingsTree());
-    const notifEnabledToggle = form?.querySelector('[name="process_notification_enabled"]') as HTMLInputElement | null;
-    notifEnabledToggle?.addEventListener("change", () => applySettingsTree());
-    const backdropModeSelect = form?.querySelector('[name="window_effect_mode"]') as HTMLSelectElement | null;
-    backdropModeSelect?.addEventListener("change", () => applySettingsTree());
+		const mouseHiddenToggle = form?.querySelector(
+			'[name="mouse_hidden"]',
+		) as HTMLInputElement | null;
+		mouseHiddenToggle?.addEventListener("change", () => applySettingsTree());
+		const mouseIdleToggle = form?.querySelector(
+			'[name="mouse_hide_on_idle"]',
+		) as HTMLInputElement | null;
+		mouseIdleToggle?.addEventListener("change", () => applySettingsTree());
+		const devPerfToggle = form?.querySelector(
+			'[name="dev_perf_enabled"]',
+		) as HTMLInputElement | null;
+		devPerfToggle?.addEventListener("change", () => {
+			applySettingsTree();
+			applySettingsSearch();
+		});
+		const varOpacityToggle = form?.querySelector(
+			'[name="pane_variable_opacity"]',
+		) as HTMLInputElement | null;
+		varOpacityToggle?.addEventListener("change", () => applySettingsTree());
+		const notifEnabledToggle = form?.querySelector(
+			'[name="process_notification_enabled"]',
+		) as HTMLInputElement | null;
+		notifEnabledToggle?.addEventListener("change", () => applySettingsTree());
+		const backdropModeSelect = form?.querySelector(
+			'[name="window_effect_mode"]',
+		) as HTMLSelectElement | null;
+		backdropModeSelect?.addEventListener("change", () => applySettingsTree());
 
-    root.querySelector(".settings-panel-backdrop")?.addEventListener("click", (e) => {
-      if (e.target === e.currentTarget) close();
-    });
-    root.querySelector("#settings-close")?.addEventListener("click", () => close());
-    root.querySelector("#settings-search")?.addEventListener("input", () => applySettingsSearch());
-    // Tab switching
-    root.querySelectorAll(".settings-tab").forEach((tab) => {
-      tab.addEventListener("click", () => {
-        const section = (tab as HTMLElement).dataset.section ?? "";
-        switchSettingsTab(section);
-        applySettingsSearch();
-      });
-    });
-    // Escape is handled by the shared overlay stack.
-  }
-  ensureListeners();
+		root
+			.querySelector(".settings-panel-backdrop")
+			?.addEventListener("click", (e) => {
+				if (e.target === e.currentTarget) close();
+			});
+		root
+			.querySelector("#settings-close")
+			?.addEventListener("click", () => close());
+		root
+			.querySelector("#settings-search")
+			?.addEventListener("input", () => applySettingsSearch());
+		// Tab switching
+		root.querySelectorAll(".settings-tab").forEach((tab) => {
+			tab.addEventListener("click", () => {
+				const section = (tab as HTMLElement).dataset.section ?? "";
+				switchSettingsTab(section);
+				applySettingsSearch();
+			});
+		});
+		// Escape is handled by the shared overlay stack.
+	}
+	ensureListeners();
 
-  return {
-    open: () => {
-      if (open) return;
-      open = true;
-      overlay = pushOverlay(() => close());
-      mouseCursorForceVisible(true);
-      ensureListeners();
-      showSurface(root, "settings-panel--hidden");
-      root.setAttribute("aria-hidden", "false");
-      const search = root.querySelector("#settings-search") as HTMLInputElement | null;
-      if (search) search.value = "";
-      void loadAndRender();
-      requestAnimationFrame(() => {
-        (root.querySelector("#settings-search") as HTMLInputElement | null)?.focus();
-      });
-    },
-    close: () => close(),
-    isOpen: () => open,
-  };
+	return {
+		open: () => {
+			if (open) return;
+			open = true;
+			overlay = pushOverlay(() => close());
+			mouseCursorForceVisible(true);
+			ensureListeners();
+			showSurface(root, "settings-panel--hidden");
+			root.setAttribute("aria-hidden", "false");
+			const search = root.querySelector(
+				"#settings-search",
+			) as HTMLInputElement | null;
+			if (search) search.value = "";
+			void loadAndRender();
+			requestAnimationFrame(() => {
+				(
+					root.querySelector("#settings-search") as HTMLInputElement | null
+				)?.focus();
+			});
+		},
+		close: () => close(),
+		isOpen: () => open,
+	};
 }

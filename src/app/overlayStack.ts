@@ -8,26 +8,26 @@
  */
 
 export type OverlayHandle = {
-  /** Remove this overlay from the stack. Safe to call more than once. */
-  release(): void;
+	/** Remove this overlay from the stack. Safe to call more than once. */
+	release(): void;
 };
 
 type OverlayEntry = {
-  close: () => void;
+	close: () => void;
 };
 
 const stack: OverlayEntry[] = [];
 let listenerInstalled = false;
 
 function onGlobalKeydown(e: KeyboardEvent): void {
-  if (e.key !== "Escape") return;
-  const top = stack[stack.length - 1];
-  if (!top) return;
-  e.preventDefault();
-  // Win over legacy per-component Escape handlers so a single keypress
-  // never closes two stacked surfaces at once.
-  e.stopImmediatePropagation();
-  top.close();
+	if (e.key !== "Escape") return;
+	const top = stack[stack.length - 1];
+	if (!top) return;
+	e.preventDefault();
+	// Win over legacy per-component Escape handlers so a single keypress
+	// never closes two stacked surfaces at once.
+	e.stopImmediatePropagation();
+	top.close();
 }
 
 /**
@@ -36,16 +36,16 @@ function onGlobalKeydown(e: KeyboardEvent): void {
  * turn should release the returned handle).
  */
 export function pushOverlay(close: () => void): OverlayHandle {
-  if (!listenerInstalled) {
-    listenerInstalled = true;
-    window.addEventListener("keydown", onGlobalKeydown, true);
-  }
-  const entry: OverlayEntry = { close };
-  stack.push(entry);
-  return {
-    release() {
-      const i = stack.indexOf(entry);
-      if (i !== -1) stack.splice(i, 1);
-    },
-  };
+	if (!listenerInstalled) {
+		listenerInstalled = true;
+		window.addEventListener("keydown", onGlobalKeydown, true);
+	}
+	const entry: OverlayEntry = { close };
+	stack.push(entry);
+	return {
+		release() {
+			const i = stack.indexOf(entry);
+			if (i !== -1) stack.splice(i, 1);
+		},
+	};
 }

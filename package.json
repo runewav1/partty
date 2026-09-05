@@ -1,32 +1,32 @@
 {
-  "name": "partty",
-  "private": true,
-  "version": "0.4.0",
-  "type": "module",
-  "packageManager": "pnpm@12.1.0",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "build:ext": "vite build --config extensions/vite.config.js",
-    "preview": "vite preview",
-    "tauri": "node scripts/tauri.js",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
-  },
-  "dependencies": {
-    "@tauri-apps/api": "^2.11.1",
-    "@xterm/addon-fit": "beta",
-    "@xterm/addon-image": "beta",
-    "@xterm/addon-ligatures": "beta",
-    "@xterm/addon-serialize": "beta",
-    "@xterm/addon-unicode-graphemes": "beta",
-    "@xterm/addon-unicode11": "beta",
-    "@xterm/addon-webgl": "beta",
-    "@xterm/xterm": "beta"
-  },
-  "devDependencies": {
-    "@tauri-apps/cli": "^2.11.4",
-    "typescript": "~7.0.2",
-    "vite": "^8.2.2"
-  }
+	"name": "partty",
+	"private": true,
+	"version": "0.4.0",
+	"type": "module",
+	"packageManager": "pnpm@12.1.0",
+	"scripts": {
+		"dev": "vite",
+		"build": "tsc && vite build",
+		"build:ext": "vite build --config extensions/vite.config.js",
+		"preview": "vite preview",
+		"tauri": "node scripts/tauri.js",
+		"tauri:dev": "tauri dev",
+		"tauri:build": "tauri build"
+	},
+	"dependencies": {
+		"@tauri-apps/api": "^2.11.1",
+		"@xterm/addon-fit": "beta",
+		"@xterm/addon-image": "beta",
+		"@xterm/addon-ligatures": "beta",
+		"@xterm/addon-serialize": "beta",
+		"@xterm/addon-unicode-graphemes": "beta",
+		"@xterm/addon-unicode11": "beta",
+		"@xterm/addon-webgl": "beta",
+		"@xterm/xterm": "beta"
+	},
+	"devDependencies": {
+		"@tauri-apps/cli": "^2.11.4",
+		"typescript": "~7.0.2",
+		"vite": "^8.2.2"
+	}
 }

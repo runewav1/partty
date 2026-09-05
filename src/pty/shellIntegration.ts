@@ -4,6 +4,6 @@
  * only retains the frontend state shape for that data.
  */
 export type ShellIntegrationState = {
-  properties: Map<string, string>;
-  parserRemainder: string;
+	properties: Map<string, string>;
+	parserRemainder: string;
 };

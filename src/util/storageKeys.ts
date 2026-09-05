@@ -15,5 +15,5 @@ export const PERF_CONSOLE_KEY = "partty.perf.console";
 export const PERF_INTERVAL_MS_KEY = "partty.perf.intervalMs";
 
 export function tabLayoutKey(tabId: string): string {
-  return `${TAB_LAYOUT_PREFIX}${tabId}`;
+	return `${TAB_LAYOUT_PREFIX}${tabId}`;
 }

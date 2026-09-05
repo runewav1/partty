@@ -1,223 +1,225 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
-  availableMonitors,
-  currentMonitor,
-  getCurrentWindow,
-  LogicalPosition,
-  PhysicalPosition,
+	availableMonitors,
+	currentMonitor,
+	getCurrentWindow,
+	LogicalPosition,
+	PhysicalPosition,
 } from "@tauri-apps/api/window";
 import type { FitAddon } from "@xterm/addon-fit";
 
 import type { WebglAddon } from "@xterm/addon-webgl";
-import { Terminal } from "@xterm/xterm";
+import type { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
-import {
-  createWebglAddon,
-  firstContentScrollbackLine,
-  mergeLifecyclePrefs,
-  type ParttyLifecyclePrefs,
-} from "./terminal/termLifecycle";
-import {
-  LOCAL_DEFAULT_PROFILE_ID,
-  DEFAULT_PROFILE_BEHAVIOR,
-  profileIdAliasMap,
-  resolveSelectionAliases,
-  fetchProfiles,
-  getProfileById,
-  isProfilePickerAliasContext,
-  parseProfilePickerQuery,
-  profileActionForPaletteCommandId,
-  profileHasRemoteIntegration,
-  resolveDefaultProfileId,
-  resolveProfileShell,
-  type ConnectionProfile,
-  type ProfileBehaviorPrefs,
-  type ProfilePaletteAction,
-} from "./pty/connectionProfiles";
-import {
-  findPaneLeaf,
-  collectLeafIds,
-  directionalAdjacentLeafId,
-  ensurePaneSerialize,
-  type PaneHostInit,
-  type PaneTerminal,
-  type SplitLayoutStyle,
-  PaneHost,
-} from "./terminal/paneHost";
-import {
-  clearPaneLayout,
-  isLayoutValidForRoot,
-  type PersistedPaneLayout,
-} from "./terminal/paneLayout";
-import {
-  duplicateTabLayout,
-  initialLayoutForTab,
-  loadLayoutForTab,
-  loadTabsState,
-  nextTabName,
-  persistLayoutForTab,
-  saveTabsState,
-  type TabRecord,
-  type TabGroup,
-  type TabsStateV1,
-} from "./tabs/tabsSession";
-import {
-  applyUserTabRename,
-  autoTabNameFromPane,
-  paneCollisionKey,
-  paneHeadline,
-  paneSubline,
-  procPaletteHeadline,
-  tabDisplayName as formatTabDisplayName,
-  type PaneNameParts,
-} from "./tabs/displayNames";
-import {
-  createTabCloseIcon,
-  initTabBar,
-  type TabBarItem,
-  type TabRenderModel,
-} from "./app/tabBar";
-import {
-  FOLLOW_TAB_MARK,
-  emptyTabLayout,
-  formatPaneId,
-  mapLayoutToTabKey,
-  nextSlot,
-  parsePaneId,
-  tabRootPaneId,
-} from "./terminal/paneIds";
-import { initParttyScrollFade } from "./app/scrollChrome";
-import { attachDraggablePanel } from "./app/draggablePanel";
-import {
-  queueWorkspaceStartupCommands,
-  remapWorkspaceLayoutForTab,
-  seedPaneMapsFromLayout,
-} from "./tabs/workspaceLayout";
-import { listWorkspaceIds, readWorkspace, type Workspace } from "./tabs/workspaces";
-import {
-  COMMAND_PALETTE_POS_KEY,
-  DEFER_PTY_REINIT_KEY,
-  HELP_PANEL_POS_KEY,
-  SETTINGS_PANEL_POS_KEY,
-  TABS_HIDDEN_KEY,
-  tabLayoutKey,
-} from "./util/storageKeys";
-import {
-  getSessionShedOnExitMode,
-  shedSessionLocalState,
-  shouldShedSessionOnExitSilent,
-  syncRuntimeShedFromPrefs,
-} from "./pty/sessionShed";
-import {
-  applyUiTheme,
-  buildXtermThemeFromPrefs,
-  buildXtermThemeFromDocument,
-  DEFAULT_TERMINAL_FONT_STACK,
-  ensureCustomThemesLoaded,
-  normalizePaneThemePrefs,
-  parseProfileThemeRef,
-  pickUiPrefs,
-  prefsNeedCustomThemes,
-  themeCssVarsForPrefs,
-  type PaneThemePrefs,
-  uiPrefsChanged,
-  type UiThemePrefs,
-} from "./terminal/uiTheme";
-import type { ShellIntegrationState } from "./pty/shellIntegration";
-import {
-  createCommandPalette,
-  type PaletteCommand,
-} from "./app/commandPalette";
-import {
-  createKeybinds,
-} from "./terminal/keybinds";
-import { showAlert } from "./app/dialog";
-import { pushOverlay, type OverlayHandle } from "./app/overlayStack";
-import {
-  afterAnimationFrames,
-  animateClass,
-  applyMotionPreferences,
-  cancelElementAnimations,
-  hideSurface,
-  motionDisabled,
-  motionDurationMs,
-  showSurface,
-} from "./util/motion";
-import { filterAndRankLexical, normalizeQuery } from "./util/lexicalSearch";
 import pkg from "../package.json";
-import { lazyCell, runLazy } from "./util/lazyOnce";
-import type {
-  ParttyPrefs,
-  SettingsPanelApi,
-  WorkspaceOpenMode,
-} from "./app/settingsPanel";
-import type { ExtensionManagerApi } from "./app/extensionManager";
-import type { ThemeModalApi } from "./app/themeModal";
 import {
-  createByteChunkBuffer,
-  createStringChunkBuffer,
-  drainByteChunks,
-  drainStringChunks,
-  peekByteChunkBytes,
-  pushByteChunk,
-  pushStringChunk,
-  type ByteChunkBuffer,
-  type StringChunkBuffer,
+	createCommandPalette,
+	type PaletteCommand,
+} from "./app/commandPalette";
+import type { DevMetricsOverlayApi } from "./app/devMetricsOverlay";
+import { showAlert } from "./app/dialog";
+import { attachDraggablePanel } from "./app/draggablePanel";
+import type { ExtensionManagerApi } from "./app/extensionManager";
+import {
+	bindMouseCursorForceVisible,
+	createMouseCursorController,
+	type MouseCursorController,
+	mouseCursorForceVisible,
+} from "./app/mouseCursor";
+import { type OverlayHandle, pushOverlay } from "./app/overlayStack";
+import { initParttyScrollFade } from "./app/scrollChrome";
+import type {
+	ParttyPrefs,
+	SettingsPanelApi,
+	WorkspaceOpenMode,
+} from "./app/settingsPanel";
+import {
+	createTabCloseIcon,
+	initTabBar,
+	type TabBarItem,
+	type TabRenderModel,
+} from "./app/tabBar";
+import type { ThemeModalApi } from "./app/themeModal";
+import { createTooltipController } from "./app/tooltips";
+import {
+	type ByteChunkBuffer,
+	createByteChunkBuffer,
+	createStringChunkBuffer,
+	drainByteChunks,
+	drainStringChunks,
+	peekByteChunkBytes,
+	pushByteChunk,
+	pushStringChunk,
+	type StringChunkBuffer,
 } from "./pty/chunkBuffer";
 import {
-  ptyAckExit,
-  ptyEnsure,
-  ptyFocusPane,
-  ptyKillPane,
-  ptyReplaySnapshot,
-  ptyResizeBatch,
-  ptyWrite,
+	type ConnectionProfile,
+	DEFAULT_PROFILE_BEHAVIOR,
+	fetchProfiles,
+	getProfileById,
+	isProfilePickerAliasContext,
+	LOCAL_DEFAULT_PROFILE_ID,
+	type ProfileBehaviorPrefs,
+	type ProfilePaletteAction,
+	parseProfilePickerQuery,
+	profileActionForPaletteCommandId,
+	profileHasRemoteIntegration,
+	profileIdAliasMap,
+	resolveDefaultProfileId,
+	resolveProfileShell,
+	resolveSelectionAliases,
+} from "./pty/connectionProfiles";
+import { parttyPerf } from "./pty/perf";
+import {
+	type ActiveProcessEntry,
+	applyShellCommandLine,
+	createActiveProcessEntry,
+	displayProcessCommand,
+	markProcessExecStart,
+	mergeProcessCommand,
+	NOTIF_COMMAND_MAX,
+	NOTIF_CWD_MAX,
+	NOTIF_DETAIL_MAX,
+	NOTIF_PANE_MAX,
+	processDurationMs,
+	truncateEnd,
+	truncatePathTail,
+} from "./pty/processTracking";
+import {
+	ptyAckExit,
+	ptyEnsure,
+	ptyFocusPane,
+	ptyKillPane,
+	ptyReplaySnapshot,
+	ptyResizeBatch,
+	ptyWrite,
 } from "./pty/ptyIpc";
 import {
-  normalizeFsPathKey,
-  pathStyleForProfile,
-  quotePath,
-  sshPathStyleFromRemote,
-  translatePasteText,
-  translatePathFromSource,
-  type PastePathSource,
-  type PathStyle,
-} from "./util/paths";
-import { createTooltipController } from "./app/tooltips";
-import { escapeHtml } from "./util/html";
+	getSessionShedOnExitMode,
+	shedSessionLocalState,
+	shouldShedSessionOnExitSilent,
+	syncRuntimeShedFromPrefs,
+} from "./pty/sessionShed";
+import type { ShellIntegrationState } from "./pty/shellIntegration";
 import {
-  normalizeExternalUrl,
-  type TerminalLinkMatch,
+	applyUserTabRename,
+	autoTabNameFromPane,
+	tabDisplayName as formatTabDisplayName,
+	type PaneNameParts,
+	paneCollisionKey,
+	paneHeadline,
+	paneSubline,
+	procPaletteHeadline,
+} from "./tabs/displayNames";
+import {
+	duplicateTabLayout,
+	initialLayoutForTab,
+	loadLayoutForTab,
+	loadTabsState,
+	nextTabName,
+	persistLayoutForTab,
+	saveTabsState,
+	type TabGroup,
+	type TabRecord,
+	type TabsStateV1,
+} from "./tabs/tabsSession";
+import {
+	queueWorkspaceStartupCommands,
+	remapWorkspaceLayoutForTab,
+	seedPaneMapsFromLayout,
+} from "./tabs/workspaceLayout";
+import {
+	listWorkspaceIds,
+	readWorkspace,
+	type Workspace,
+} from "./tabs/workspaces";
+import { createKeybinds } from "./terminal/keybinds";
+import {
+	registerTerminalLinkProvider,
+	type TerminalLinkProviderController,
+} from "./terminal/linkProvider";
+import {
+	collectLeafIds,
+	directionalAdjacentLeafId,
+	ensurePaneSerialize,
+	findPaneLeaf,
+	PaneHost,
+	type PaneHostInit,
+	type PaneTerminal,
+	type SplitLayoutStyle,
+} from "./terminal/paneHost";
+import {
+	emptyTabLayout,
+	FOLLOW_TAB_MARK,
+	formatPaneId,
+	mapLayoutToTabKey,
+	nextSlot,
+	parsePaneId,
+	tabRootPaneId,
+} from "./terminal/paneIds";
+import {
+	clearPaneLayout,
+	isLayoutValidForRoot,
+	type PersistedPaneLayout,
+} from "./terminal/paneLayout";
+import {
+	createWebglAddon,
+	firstContentScrollbackLine,
+	mergeLifecyclePrefs,
+	type ParttyLifecyclePrefs,
+} from "./terminal/termLifecycle";
+import {
+	applyUiTheme,
+	buildXtermThemeFromDocument,
+	buildXtermThemeFromPrefs,
+	DEFAULT_TERMINAL_FONT_STACK,
+	ensureCustomThemesLoaded,
+	normalizePaneThemePrefs,
+	type PaneThemePrefs,
+	parseProfileThemeRef,
+	pickUiPrefs,
+	prefsNeedCustomThemes,
+	themeCssVarsForPrefs,
+	type UiThemePrefs,
+	uiPrefsChanged,
+} from "./terminal/uiTheme";
+import { escapeHtml } from "./util/html";
+import { lazyCell, runLazy } from "./util/lazyOnce";
+import { filterAndRankLexical, normalizeQuery } from "./util/lexicalSearch";
+import {
+	normalizeExternalUrl,
+	type TerminalLinkMatch,
 } from "./util/linkExtraction";
 import {
-  registerTerminalLinkProvider,
-  type TerminalLinkProviderController,
-} from "./terminal/linkProvider";
-import { parttyPerf } from "./pty/perf";
-import type { DevMetricsOverlayApi } from "./app/devMetricsOverlay";
+	afterAnimationFrames,
+	animateClass,
+	applyMotionPreferences,
+	cancelElementAnimations,
+	hideSurface,
+	motionDisabled,
+	motionDurationMs,
+	showSurface,
+} from "./util/motion";
 import {
-  bindMouseCursorForceVisible,
-  createMouseCursorController,
-  mouseCursorForceVisible,
-  type MouseCursorController,
-} from "./app/mouseCursor";
+	normalizeFsPathKey,
+	type PastePathSource,
+	type PathStyle,
+	pathStyleForProfile,
+	quotePath,
+	sshPathStyleFromRemote,
+	translatePasteText,
+	translatePathFromSource,
+} from "./util/paths";
 import {
-  applyShellCommandLine,
-  createActiveProcessEntry,
-  displayProcessCommand,
-  markProcessExecStart,
-  mergeProcessCommand,
-  NOTIF_COMMAND_MAX,
-  NOTIF_CWD_MAX,
-  NOTIF_DETAIL_MAX,
-  NOTIF_PANE_MAX,
-  processDurationMs,
-  truncateEnd,
-  truncatePathTail,
-  type ActiveProcessEntry,
-} from "./pty/processTracking";
+	COMMAND_PALETTE_POS_KEY,
+	DEFER_PTY_REINIT_KEY,
+	HELP_PANEL_POS_KEY,
+	SETTINGS_PANEL_POS_KEY,
+	TABS_HIDDEN_KEY,
+	tabLayoutKey,
+} from "./util/storageKeys";
 
 // Terminal color constants with fallbacks
 // CSS variables are read after DOM is ready in boot()
@@ -236,164 +238,165 @@ const PTY_FALLBACK_COLS = 80;
 const PTY_FALLBACK_ROWS = 24;
 
 function ptyDims(fit: FitAddon): { cols: number; rows: number } | null {
-  const d = fit.proposeDimensions();
-  if (!d) return null;
-  const cols = Math.floor(Number(d.cols));
-  const rows = Math.floor(Number(d.rows));
-  if (
-    !Number.isFinite(cols) ||
-    !Number.isFinite(rows) ||
-    cols < 2 ||
-    rows < 1
-  ) {
-    return null;
-  }
-  return { cols, rows };
+	const d = fit.proposeDimensions();
+	if (!d) return null;
+	const cols = Math.floor(Number(d.cols));
+	const rows = Math.floor(Number(d.rows));
+	if (
+		!Number.isFinite(cols) ||
+		!Number.isFinite(rows) ||
+		cols < 2 ||
+		rows < 1
+	) {
+		return null;
+	}
+	return { cols, rows };
 }
 
 function clampPtyColsRows(
-  cols: number,
-  rows: number,
+	cols: number,
+	rows: number,
 ): { cols: number; rows: number } {
-  return {
-    cols: Math.max(2, Math.min(65535, Math.floor(cols))),
-    rows: Math.max(1, Math.min(65535, Math.floor(rows))),
-  };
+	return {
+		cols: Math.max(2, Math.min(65535, Math.floor(cols))),
+		rows: Math.max(1, Math.min(65535, Math.floor(rows))),
+	};
 }
 
 function scheduleIdle(cb: () => void, timeout = IDLE_WEBGL_MS): void {
-  if (typeof requestIdleCallback !== "undefined") {
-    requestIdleCallback(() => cb(), { timeout });
-  } else {
-    setTimeout(cb, 1);
-  }
+	if (typeof requestIdleCallback !== "undefined") {
+		requestIdleCallback(() => cb(), { timeout });
+	} else {
+		setTimeout(cb, 1);
+	}
 }
 
 function applyTerminalDisplayPrefs(raw: Partial<ParttyPrefs>): void {
-  const root = document.documentElement;
-  const paneGap =
-    typeof raw.terminal_pane_gap === "number"
-      ? raw.terminal_pane_gap
-      : raw.terminal_no_gap
-        ? 0
-        : 6;
-  const sandboxPadding =
-    typeof raw.terminal_sandbox_padding === "number"
-      ? raw.terminal_sandbox_padding
-      : 0;
-  root.classList.toggle("terminal-no-gap", paneGap <= 0);
-  root.classList.toggle("terminal-no-round", Boolean(raw.terminal_no_round));
-  root.classList.toggle(
-    "terminal-no-pane-border",
-    Boolean(raw.terminal_no_pane_border),
-  );
-  root.classList.toggle(
-    "terminal-no-focus-border",
-    Boolean(raw.terminal_no_focus_border),
-  );
-  applyMotionPreferences(
-    raw.terminal_animation_speed,
-    raw.terminal_animation_style,
-  );
-  const backdropAlpha =
-    typeof raw.window_effect_opacity === "number"
-      ? raw.window_effect_opacity
-      : 0;
-  const appAlpha = raw.window_effect_mode === "transparent"
-    ? backdropAlpha
-    : raw.window_effect_mode === "acrylic"
-      ? 0
-      : 1;
-  const paneRadius =
-    typeof raw.pane_corner_radius === "number" ? raw.pane_corner_radius : 6;
-  root.style.setProperty(
-    "--pane-outer-gap",
-    `${Math.max(0, Math.min(32, paneGap))}px`,
-  );
-  root.style.setProperty(
-    "--pane-sandbox-padding",
-    `${Math.max(0, Math.min(32, sandboxPadding))}px`,
-  );
-  root.style.setProperty("--partty-app-bg-alpha", String(appAlpha));
-  root.style.setProperty(
-    "--partty-pane-radius",
-    `${Math.max(0, Math.min(32, paneRadius))}px`,
-  );
+	const root = document.documentElement;
+	const paneGap =
+		typeof raw.terminal_pane_gap === "number"
+			? raw.terminal_pane_gap
+			: raw.terminal_no_gap
+				? 0
+				: 6;
+	const sandboxPadding =
+		typeof raw.terminal_sandbox_padding === "number"
+			? raw.terminal_sandbox_padding
+			: 0;
+	root.classList.toggle("terminal-no-gap", paneGap <= 0);
+	root.classList.toggle("terminal-no-round", Boolean(raw.terminal_no_round));
+	root.classList.toggle(
+		"terminal-no-pane-border",
+		Boolean(raw.terminal_no_pane_border),
+	);
+	root.classList.toggle(
+		"terminal-no-focus-border",
+		Boolean(raw.terminal_no_focus_border),
+	);
+	applyMotionPreferences(
+		raw.terminal_animation_speed,
+		raw.terminal_animation_style,
+	);
+	const backdropAlpha =
+		typeof raw.window_effect_opacity === "number"
+			? raw.window_effect_opacity
+			: 0;
+	const appAlpha =
+		raw.window_effect_mode === "transparent"
+			? backdropAlpha
+			: raw.window_effect_mode === "acrylic"
+				? 0
+				: 1;
+	const paneRadius =
+		typeof raw.pane_corner_radius === "number" ? raw.pane_corner_radius : 6;
+	root.style.setProperty(
+		"--pane-outer-gap",
+		`${Math.max(0, Math.min(32, paneGap))}px`,
+	);
+	root.style.setProperty(
+		"--pane-sandbox-padding",
+		`${Math.max(0, Math.min(32, sandboxPadding))}px`,
+	);
+	root.style.setProperty("--partty-app-bg-alpha", String(appAlpha));
+	root.style.setProperty(
+		"--partty-pane-radius",
+		`${Math.max(0, Math.min(32, paneRadius))}px`,
+	);
 }
 
 function applyPaneFocusScalePrefs(raw: Partial<ParttyPrefs>): void {
-  const enabled = raw.focus_pane_scale ?? true;
-  const intensity = Math.max(
-    0,
-    Math.min(
-      1,
-      typeof raw.pane_focus_scale_intensity === "number"
-        ? raw.pane_focus_scale_intensity
-        : 0.45,
-    ),
-  );
-  document.documentElement.classList.toggle(
-    "pane-focus-scale",
-    enabled && intensity > 0,
-  );
-  document.documentElement.style.setProperty(
-    "--pane-focus-scale-delta",
-    String(intensity * 0.014),
-  );
+	const enabled = raw.focus_pane_scale ?? true;
+	const intensity = Math.max(
+		0,
+		Math.min(
+			1,
+			typeof raw.pane_focus_scale_intensity === "number"
+				? raw.pane_focus_scale_intensity
+				: 0.45,
+		),
+	);
+	document.documentElement.classList.toggle(
+		"pane-focus-scale",
+		enabled && intensity > 0,
+	);
+	document.documentElement.style.setProperty(
+		"--pane-focus-scale-delta",
+		String(intensity * 0.014),
+	);
 }
 
 function configureDevPerfPrefs(raw: Partial<ParttyPrefs>): void {
-  if (!import.meta.env.DEV) return;
-  parttyPerf.configure({
-    enabled: Boolean(raw.dev_perf_enabled),
-    consoleEnabled: Boolean(raw.dev_perf_console),
-    consoleIntervalMs: raw.dev_perf_console_interval_ms ?? 5000,
-  });
+	if (!import.meta.env.DEV) return;
+	parttyPerf.configure({
+		enabled: Boolean(raw.dev_perf_enabled),
+		consoleEnabled: Boolean(raw.dev_perf_console),
+		consoleIntervalMs: raw.dev_perf_console_interval_ms ?? 5000,
+	});
 }
 
 function normalizeSplitLayoutStyle(raw: unknown): SplitLayoutStyle {
-  return raw === "dwindle" || raw === "master" ? raw : "balanced";
+	return raw === "dwindle" || raw === "master" ? raw : "balanced";
 }
 
 function resolveTabRootPaneId(layout: PersistedPaneLayout): string {
-  const ids: string[] = [];
-  collectLeafIds(layout.tree, ids);
-  return ids[0] ?? "1a";
+	const ids: string[] = [];
+	collectLeafIds(layout.tree, ids);
+	return ids[0] ?? "1a";
 }
 
 function isPaneLayoutUsable(p: PersistedPaneLayout): boolean {
-  const rid = resolveTabRootPaneId(p);
-  if (!isLayoutValidForRoot(p, rid)) return false;
-  return findPaneLeaf(p.tree, p.focusedId) != null;
+	const rid = resolveTabRootPaneId(p);
+	if (!isLayoutValidForRoot(p, rid)) return false;
+	return findPaneLeaf(p.tree, p.focusedId) != null;
 }
 
 type PtyExitEvent = { sessionId: string };
 type PaneWebglStatus = "pending" | "ready" | "failed" | "disposed";
 type PaneWebglState = {
-  status: PaneWebglStatus;
-  attempts: number;
-  generation: number;
-  addon?: WebglAddon;
-  lastError?: unknown;
-  lastFailureAt?: number;
-  contextLossDispose?: { dispose(): void };
+	status: PaneWebglStatus;
+	attempts: number;
+	generation: number;
+	addon?: WebglAddon;
+	lastError?: unknown;
+	lastFailureAt?: number;
+	contextLossDispose?: { dispose(): void };
 };
 type PendingPtyOutput = {
-  chunks: ByteChunkBuffer;
-  eventCount: number;
-  queuedAt: number;
+	chunks: ByteChunkBuffer;
+	eventCount: number;
+	queuedAt: number;
 };
 
 function isTargetInsideXterm(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  return Boolean(el?.closest?.(".xterm"));
+	const el = target as HTMLElement | null;
+	return Boolean(el?.closest?.(".xterm"));
 }
 
 /** Tab index 0–9 from `Digit0`–`Digit9` (Ctrl+Shift+digit yields symbols in `e.key`, not digits). */
 function tabHotkeyIndexFromEvent(e: KeyboardEvent): number | null {
-  const match = e.code.match(/^Digit([0-9])$/);
-  if (!match) return null;
-  return match[1] === "0" ? 9 : Number.parseInt(match[1]!, 10) - 1;
+	const match = e.code.match(/^Digit([0-9])$/);
+	if (!match) return null;
+	return match[1] === "0" ? 9 : Number.parseInt(match[1]!, 10) - 1;
 }
 
 /** Split axis when grafting a transferred pane onto an occupied tab (not pristine / new). */
@@ -401,6939 +404,7000 @@ const PANE_TRANSFER_SPLIT_DIR: "h" | "v" = "v";
 
 /** Block browser print dialog (Ctrl+P) when focus is not in a terminal so TUIs receive Ctrl+P. */
 function maybeBlockBrowserPrintShortcut(e: KeyboardEvent): void {
-  if (!e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
-  const k = e.key;
-  if (k !== "p" && k !== "P") return;
-  if (isTargetInsideXterm(e.target)) return;
-  e.preventDefault();
-  e.stopPropagation();
+	if (!e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+	const k = e.key;
+	if (k !== "p" && k !== "P") return;
+	if (isTargetInsideXterm(e.target)) return;
+	e.preventDefault();
+	e.stopPropagation();
 }
 
 function terminalFontStackFromDocument(): string {
-  const raw = getComputedStyle(document.documentElement)
-    .getPropertyValue("--font-terminal")
-    .trim();
-  return raw.replace(/^["']|["']$/g, "") || DEFAULT_TERMINAL_FONT_STACK;
+	const raw = getComputedStyle(document.documentElement)
+		.getPropertyValue("--font-terminal")
+		.trim();
+	return raw.replace(/^["']|["']$/g, "") || DEFAULT_TERMINAL_FONT_STACK;
 }
 
 async function boot(): Promise<void> {
-  if (!import.meta.env.DEV) {
-    document.querySelectorAll("[data-dev-only]").forEach((el) => el.remove());
-  }
-  const k = createKeybinds();
-
-  /** `[editor]` section shape consumed by the ctrl+alt+click operation. */
-  type EditorConfig = {
-    splitType: "h" | "v";
-    profile: string;
-    command: string;
-  };
-
-  const editorConfigFromPrefs = (p: Partial<ParttyPrefs>): EditorConfig => {
-    // User-facing vocabulary: "v"/"vertical" = side-by-side (adjacent),
-    // "h"/"horizontal" = stacked (top-bottom). PaneHost represents these
-    // inversely (dir "h" → row, dir "v" → column), so translate here.
-    const dir = String(p.editor_split_type ?? "v").toLowerCase();
-    const splitType: "h" | "v" =
-      dir === "h" || dir === "horizontal" ? "v" : "h";
-    return {
-      splitType,
-      profile: String(p.editor_profile ?? "").trim(),
-      command: String(p.editor_command ?? "").trim(),
-    };
-  };
-
-  const persisted = await invoke<PersistedPayload>("get_persisted_state");
-  const editorConfigRef = { v: editorConfigFromPrefs(persisted.prefs as Partial<ParttyPrefs>) };
-  syncRuntimeShedFromPrefs(persisted.prefs as ParttyPrefs);
-  configureDevPerfPrefs(persisted.prefs as Partial<ParttyPrefs>);
-  parttyPerf.mark("boot.start");
-  const lp: ParttyLifecyclePrefs = mergeLifecyclePrefs(persisted.prefs);
-  const uiPrefs = pickUiPrefs(persisted.prefs);
-  let currentUiPrefs = uiPrefs;
-  applyUiTheme(uiPrefs);
-  applyTerminalDisplayPrefs(persisted.prefs as Partial<ParttyPrefs>  );
-
-  document.documentElement.classList.toggle(
-    "pane-blur-unfocused",
-    Boolean((persisted.prefs as Partial<ParttyPrefs>).blur_unfocused_panes),
-  );
-  document.documentElement.style.setProperty(
-    "--pane-blur-radius",
-    String((persisted.prefs as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6),
-  );
-  document.documentElement.style.setProperty(
-    "--pane-opacity-focused",
-    String((persisted.prefs as Partial<ParttyPrefs>).pane_opacity_focused ?? 1.0),
-  );
-  document.documentElement.style.setProperty(
-    "--pane-opacity-unfocused",
-    String((persisted.prefs as Partial<ParttyPrefs>).pane_opacity_unfocused ?? 1.0),
-  );
-  document.documentElement.classList.toggle(
-    "pane-variable-opacity",
-    Boolean((persisted.prefs as Partial<ParttyPrefs>).pane_variable_opacity),
-  );
-  applyPaneFocusScalePrefs(persisted.prefs as Partial<ParttyPrefs>);
-
-  const tabsHidden = localStorage.getItem(TABS_HIDDEN_KEY) === "1";
-  document.documentElement.classList.toggle("tabs-hidden", tabsHidden);
-  const releaseBootSurface = (): void => {
-    document.documentElement.classList.remove("partty-booting");
-  };
-
-  /** True from prepare-show until partty-show finishes (suppresses duplicate reflows). */
-  let summonInProgress = false;
-  /** Prepare already restored/mounted under defer-show; partty-show should no-op. */
-  let summonPreparedByDefer = false;
-
-  let paneHost: PaneHost | null = null;
-  const paneCwdHints = new Map<string, string>();
-  /** OSC 633 `IsWindows` for integrated SSH panes (Unix vs Windows remote). */
-  const paneRemoteIsWindows = new Map<string, boolean>();
-  const paneProfileIds = new Map<string, string>();
-  const paneShellState = new Map<string, ShellIntegrationState>();
-  const paneProgramNames = new Map<string, string>();
-  const paneThemes = new Map<string, PaneThemePrefs>();
-  const lastPtyDims = new Map<string, { cols: number; rows: number }>();
-  /** Stable sessionId → live terminal. PTY association keys on `sessionId`;
-   * `pt.paneId` is read at use-time so it tracks re-keys. */
-  const paneBySessionId = new Map<string, PaneTerminal>();
-  const pendingNewPaneCwd = { v: null as string | null };
-  const pendingPaneSpawnCwd = new Map<string, string>();
-  const pendingNewPaneProfile = { v: null as string | null };
-  const pendingPaneSpawnProfile = new Map<string, string>();
-  const pendingPaneSpawnStartup = new Map<string, string>();
-  let profilesList: ConnectionProfile[] = [
-    {
-      version: 1,
-      id: LOCAL_DEFAULT_PROFILE_ID,
-      name: "Local",
-      kind: "local",
-      shell: null,
-      builtin: true,
-    },
-  ];
-  let profilesReady: Promise<void> | null = null;
-  const focusFollowsRef = { v: lp.focus_follows_cursor };
-  const autoCopySelectionRef = {
-    v: Boolean((persisted.prefs as Partial<ParttyPrefs>).auto_copy_selection),
-  };
-  const rightClickPasteRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).right_click_paste ?? true,
-  };
-  const retainSessionStateRef = {
-    v:
-      (persisted.prefs as Partial<ParttyPrefs>).retain_session_state ?? true,
-  };
-  const splitLayoutStyleRef = {
-    v: normalizeSplitLayoutStyle(
-      (persisted.prefs as Partial<ParttyPrefs>).split_layout_style,
-    ),
-  };
-  const profileBehaviorRef = {
-    v: {
-      default_profile_id:
-        (persisted.prefs as Partial<ParttyPrefs>).default_profile_id ??
-        DEFAULT_PROFILE_BEHAVIOR.default_profile_id,
-      inherit_profile_on_split:
-        (persisted.prefs as Partial<ParttyPrefs>).inherit_profile_on_split ??
-        DEFAULT_PROFILE_BEHAVIOR.inherit_profile_on_split,
-      inherit_cwd_on_split:
-        (persisted.prefs as Partial<ParttyPrefs>).inherit_cwd_on_split ??
-        DEFAULT_PROFILE_BEHAVIOR.inherit_cwd_on_split,
-      palette_tab_profile_picker:
-        (persisted.prefs as Partial<ParttyPrefs>).palette_tab_profile_picker ??
-        DEFAULT_PROFILE_BEHAVIOR.palette_tab_profile_picker,
-      new_tab_uses_default_profile:
-        (persisted.prefs as Partial<ParttyPrefs>).new_tab_uses_default_profile ??
-        DEFAULT_PROFILE_BEHAVIOR.new_tab_uses_default_profile,
-      palette_profile_icons:
-        (persisted.prefs as Partial<ParttyPrefs>).palette_profile_icons ??
-        DEFAULT_PROFILE_BEHAVIOR.palette_profile_icons,
-      profile_selection_aliases: resolveSelectionAliases(
-        (persisted.prefs as Partial<ParttyPrefs>).profile_selection_aliases ??
-          DEFAULT_PROFILE_BEHAVIOR.profile_selection_aliases,
-      ),
-    } satisfies ProfileBehaviorPrefs,
-  };
-
-  let profilesLoaded = false;
-
-  function reresolveAllPaneProfileIds(): void {
-    if (!profilesLoaded) return;
-    for (const paneId of [...paneProfileIds.keys()]) {
-      const preferred = paneProfileIds.get(paneId);
-      if (!preferred) continue;
-      const resolved = resolveDefaultProfileId(preferred, profilesList);
-      paneProfileIds.set(paneId, resolved);
-      ensurePaneThemeFromProfile(paneId, resolved);
-    }
-  }
-
-  /** Keep persisted profile ids until list_profiles finishes; then validate. */
-  function assignPaneProfileId(
-    paneId: string,
-    preferred: string | null | undefined,
-  ): string {
-    const raw =
-      preferred?.trim() || profileBehaviorRef.v.default_profile_id;
-    if (!profilesLoaded) {
-      paneProfileIds.set(paneId, raw);
-      return raw;
-    }
-    const resolved = resolveDefaultProfileId(raw, profilesList);
-    paneProfileIds.set(paneId, resolved);
-    ensurePaneThemeFromProfile(paneId, resolved);
-    return resolved;
-  }
-
-  function resolvePaneProfile(paneId: string): ConnectionProfile | null {
-    const profileId = resolveDefaultProfileId(
-      paneProfileIds.get(paneId) ?? profileBehaviorRef.v.default_profile_id,
-      profilesList,
-    );
-    return getProfileById(profileId, profilesList);
-  }
-
-  function pathStyleForPaneId(paneId: string): PathStyle {
-    const profile = resolvePaneProfile(paneId);
-    if (profile?.kind === "ssh") {
-      return sshPathStyleFromRemote(
-        paneRemoteIsWindows.get(paneId),
-        paneCwdHints.get(paneId),
-      );
-    }
-    const globalShell =
-      ((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
-      "pwsh";
-    const shellOverride =
-      resolveProfileShell(profile, globalShell, profilesList) ?? "";
-    return pathStyleForProfile(profile ?? undefined, shellOverride);
-  }
-
-  function paneEffectiveCwd(paneId: string): string | null {
-    const hint = paneCwdHints.get(paneId);
-    const profile = resolvePaneProfile(paneId);
-    if (profile?.kind === "ssh") {
-      return profileHasRemoteIntegration(profile) ? (hint ?? null) : null;
-    }
-    if (hint) return hint;
-    if (paneHost?.getFocusedPaneId() === paneId) return liveCwd;
-    return null;
-  }
-
-  let lastClipboardPathContext: PastePathSource & { path: string } | null =
-    null;
-
-  function rememberClipboardPath(paneId: string, path: string): void {
-    lastClipboardPathContext = {
-      path,
-      style: pathStyleForPaneId(paneId),
-      cwd: paneEffectiveCwd(paneId),
-    };
-  }
-
-  function clipboardPathSourceForPaste(text: string): PastePathSource | null {
-    const ctx = lastClipboardPathContext;
-    if (!ctx) return null;
-    const pasted = text.trim().replace(/^['"]|['"]$/g, "");
-    const copied = ctx.path.trim().replace(/^['"]|['"]$/g, "");
-    if (pasted !== copied) return null;
-    return { style: ctx.style, cwd: ctx.cwd };
-  }
-
-  function resolvePendingSpawnContext(
-    parentId: string,
-    explicitProfileId?: string | null,
-  ): { profileId: string; cwd: string | null } {
-    let profileId: string;
-    if (explicitProfileId) {
-      profileId = resolveDefaultProfileId(explicitProfileId, profilesList);
-    } else if (profileBehaviorRef.v.inherit_profile_on_split) {
-      profileId = resolveDefaultProfileId(
-        paneProfileIds.get(parentId) ??
-          profileBehaviorRef.v.default_profile_id,
-        profilesList,
-      );
-    } else {
-      profileId = resolveDefaultProfileId(
-        profileBehaviorRef.v.default_profile_id,
-        profilesList,
-      );
-    }
-
-    const profile = getProfileById(profileId, profilesList);
-    const parentProfile = resolvePaneProfile(parentId);
-    const inheritCwd =
-      (profile?.inheritCwd ?? profileBehaviorRef.v.inherit_cwd_on_split) &&
-      profile?.kind !== "ssh" &&
-      parentProfile?.kind !== "ssh";
-    const cwd = inheritCwd ? paneCwdHints.get(parentId) ?? null : null;
-    return { profileId, cwd };
-  }
-
-  async function refreshProfilesList(): Promise<void> {
-    profilesLoaded = false;
-    try {
-      profilesList = await fetchProfiles();
-      profileBehaviorRef.v.default_profile_id = resolveDefaultProfileId(
-        profileBehaviorRef.v.default_profile_id,
-        profilesList,
-      );
-    } catch (e) {
-      console.warn("list_profiles", e);
-      if (
-        profilesList.length === 0 ||
-        !getProfileById(LOCAL_DEFAULT_PROFILE_ID, profilesList)
-      ) {
-        profilesList = [
-          {
-            version: 1,
-            id: LOCAL_DEFAULT_PROFILE_ID,
-            name: "Local",
-            kind: "local",
-            shell: null,
-            builtin: true,
-          },
-        ];
-      }
-    } finally {
-      profilesLoaded = true;
-      reresolveAllPaneProfileIds();
-    }
-  }
-
-  function ensureProfilesLoaded(): Promise<void> {
-    if (!profilesReady) {
-      profilesReady = refreshProfilesList();
-    }
-    return profilesReady;
-  }
-  const disableTooltipsRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).ui_disable_tooltips ?? false,
-  };
-  const altClickCursorRef = {
-    v:
-      (persisted.prefs as Partial<ParttyPrefs>)
-        .terminal_alt_click_moves_cursor ?? true,
-  };
-  const cursorBlinkRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_blink ?? true,
-  };
-  const cursorInactiveStyleRef = {
-    v:
-      ((persisted.prefs as Partial<ParttyPrefs>)
-        .terminal_cursor_inactive_style as
-        | "outline"
-        | "block"
-        | "bar"
-        | "underline"
-        | "none"
-        | undefined) ?? "outline",
-  };
-  const cursorWidthRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_width ?? 1,
-  };
-  const fontSizeRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_font_size ?? 12,
-  };
-  const fontWeightRef = {
-    v:
-      (persisted.prefs as Partial<ParttyPrefs>).terminal_font_weight ??
-      "normal",
-  };
-  const fontWeightBoldRef = {
-    v:
-      (persisted.prefs as Partial<ParttyPrefs>).terminal_font_weight_bold ??
-      "bold",
-  };
-  const lineHeightRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_line_height ?? 1,
-  };
-  const letterSpacingRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_letter_spacing ?? 0,
-  };
-  const drawBoldBrightRef = {
-    v:
-      (persisted.prefs as Partial<ParttyPrefs>).terminal_draw_bold_bright ??
-      true,
-  };
-  const smoothScrollRef = {
-    v:
-      (persisted.prefs as Partial<ParttyPrefs>)
-        .terminal_smooth_scroll_duration ?? 0,
-  };
-  const scrollSensitivityRef = {
-    v:
-      (persisted.prefs as Partial<ParttyPrefs>).terminal_scroll_sensitivity ??
-      1,
-  };
-  const fastScrollSensitivityRef = {
-    v:
-      (persisted.prefs as Partial<ParttyPrefs>)
-        .terminal_fast_scroll_sensitivity ?? 5,
-  };
-  const backspaceDeleteSelectionRef = {
-    v:
-      (persisted.prefs as Partial<ParttyPrefs>)
-        .terminal_backspace_delete_selection ?? true,
-  };
-  
-  const cursorStyleRef = {
-    v:
-      ((persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_style as
-        | "block"
-        | "underline"
-        | "bar"
-        | undefined) ?? "block",
-  };
-  const processNotificationThresholdRef = {
-    v: ((p) => (Number.isFinite(p) ? Math.max(0.1, p) : 5.0))(
-      (persisted.prefs as Partial<ParttyPrefs>)
-        .process_notification_threshold ?? 5.0,
-    ),
-  };
-  const processNotificationShowForRef = {
-    v: ((p) =>
-      Number.isFinite(p) ? Math.max(1000, Math.min(30000, p)) : 5000)(
-      (persisted.prefs as Partial<ParttyPrefs>).process_notification_show_for ??
-        5000,
-    ),
-  };
-  const processNotificationShowMsRef = {
-    v:
-      (persisted.prefs as Partial<ParttyPrefs>).process_notification_show_ms ??
-      false,
-  };
-  const processNotificationTransparentRef = {
-    v:
-      (persisted.prefs as Partial<ParttyPrefs>)
-        .process_notification_transparent ?? false,
-  };
-  const processNotificationEnabledRef = {
-    v:
-      (persisted.prefs as Partial<ParttyPrefs>)
-        .process_notification_enabled ?? false,
-  };
-  const cursorFollowWindowMoveRef = {
-    v: Boolean(
-      (persisted.prefs as Partial<ParttyPrefs>).cursor_follow_window_move,
-    ),
-  };
-  const cursorFollowPaneFocusRef = {
-    v:
-      (persisted.prefs as Partial<ParttyPrefs>).cursor_follow_pane_focus ??
-      true,
-  };
-  const windowMotionRef = {
-    v: (persisted.prefs as Partial<ParttyPrefs>).terminal_window_motion ?? true,
-  };
-  const applyRuntimeDisplayPrefs = (raw: Partial<ParttyPrefs>): void => {
-    applyTerminalDisplayPrefs(raw);
-    windowMotionRef.v = raw.terminal_window_motion ?? true;
-  };
-  const quietPaneDeferralRef = {
-    v: Boolean((persisted.prefs as Partial<ParttyPrefs>).quiet_pane_deferral),
-  };
-  const mouseHiddenRef = {
-    v: Boolean((persisted.prefs as Partial<ParttyPrefs>).mouse_hidden),
-  };
-  const mouseHideOnIdleRef = {
-    v: Boolean((persisted.prefs as Partial<ParttyPrefs>).mouse_hide_on_idle),
-  };
-  const mouseIdleSecondsRef = {
-    v: Math.max(
-      0.5,
-      Math.min(
-        300,
-        (persisted.prefs as Partial<ParttyPrefs>).mouse_idle_seconds ?? 3,
-      ),
-    ),
-  };
-  let mouseCursorController: MouseCursorController | null = null;
-  const mouseCursorDragRef = {
-    suppress: null as ((dragging: boolean) => void) | null,
-  };
-
-  const bootAppWindow = getCurrentWindow();
-  mouseCursorController = createMouseCursorController(
-    () => bootAppWindow,
-    () => ({
-      hidden: mouseHiddenRef.v,
-      hideOnIdle: mouseHideOnIdleRef.v,
-      idleSeconds: mouseIdleSecondsRef.v,
-    }),
-  );
-  bindMouseCursorForceVisible((active) =>
-    mouseCursorController?.setSuppress(active),
-  );
-  mouseCursorDragRef.suppress = (dragging) =>
-    mouseCursorController?.setSuppress(dragging);
-  mouseCursorController.sync();
-  window.addEventListener(
-    "mousemove",
-    () => mouseCursorController?.notifyActivity(),
-    { passive: true },
-  );
-  window.addEventListener(
-    "mousedown",
-    () => mouseCursorController?.notifyActivity(),
-    { passive: true },
-  );
-  window.addEventListener(
-    "keydown",
-    () => mouseCursorController?.notifyActivity(),
-    { passive: true },
-  );
-
-  const activeProcesses = new Map<string, ActiveProcessEntry>();
-  /** Latest OSC 633;E line per pane, merged until pre-exec or finish. */
-  const pendingShellCommandLine = new Map<string, string>();
-  const paneHostCleanups = new Map<string, Array<() => void>>();
-  const paneLinkProviders = new Map<string, TerminalLinkProviderController>();
-  /** Extension PTY input subscribers — zero-cost when empty. */
-  const extPtyInputSubs: Array<(paneId: string, data: string) => void> = [];
-  /** Extension PTY output subscribers — zero-cost when empty. */
-  const extPtyOutputSubs: Array<(paneId: string, data: string) => void> = [];
-  /** Decodes raw PTY bytes only when extension output subscribers exist. */
-  const ptyOutputDecoder = new TextDecoder("utf-8");
-  /** Extension process lifecyle subscribers — zero-cost when empty. */
-  const extProcStartSubs: Array<
-    (proc: { paneId: string; command: string; cwd: string }) => void
-  > = [];
-  const extProcEndSubs: Array<
-    (proc: {
-      paneId: string;
-      command: string;
-      durationMs: number;
-      exitCode: number | null;
-    }) => void
-  > = [];
-  /** Extension pane lifecycle subscribers. */
-  const extPaneCreatedSubs: Array<(paneId: string) => void> = [];
-  const extPaneClosedSubs: Array<(paneId: string) => void> = [];
-  const extFocusSubs: Array<(paneId: string) => void> = [];
-  /** Extension cwd / rename subscribers (fired on live OSC7 + rename commits). */
-  const extCwdChangeSubs: Array<(paneId: string, cwd: string) => void> = [];
-  /** Extension palette commands. */
-  const extPaletteCommands: Array<{
-    id: string;
-    label: string;
-    keywords?: string;
-    run: () => void;
-  }> = [];
-  /** Extension tab lifecycle subscribers. */
-  const extTabSwitchSubs: Array<(tabId: string) => void> = [];
-  /** Extension window visibility subscribers. */
-  const extWindowShowSubs: Array<() => void> = [];
-  const extWindowHideSubs: Array<() => void> = [];
-
-  // ── Extension cursor subscriptions (per-pane, lazy; zero-cost when unused) ──
-  type ExtCursorSubEntry = {
-    subs: Array<
-      (
-        pos: { x: number; y: number; kind: "move" | "sync" },
-      ) => void
-    >;
-    dispose: (() => void) | null;
-  };
-  const extCursorMoveSubs = new Map<string, ExtCursorSubEntry>();
-  /** Panes whose terminal cursor is hidden by an extension overlay. */
-  const extCursorHiddenPanes = new Set<string>();
-  /** Original cursor colors of panes with a hidden cursor, so the extension
-   *  surface reports the real theme (not the transparent hide hack). */
-  const extCursorHiddenOriginal = new Map<
-    string,
-    { cursor?: string; cursorAccent?: string }
-  >();
-
-  function ensureExtCursorSubs(paneId: string): ExtCursorSubEntry | null {
-    const pt = getPaneTerminalById(paneId);
-    if (!pt) return null;
-    let entry = extCursorMoveSubs.get(paneId);
-    if (entry) return entry;
-    // xterm reports the event without a payload and only fires it from the
-    // input parser — the cursor's VIEW row also changes on viewport scroll
-    // and terminal resize, so re-emit on those too. Deliver the
-    // view-relative row the drawing surface needs, tagged with the source:
-    // "move" = the cursor actually moved, "sync" = a view-relative
-    // re-emission (scroll/resize) where the cursor teleports.
-    const emit =
-      (kind: "move" | "sync") =>
-      (): void => {
-        const buf = pt.term.buffer.active;
-        const viewY = buf.cursorY - buf.viewportY;
-        const cur = extCursorMoveSubs.get(paneId);
-        if (!cur) return;
-        for (const fn of cur.subs) {
-          try {
-            fn({ x: buf.cursorX, y: viewY, kind });
-          } catch {
-            /* ignore */
-          }
-        }
-      };
-    const d1 = pt.term.onCursorMove(emit("move"));
-    const d2 = pt.term.onScroll(emit("sync"));
-    const d3 = pt.term.onResize(emit("sync"));
-    const dispose = (): void => {
-      d1.dispose();
-      d2.dispose();
-      d3.dispose();
-    };
-    entry = { subs: [], dispose };
-    extCursorMoveSubs.set(paneId, entry);
-    return entry;
-  }
-
-  function removeExtCursorSub(
-    paneId: string,
-    fn: (pos: { x: number; y: number; kind: "move" | "sync" }) => void,
-  ): void {
-    const entry = extCursorMoveSubs.get(paneId);
-    if (!entry) return;
-    const idx = entry.subs.indexOf(fn);
-    if (idx !== -1) entry.subs.splice(idx, 1);
-    if (entry.subs.length === 0) {
-      entry.dispose?.();
-      extCursorMoveSubs.delete(paneId);
-    }
-  }
-
-  const pendingPtyWriteByPane = new Map<string, StringChunkBuffer>();
-  const pendingPtyOutputByPane = new Map<string, PendingPtyOutput>();
-  let pendingPtyWriteRaf = 0;
-  let pendingPtyOutputRaf = 0;
-  let pendingPtyOutputTimer = 0;
-  let liveCwd: string | null = null;
-  let lastFocusedPaneId = "";
-
-  // ConPTY input buffers are small (~1–2KB). Fast shells drain fine; busy TUIs
-  // (OpenCode, etc.) don't — a single large write silently drops. Chunk + pace.
-  const PTY_BULK_CHARS = 512;
-  const PTY_CHUNK_CHARS = 256;
-  const PTY_CHUNK_DELAY_MS = 4;
-  /** Serializes bulk/chunked writes per pane so they don't race RAF keystrokes. */
-  const ptyBulkWriteTailByPane = new Map<string, Promise<void>>();
-  const ptyBulkActiveByPane = new Set<string>();
-
-  const appendPendingPtyWrite = (paneId: string, data: string): void => {
-    let buf = pendingPtyWriteByPane.get(paneId);
-    if (!buf) {
-      buf = createStringChunkBuffer();
-      pendingPtyWriteByPane.set(paneId, buf);
-    }
-    pushStringChunk(buf, data);
-  };
-
-  const flushPendingPtyWrites = (): void => {
-    pendingPtyWriteRaf = 0;
-    if (pendingPtyWriteByPane.size === 0) return;
-    for (const [paneId, buf] of pendingPtyWriteByPane) {
-      // Don't interleave with an in-flight chunked paste.
-      if (ptyBulkActiveByPane.has(paneId)) continue;
-      pendingPtyWriteByPane.delete(paneId);
-      const data = drainStringChunks(buf);
-      parttyPerf.mark("pty.input.flushes");
-      parttyPerf.mark("pty.input.flush.chars", data.length);
-      void writePtyPayload(paneId, data);
-    }
-  };
-
-  const flushPendingPtyWriteForPane = (paneId: string): void => {
-    if (ptyBulkActiveByPane.has(paneId)) return;
-    const buf = pendingPtyWriteByPane.get(paneId);
-    if (!buf || buf.totalChars === 0) return;
-    pendingPtyWriteByPane.delete(paneId);
-    const pending = drainStringChunks(buf);
-    parttyPerf.mark("pty.input.flush_pane");
-    parttyPerf.mark("pty.input.flush_pane.chars", pending.length);
-    void writePtyPayload(paneId, pending);
-  };
-
-  const isLatencySensitiveInput = (data: string): boolean => {
-    if (data.length > 8) return false;
-    if (data.includes("\x1b")) return true;
-    return data.length <= 2;
-  };
-
-  const isBulkPtyInput = (data: string): boolean =>
-    data.length > PTY_BULK_CHARS || data.includes("\x1b[200~");
-
-  const sleepMs = (ms: number): Promise<void> =>
-    new Promise((resolve) => setTimeout(resolve, ms));
-
-  /** Write to PTY, chunking large payloads so ConPTY doesn't drop bytes. */
-  function writePtyPayload(paneId: string, data: string): Promise<void> {
-    if (!data) return Promise.resolve();
-    const sessionId = getPaneTerminalById(paneId)?.sessionId;
-    if (!sessionId) return Promise.reject(new Error(`no session for ${paneId}`));
-    if (!isBulkPtyInput(data)) {
-      return ptyWrite(sessionId, data).catch((e) => {
-        console.error("pty_write", e);
-      });
-    }
-    const prev = ptyBulkWriteTailByPane.get(paneId) ?? Promise.resolve();
-    const next = prev
-      .catch(() => {})
-      .then(async () => {
-        ptyBulkActiveByPane.add(paneId);
-        try {
-          const queuedBuf = pendingPtyWriteByPane.get(paneId);
-          if (queuedBuf && queuedBuf.totalChars > 0) {
-            pendingPtyWriteByPane.delete(paneId);
-            const queued = drainStringChunks(queuedBuf);
-            await ptyWrite(sessionId, queued).catch((e) =>
-              console.error("pty_write", e),
-            );
-          }
-          for (let i = 0; i < data.length; i += PTY_CHUNK_CHARS) {
-            const chunk = data.slice(i, i + PTY_CHUNK_CHARS);
-            await ptyWrite(sessionId, chunk).catch((e) =>
-              console.error("pty_write", e),
-            );
-            if (i + PTY_CHUNK_CHARS < data.length) {
-              await sleepMs(PTY_CHUNK_DELAY_MS);
-            }
-          }
-        } finally {
-          ptyBulkActiveByPane.delete(paneId);
-          const afterBuf = pendingPtyWriteByPane.get(paneId);
-          if (afterBuf && afterBuf.totalChars > 0) {
-            pendingPtyWriteByPane.delete(paneId);
-            const after = drainStringChunks(afterBuf);
-            await ptyWrite(sessionId, after).catch((e) =>
-              console.error("pty_write", e),
-            );
-          }
-        }
-      });
-    ptyBulkWriteTailByPane.set(paneId, next);
-    return next;
-  }
-
-  let lastKeydownTs = 0;
-  document.addEventListener("keydown", () => {
-    lastKeydownTs = performance.now();
-  }, true);
-
-  const queuePtyWrite = (
-    paneId: string,
-    data: string,
-    immediate = false,
-  ): void => {
-    if (!data) return;
-    parttyPerf.recordPtyInputBytes(paneId, data.length);
-    const keydownTs = lastKeydownTs;
-    if (keydownTs) {
-      lastKeydownTs = 0;
-      if (parttyPerf.enabled) {
-        parttyPerf.time("input.keydown.to.onData.ms", performance.now() - keydownTs);
-      }
-    }
-    // Pastes / large bursts: don't RAF-coalesce into one oversized ConPTY write.
-    if (isBulkPtyInput(data)) {
-      flushPendingPtyWriteForPane(paneId);
-      parttyPerf.mark("pty.input.bulk.calls");
-      parttyPerf.mark("pty.input.bulk.chars", data.length);
-      void writePtyPayload(paneId, data);
-      return;
-    }
-    // During chunked paste, hold keystrokes until the paste finishes.
-    if (ptyBulkActiveByPane.has(paneId)) {
-      appendPendingPtyWrite(paneId, data);
-      return;
-    }
-    if (immediate || isLatencySensitiveInput(data)) {
-      flushPendingPtyWriteForPane(paneId);
-      parttyPerf.mark("pty.input.immediate.calls");
-      parttyPerf.mark("pty.input.immediate.chars", data.length);
-      parttyPerf.beginPtyRoundtrip(paneId, keydownTs);
-      void writePtyPayload(paneId, data);
-      parttyPerf.mark("pty.input.immediate");
-      return;
-    }
-    parttyPerf.mark("pty.input.queued.calls");
-    parttyPerf.mark("pty.input.queued.chars", data.length);
-    appendPendingPtyWrite(paneId, data);
-    if (pendingPtyWriteRaf) return;
-    pendingPtyWriteRaf = requestAnimationFrame(flushPendingPtyWrites);
-  };
-
-  function finishActiveProcess(
-    paneId: string,
-    endedAt: number,
-    exitCode: number | null = null,
-  ): void {
-    const entry = activeProcesses.get(paneId);
-    if (!entry) return;
-    // Authoritative completion of the OSC command path: this is the future
-    // record point for an atuin-style history DB (command, cwd, exit, duration).
-    const command = displayProcessCommand(entry.command);
-    const durMs = processDurationMs(entry, endedAt);
-    if (durMs / 1000 >= processNotificationThresholdRef.v) {
-      if (!processNotificationEnabledRef.v) {
-        activeProcesses.delete(paneId);
-        return;
-      }
-      const paneName = paneEffectiveName(paneId);
-      showProcessNotification(
-        command,
-        paneName,
-        entry.cwd,
-        entry.startedAt,
-        paneId,
-        endedAt,
-      );
-    }
-    if (extProcEndSubs.length > 0) {
-      const proc = { paneId, command, durationMs: durMs, exitCode };
-      for (const fn of extProcEndSubs) {
-        try {
-          fn(proc);
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    activeProcesses.delete(paneId);
-    pendingShellCommandLine.delete(paneId);
-  }
-
-  function processPtyOutputBatch(
-    paneId: string,
-    data: Uint8Array,
-    eventCount: number,
-    queuedAt: number,
-  ): void {
-    const pt = getPaneTerminalById(paneId);
-    if (!pt) return;
-    const timing = parttyPerf.enabled;
-    if (timing) {
-      parttyPerf.recordPtyOutputBytes(paneId, data.length);
-      parttyPerf.mark("pty.output.flushes");
-      parttyPerf.mark("pty.output.events", eventCount);
-      parttyPerf.mark("pty.output.chars", data.length);
-      parttyPerf.time("pty.output.queue.ms", performance.now() - queuedAt);
-    }
-    const writeStarted = timing ? performance.now() : 0;
-    // OSC 7 / 133 / 633 are stripped and forwarded as structured `pty-cwd` /
-    // `pty-shell-event` side-channel events by the Rust emitter.  Write the
-    // pre-cleaned bytes directly — no character-by-character JS parsing needed.
-    try {
-      if (timing) parttyPerf.beginTermWrite(paneId);
-      pt.term.write(data);
-      if (timing) {
-        const elapsed = performance.now() - writeStarted;
-        parttyPerf.time("xterm.write.ms", elapsed);
-        parttyPerf.paneTime(paneId, "xterm.render.ms", elapsed);
-      }
-    } catch (e) {
-      console.warn("xterm.write", e);
-    }
-  }
-
-  function clearPtyOutputFlushHandles(): void {
-    if (pendingPtyOutputRaf) {
-      cancelAnimationFrame(pendingPtyOutputRaf);
-      pendingPtyOutputRaf = 0;
-    }
-    if (pendingPtyOutputTimer) {
-      window.clearTimeout(pendingPtyOutputTimer);
-      pendingPtyOutputTimer = 0;
-    }
-  }
-
-  function flushPendingPtyOutputs(): void {
-    clearPtyOutputFlushHandles();
-    if (pendingPtyOutputByPane.size === 0) return;
-    const now = performance.now();
-    const focusedPaneId = paneHost?.getFocusedPaneId();
-    const batches = [...pendingPtyOutputByPane.entries()];
-    pendingPtyOutputByPane.clear();
-    for (const [paneId, batch] of batches) {
-      const isFocused = paneId === focusedPaneId;
-      const age = now - batch.queuedAt;
-      if (
-        !isFocused &&
-        age < PTY_OUTPUT_BACKGROUND_FLUSH_MS &&
-        peekByteChunkBytes(batch.chunks) < PTY_OUTPUT_MAX_BATCH_BYTES
-      ) {
-        pendingPtyOutputByPane.set(paneId, batch);
-        continue;
-      }
-      processPtyOutputBatch(
-        paneId,
-        drainByteChunks(batch.chunks),
-        batch.eventCount,
-        batch.queuedAt,
-      );
-    }
-    if (pendingPtyOutputByPane.size > 0) schedulePtyOutputFlush();
-  }
-
-  function schedulePtyOutputFlush(): void {
-    if (!pendingPtyOutputRaf) {
-      pendingPtyOutputRaf = requestAnimationFrame(flushPendingPtyOutputs);
-    }
-    if (!pendingPtyOutputTimer) {
-      pendingPtyOutputTimer = window.setTimeout(
-        flushPendingPtyOutputs,
-        PTY_OUTPUT_FLUSH_MS,
-      );
-    }
-  }
-
-  function queuePtyOutput(paneId: string, data: Uint8Array): void {
-    if (!data || data.byteLength === 0) return;
-    if (
-      !pendingPtyOutputByPane.has(paneId) &&
-      paneId === paneHost?.getFocusedPaneId()
-    ) {
-      parttyPerf.mark("pty.output.immediate.chars", data.length);
-      processPtyOutputBatch(paneId, data, 1, parttyPerf.enabled ? performance.now() : 0);
-      parttyPerf.mark("pty.output.immediate");
-      return;
-    }
-    parttyPerf.mark("pty.output.queued.events");
-    parttyPerf.mark("pty.output.queued.chars", data.length);
-    const existing = pendingPtyOutputByPane.get(paneId);
-    if (existing) {
-      pushByteChunk(existing.chunks, data);
-      existing.eventCount++;
-    } else {
-      const chunks = createByteChunkBuffer();
-      pushByteChunk(chunks, data);
-      pendingPtyOutputByPane.set(paneId, {
-        chunks,
-        eventCount: 1,
-        queuedAt: performance.now(),
-      });
-    }
-    const batch = pendingPtyOutputByPane.get(paneId);
-    if (
-      batch &&
-      peekByteChunkBytes(batch.chunks) >= PTY_OUTPUT_MAX_BATCH_BYTES
-    ) {
-      flushPendingPtyOutputs();
-      return;
-    }
-    schedulePtyOutputFlush();
-  }
-
-  /**
-   * Binary PTY output from Rust, delivered over the pane's output `Channel`
-   * (`InvokeResponseBody::Raw` → `ArrayBuffer`). Rust holds output until
-   * `set_pty_output_unlocked` after scrollback restore.
-   */
-  function deliverDirectPtyOut(paneId: string, data: Uint8Array): void {
-    queuePtyOutput(paneId, data);
-    parttyPerf.completePtyRoundtrip(paneId);
-    if (extPtyOutputSubs.length > 0) {
-      const text = ptyOutputDecoder.decode(data);
-      for (const fn of extPtyOutputSubs) {
-        try {
-          fn(paneId, text);
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  }
-
-  async function releasePtyHydrationGate(): Promise<void> {
-    try {
-      await invoke("set_pty_output_unlocked", { unlocked: true });
-    } catch (e) {
-      console.warn("set_pty_output_unlocked", e);
-    }
-  }
-
-  const handleTerminalLinkActivation = (
-    paneId: string,
-    ev: MouseEvent,
-    match: TerminalLinkMatch,
-  ): void => {
-    if (!(ev.ctrlKey || ev.metaKey) || ev.button !== 0) return;
-    // Ctrl+Alt+click is reserved for the configured editor path action.
-    if (ev.altKey) {
-      if (match.kind === "path") handleCtrlAltClickPath(paneId, match.value, ev);
-      return;
-    }
-    ev.preventDefault();
-    ev.stopPropagation();
-    if (match.kind === "url") {
-      void invoke("open_external_url", { url: match.value }).catch(
-        (e) => void showAlert(String(e), "Open link"),
-      );
-      return;
-    }
-    rememberClipboardPath(paneId, match.value);
-    copyToClipboard(match.value);
-  };
-
-  /**
-   * Ctrl+Alt+click on a path opens a new split pane with `[editor].profile`
-   * (or the default) and types `[editor].command` into it. `~path~` resolves
-   * to the path under the cursor (relative fragments expanded against the
-   * pane's cwd), translated into the target shell's dialect — including
-   * reverse mappings like a WSL path reaching an NTFS-native profile.
-   */
-  const handleCtrlAltClickPath = (
-    paneId: string,
-    raw: string,
-    ev: MouseEvent,
-  ): boolean => {
-    const editor = editorConfigRef.v;
-    if (!editor.command) return false;
-    const cwd = paneEffectiveCwd(paneId);
-    ev.preventDefault();
-    ev.stopPropagation();
-
-    const profileId = resolveDefaultProfileId(
-      editor.profile || profileBehaviorRef.v.default_profile_id,
-      profilesList,
-    );
-    paneHost?.setFocusedPaneId(paneId);
-    const newId = splitFocusedWithCwd(editor.splitType, profileId);
-    if (!newId) return true;
-    const targetStyle = pathStyleForPaneId(newId);
-    const target = quotePath(
-      translatePathFromSource(raw, targetStyle, cwd),
-      targetStyle,
-    );
-    // Run at shell startup (spawn-time startup command) instead of typing it
-    // in after the prompt — the editor pane opens straight into the editor.
-    pendingPaneSpawnStartup.set(
-      newId,
-      editor.command.replace("~path~", target),
-    );
-    return true;
-  };
-
-  const tooltips = createTooltipController(() => disableTooltipsRef.v);
-  tooltips.ensureObserver();
-  tooltips.apply(document);
-
-  function copyToClipboard(text: string): void {
-    if (!text) return;
-    void navigator.clipboard.writeText(text).catch(() => {});
-  }
-
-  function cleanupPaneVisualState(paneId: string): void {
-    // Clean up event listeners registered in onPaneCreated.
-    const cleanups = paneHostCleanups.get(paneId);
-    if (cleanups) {
-      for (const fn of cleanups) fn();
-      paneHostCleanups.delete(paneId);
-    }
-    paneLinkProviders.get(paneId)?.dispose();
-    paneLinkProviders.delete(paneId);
-    disposeWebglForPane(paneId);
-    paneShellState.delete(paneId);
-    paneCwdHints.delete(paneId);
-    paneRemoteIsWindows.delete(paneId);
-    paneProfileIds.delete(paneId);
-    lastPtyDims.delete(paneId);
-    pendingPtyWriteByPane.delete(paneId);
-    pendingPtyOutputByPane.delete(paneId);
-    activeProcesses.delete(paneId);
-    pendingShellCommandLine.delete(paneId);
-    backendReplayRestoredPanes.delete(paneId);
-  }
-
-  const paneWebglStates = new Map<string, PaneWebglState>();
-  const backendReplayRestoredPanes = new Set<string>();
-
-  function getFocusedTerm(): Terminal | null {
-    const id = lastFocusedPaneId || paneHost?.getFocusedPaneId();
-    if (!id) return null;
-    return getPaneTerminalById(id)?.term ?? null;
-  }
-
-  function getPaneTerminalById(paneId: string): PaneTerminal | null {
-    const active = paneHost?.getPaneTerminal(paneId);
-    if (active) return active;
-    for (const host of tabPaneHosts.values()) {
-      const pt = host.getPaneTerminal(paneId);
-      if (pt) return pt;
-    }
-    return null;
-  }
-
-  function getPaneHostByPaneId(paneId: string): PaneHost | null {
-    for (const host of tabPaneHosts.values()) {
-      if (host.getPaneTerminal(paneId)) return host;
-      if (findPaneLeaf(host.getTree(), paneId)) return host;
-    }
-    return null;
-  }
-
-  function focusActiveTerminal(): void {
-    const id = lastFocusedPaneId || paneHost?.getFocusedPaneId();
-    if (!id) return;
-    const pt = getPaneTerminalById(id) ?? null;
-    if (!pt) return;
-    pt.term.focus();
-    void ptyFocusPane(pt.sessionId).catch(() => {});
-  }
-
-  function focusedPaneId(): string | null {
-    return lastFocusedPaneId || paneHost?.getFocusedPaneId() || null;
-  }
-
-  function tabsInIndexOrder(): TabRecord[] {
-    return [...tabsState.tabs].sort((a, b) => a.order - b.order);
-  }
-
-  function tabKeyForTabId(tabId: string): string {
-    const i = tabsInIndexOrder().findIndex((t) => t.id === tabId);
-    return i >= 0 ? String(i + 1) : "1";
-  }
-
-  function paneProfileName(paneId: string): string {
-    const profile = resolvePaneProfile(paneId);
-    return profile?.name?.trim() || profile?.id || "local";
-  }
-
-  function paneCwdForIdentity(paneId: string): string | null {
-    const profile = resolvePaneProfile(paneId);
-    if (profile?.kind === "ssh" && !profileHasRemoteIntegration(profile)) {
-      return null;
-    }
-    return paneCwdHints.get(paneId) ?? null;
-  }
-
-  function paneNameParts(paneId: string): PaneNameParts {
-    const host = getPaneHostByPaneId(paneId);
-    const tabId = host ? tabIdForPaneHost(host) : null;
-    const tab = tabId ? tabsState.tabs.find((t) => t.id === tabId) : undefined;
-    const proc = activeProcesses.get(paneId);
-    return {
-      paneId,
-      profileName: paneProfileName(paneId),
-      cwd: paneCwdForIdentity(paneId),
-      oscTitle: paneProgramNames.get(paneId) ?? null,
-      processLabel: proc ? displayProcessCommand(proc.command) : null,
-      tabName: tab?.userName ?? "",
-    };
-  }
-
-  function paneEffectiveName(paneId: string): string {
-    return paneHeadline(paneNameParts(paneId));
-  }
-
-  function tabDisplayName(tabId: string): string {
-    const tab = tabsState.tabs.find((t) => t.id === tabId);
-    let osc: string | undefined;
-    if (tab?.userName) {
-      const host = tabPaneHosts.get(tabId);
-      const fid = host ? host.getFocusedPaneId() : null;
-      osc = fid ? paneProgramNames.get(fid) : undefined;
-    }
-    return formatTabDisplayName(tab, osc, tabId);
-  }
-
-  function refreshTabLabelForPane(paneId: string): void {
-    const host = getPaneHostByPaneId(paneId);
-    if (!host) return;
-    if (focusedPaneId() !== paneId && host.getFocusedPaneId() !== paneId) return;
-    const tabId = tabIdForPaneHost(host);
-    if (!tabId) return;
-    const tab = tabsState.tabs.find((t) => t.id === tabId);
-    if (!tab) return;
-    let dirty = false;
-    if (!tab.userName) {
-      const next = autoTabNameFromPane(paneNameParts(paneId));
-      if (tab.name !== next) {
-        tab.name = next;
-        saveTabsState(tabsState);
-        dirty = true;
-      }
-    } else {
-      dirty = true;
-    }
-    if (dirty) renderTabsBar();
-  }
-
-  function persistHostLayout(host: PaneHost): void {
-    const tabId = tabIdForPaneHost(host);
-    const pl = layoutForPaneHost(host);
-    if (tabId && pl) persistLayoutForTab(tabId, pl);
-  }
-
-  function focusAdjacentPaneByArrow(
-    key: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown",
-  ): boolean {
-    const currentId = focusedPaneId();
-    if (!currentId) return false;
-    const next = directionalAdjacentLeafId(
-      collectFocusHopGeometries(),
-      currentId,
-      key,
-    );
-    if (!next) return false;
-    focusPaneGlobal(next);
-    scheduleCursorWarpToPane(next, { force: true });
-    return true;
-  }
-
-  function swapFocusedPaneWithAdjacent(
-    key: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown",
-  ): boolean {
-    const host = paneHost;
-    if (!host) return false;
-    const currentId = host.getFocusedPaneId();
-    if (!currentId) return false;
-    const swapped = host.swapPaneWithAdjacent(currentId, key);
-    if (swapped) {
-      scheduleCursorWarpToPane(currentId, {
-        force: true,
-        delayMs: motionDurationMs("medium"),
-      });
-    }
-    return swapped;
-  }
-
-  async function closeFocusedPane(paneId?: string): Promise<void> {
-    const id = paneId ?? focusedPaneId();
-    if (!id) return;
-    const ownerHost = getPaneHostByPaneId(id);
-    const activeHost = paneHost;
-    if (!ownerHost || !activeHost) return;
-
-    if (
-      ownerHost === activeHost &&
-      ownerHost.isPristineRootTab() &&
-      !ownerHost.isPaneFloating(id)
-    ) {
-      closeTab(activeTabId);
-      return;
-    }
-
-    const treeIds: string[] = [];
-    collectLeafIds(ownerHost.getTree(), treeIds);
-    if (treeIds.length <= 1) return;
-
-    try {
-      const pt = ownerHost.getPaneTerminal(id);
-      if (pt) await ptyKillPane(pt.sessionId);
-      if (!ownerHost.removePane(id)) return;
-      parttyPerf.resetPane(id);
-      persistHostLayout(ownerHost);
-      scheduleResizeImmediate();
-    } catch (e) {
-      console.warn("pty_kill_pane", e);
-    }
-  }
-
-  let quitOnShellExitPending = false;
-
-  /**
-   * A pane's shell exiting (its topmost process terminating) means the pane
-   * is obsolete: close it. When the exiting pane was the app's last one,
-   * treat it as a request to quit — like the palette Quit command. The
-   * Ctrl+Shift+W keybind still refuses to close the final pane; this path
-   * is pty-exit only.
-   */
-  async function closePaneOnShellExit(paneId: string): Promise<void> {
-    // Not a live pane (e.g. a parked warm session's shell died) — nothing to close.
-    if (!getPaneHostByPaneId(paneId)) return;
-    let leafCount = 0;
-    for (const [, host] of tabPaneHosts) {
-      const ids: string[] = [];
-      collectLeafIds(host.getTree(), ids);
-      leafCount += ids.length;
-    }
-    if (leafCount <= 1 && !quitOnShellExitPending) {
-      quitOnShellExitPending = true;
-      void appWindow.destroy().catch(() => {});
-      return;
-    }
-    await closeFocusedPane(paneId);
-  }
-
-  async function closeAllChildPanes(): Promise<void> {
-    const removed = paneHost?.closeAllChildPanes() ?? [];
-    for (const id of removed) {
-      parttyPerf.resetPane(id);
-    }
-    const r = paneHost?.getRootPaneId();
-    if (r) {
-      const pt = paneHost?.getPaneTerminal(r);
-      if (pt) {
-        pt.term.focus();
-        void ptyFocusPane(pt.sessionId).catch(() => {});
-      }
-    }
-    scheduleResizeImmediate();
-  }
-
-  function disposeWebglForPane(paneId: string): void {
-    const state = paneWebglStates.get(paneId);
-    if (!state) return;
-    const started = performance.now();
-    state.status = "disposed";
-    try {
-      state.contextLossDispose?.dispose();
-    } catch {
-      /* ignore */
-    }
-    try {
-      state.addon?.dispose();
-    } catch {
-      /* ignore */
-    }
-    paneWebglStates.delete(paneId);
-    parttyPerf.mark("webgl.dispose");
-    parttyPerf.time("webgl.dispose.ms", performance.now() - started);
-    updateWebglPerfGauges();
-  }
-
-  function shedWebgl(): void {
-    for (const paneId of [...paneWebglStates.keys()])
-      disposeWebglForPane(paneId);
-  }
-
-  function updateWebglPerfGauges(): void {
-    let pending = 0;
-    let ready = 0;
-    let failed = 0;
-    for (const state of paneWebglStates.values()) {
-      if (state.status === "pending") pending++;
-      else if (state.status === "ready") ready++;
-      else if (state.status === "failed") failed++;
-    }
-    parttyPerf.gauge("webgl.panes.pending", pending);
-    parttyPerf.gauge("webgl.panes.ready", ready);
-    parttyPerf.gauge("webgl.panes.failed", failed);
-  }
-
-  async function ensureWebglOnPane(paneId: string): Promise<void> {
-    if (!lp.preload_webgl_on_startup && document.visibilityState === "hidden")
-      return;
-    const pt = paneHost?.getPaneTerminal(paneId);
-    if (!pt) return;
-    const existing = paneWebglStates.get(paneId);
-    if (existing?.status === "ready" || existing?.status === "pending") return;
-    if (
-      existing?.status === "failed" &&
-      existing.lastFailureAt &&
-      Date.now() - existing.lastFailureAt < 10_000
-    ) {
-      return;
-    }
-
-    const generation = (existing?.generation ?? 0) + 1;
-    const state: PaneWebglState = {
-      status: "pending",
-      attempts: existing?.attempts ?? 0,
-      generation,
-    };
-    paneWebglStates.set(paneId, state);
-    updateWebglPerfGauges();
-    parttyPerf.mark("webgl.mount.start");
-
-    const delays = [0, 50, 120, 240];
-    for (let i = 0; i < delays.length; i++) {
-      if (delays[i] > 0)
-        await new Promise<void>((r) => setTimeout(r, delays[i]));
-      if (paneWebglStates.get(paneId)?.generation !== generation) return;
-      const started = performance.now();
-      try {
-        state.attempts++;
-        const addon = await createWebglAddon();
-        pt.term.loadAddon(addon);
-        state.contextLossDispose = addon.onContextLoss(() => {
-          parttyPerf.mark("webgl.context_loss");
-          disposeWebglForPane(paneId);
-          void ensureWebglOnPane(paneId);
-        });
-        state.addon = addon;
-        state.status = "ready";
-        paneWebglStates.set(paneId, state);
-        updateWebglPerfGauges();
-        pt.term.refresh(0, pt.term.rows - 1);
-        parttyPerf.mark("webgl.mount.ready");
-        parttyPerf.time("webgl.mount.ms", performance.now() - started);
-        return;
-      } catch (e) {
-        state.lastError = e;
-        parttyPerf.mark("webgl.mount.failure");
-      }
-    }
-
-    state.status = "failed";
-    state.lastFailureAt = Date.now();
-    paneWebglStates.set(paneId, state);
-    updateWebglPerfGauges();
-  }
-
-  /** Remount WebGL on panes in the active tab host (e.g. after hide shed). */
-  async function mountWebglForActivePanes(): Promise<void> {
-    const ids: string[] = [];
-    paneHost?.forEachPane((id) => ids.push(id));
-    await Promise.all(ids.map((id) => ensureWebglOnPane(id)));
-  }
-
-  async function setBackgroundWorkMode(keepAlive: boolean): Promise<void> {
-    const current = persisted.prefs as Partial<ParttyPrefs>;
-    const next: ParttyPrefs = {
-      ...(current as ParttyPrefs),
-      shed_on_hide: !keepAlive,
-      destroy_webview_on_hide: true,
-      webgl_shed_on_hide: true,
-      discard_buffer_on_hide: !keepAlive,
-    };
-    await invoke("set_prefs", { prefs: next });
-    persisted.prefs = next as unknown as Record<string, unknown>;
-    Object.assign(lp, mergeLifecyclePrefs(persisted.prefs));
-  }
-
-  function isBackgroundWorkMode(): boolean {
-    const p = persisted.prefs as Partial<ParttyPrefs>;
-    return p.shed_on_hide !== true && p.discard_buffer_on_hide !== true;
-  }
-
-  function isTerminalVisiblyEmpty(term: Terminal): boolean {
-    const active = term.buffer.active;
-    if (active.length > 1) return false;
-    return (active.getLine(0)?.translateToString(false).trim() ?? "") === "";
-  }
-
-  async function replayBackendSnapshotOnce(
-    paneId: string,
-    pt: PaneTerminal,
-  ): Promise<void> {
-    if (backendReplayRestoredPanes.has(paneId)) return;
-    backendReplayRestoredPanes.add(paneId);
-    if (!isTerminalVisiblyEmpty(pt.term)) return;
-    try {
-      const snapshot = await ptyReplaySnapshot(pt.sessionId);
-      if (snapshot && snapshot.byteLength > 0) {
-        pt.term.write(new Uint8Array(snapshot));
-      }
-    } catch (e) {
-      console.warn("pty_replay_snapshot", e);
-    }
-  }
-
-  function toggleFocusedPaneFloating(): boolean {
-    const id = focusedPaneId();
-    if (!id || !paneHost) return false;
-    const ownerHost = getPaneHostByPaneId(id);
-    if (!ownerHost) return false;
-
-    if (!ownerHost.isPaneFloating(id)) {
-      if (ownerHost !== paneHost || paneHost.getFocusedPaneId() !== id) {
-        return false;
-      }
-      const changed = paneHost.toggleFocusedFloating();
-      if (!changed) return false;
-      persistCurrentTabLayout();
-      scheduleResizeImmediate();
-      return true;
-    }
-
-    if (ownerHost.isPaneFollowing(id) && ownerHost !== paneHost) {
-      const pt = takePaneForTransfer(ownerHost, id);
-      if (!pt) return false;
-      if (!receiveTransferredPane(paneHost, id, pt)) {
-        ownerHost.restoreTakenPane(id, pt);
-        return false;
-      }
-      ownerHost.clearPaneMoveRollback();
-      persistHostLayout(ownerHost);
-      persistCurrentTabLayout();
-      paneHost.setFocusedPaneId(id);
-      scheduleCreationReflow(id);
-      scheduleResizeImmediate();
-      return true;
-    }
-
-    const changed = ownerHost.togglePaneFloating(id);
-    if (!changed) return false;
-    persistHostLayout(ownerHost);
-    scheduleResizeImmediate();
-    return true;
-  }
-
-  function toggleFocusedPaneFollow(): boolean {
-    const id = focusedPaneId();
-    if (!id) return false;
-    const ownerHost = getPaneHostByPaneId(id);
-    if (!ownerHost?.isPaneFloating(id)) return false;
-    const changed = ownerHost.togglePaneFollow(id);
-    if (!changed) return false;
-    syncLivePaneIds();
-    persistHostLayout(ownerHost);
-    scheduleResizeImmediate();
-    return true;
-  }
-
-  function createFloatingPaneWithCwd(profileId?: string | null): string | null {
-    const parentId = paneHost?.getFocusedPaneId();
-    if (!parentId) return null;
-    const pending = resolvePendingSpawnContext(parentId, profileId);
-    pendingNewPaneCwd.v = pending.cwd;
-    pendingNewPaneProfile.v = pending.profileId;
-    const newId = paneHost?.createFloatingPane() ?? null;
-    if (!newId) {
-      pendingNewPaneCwd.v = null;
-      pendingNewPaneProfile.v = null;
-      return null;
-    }
-    persistCurrentTabLayout();
-    if (!document.documentElement.classList.contains("partty-booting")) {
-      scheduleCreationReflow(newId);
-    }
-    return newId;
-  }
-
-  function splitFocusedWithCwd(dir: "h" | "v", profileId?: string | null): string | null {
-    const parentId = paneHost?.getFocusedPaneId();
-    if (!parentId) return null;
-    const pending = resolvePendingSpawnContext(parentId, profileId);
-    pendingNewPaneCwd.v = pending.cwd;
-    pendingNewPaneProfile.v = pending.profileId;
-    const newId = paneHost?.splitFocused(dir) ?? null;
-    if (!newId) {
-      pendingNewPaneCwd.v = null;
-      pendingNewPaneProfile.v = null;
-    }
-    return newId;
-  }
-
-  function resolveProfileForNewTab(explicit?: string | null): string {
-    if (explicit) return resolveDefaultProfileId(explicit, profilesList);
-    if (!profileBehaviorRef.v.new_tab_uses_default_profile) {
-      const focused = paneHost?.getFocusedPaneId();
-      if (focused) {
-        const inherited = paneProfileIds.get(focused);
-        if (inherited) return resolveDefaultProfileId(inherited, profilesList);
-      }
-    }
-    return resolveDefaultProfileId(
-      profileBehaviorRef.v.default_profile_id,
-      profilesList,
-    );
-  }
-
-  function zoomPaneTerminal(paneId: string, direction: number): void {
-    const pt = paneHost?.getPaneTerminal(paneId);
-    if (!pt || !paneHost) return;
-    const current = Number(pt.term.options.fontSize ?? 12);
-    const next = Math.max(6, Math.min(32, current + direction));
-    if (next === current) return;
-    paneHost.setPaneFontSize(paneId, next);
-    lastPtyDims.delete(paneId);
-    scheduleResizeImmediate(true);
-  }
-
-  const pendingZoomByPane = new Map<string, number>();
-  let zoomRaf = 0;
-
-  function flushPendingPaneZoom(): void {
-    zoomRaf = 0;
-    const entries = [...pendingZoomByPane.entries()];
-    pendingZoomByPane.clear();
-    for (const [paneId, delta] of entries) {
-      zoomPaneTerminal(paneId, Math.sign(delta));
-    }
-  }
-
-  function handlePaneZoomWheel(paneId: string, ev: WheelEvent): void {
-    if (!ev.ctrlKey) return;
-    ev.preventDefault();
-    ev.stopPropagation();
-    const direction = ev.deltaY < 0 ? 1 : -1;
-    pendingZoomByPane.set(
-      paneId,
-      (pendingZoomByPane.get(paneId) ?? 0) + direction,
-    );
-    if (!zoomRaf) zoomRaf = requestAnimationFrame(flushPendingPaneZoom);
-  }
-
-  /** Map wheel deltas to xterm scrollLines (Alt = fast). */
-  function scrollTermByWheel(term: Terminal, ev: WheelEvent): void {
-    if (ev.deltaY === 0 && ev.deltaX === 0) return;
-    const sens = Math.max(0.1, Number(term.options.scrollSensitivity) || 1);
-    const fast = ev.altKey
-      ? Math.max(1, Number(term.options.fastScrollSensitivity) || 5)
-      : 1;
-    const delta = ev.deltaY !== 0 ? ev.deltaY : ev.deltaX;
-    let lines: number;
-    if (ev.deltaMode === WheelEvent.DOM_DELTA_LINE) {
-      lines = delta * sens;
-    } else if (ev.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
-      lines = delta * term.rows * sens;
-    } else {
-      lines = (delta / 16) * sens;
-    }
-    lines *= fast;
-    let amount = Math.round(lines);
-    if (amount === 0) amount = delta < 0 ? -1 : 1;
-    term.scrollLines(amount);
-  }
-
-  /** Reclaim wheel for scrollback when mouse-tracking would swallow it. */
-  function attachTermWheelHandler(term: Terminal, getPaneId: () => string): void {
-    term.attachCustomWheelEventHandler((ev) => {
-      if (ev.ctrlKey) {
-        handlePaneZoomWheel(getPaneId(), ev);
-        return false;
-      }
-      const forceScrollback =
-        ev.shiftKey ||
-        (term.modes.mouseTrackingMode !== "none" &&
-          term.buffer.active.type === "normal");
-      if (!forceScrollback) return true;
-      ev.preventDefault();
-      ev.stopPropagation();
-      scrollTermByWheel(term, ev);
-      return false;
-    });
-  }
-
-  /** Forward wheel from host padding (misses xterm's scrollable element). */
-  function handlePaneHostWheel(paneId: string, ev: WheelEvent): void {
-    if (ev.ctrlKey) {
-      handlePaneZoomWheel(paneId, ev);
-      return;
-    }
-    const target = ev.target as HTMLElement | null;
-    if (
-      target?.closest(".xterm-scrollable-element") ||
-      target?.closest(".xterm-viewport") ||
-      target?.closest(".xterm-screen")
-    ) {
-      return;
-    }
-    const pt = getPaneHostByPaneId(paneId)?.getPaneTerminal(paneId);
-    if (!pt) return;
-    ev.preventDefault();
-    ev.stopPropagation();
-    scrollTermByWheel(pt.term, ev);
-  }
-
-  function installPaneControlSurface(): void {
-    (window as unknown as { parttyPanes?: unknown }).parttyPanes = {
-      list: () => paneHost?.getPaneDescriptors() ?? [],
-      focused: () => paneHost?.getFocusedPaneDescriptor() ?? null,
-      metrics: (paneId?: string) => {
-        const id = paneId || paneHost?.getFocusedPaneId();
-        return id ? (paneHost?.getPaneDescriptor(id, true) ?? null) : null;
-      },
-      focus: (paneId: string) => paneHost?.setFocusedPaneId(paneId),
-      zoom: (paneId: string, delta: number) =>
-        zoomPaneTerminal(paneId, Number(delta) || 0),
-    };
-  }
-
-  function attachTermKeyHandler(term: Terminal, getPaneId: () => string): void {
-    term.attachCustomKeyEventHandler((e) => {
-      if (e.type !== "keydown") return true;
-
-      const m = k.match(e,
-        "terminal_newline",
-        "pane_focus_left", "pane_focus_right", "pane_focus_up", "pane_focus_down",
-        "terminal_copy",
-        "terminal_paste",
-        "palette_chord",
-        "pane_split_right",
-        "pane_split_down",
-        "profile_split_right",
-        "profile_split_down",
-        "profile_float_new",
-        "pane_move_to_tab",
-        "pane_float_toggle",
-        "pane_float_new",
-        "pane_float_follow",
-        "pane_swap_left", "pane_swap_right", "pane_swap_up", "pane_swap_down",
-        "pane_close",
-
-      );
-
-      if (m) {
-        switch (m) {
-          case "terminal_newline":
-            e.preventDefault();
-            queuePtyWrite(getPaneId(), "\n", true);
-            return false;
-          case "pane_focus_left":
-          case "pane_focus_right":
-          case "pane_focus_up":
-          case "pane_focus_down":
-            if (focusAdjacentPaneByArrow(e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown")) {
-              e.preventDefault();
-              return false;
-            }
-            break;
-          case "terminal_copy":
-            if (term.hasSelection()) {
-              e.preventDefault();
-              copyToClipboard(term.getSelection());
-              return false;
-            }
-            break;
-          case "terminal_paste":
-            e.preventDefault();
-            void pasteFromClipboard();
-            return false;
-          case "palette_chord":
-            e.preventDefault();
-            return false;
-          case "pane_split_right":
-            e.preventDefault();
-            splitFocusedWithCwd("h");
-            return false;
-          case "pane_split_down":
-            e.preventDefault();
-            splitFocusedWithCwd("v");
-            return false;
-          case "profile_split_right":
-          case "profile_split_down":
-          case "profile_float_new":
-            e.preventDefault();
-            return false;
-          case "pane_move_to_tab": {
-            const idx = tabHotkeyIndexFromEvent(e);
-            if (idx != null) {
-              e.preventDefault();
-              moveFocusedPaneToTabHotkeyIndex(idx);
-              return false;
-            }
-            break;
-          }
-          case "pane_float_toggle":
-            e.preventDefault();
-            toggleFocusedPaneFloating();
-            return false;
-          case "pane_float_new":
-            e.preventDefault();
-            createFloatingPaneWithCwd();
-            return false;
-          case "pane_float_follow":
-            e.preventDefault();
-            toggleFocusedPaneFollow();
-            return false;
-          case "pane_swap_left":
-          case "pane_swap_right":
-          case "pane_swap_up":
-          case "pane_swap_down":
-            e.preventDefault();
-            return swapFocusedPaneWithAdjacent(e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown");
-          case "pane_close":
-            e.preventDefault();
-            void closeFocusedPane(getPaneId());
-            return false;
-        }
-        return true;
-      }
-
-      if (
-        !e.ctrlKey &&
-        !e.shiftKey &&
-        !e.altKey &&
-        !e.metaKey &&
-        e.key === "Backspace" &&
-        term.hasSelection() &&
-        backspaceDeleteSelectionRef.v
-      ) {
-        e.preventDefault();
-        // Delete the selected region by moving to its end and sending N DELs.
-        // Only single-line selections on the cursor line — multi-line / scrollback
-        // is a no-op beyond clearing the selection (TUIs / history aren't editable).
-        const range = term.getSelectionPosition();
-        term.clearSelection();
-        if (!range) return false;
-
-        const buf = term.buffer.active;
-        const cursorX = buf.cursorX;
-        const cursorAbsY = buf.baseY + buf.cursorY;
-        // getSelectionPosition returns 0-based coords (typings incorrectly say 1-based).
-        let x0 = range.start.x;
-        let y0 = range.start.y;
-        let x1 = range.end.x;
-        let y1 = range.end.y;
-        if (y0 > y1 || (y0 === y1 && x0 > x1)) {
-          const tx = x0;
-          const ty = y0;
-          x0 = x1;
-          y0 = y1;
-          x1 = tx;
-          y1 = ty;
-        }
-        if (y0 !== y1 || y0 !== cursorAbsY) return false;
-
-        const left = x0;
-        const right = x1; // exclusive end column
-        const cellCount = right - left;
-        if (cellCount <= 0) return false;
-
-        let payload = "";
-        if (cursorX < right) {
-          payload += "\x1b[C".repeat(right - cursorX);
-        } else if (cursorX > right) {
-          payload += "\x1b[D".repeat(cursorX - right);
-        }
-        // DEL — same as xterm's default Backspace on Windows hosts.
-        payload += "\x7f".repeat(cellCount);
-        queuePtyWrite(getPaneId(), payload, true);
-        return false;
-      }
-      return true;
-    });
-  }
-
-  const terminalContent = document.getElementById("terminal-content");
-  const stage = document.getElementById("terminal-stage");
-
-
-  /** Force the transparent cursor on panes whose extension overlay hides it.
-   *  Theme re-applies rebuild `options.theme` and would otherwise clobber
-   *  the hide (double cursor next to the extension's own rendering). */
-  function applyExtCursorHides(paneId: string, pt: PaneTerminal): void {
-    if (!extCursorHiddenPanes.has(paneId)) return;
-    pt.term.options.theme = {
-      ...pt.term.options.theme,
-      cursor: "rgba(0, 0, 0, 0)",
-    };
-  }
-
-  function refreshAllTerminalThemes(): void {
-    // Refresh all tabs so theme changes don't drift on inactive tabs
-    for (const host of tabPaneHosts.values()) {
-      host.remountPaneSurfaces();
-      host.forEachPane((id, pt) => {
-        const th = xtermThemeForPane(id);
-        pt.term.options.theme = {
-          ...th,
-          cursorAccent: th.background ?? TERM_BG_FALLBACK,
-        };
-        applyExtCursorHides(id, pt);
-        pt.term.refresh(0, pt.term.rows - 1);
-      });
-    }
-  }
-
-  function applyPaneTheme(paneId: string, prefs: PaneThemePrefs | null): void {
-    if (prefs) paneThemes.set(paneId, normalizePaneThemePrefs(prefs));
-    else paneThemes.delete(paneId);
-    paneHost?.remountPaneSurfaces();
-    const pt = paneHost?.getPaneTerminal(paneId);
-    if (pt) {
-      const th = xtermThemeForPane(paneId);
-      pt.term.options.theme = {
-        ...th,
-        cursorAccent: th.background ?? TERM_BG_FALLBACK,
-      };
-      applyExtCursorHides(paneId, pt);
-      pt.term.refresh(0, pt.term.rows - 1);
-    }
-  }
-
-  let debounceTimer = 0;
-  let layoutRaf = 0;
-  let layoutForceRefresh = false;
-  let terminalLayoutSuspended = false;
-  let pendingSuspendedLayout = false;
-
-  function runLayoutPassForHost(host: PaneHost, forceRefresh = false): void {
-    const passStarted = performance.now();
-    let paneCount = 0;
-    const resizeBatch: Array<{ sessionId: string; cols: number; rows: number }> =
-      [];
-    const refreshPanes: PaneTerminal[] = [];
-
-    host.forEachPane((paneId, pt) => {
-      paneCount++;
-      const fitStarted = performance.now();
-      pt.fit.fit();
-      parttyPerf.time("layout.fit.ms", performance.now() - fitStarted);
-      const d = ptyDims(pt.fit);
-      if (!d) return;
-      const safe = clampPtyColsRows(d.cols, d.rows);
-      const prev = lastPtyDims.get(paneId);
-      const unchanged = prev?.cols === safe.cols && prev?.rows === safe.rows;
-      if (unchanged) {
-        if (forceRefresh) pt.term.refresh(0, pt.term.rows - 1);
-        return;
-      }
-      lastPtyDims.set(paneId, safe);
-      resizeBatch.push({ sessionId: pt.sessionId, cols: safe.cols, rows: safe.rows });
-      refreshPanes.push(pt);
-    });
-
-    if (resizeBatch.length > 0) {
-      parttyPerf.mark("layout.pty_resize");
-      parttyPerf.mark("layout.pty_resize.count", resizeBatch.length);
-      const invokeStarted = performance.now();
-      void ptyResizeBatch(resizeBatch)
-        .then(() => {
-          parttyPerf.time(
-            "layout.pty_resize.invoke.ms",
-            performance.now() - invokeStarted,
-          );
-          for (const pt of refreshPanes) {
-            pt.term.refresh(0, pt.term.rows - 1);
-          }
-        })
-        .catch((e) => console.warn("pty_resize_batch", e));
-    }
-
-    parttyPerf.mark("layout.pass");
-    parttyPerf.gauge("layout.pass.panes", paneCount);
-    parttyPerf.time("layout.pass.ms", performance.now() - passStarted);
-  }
-
-  function runLayoutPass(forceRefresh = false): void {
-    parttyPerf.mark(forceRefresh || layoutForceRefresh ? "layout.pass.force" : "layout.pass.normal");
-    layoutRaf = 0;
-    const shouldForceRefresh = forceRefresh || layoutForceRefresh;
-    layoutForceRefresh = false;
-    if (!paneHost) return;
-    runLayoutPassForHost(paneHost, shouldForceRefresh);
-    for (const host of tabPaneHosts.values()) {
-      if (host === paneHost) continue;
-      for (const state of Object.values(host.getFloatingState())) {
-        if (state.follow) {
-          runLayoutPassForHost(host, shouldForceRefresh);
-          break;
-        }
-      }
-    }
-  }
-
-  /** PTY + xterm stay aligned after pane/window refocus (TUIs need SIGWINCH-sized PTY + refresh). */
-  function reflowAllPanes(): void {
-    parttyPerf.mark("layout.reflow_all");
-    lastPtyDims.clear();
-    scheduleResizeImmediate(true);
-  }
-
-  function refreshAllPaneThemes(): void {
-    for (const host of tabPaneHosts.values()) {
-      host.forEachPane((paneId, pt) => {
-        const th = xtermThemeForPane(paneId);
-        pt.term.options.theme = {
-          ...th,
-          cursorAccent: th.background ?? TERM_BG_FALLBACK,
-        };
-        try {
-          pt.term.refresh(0, pt.term.rows - 1);
-        } catch {
-          /* ignore */
-        }
-      });
-      if (host === paneHost) host.remountPaneSurfaces();
-    }
-  }
-
-  function scheduleDeferredCustomThemes(): void {
-    if (!prefsNeedCustomThemes(currentUiPrefs, paneThemes.values())) return;
-    void ensureCustomThemesLoaded().then(() => {
-      applyUiTheme(currentUiPrefs);
-      refreshAllPaneThemes();
-    });
-  }
-
-  // Coalesced reflow after pane create — layout metrics can settle a frame late.
-  const pendingCreationReflowHosts = new Set<PaneHost>();
-  const pendingCreationReflowPanes = new Set<string>();
-  let creationReflowRaf = 0;
-  let creationReflowLateTimer = 0;
-
-  function flushCreationReflows(): void {
-    creationReflowRaf = 0;
-    const hosts = [...pendingCreationReflowHosts];
-    const paneIds = [...pendingCreationReflowPanes];
-    pendingCreationReflowHosts.clear();
-    pendingCreationReflowPanes.clear();
-
-    for (const paneId of paneIds) lastPtyDims.delete(paneId);
-    for (const host of hosts) {
-      const ids: string[] = [];
-      collectLeafIds(host.getTree(), ids);
-      for (const id of ids) lastPtyDims.delete(id);
-    }
-
-    const run = (): void => {
-      for (const paneId of paneIds) {
-        const host = getPaneHostByPaneId(paneId);
-        const pt = host?.getPaneTerminal(paneId);
-        if (pt) pt.fit.fit();
-      }
-      for (const host of hosts) {
-        if (host === paneHost) scheduleResizeImmediate(true);
-        else runLayoutPassForHost(host, true);
-      }
-    };
-
-    afterAnimationFrames(run);
-    if (creationReflowLateTimer) window.clearTimeout(creationReflowLateTimer);
-    if (document.fonts?.status === "loading") {
-      void document.fonts.ready.then(run);
-    } else {
-      creationReflowLateTimer = window.setTimeout(run, 80);
-    }
-  }
-
-  function scheduleCreationReflow(paneId: string): void {
-    const host = getPaneHostByPaneId(paneId);
-    if (host) pendingCreationReflowHosts.add(host);
-    else pendingCreationReflowPanes.add(paneId);
-    if (creationReflowRaf) return;
-    creationReflowRaf = requestAnimationFrame(flushCreationReflows);
-  }
-
-  function scheduleCreationReflowForHost(host: PaneHost): void {
-    pendingCreationReflowHosts.add(host);
-    if (creationReflowRaf) return;
-    creationReflowRaf = requestAnimationFrame(flushCreationReflows);
-  }
-
-  function scheduleHostGeometryRepair(host: PaneHost): void {
-    const ids: string[] = [];
-    collectLeafIds(host.getTree(), ids);
-    for (const id of ids) lastPtyDims.delete(id);
-    scheduleCreationReflowForHost(host);
-  }
-
-  function setTabsHidden(next: boolean): void {
-    document.documentElement.classList.toggle("tabs-hidden", next);
-    localStorage.setItem(TABS_HIDDEN_KEY, next ? "1" : "0");
-    tooltips.apply(document);
-    scheduleResizeImmediate();
-  }
-
-  function requestLayoutPass(forceRefresh = false): void {
-    layoutForceRefresh ||= forceRefresh;
-    if (terminalLayoutSuspended) {
-      pendingSuspendedLayout = true;
-      return;
-    }
-    if (layoutRaf) return;
-    layoutRaf = requestAnimationFrame(() => {
-      afterAnimationFrames(runLayoutPass, 1);
-    });
-  }
-
-  function scheduleResizeDebounced(forceRefresh = false): void {
-    layoutForceRefresh ||= forceRefresh;
-    if (terminalLayoutSuspended) {
-      pendingSuspendedLayout = true;
-      return;
-    }
-    if (debounceTimer) window.clearTimeout(debounceTimer);
-    debounceTimer = window.setTimeout(() => {
-      debounceTimer = 0;
-      requestLayoutPass();
-    }, RESIZE_DEBOUNCE_MS);
-  }
-
-  function scheduleResizeImmediate(forceRefresh = false): void {
-    layoutForceRefresh ||= forceRefresh;
-    if (terminalLayoutSuspended) {
-      pendingSuspendedLayout = true;
-      return;
-    }
-    if (debounceTimer) window.clearTimeout(debounceTimer);
-    debounceTimer = 0;
-    requestLayoutPass();
-  }
-
-  function setTerminalLayoutSuspended(suspended: boolean): void {
-    if (terminalLayoutSuspended === suspended) return;
-    terminalLayoutSuspended = suspended;
-    document.documentElement.classList.toggle(
-      "terminal-layout-suspended",
-      suspended,
-    );
-    if (!suspended && pendingSuspendedLayout) {
-      pendingSuspendedLayout = false;
-      scheduleResizeImmediate(true);
-    }
-  }
-
-  async function ensurePtyForPane(
-    paneId: string,
-    ptIn?: PaneTerminal,
-    initialCwd?: string | null,
-  ): Promise<void> {
-    await ensureProfilesLoaded();
-    const pt = ptIn ?? getPaneTerminalById(paneId);
-    if (!pt) return;
-    const startupOverride = pendingPaneSpawnStartup.get(paneId) ?? null;
-    const profileId = assignPaneProfileId(
-      paneId,
-      paneProfileIds.get(paneId) ??
-        profileBehaviorRef.v.default_profile_id,
-    );
-    const profile = getProfileById(profileId, profilesList);
-    const effectiveCwd =
-      profile?.kind === "ssh"
-        ? null
-        : (initialCwd ?? paneCwdHints.get(paneId) ?? null);
-    const globalShell =
-      ((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
-      "pwsh";
-    const shellOverride = resolveProfileShell(profile, globalShell, profilesList);
-    const ensureStarted = performance.now();
-    pt.fit.fit();
-    let d = ptyDims(pt.fit);
-    if (!d) {
-      await waitAnimationFrames(1);
-      pt.fit.fit();
-      d = ptyDims(pt.fit);
-    }
-    if (!d) {
-      await waitAnimationFrames(1);
-      pt.fit.fit();
-      d = ptyDims(pt.fit);
-    }
-    let raw = d ?? { cols: PTY_FALLBACK_COLS, rows: PTY_FALLBACK_ROWS };
-    let safe = clampPtyColsRows(raw.cols, raw.rows);
-    const maxAttempts = 4;
-    let lastErr: unknown;
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      if (attempt > 0) {
-        await new Promise<void>((r) => setTimeout(r, 55 * attempt));
-        pt.fit.fit();
-        const d2 = ptyDims(pt.fit);
-        raw = d2 ?? raw;
-        safe = clampPtyColsRows(raw.cols, raw.rows);
-      }
-      try {
-        // Fresh output channel per ensure: on resummon after a webview
-        // rebuild Rust swaps it in (`session.set_output_channel`), which is
-        // how live output re-attaches without restarting the shell.
-        const output = new Channel<ArrayBuffer>();
-        output.onmessage = (buf: ArrayBuffer) => {
-          deliverDirectPtyOut(pt.paneId, new Uint8Array(buf));
-        };
-        await ptyEnsure(
-          pt.sessionId,
-          safe.cols,
-          safe.rows,
-          effectiveCwd,
-          shellOverride,
-          profileId,
-          startupOverride,
-          output,
-        );
-        pendingPaneSpawnStartup.delete(paneId);
-        await replayBackendSnapshotOnce(paneId, pt);
-        lastPtyDims.set(paneId, safe);
-        parttyPerf.mark("pty.ensure.success");
-        parttyPerf.time("pty.ensure.ms", performance.now() - ensureStarted);
-        return;
-      } catch (e) {
-        lastErr = e;
-        parttyPerf.mark("pty.ensure.failure");
-        const msg = String(e).toLowerCase();
-        if (
-          /not found|cannot find|does not exist|no such file|access denied|permission denied|invalid/i.test(
-            msg,
-          )
-        ) {
-          break;
-        }
-      }
-    }
-    const msg = String(lastErr);
-    console.error("pty_ensure failed:", lastErr);
-    parttyPerf.mark("pty.ensure.failure");
-    parttyPerf.time("pty.ensure.ms", performance.now() - ensureStarted);
-    try {
-      pt.term.write(
-        `\r\n\x1b[31mShell failed after retries.\x1b[0m \x1b[90m${msg}\x1b[0m\r\n`,
-      );
-    } catch {
-      /* ignore */
-    }
-  }
-
-  /** Coalesce heavy focus side-effects so arrow spam stays visual-only. */
-  let pendingFocusAuxId: string | null = null;
-  let focusAuxRaf = 0;
-  function scheduleFocusAuxiliary(paneId: string): void {
-    pendingFocusAuxId = paneId;
-    if (focusAuxRaf) return;
-    focusAuxRaf = requestAnimationFrame(() => {
-      focusAuxRaf = 0;
-      const id = pendingFocusAuxId;
-      pendingFocusAuxId = null;
-      if (!id) return;
-      const pt = paneHost?.getPaneTerminal(id);
-      if (pt) {
-        lastPtyDims.delete(id);
-        pt.fit.fit();
-        scheduleResizeImmediate(true);
-      }
-      void remountAuxiliaryForFocus(id);
-    });
-  }
-
-  async function remountAuxiliaryForFocus(paneId: string): Promise<void> {
-    const pt = paneHost?.getPaneTerminal(paneId);
-    if (!pt) return;
-    // Skip stale work if the user already hopped to another pane.
-    if (paneHost?.getFocusedPaneId() !== paneId) return;
-
-    await ensureWebglOnPane(paneId);
-    if (paneHost?.getFocusedPaneId() !== paneId) return;
-
-    pt.term.focus();
-  }
-
-  let tabsState: TabsStateV1 = loadTabsState();
-  let activeTabId =
-    tabsState.tabs.find((t) => t.id === tabsState.activeTabId)?.id ??
-    tabsState.tabs[0]?.id ??
-    "tab-1";
-  tabsState = { ...tabsState, activeTabId: activeTabId };
-  saveTabsState(tabsState);
-  const tabPaneHosts = new Map<string, PaneHost>();
-  const tabPaneShells = new Map<string, HTMLElement>();
-  type DeferredTabInit = { init: PaneHostInit; rootPaneId: string };
-  const deferredTabInits = new Map<string, DeferredTabInit>();
-
-  function rekeyKeyed<T>(map: Map<string, T>, from: string, to: string): void {
-    if (from === to || !map.has(from)) return;
-    const value = map.get(from)!;
-    map.delete(from);
-    map.set(to, value);
-  }
-
-  function rekeyKeyedSet(set: Set<string>, from: string, to: string): void {
-    if (set.delete(from)) set.add(to);
-  }
-
-  function rekeyPaneRuntimeState(from: string, to: string): void {
-    if (from === to) return;
-    rekeyKeyed(paneCwdHints, from, to);
-    rekeyKeyed(paneRemoteIsWindows, from, to);
-    rekeyKeyed(paneProfileIds, from, to);
-    rekeyKeyed(paneShellState, from, to);
-    rekeyKeyed(paneProgramNames, from, to);
-    rekeyKeyed(paneThemes, from, to);
-    rekeyKeyed(lastPtyDims, from, to);
-    rekeyKeyed(pendingPaneSpawnCwd, from, to);
-    rekeyKeyed(pendingPaneSpawnProfile, from, to);
-    rekeyKeyed(pendingPaneSpawnStartup, from, to);
-    rekeyKeyed(activeProcesses, from, to);
-    rekeyKeyed(pendingShellCommandLine, from, to);
-    rekeyKeyed(paneHostCleanups, from, to);
-    rekeyKeyed(paneLinkProviders, from, to);
-    rekeyKeyed(extCursorMoveSubs, from, to);
-    rekeyKeyed(extCursorHiddenOriginal, from, to);
-    rekeyKeyed(pendingPtyWriteByPane, from, to);
-    rekeyKeyed(pendingPtyOutputByPane, from, to);
-    rekeyKeyed(ptyBulkWriteTailByPane, from, to);
-    rekeyKeyed(pendingZoomByPane, from, to);
-    rekeyKeyed(paneWebglStates, from, to);
-    rekeyKeyedSet(extCursorHiddenPanes, from, to);
-    rekeyKeyedSet(ptyBulkActiveByPane, from, to);
-    rekeyKeyedSet(backendReplayRestoredPanes, from, to);
-    rekeyKeyedSet(pendingCreationReflowPanes, from, to);
-    if (lastFocusedPaneId === from) lastFocusedPaneId = to;
-  }
-
-  function retargetPaneId(host: PaneHost, from: string, to: string): void {
-    if (from === to) return;
-    if (!host.rekeyPane(from, to)) return;
-    rekeyPaneRuntimeState(from, to);
-  }
-
-  function allocPaneIdForTab(tabId: string): string {
-    const host = tabPaneHosts.get(tabId);
-    const tabKey = tabKeyForTabId(tabId);
-    const used = new Set<string>();
-    if (host) {
-      for (const id of host.getLeafIdsInOrder()) {
-        const parsed = parsePaneId(id);
-        if (parsed && parsed.tabKey === tabKey) used.add(parsed.slot);
-      }
-    }
-    return formatPaneId(tabKey, nextSlot(used));
-  }
-
-  function followSlotsInUse(): Set<string> {
-    const used = new Set<string>();
-    for (const host of tabPaneHosts.values()) {
-      for (const id of host.getLeafIdsInOrder()) {
-        if (!host.isPaneFollowing(id)) continue;
-        const parsed = parsePaneId(id);
-        if (parsed) used.add(parsed.slot);
-      }
-    }
-    return used;
-  }
-
-  function syncLivePaneIds(): void {
-    const tabs = tabsInIndexOrder();
-    const planned: Array<{ host: PaneHost; from: string; to: string }> = [];
-    const followUsed = new Set<string>();
-    for (let i = 0; i < tabs.length; i++) {
-      const tab = tabs[i]!;
-      const tabKey = String(i + 1);
-      const host = tabPaneHosts.get(tab.id);
-      if (!host) {
-        const deferred = deferredTabInits.get(tab.id);
-        if (!deferred?.init.initialTree) continue;
-        const mapped = mapLayoutToTabKey(
-          {
-            v: 1,
-            tree: deferred.init.initialTree,
-            focusedId: deferred.init.initialFocusedId ?? "",
-            floating: deferred.init.initialFloating,
-          },
-          tabKey,
-          followUsed,
-        );
-        deferred.init.initialTree = mapped.layout.tree;
-        deferred.init.initialFocusedId = mapped.layout.focusedId;
-        deferred.init.initialFloating = mapped.layout.floating;
-        deferred.rootPaneId = resolveTabRootPaneId(mapped.layout);
-        continue;
-      }
-      const localUsed = new Set<string>();
-      for (const id of host.getLeafIdsInOrder()) {
-        const follow = host.isPaneFollowing(id);
-        const prev = parsePaneId(id);
-        let slot = prev?.slot;
-        if (follow) {
-          if (!slot || followUsed.has(slot)) slot = nextSlot(followUsed);
-          followUsed.add(slot);
-          const to = formatPaneId(FOLLOW_TAB_MARK, slot);
-          if (to !== id) planned.push({ host, from: id, to });
-        } else {
-          if (!slot || localUsed.has(slot)) slot = nextSlot(localUsed);
-          localUsed.add(slot);
-          const to = formatPaneId(tabKey, slot);
-          if (to !== id) planned.push({ host, from: id, to });
-        }
-      }
-    }
-    if (planned.length === 0) return;
-    planned.forEach((move, i) => retargetPaneId(move.host, move.from, `#${i}`));
-    planned.forEach((move, i) => retargetPaneId(move.host, `#${i}`, move.to));
-  }
-
-  function layoutNeedsLiveHost(layout: PersistedPaneLayout): boolean {
-    for (const state of Object.values(layout.floating ?? {})) {
-      if (state.follow) return true;
-    }
-    return false;
-  }
-
-  function applyTabLayoutMetadata(layout: PersistedPaneLayout): void {
-    seedPaneMapsFromLayout(
-      layout,
-      { paneThemes, paneProfileIds, paneCwdHints },
-      { seedCwds: retainSessionStateRef.v },
-    );
-  }
-  const paneRootEl = document.getElementById("terminal-pane-root");
-  if (!paneRootEl) throw new Error("#terminal-pane-root missing");
-  const terminalPaneRoot = paneRootEl;
-  const floatFollowLayer = document.createElement("div");
-  floatFollowLayer.id = "term-float-follow-layer";
-  floatFollowLayer.className = "term-float-follow-layer";
-  terminalPaneRoot.appendChild(floatFollowLayer);
-
-  function syncGlobalPaneFocus(focusedId: string): void {
-    for (const root of [terminalPaneRoot, floatFollowLayer]) {
-      root.querySelectorAll(".pane-leaf").forEach((el) => {
-        const pid = (el as HTMLElement).dataset.paneId;
-        el.classList.toggle("pane-leaf--focused", pid === focusedId);
-      });
-    }
-  }
-
-  function isFollowingPaneFocused(): boolean {
-    const id = lastFocusedPaneId;
-    if (!id) return false;
-    return getPaneHostByPaneId(id)?.isPaneFollowing(id) ?? false;
-  }
-
-  function collectFocusHopGeometries() {
-    const geometries = [];
-    if (paneHost) geometries.push(...paneHost.getLeafGeometries());
-    for (const host of tabPaneHosts.values()) {
-      if (host === paneHost) continue;
-      geometries.push(...host.getFollowingLeafGeometries());
-    }
-    return geometries;
-  }
-
-  function focusPaneGlobal(paneId: string): void {
-    const owner = getPaneHostByPaneId(paneId);
-    if (!owner) return;
-    if (owner.isPaneFollowing(paneId)) {
-      owner.focusPane(paneId, { retainHostFocus: true });
-      return;
-    }
-    owner.setFocusedPaneId(paneId);
-  }
-
-  let pointerFocusRaf = 0;
-  let pendingPointerFocusId: string | null = null;
-  let lastPointerPos: { x: number; y: number } | null = null;
-
-  function focusPaneUnderPointer(): void {
-    if (!focusFollowsRef.v || !lastPointerPos) return;
-    const leaf = document
-      .elementFromPoint(lastPointerPos.x, lastPointerPos.y)
-      ?.closest(".pane-leaf") as HTMLElement | null;
-    const id = leaf?.dataset.paneId;
-    if (id && getPaneHostByPaneId(id) && id !== focusedPaneId()) {
-      focusPaneGlobal(id);
-    }
-  }
-
-  function installPointerFocusFollow(): void {
-    const onMove = (ev: PointerEvent): void => {
-      lastPointerPos = { x: ev.clientX, y: ev.clientY };
-      if (!focusFollowsRef.v) return;
-      for (const host of tabPaneHosts.values()) {
-        if (host.isPaneInteractionActive()) return;
-      }
-      const leaf = document
-        .elementFromPoint(ev.clientX, ev.clientY)
-        ?.closest(".pane-leaf") as HTMLElement | null;
-      const id = leaf?.dataset.paneId;
-      if (!id || !getPaneHostByPaneId(id)) return;
-      const current = focusedPaneId();
-      if (id === current) return;
-      pendingPointerFocusId = id;
-      if (pointerFocusRaf) return;
-      pointerFocusRaf = requestAnimationFrame(() => {
-        pointerFocusRaf = 0;
-        const nextId = pendingPointerFocusId;
-        pendingPointerFocusId = null;
-        if (!nextId || nextId === focusedPaneId()) return;
-        focusPaneGlobal(nextId);
-      });
-    };
-    terminalPaneRoot.addEventListener("pointermove", onMove, true);
-  }
-
-  type CursorWarpOptions = {
-    /** Warp even when pointer-follow-focus is enabled. */
-    force?: boolean;
-    /** Wait for layout/animation before measuring pane bounds. */
-    delayMs?: number;
-    /** Skip the cursor-follow-pane pref check (monitor moves). */
-    bypassPanePref?: boolean;
-  };
-
-  let cursorWarpReady = false;
-
-  function scheduleCursorWarpToPane(
-    paneId?: string,
-    opts: CursorWarpOptions = {},
-  ): void {
-    if (!cursorWarpReady) return;
-    if (!opts.bypassPanePref && !cursorFollowPaneFocusRef.v) return;
-    if (!opts.force && focusFollowsRef.v) return;
-
-    const run = (): void => {
-      afterAnimationFrames(() => {
-        void warpCursorToPane(paneId);
-      });
-    };
-
-    const delay = opts.delayMs ?? 0;
-    if (delay > 0) window.setTimeout(run, delay);
-    else run();
-  }
-
-  async function warpCursorToPane(paneId?: string): Promise<void> {
-    try {
-      const id = paneId ?? paneHost?.getFocusedPaneId();
-      if (!id) return;
-      const host = getPaneHostByPaneId(id) ?? paneHost;
-      if (!host) return;
-      const el = host
-        .getHostRoot()
-        .querySelector(
-          `.pane-leaf[data-pane-id="${CSS.escape(id)}"]`,
-        ) as HTMLElement | null;
-      const rect = el?.getBoundingClientRect();
-      const cx = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
-      const cy = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
-      await appWindow.setCursorPosition(
-        new LogicalPosition(Math.round(cx), Math.round(cy)),
-      );
-      if (host === paneHost) {
-        getFocusedTerm()?.focus();
-      } else {
-        host.getPaneTerminal(id)?.term.focus();
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  function xtermThemeForPane(paneId: string) {
-    const paneTheme = resolvePaneThemePrefs(paneId);
-    return paneTheme
-      ? buildXtermThemeFromPrefs(paneTheme)
-      : buildXtermThemeFromDocument();
-  }
-
-  function cssVarsForPane(paneId: string): Record<string, string> | null {
-    const paneTheme = resolvePaneThemePrefs(paneId);
-    return paneTheme ? themeCssVarsForPrefs(paneTheme) : null;
-  }
-
-  function themePrefsFromProfileId(
-    profileId: string | null | undefined,
-  ): PaneThemePrefs | null {
-    if (!profileId) return null;
-    const profile = getProfileById(
-      resolveDefaultProfileId(profileId, profilesList),
-      profilesList,
-    );
-    const ref = profile?.theme?.trim();
-    return ref ? parseProfileThemeRef(ref) : null;
-  }
-
-  /** Explicit pane theme, else profile theme (including pending spawn). */
-  function resolvePaneThemePrefs(paneId: string): PaneThemePrefs | null {
-    return (
-      paneThemes.get(paneId) ??
-      themePrefsFromProfileId(
-        pendingPaneSpawnProfile.get(paneId) ??
-          paneProfileIds.get(paneId) ??
-          pendingNewPaneProfile.v,
-      )
-    );
-  }
-
-  function ensurePaneThemeFromProfile(
-    paneId: string,
-    profileId: string | null | undefined,
-  ): void {
-    if (paneThemes.has(paneId)) return;
-    const prefs = themePrefsFromProfileId(profileId);
-    if (prefs) paneThemes.set(paneId, prefs);
-  }
-
-  function createPaneHost(
-    container: HTMLElement,
-    init: PaneHostInit | undefined,
-    rootPaneId: string,
-    tabId: string,
-  ): PaneHost {
-    return new PaneHost(
-      container,
-      {
-        rootPaneId,
-        scrollbackLines: lp.scrollback_lines,
-        fontStack: terminalFontStackFromDocument(),
-        cursorStyle: cursorStyleRef.v,
-        cursorBlink: cursorBlinkRef.v,
-        cursorInactiveStyle: cursorInactiveStyleRef.v,
-        cursorWidth: cursorWidthRef.v,
-        altClickMovesCursor: altClickCursorRef.v,
-        fontSize: fontSizeRef.v,
-        fontWeight: fontWeightRef.v,
-        fontWeightBold: fontWeightBoldRef.v,
-        lineHeight: lineHeightRef.v,
-        letterSpacing: letterSpacingRef.v,
-        drawBoldTextInBrightColors: drawBoldBrightRef.v,
-        smoothScrollDuration: smoothScrollRef.v,
-        scrollSensitivity: scrollSensitivityRef.v,
-        fastScrollSensitivity: fastScrollSensitivityRef.v,
-        sideloadOpenconsole: Boolean(
-          (persisted.prefs as Partial<ParttyPrefs>).terminal_sideload_openconsole,
-        ),
-        linkHandler: {
-          activate: (_event, uri) => {
-            const url = normalizeExternalUrl(uri);
-            if (url) {
-              void invoke("open_external_url", { url }).catch(
-                (e) => void showAlert(String(e), "Open link"),
-              );
-            }
-          },
-        },
-        getTheme: (paneId) => xtermThemeForPane(paneId),
-        getPaneName: (paneId) => paneEffectiveName(paneId),
-        allocPaneId: () => allocPaneIdForTab(tabId),
-        getPaneCssVars: (paneId) => cssVarsForPane(paneId),
-        getSplitLayoutStyle: () => splitLayoutStyleRef.v,
-        focusFollowsCursor: () => focusFollowsRef.v,
-        followMount: floatFollowLayer,
-        applyPaneFocusClasses: syncGlobalPaneFocus,
-        getGlobalFocusedPaneId: focusedPaneId,
-        suppressEnterAnimation: () =>
-          document.documentElement.classList.contains("partty-booting"),
-        onPaneFocus: (id) => {
-          lastFocusedPaneId = id;
-          const pt = getPaneTerminalById(id);
-          // Sync hot path only: terminal focus + PTY focus IPC.
-          // Fit / WebGL / CWD are coalesced to the next frame
-          // so Ctrl+Arrow hops stay visually instant.
-          if (pt) {
-            pt.term.focus();
-            paneLinkProviders.get(id)?.scheduleViewportPrewarm();
-            requestAnimationFrame(() => {
-              const tr = pt.term.buffer.active.cursorY;
-              if (tr >= 0 && tr < pt.term.rows) pt.term.refresh(tr, tr);
-            });
-            void ptyFocusPane(pt.sessionId).catch(() => {});
-          }
-          const hint = paneCwdHints.get(id);
-          if (hint) {
-            liveCwd = hint;
-          }
-          scheduleFocusAuxiliary(id);
-          try {
-            scheduleCursorWarpToPane(id);
-          } catch {
-            /* ignore */
-          }
-          refreshTabLabelForPane(id);
-          // Notify extension subscribers.
-          if (extFocusSubs.length > 0) {
-            for (const fn of extFocusSubs) {
-              try {
-                fn(id);
-              } catch {
-                /* ignore */
-              }
-            }
-          }
-        },
-        onPaneCreated: (id, pt) => {
-          paneBySessionId.set(pt.sessionId, pt);
-          attachTermKeyHandler(pt.term, () => pt.paneId);
-          attachTermWheelHandler(pt.term, () => pt.paneId);
-          const linkProvider = registerTerminalLinkProvider(pt.term, {
-            getCwd: () => paneEffectiveCwd(pt.paneId),
-            isFocused: () => focusedPaneId() === pt.paneId,
-            activate: (event, match) =>
-              handleTerminalLinkActivation(pt.paneId, event, match),
-          });
-          paneLinkProviders.set(id, linkProvider);
-          pt.term.onRender(() => {
-            parttyPerf.finishTermRender(id);
-          });
-          pt.term.onData((data) => {
-            parttyPerf.recordInputEvent();
-            queuePtyWrite(pt.paneId, data);
-            // Notify extension PTY input subscribers (zero-cost when empty).
-            if (extPtyInputSubs.length > 0) {
-              for (const fn of extPtyInputSubs) {
-                try {
-                  fn(pt.paneId, data);
-                } catch {
-                  /* ignore */
-                }
-              }
-            }
-          });
-          const onHostWheel = (ev: WheelEvent) => handlePaneHostWheel(pt.paneId, ev);
-          pt.host.addEventListener("wheel", onHostWheel, { passive: false });
-          const onSelDispose = pt.term.onSelectionChange(() => {
-            if (!autoCopySelectionRef.v || !pt.term.hasSelection()) return;
-            copyToClipboard(pt.term.getSelection());
-          });
-
-          // Register cleanup for pane teardown.
-          paneHostCleanups.set(id, [
-            () => pt.host.removeEventListener("wheel", onHostWheel),
-            () => onSelDispose.dispose(),
-          ]);
-          if (lp.preload_webgl_on_startup) void ensureWebglOnPane(id);
-          const explicitProfile =
-            pendingPaneSpawnProfile.get(id) ?? pendingNewPaneProfile.v;
-          pendingPaneSpawnProfile.delete(id);
-          pendingNewPaneProfile.v = null;
-          const explicitCwd =
-            pendingPaneSpawnCwd.get(id) ?? pendingNewPaneCwd.v;
-          pendingPaneSpawnCwd.delete(id);
-          pendingNewPaneCwd.v = null;
-          const inheritedCwd = explicitCwd ?? paneCwdHints.get(id) ?? null;
-          if (inheritedCwd) {
-            const spawnProfile = getProfileById(
-              resolveDefaultProfileId(
-                explicitProfile ??
-                  paneProfileIds.get(id) ??
-                  profileBehaviorRef.v.default_profile_id,
-                profilesList,
-              ),
-              profilesList,
-            );
-            if (spawnProfile?.kind !== "ssh") {
-              paneCwdHints.set(id, inheritedCwd);
-            }
-          }
-
-          assignPaneProfileId(
-            id,
-            explicitProfile ??
-              paneProfileIds.get(id) ??
-              profileBehaviorRef.v.default_profile_id,
-          );
-
-          // During destroy→recreate boot, prepare-show owns ensure after scrollback
-          // restore — avoid a premature ensure that races rehydration.
-          if (!document.documentElement.classList.contains("partty-booting")) {
-            queueMicrotask(() => {
-              void ensurePtyForPane(pt.paneId, pt, inheritedCwd);
-            });
-          }
-          // Boot/rehydrate: prepare-show does one host repair; skip staggered bounce.
-          if (!document.documentElement.classList.contains("partty-booting")) {
-            scheduleCreationReflow(id);
-          }
-          // Notify extension subscribers.
-          if (extPaneCreatedSubs.length > 0) {
-            for (const fn of extPaneCreatedSubs) {
-              try {
-                fn(id);
-              } catch {
-                /* ignore */
-              }
-            }
-          }
-        },
-  onPaneDisposed: (pid, sessionId) => {
-    void ptyKillPane(sessionId).catch(() => {});
-    paneBySessionId.delete(sessionId);
-    paneThemes.delete(pid);
-    cleanupPaneVisualState(pid);
-    parttyPerf.resetPane(pid);
-          // Notify extension subscribers.
-          if (extPaneClosedSubs.length > 0) {
-            for (const fn of extPaneClosedSubs) {
-              try {
-                fn(pid);
-              } catch {
-                /* ignore */
-              }
-            }
-          }
-        },
-        onPaneLayout: () => scheduleResizeImmediate(),
-        onPaneLayoutDrag: (dragging) => {
-          setTerminalLayoutSuspended(dragging);
-          mouseCursorDragRef.suppress?.(dragging);
-        },
-        onPaneReorder: () => persistCurrentTabLayout(),
-      },
-      init,
-    );
-  }
-
-  function createTabPaneShellAndHost(
-    tabId: string,
-    init: PaneHostInit,
-    rootPaneId?: string,
-  ): PaneHost {
-    const shell = document.createElement("div");
-    shell.className = "term-tab-pane-shell";
-    shell.dataset.tabId = tabId;
-    terminalPaneRoot.appendChild(shell);
-    const rid = rootPaneId ?? tabRootPaneId(tabKeyForTabId(tabId));
-    const host = createPaneHost(shell, init, rid, tabId);
-    tabPaneHosts.set(tabId, host);
-    tabPaneShells.set(tabId, shell);
-    if (tabId !== activeTabId) {
-      shell.classList.add("term-tab-pane-shell--hidden");
-    }
-    return host;
-  }
-
-  function ensureTabPaneHost(tabId: string): PaneHost | null {
-    const existing = tabPaneHosts.get(tabId);
-    if (existing) return existing;
-    const deferred = deferredTabInits.get(tabId);
-    if (!deferred) return null;
-    deferredTabInits.delete(tabId);
-    return createTabPaneShellAndHost(
-      tabId,
-      deferred.init,
-      deferred.rootPaneId,
-    );
-  }
-
-  void ensureProfilesLoaded();
-
-  {
-    const followSlots = new Set<string>();
-    const ordered = tabsInIndexOrder();
-    for (let i = 0; i < ordered.length; i++) {
-      const tab = ordered[i]!;
-      const tabKey = String(i + 1);
-      let layout = initialLayoutForTab(tab.id, i === 0);
-      layout = mapLayoutToTabKey(layout, tabKey, followSlots).layout;
-      if (!isPaneLayoutUsable(layout)) {
-        layout = emptyTabLayout(tabKey);
-      }
-      applyTabLayoutMetadata(layout);
-      const init: PaneHostInit = {
-        initialTree: layout.tree,
-        initialFocusedId: layout.focusedId,
-        initialFloating: layout.floating,
-      };
-      const rootId = resolveTabRootPaneId(layout);
-      if (tab.id === activeTabId || layoutNeedsLiveHost(layout)) {
-        createTabPaneShellAndHost(tab.id, init, rootId);
-        if (tab.id !== activeTabId) {
-          tabPaneShells.get(tab.id)?.classList.add("term-tab-pane-shell--hidden");
-        }
-      } else {
-        deferredTabInits.set(tab.id, { init, rootPaneId: rootId });
-      }
-    }
-  }
-  paneHost = tabPaneHosts.get(activeTabId)!;
-  lastFocusedPaneId = paneHost.getFocusedPaneId();
-  syncGlobalPaneFocus(lastFocusedPaneId);
-  installPointerFocusFollow();
-  scheduleDeferredCustomThemes();
-  void ensureProfilesLoaded().then(() => scheduleDeferredCustomThemes());
-  installPaneControlSurface();
-  cursorWarpReady = true;
-
-  // Prevent the Alt key from focusing the system menu bar on release,
-  // which would steal focus from the terminal after Alt+scroll.
-  document.addEventListener(
-    "keydown",
-    (e) => {
-      if (e.key === "Alt" && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
-        e.preventDefault();
-      }
-    },
-    true,
-  );
-
-  function persistCurrentTabLayout(): void {
-    if (!paneHost) return;
-    const pl = layoutForPaneHost(paneHost);
-    if (!pl) return;
-    persistLayoutForTab(activeTabId, pl);
-  }
-
-  function layoutForPaneHost(host: PaneHost): PersistedPaneLayout | null {
-    const tree = host.getTree();
-    const rid = host.getRootPaneId();
-    if (!tree || !findPaneLeaf(tree, rid)) return null;
-    const panes = host.getPaneDescriptors();
-    return {
-      v: 1,
-      tree,
-      focusedId: host.getFocusedPaneId(),
-      floating: host.getFloatingState(),
-      paneThemes: paneMapSubset(panes, paneThemes),
-      paneCwds: retainSessionStateRef.v
-        ? paneMapSubset(panes, paneCwdHints)
-        : undefined,
-      paneProfileIds: paneMapSubset(panes, paneProfileIds),
-    };
-  }
-
-  function paneMapSubset<T>(
-    panes: { id: string }[],
-    map: Map<string, T>,
-  ): Record<string, T> {
-    return Object.fromEntries(
-      panes
-        .filter((pane) => map.has(pane.id))
-        .map((pane) => [pane.id, map.get(pane.id)!]),
-    );
-  }
-
-  function switchToTab(tabId: string): void {
-    if (tabId === activeTabId) return;
-    const nextHost = ensureTabPaneHost(tabId);
-    if (!nextHost) return;
-    persistCurrentTabLayout();
-
-    const prevTabId = activeTabId;
-    const prevShell = tabPaneShells.get(prevTabId);
-    const nextShell = tabPaneShells.get(tabId);
-    const motionOn = !motionDisabled();
-    const prevTabIndex = tabsState.tabs.findIndex((tab) => tab.id === prevTabId);
-    const nextTabIndex = tabsState.tabs.findIndex((tab) => tab.id === tabId);
-    const reverseTabMotion =
-      prevTabIndex >= 0 && nextTabIndex >= 0 && nextTabIndex < prevTabIndex;
-    const enteringClass = reverseTabMotion
-      ? "term-tab-pane-shell--entering-reverse"
-      : "term-tab-pane-shell--entering";
-    const leavingClass = reverseTabMotion
-      ? "term-tab-pane-shell--leaving-reverse"
-      : "term-tab-pane-shell--leaving";
-
-    activeTabId = tabId;
-    tabsState = { ...tabsState, activeTabId: tabId };
-    saveTabsState(tabsState);
-
-    for (const fn of extTabSwitchSubs) {
-      try { fn(tabId); } catch { /* ignore */ }
-    }
-
-    // Only the prev→next pair participates in the crossfade; everything else
-    // is hidden immediately so stacked shells never flash or tear.
-    for (const [id, shell] of tabPaneShells) {
-      cancelElementAnimations(shell);
-      shell.classList.remove(
-        "term-tab-pane-shell--entering",
-        "term-tab-pane-shell--entering-reverse",
-        "term-tab-pane-shell--leaving",
-        "term-tab-pane-shell--leaving-reverse",
-      );
-      if (id !== tabId && id !== prevTabId) {
-        shell.classList.add("term-tab-pane-shell--hidden");
-      }
-    }
-
-    paneHost = nextHost;
-    if (!isFollowingPaneFocused()) {
-      lastFocusedPaneId = paneHost.getFocusedPaneId();
-    }
-    syncGlobalPaneFocus(lastFocusedPaneId);
-    if (lastFocusedPaneId) refreshTabLabelForPane(lastFocusedPaneId);
-
-    // When focus-follows-cursor is on, refocus to whichever pane the
-    // mouse is already hovering over after the tab switch. Defer one
-    // frame so the incoming tab's DOM is laid out and visible.
-    requestAnimationFrame(() => focusPaneUnderPointer());
-
-    if (nextShell) {
-      nextShell.classList.remove("term-tab-pane-shell--hidden");
-    }
-
-    if (prevShell && prevShell !== nextShell && motionOn) {
-      prevShell.classList.remove("term-tab-pane-shell--hidden");
-      const capturedPrev = prevTabId;
-      animateClass(
-        prevShell,
-        leavingClass,
-        () => {
-          if (activeTabId === capturedPrev) return;
-          prevShell.classList.add("term-tab-pane-shell--hidden");
-        },
-      );
-    } else if (prevShell && prevShell !== nextShell) {
-      prevShell.classList.add("term-tab-pane-shell--hidden");
-    }
-
-    if (nextShell && motionOn) {
-      const capturedTabId = tabId;
-      animateClass(
-        nextShell,
-        enteringClass,
-        () => {
-          if (activeTabId !== capturedTabId) return;
-          for (const [id, shell] of tabPaneShells) {
-            if (id !== capturedTabId)
-              shell.classList.add("term-tab-pane-shell--hidden");
-          }
-          scheduleCreationReflowForHost(nextHost);
-          scheduleResizeImmediate(true);
-        },
-      );
-    } else {
-      for (const [id, shell] of tabPaneShells) {
-        shell.classList.toggle("term-tab-pane-shell--hidden", id !== tabId);
-      }
-      scheduleCreationReflowForHost(nextHost);
-      scheduleResizeImmediate(true);
-    }
-
-    const hint = paneCwdHints.get(lastFocusedPaneId);
-    if (hint) {
-      liveCwd = hint;
-    }
-    document.documentElement.classList.toggle(
-      "term-tabs-multiple",
-      tabsState.tabs.length > 1,
-    );
-    renderTabsBar();
-    getFocusedTerm()?.focus();
-    scheduleCursorWarpToPane(lastFocusedPaneId, {
-      force: true,
-      delayMs: motionDurationMs("medium"),
-    });
-    // Notify extension subscribers on tab switch (onPaneFocus only fires within a tab).
-    if (extFocusSubs.length > 0 && lastFocusedPaneId) {
-      for (const fn of extFocusSubs) {
-        try {
-          fn(lastFocusedPaneId);
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    requestAnimationFrame(() => {
-      nextHost.forEachPane((id, pt) => {
-        void ensurePtyForPane(id, pt);
-      });
-    });
-  }
-
-  function visibleTabsInOrder(): TabRecord[] {
-    const sortedTabs = [...tabsState.tabs].sort((a, b) => a.order - b.order);
-    const sortedGroups = [...tabsState.groups].sort(
-      (a, b) => a.order - b.order,
-    );
-    const groupedTabs = new Map<string, TabRecord[]>();
-    for (const tab of sortedTabs) {
-      if (!tab.groupId) continue;
-      const bucket = groupedTabs.get(tab.groupId) ?? [];
-      bucket.push(tab);
-      groupedTabs.set(tab.groupId, bucket);
-    }
-    const items: Array<{
-      type: "tab" | "group";
-      order: number;
-      tab?: TabRecord;
-      group?: TabGroup;
-    }> = [];
-    for (const tab of sortedTabs) {
-      if (!tab.groupId) items.push({ type: "tab", order: tab.order, tab });
-    }
-    for (const group of sortedGroups)
-      items.push({ type: "group", order: group.order, group });
-    items.sort((a, b) => a.order - b.order);
-
-    const visible: TabRecord[] = [];
-    for (const item of items) {
-      if (item.type === "tab" && item.tab) visible.push(item.tab);
-      else if (item.type === "group" && item.group && !item.group.collapsed) {
-        visible.push(...(groupedTabs.get(item.group.id) ?? []));
-      }
-    }
-    return visible;
-  }
-
-  function tabForHotkeyIndex(index: number): TabRecord | null {
-    return visibleTabsInOrder()[index] ?? null;
-  }
-
-  function switchOrCreateTabForHotkeyIndex(index: number): void {
-    const existing = tabForHotkeyIndex(index);
-    if (existing) switchToTab(existing.id);
-    else openNewTab();
-  }
-
-  function openTabWithTransferredPane(
-    paneId: string,
-    pt: PaneTerminal,
-    switchTo: boolean,
-  ): string {
-    const tabId = crypto.randomUUID();
-    const name = nextTabName(tabsState.tabs);
-    const layout: PersistedPaneLayout = {
-      v: 1,
-      tree: { kind: "leaf", id: paneId },
-      focusedId: paneId,
-    };
-    const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
-    tabsState = {
-      ...tabsState,
-      tabs: [
-        ...tabsState.tabs,
-        { id: tabId, name, groupId: null, color: null, order: maxOrder + 1 },
-      ],
-    };
-    saveTabsState(tabsState);
-    persistLayoutForTab(tabId, layout);
-    createTabPaneShellAndHost(
-      tabId,
-      {
-        initialTree: layout.tree,
-        initialFocusedId: paneId,
-        preloadedPanes: { [paneId]: pt },
-      },
-      paneId,
-    );
-    if (switchTo) switchToTab(tabId);
-    else renderTabsBar();
-    syncLivePaneIds();
-    return tabId;
-  }
-
-  function rootPaneHasUserState(host: PaneHost): boolean {
-    const rootId = host.getRootPaneId();
-    if (lastPtyDims.has(rootId)) return true;
-    if (activeProcesses.has(rootId)) return true;
-    const pt = host.getPaneTerminal(rootId);
-    if (!pt) return false;
-    const buf = pt.term.buffer.active;
-    if (buf.length > 1 || buf.baseY > 0) return true;
-    if (buf.length === 1) {
-      const text = buf.getLine(0)?.translateToString() ?? "";
-      if (text.trim().length > 0) return true;
-    }
-    return false;
-  }
-
-  function receiveTransferredPane(
-    targetHost: PaneHost,
-    paneId: string,
-    pt: PaneTerminal,
-  ): boolean {
-    if (targetHost.isPristineRootTab() && !rootPaneHasUserState(targetHost)) {
-      return targetHost.rebindAsTransferredRoot(paneId, pt);
-    }
-    return targetHost.receivePaneAtRoot(paneId, pt, PANE_TRANSFER_SPLIT_DIR);
-  }
-
-  function takePaneForTransfer(
-    host: PaneHost,
-    paneId: string,
-  ): PaneTerminal | null {
-    if (host.isPristineRootTab()) {
-      return host.takeSolePane(paneId, { saveRollback: true });
-    }
-    return host.takePane(paneId, { saveRollback: true });
-  }
-
-  function moveFocusedPaneToTabHotkeyIndex(index: number): void {
-    const sourceTabId = activeTabId;
-    const sourceHost = paneHost;
-    const paneId = sourceHost?.getFocusedPaneId();
-    if (!sourceHost || !paneId) return;
-
-    const closingSourceTab = sourceHost.isPristineRootTab();
-    const pt = takePaneForTransfer(sourceHost, paneId);
-    if (!pt) return;
-
-    const sourceSurvivorIds: string[] = [];
-    if (!closingSourceTab) {
-      collectLeafIds(sourceHost.getTree(), sourceSurvivorIds);
-      for (const id of sourceSurvivorIds) lastPtyDims.delete(id);
-    }
-
-    const existing = tabForHotkeyIndex(index);
-    if (existing?.id === sourceTabId) {
-      sourceHost.restoreTakenPane(paneId, pt);
-      return;
-    }
-
-    let targetTabId: string;
-    let targetHost: PaneHost;
-
-    if (existing) {
-      targetTabId = existing.id;
-      const host = ensureTabPaneHost(targetTabId);
-      if (!host || !receiveTransferredPane(host, paneId, pt)) {
-        sourceHost.restoreTakenPane(paneId, pt);
-        return;
-      }
-      targetHost = host;
-    } else {
-      targetTabId = openTabWithTransferredPane(paneId, pt, false);
-      targetHost = tabPaneHosts.get(targetTabId)!;
-      if (!targetHost) {
-        sourceHost.restoreTakenPane(paneId, pt);
-        return;
-      }
-    }
-
-    sourceHost.clearPaneMoveRollback();
-    if (!closingSourceTab) {
-      const sourceLayout = layoutForPaneHost(sourceHost);
-      if (sourceLayout) persistLayoutForTab(sourceTabId, sourceLayout);
-    }
-    const targetLayout = layoutForPaneHost(targetHost);
-    if (targetLayout) persistLayoutForTab(targetTabId, targetLayout);
-    targetHost.setFocusedPaneId(paneId);
-    if (closingSourceTab) {
-      closeTab(sourceTabId);
-      if (!quietPaneDeferralRef.v) {
-        switchToTab(targetTabId);
-      }
-    } else if (quietPaneDeferralRef.v) {
-      renderTabsBar();
-      sourceHost.getPaneTerminal(sourceHost.getFocusedPaneId())?.term.focus();
-    } else {
-      switchToTab(targetTabId);
-    }
-    scheduleCreationReflow(paneId);
-    if (!closingSourceTab && paneHost === sourceHost) {
-      scheduleHostGeometryRepair(sourceHost);
-    }
-    syncLivePaneIds();
-  }
-
-  const tabMenuEl = document.getElementById("tab-context-menu");
-  let tabMenuOverlay: OverlayHandle | null = null;
-
-  function hideTabContextMenu(): void {
-    tabMenuOverlay?.release();
-    tabMenuOverlay = null;
-    tabMenuEl?.classList.add("tab-context-menu--hidden");
-    tabMenuEl?.replaceChildren();
-    tabMenuEl?.setAttribute("aria-hidden", "true");
-  }
-
-  function showTabContextMenuAt(clientX: number, clientY: number): void {
-    if (!tabMenuEl) return;
-    tabMenuEl.style.left = `${Math.min(clientX, window.innerWidth - 160)}px`;
-    tabMenuEl.style.top = `${Math.min(clientY, window.innerHeight - 120)}px`;
-    tabMenuEl.classList.remove("tab-context-menu--hidden");
-    tabMenuEl.setAttribute("aria-hidden", "false");
-    tabMenuOverlay?.release();
-    tabMenuOverlay = pushOverlay(hideTabContextMenu);
-  }
-
-  function duplicateTab(fromTabId: string): void {
-    persistCurrentTabLayout();
-    const tabKey = String(tabsInIndexOrder().length + 1);
-    const raw = loadLayoutForTab(fromTabId) ?? emptyTabLayout(tabKey);
-    const newId = crypto.randomUUID();
-    const dup = duplicateTabLayout(raw, tabKey, followSlotsInUse());
-    persistLayoutForTab(newId, dup);
-    const sourceName =
-      tabsState.tabs.find((t) => t.id === fromTabId)?.name ??
-      nextTabName(tabsState.tabs);
-    const existing = new Set(tabsState.tabs.map((t) => t.name.toLowerCase()));
-    const m = sourceName.match(/^(.*?)(\d+)?$/);
-    const base = (m?.[1] ?? sourceName).trimEnd() || sourceName;
-    let n = Number.parseInt(m?.[2] ?? "", 10);
-    if (!Number.isFinite(n)) n = 1;
-    let candidate = `${base}${n + 1}`;
-    while (existing.has(candidate.toLowerCase())) {
-      n += 1;
-      candidate = `${base}${n + 1}`;
-    }
-    const sourceTab = tabsState.tabs.find((t) => t.id === fromTabId);
-    const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
-    tabsState = {
-      ...tabsState,
-      tabs: [
-        ...tabsState.tabs,
-        {
-          id: newId,
-          name: candidate,
-          groupId: sourceTab?.groupId ?? null,
-          color: sourceTab?.color ?? null,
-          order: maxOrder + 1,
-        },
-      ],
-    };
-    saveTabsState(tabsState);
-    applyTabLayoutMetadata(dup);
-    createTabPaneShellAndHost(newId, {
-      initialTree: dup.tree,
-      initialFocusedId: dup.focusedId,
-    });
-    switchToTab(newId);
-  }
-
-
-  function tabIdForPaneHost(host: PaneHost): string | null {
-    for (const [tabId, h] of tabPaneHosts) {
-      if (h === host) return tabId;
-    }
-    return null;
-  }
-
-  function disposeTabPaneHost(tabId: string): void {
-    deferredTabInits.delete(tabId);
-    const h = tabPaneHosts.get(tabId);
-    if (h) {
-      h.dispose();
-      tabPaneHosts.delete(tabId);
-    }
-    const shell = tabPaneShells.get(tabId);
-    shell?.remove();
-    tabPaneShells.delete(tabId);
-  }
-
-  function closeTab(tabId: string): void {
-    if (tabsState.tabs.length <= 1) return;
-    const idx = tabsState.tabs.findIndex((t) => t.id === tabId);
-    if (idx < 0) return;
-    persistCurrentTabLayout();
-    if (tabId === activeTabId) {
-      const other = tabsState.tabs[idx + 1] ?? tabsState.tabs[idx - 1];
-      if (!other) return;
-      switchToTab(other.id);
-    }
-    tabsState = {
-      ...tabsState,
-      tabs: tabsState.tabs.filter((t) => t.id !== tabId),
-    };
-    saveTabsState(tabsState);
-    disposeTabPaneHost(tabId);
-    try {
-      localStorage.removeItem(tabLayoutKey(tabId));
-    } catch {
-      /* ignore */
-    }
-    syncLivePaneIds();
-    document.documentElement.classList.toggle(
-      "term-tabs-multiple",
-      tabsState.tabs.length > 1,
-    );
-    renderTabsBar();
-    scheduleResizeImmediate(true);
-    if (paneHost) scheduleHostGeometryRepair(paneHost);
-    getFocusedTerm()?.focus();
-  }
-
-  let renamingTabId: string | null = null;
-  let renamingGroupId: string | null = null;
-
-  function finishTabRename(commit: boolean): void {
-    const id = renamingTabId;
-    if (!id) return;
-    const strip = document.getElementById("term-tabs-strip");
-    const inp = strip?.querySelector(
-      `input[data-tab-rename="${id}"]`,
-    ) as HTMLInputElement | null;
-    const raw = inp?.value ?? "";
-    renamingTabId = null;
-    if (commit) {
-      const v = raw.trim();
-      if (v) {
-        const t = tabsState.tabs.find((x) => x.id === id);
-        if (t) applyUserTabRename(t, v);
-        saveTabsState(tabsState);
-      }
-    }
-    renderTabsBar();
-  }
-
-  let tabRenameOverlay: OverlayHandle | null = null;
-
-  function openTabRenameModal(): void {
-    const modal = document.getElementById("tab-rename-modal");
-    const input = document.getElementById(
-      "tab-rename-input",
-    ) as HTMLInputElement | null;
-    const form = modal?.querySelector(
-      ".tab-rename-form",
-    ) as HTMLFormElement | null;
-    if (!modal || !input || !form) return;
-    const tab = tabsState.tabs.find((t) => t.id === renamingTabId);
-    input.value = tab?.name ?? "";
-    modal.classList.remove("tab-rename-modal--hidden");
-    modal.setAttribute("aria-hidden", "false");
-    tabRenameOverlay?.release();
-    tabRenameOverlay = pushOverlay(() => closeTabRenameModal(false));
-    mouseCursorForceVisible(true);
-    requestAnimationFrame(() => {
-      input.focus();
-      input.select();
-    });
-  }
-
-  function closeTabRenameModal(commit: boolean): void {
-    const modal = document.getElementById("tab-rename-modal");
-    if (!modal) return;
-    tabRenameOverlay?.release();
-    tabRenameOverlay = null;
-    modal.classList.add("tab-rename-modal--hidden");
-    modal.setAttribute("aria-hidden", "true");
-    mouseCursorForceVisible(false);
-    if (commit) {
-      const id = renamingTabId;
-      const input = document.getElementById(
-        "tab-rename-input",
-      ) as HTMLInputElement | null;
-      const v = input?.value.trim();
-      if (id && v) {
-        const t = tabsState.tabs.find((x) => x.id === id);
-        if (t) applyUserTabRename(t, v);
-        saveTabsState(tabsState);
-      }
-    }
-    renamingTabId = null;
-    renderTabsBar();
-    getFocusedTerm()?.focus();
-  }
-
-  function beginTabRename(tabId: string): void {
-    renamingTabId = tabId;
-    if (document.documentElement.classList.contains("tabs-hidden")) {
-      openTabRenameModal();
-      return;
-    }
-    renderTabsBar();
-    requestAnimationFrame(() => {
-      const strip = document.getElementById("term-tabs-strip");
-      const inp = strip?.querySelector(
-        `input[data-tab-rename="${tabId}"]`,
-      ) as HTMLInputElement | null;
-      inp?.focus();
-      inp?.select();
-    });
-  }
-
-  function finishGroupRename(commit: boolean): void {
-    const id = renamingGroupId;
-    if (!id) return;
-    const strip = document.getElementById("term-tabs-strip");
-    const inp = strip?.querySelector(
-      `input[data-group-rename="${id}"]`,
-    ) as HTMLInputElement | null;
-    const raw = inp?.value ?? "";
-    renamingGroupId = null;
-    if (commit) {
-      const v = raw.trim();
-      if (v) {
-        const g = tabsState.groups.find((x) => x.id === id);
-        if (g) g.name = v;
-        saveTabsState(tabsState);
-      }
-    }
-    renderTabsBar();
-  }
-
-  function beginGroupRename(groupId: string): void {
-    renamingGroupId = groupId;
-    renderTabsBar();
-    requestAnimationFrame(() => {
-      const strip = document.getElementById("term-tabs-strip");
-      const inp = strip?.querySelector(
-        `input[data-group-rename="${groupId}"]`,
-      ) as HTMLInputElement | null;
-      inp?.focus();
-      inp?.select();
-    });
-  }
-
-  function openNewTab(
-    switchTo = true,
-    profileId?: string | null,
-  ): string {
-    const id = crypto.randomUUID();
-    const name = nextTabName(tabsState.tabs);
-    const tabKey = String(tabsInIndexOrder().length + 1);
-    const empty = emptyTabLayout(tabKey);
-    const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
-    const resolvedProfile = resolveProfileForNewTab(profileId);
-    const rootId = empty.focusedId;
-    paneProfileIds.set(rootId, resolvedProfile);
-    pendingPaneSpawnProfile.set(rootId, resolvedProfile);
-    ensurePaneThemeFromProfile(rootId, resolvedProfile);
-    tabsState = {
-      ...tabsState,
-      tabs: [
-        ...tabsState.tabs,
-        { id, name, userName: null, groupId: null, color: null, order: maxOrder + 1 },
-      ],
-    };
-    saveTabsState(tabsState);
-    persistLayoutForTab(id, {
-      ...empty,
-      paneProfileIds: { [rootId]: resolvedProfile },
-    });
-    createTabPaneShellAndHost(id, {
-      initialTree: empty.tree,
-      initialFocusedId: empty.focusedId,
-    });
-    if (switchTo) switchToTab(id);
-    else renderTabsBar();
-    return id;
-  }
-
-  function workspaceOpenMode(): WorkspaceOpenMode {
-    return (persisted.prefs as Partial<ParttyPrefs>).workspace_open_mode ===
-      "replace"
-      ? "replace"
-      : "new-tab";
-  }
-
-  function seedWorkspaceMaps(mapped: PersistedPaneLayout): void {
-    seedPaneMapsFromLayout(
-      mapped,
-      { paneThemes, paneProfileIds, paneCwdHints },
-      {
-        seedCwds: true,
-        resolveCwdFallbacks: true,
-        profiles: profilesList,
-        defaultProfileId: profileBehaviorRef.v.default_profile_id,
-        globalInitialCwd:
-          (persisted.prefs as Partial<ParttyPrefs>).initial_cwd ?? null,
-      },
-    );
-  }
-
-  async function applyWorkspaceById(id: string): Promise<void> {
-    await ensureProfilesLoaded();
-    let workspace: Workspace;
-    try {
-      workspace = await readWorkspace(id);
-    } catch (e) {
-      console.error("read workspace", id, e);
-      showAlert(`Could not read workspace \`${id}\`.`);
-      return;
-    }
-    applyWorkspace(workspace);
-  }
-
-  function applyWorkspace(workspace: Workspace): void {
-    if (workspaceOpenMode() === "replace") {
-      applyWorkspaceToCurrentTab(workspace);
-    } else {
-      applyWorkspaceToNewTab(workspace);
-    }
-  }
-
-  function applyWorkspaceToNewTab(workspace: Workspace): void {
-    persistCurrentTabLayout();
-    const newTabId = crypto.randomUUID();
-    const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
-    const title =
-      workspace.tabName?.trim() || workspace.name.trim() || workspace.id;
-    tabsState = {
-      ...tabsState,
-      tabs: [
-        ...tabsState.tabs,
-        {
-          id: newTabId,
-          name: title,
-          userName: null,
-          groupId: null,
-          color: null,
-          order: maxOrder + 1,
-        },
-      ],
-    };
-    saveTabsState(tabsState);
-
-    const { layout: mapped, idMap } = remapWorkspaceLayoutForTab(
-      workspace.layout,
-      tabKeyForTabId(newTabId),
-      followSlotsInUse(),
-    );
-    if (!isPaneLayoutUsable(mapped)) {
-      tabsState = {
-        ...tabsState,
-        tabs: tabsState.tabs.filter((t) => t.id !== newTabId),
-      };
-      saveTabsState(tabsState);
-      showAlert("Workspace layout could not be applied.");
-      return;
-    }
-
-    persistLayoutForTab(newTabId, mapped);
-    seedWorkspaceMaps(mapped);
-    queueWorkspaceStartupCommands(
-      workspace.layout.startupCommands,
-      idMap,
-      pendingPaneSpawnStartup,
-    );
-    createTabPaneShellAndHost(
-      newTabId,
-      {
-        initialTree: mapped.tree,
-        initialFocusedId: mapped.focusedId,
-        initialFloating: mapped.floating,
-      },
-      resolveTabRootPaneId(mapped),
-    );
-    switchToTab(newTabId);
-  }
-
-  function applyWorkspaceToCurrentTab(workspace: Workspace): void {
-    const tabId = activeTabId;
-    persistCurrentTabLayout();
-
-    const { layout: mapped, idMap } = remapWorkspaceLayoutForTab(
-      workspace.layout,
-      tabKeyForTabId(tabId),
-      followSlotsInUse(),
-    );
-    if (!isPaneLayoutUsable(mapped)) {
-      showAlert("Workspace layout could not be applied.");
-      return;
-    }
-
-    const tab = tabsState.tabs.find((t) => t.id === tabId);
-    const title = workspace.tabName?.trim() || workspace.name.trim();
-    if (tab && title) {
-      tab.name = title;
-      saveTabsState(tabsState);
-    }
-
-    const oldHost = tabPaneHosts.get(tabId);
-    if (oldHost) {
-      for (const pane of oldHost.getPaneDescriptors()) {
-        paneThemes.delete(pane.id);
-      }
-      disposeTabPaneHost(tabId);
-    }
-
-    seedWorkspaceMaps(mapped);
-
-    queueWorkspaceStartupCommands(
-      workspace.layout.startupCommands,
-      idMap,
-      pendingPaneSpawnStartup,
-    );
-
-    const newHost = createTabPaneShellAndHost(
-      tabId,
-      {
-        initialTree: mapped.tree,
-        initialFocusedId: mapped.focusedId,
-        initialFloating: mapped.floating,
-      },
-      resolveTabRootPaneId(mapped),
-    );
-    paneHost = newHost;
-    lastFocusedPaneId = newHost.getFocusedPaneId();
-    persistLayoutForTab(tabId, mapped);
-    installPaneControlSurface();
-    renderTabsBar();
-    scheduleResizeImmediate(true);
-    scheduleCreationReflowForHost(newHost);
-  }
-
-  function openTabContextMenu(
-    clientX: number,
-    clientY: number,
-    tab: TabRecord,
-  ): void {
-    if (!tabMenuEl) return;
-    tabMenuEl.replaceChildren();
-    const mk = (label: string, fn: () => void) => {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "tab-context-menu-item";
-      b.role = "menuitem";
-      b.textContent = label;
-      b.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        hideTabContextMenu();
-        fn();
-      });
-      tabMenuEl.appendChild(b);
-    };
-    mk("Rename", () => {
-      beginTabRename(tab.id);
-    });
-    mk("Set color", () => {
-      const input = document.createElement("input");
-      input.type = "color";
-      input.value = tab.color || "#ffffff";
-      input.style.position = "absolute";
-      input.style.left = "-9999px";
-      input.style.top = "-9999px";
-      input.style.opacity = "0";
-      document.body.appendChild(input);
-      input.addEventListener("input", () => {
-        tabsState = {
-          ...tabsState,
-          tabs: tabsState.tabs.map((t) =>
-            t.id === tab.id ? { ...t, color: input.value } : t,
-          ),
-        };
-        saveTabsState(tabsState);
-        renderTabsBar();
-      });
-      input.addEventListener("change", () => {
-        document.body.removeChild(input);
-      });
-      input.addEventListener("cancel", () => {
-        document.body.removeChild(input);
-      });
-      input.click();
-    });
-    mk("Duplicate", () => duplicateTab(tab.id));
-    mk("Add to new group", () => {
-      const groupId = crypto.randomUUID();
-      const groupName = `Group ${tabsState.groups.length + 1}`;
-      const maxOrder = Math.max(0, ...tabsState.groups.map((g) => g.order));
-      tabsState = {
-        ...tabsState,
-        groups: [
-          ...tabsState.groups,
-          {
-            id: groupId,
-            name: groupName,
-            color: null,
-            collapsed: false,
-            order: maxOrder + 1,
-          },
-        ],
-        tabs: tabsState.tabs.map((t) =>
-          t.id === tab.id ? { ...t, groupId } : t,
-        ),
-      };
-      saveTabsState(tabsState);
-      renderTabsBar();
-    });
-    for (const group of tabsState.groups) {
-      if (group.id === tab.groupId) continue;
-      mk(`Add to “${group.name}”`, () => {
-        tabsState = {
-          ...tabsState,
-          tabs: tabsState.tabs.map((t) =>
-            t.id === tab.id ? { ...t, groupId: group.id } : t,
-          ),
-        };
-        saveTabsState(tabsState);
-        renderTabsBar();
-      });
-    }
-    if (tab.groupId) {
-      mk("Remove from group", () => {
-        tabsState = {
-          ...tabsState,
-          tabs: tabsState.tabs.map((t) =>
-            t.id === tab.id ? { ...t, groupId: null } : t,
-          ),
-        };
-        saveTabsState(tabsState);
-        renderTabsBar();
-      });
-    }
-    if (tabsState.tabs.length > 1) {
-      mk("Close", () => closeTab(tab.id));
-    }
-    showTabContextMenuAt(clientX, clientY);
-  }
-
-  function openGroupContextMenu(
-    clientX: number,
-    clientY: number,
-    group: TabGroup,
-  ): void {
-    if (!tabMenuEl) return;
-    tabMenuEl.replaceChildren();
-    const mk = (label: string, fn: () => void) => {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = "tab-context-menu-item";
-      b.role = "menuitem";
-      b.textContent = label;
-      b.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        hideTabContextMenu();
-        fn();
-      });
-      tabMenuEl.appendChild(b);
-    };
-    mk("Rename group", () => {
-      beginGroupRename(group.id);
-    });
-    mk("Set group color", () => {
-      const input = document.createElement("input");
-      input.type = "color";
-      input.value = group.color || "#ffffff";
-      input.style.position = "absolute";
-      input.style.left = "-9999px";
-      input.style.top = "-9999px";
-      input.style.opacity = "0";
-      document.body.appendChild(input);
-      input.addEventListener("input", () => {
-        tabsState = {
-          ...tabsState,
-          groups: tabsState.groups.map((g) =>
-            g.id === group.id ? { ...g, color: input.value } : g,
-          ),
-        };
-        saveTabsState(tabsState);
-        renderTabsBar();
-      });
-      input.addEventListener("change", () => {
-        document.body.removeChild(input);
-      });
-      input.addEventListener("cancel", () => {
-        document.body.removeChild(input);
-      });
-      input.click();
-    });
-    mk(group.collapsed ? "Expand group" : "Collapse group", () => {
-      tabsState = {
-        ...tabsState,
-        groups: tabsState.groups.map((g) =>
-          g.id === group.id ? { ...g, collapsed: !g.collapsed } : g,
-        ),
-      };
-      saveTabsState(tabsState);
-      renderTabsBar();
-    });
-    mk("Disband group", () => {
-      tabsState = {
-        ...tabsState,
-        groups: tabsState.groups.filter((g) => g.id !== group.id),
-        tabs: tabsState.tabs.map((t) =>
-          t.groupId === group.id ? { ...t, groupId: null } : t,
-        ),
-      };
-      saveTabsState(tabsState);
-      renderTabsBar();
-    });
-    showTabContextMenuAt(clientX, clientY);
-  }
-
-  document.addEventListener(
-    "pointerdown",
-    (e) => {
-      if (tabMenuEl?.classList.contains("tab-context-menu--hidden")) return;
-      if (tabMenuEl && !tabMenuEl.contains(e.target as Node))
-        hideTabContextMenu();
-    },
-    true,
-  );
-
-  window.addEventListener(
-    "keydown",
-    (e) => {
-      const mMoveTab = k.matchParam(e, "pane_move_to_tab");
-      if (mMoveTab) {
-        const t = e.target as HTMLElement | null;
-        if (
-          t?.closest("#command-palette") ||
-          t?.closest("#settings-panel")
-        )
-          return;
-        e.preventDefault();
-        e.stopPropagation();
-        moveFocusedPaneToTabHotkeyIndex(mMoveTab.param === 0 ? 9 : mMoveTab.param - 1);
-        return;
-      }
-
-      const mSwitchTab = k.matchParam(e, "tab_switch");
-      if (mSwitchTab) {
-        e.preventDefault();
-        e.stopPropagation();
-        if (e.shiftKey) return;
-        switchOrCreateTabForHotkeyIndex(mSwitchTab.param === 0 ? 9 : mSwitchTab.param - 1);
-        return;
-      }
-
-      const m = k.match(e,
-        "window_toggle",
-        "window_move_next_monitor",
-        "window_move_prev_monitor",
-        "window_maximize",
-        "window_restore",
-      );
-
-      if (m === "window_toggle") {
-        e.preventDefault();
-        e.stopPropagation();
-        void invoke("toggle_overlay").catch(() => {});
-        return;
-      }
-      if (m === "window_move_next_monitor") {
-        e.preventDefault();
-        e.stopPropagation();
-        void moveWindowToAdjacentMonitor(1);
-        return;
-      }
-      if (m === "window_move_prev_monitor") {
-        e.preventDefault();
-        e.stopPropagation();
-        void moveWindowToAdjacentMonitor(-1);
-        return;
-      }
-      if (m === "window_maximize") {
-        e.preventDefault();
-        e.stopPropagation();
-        void setWindowMaximized(true);
-        return;
-      }
-      if (m === "window_restore") {
-        e.preventDefault();
-        e.stopPropagation();
-        void setWindowMaximized(false);
-        return;
-      }
-
-    },
-    true,
-  );
-
-  document.addEventListener(
-    "pointerdown",
-    (e) => {
-      const target = e.target as HTMLElement | null;
-      if (!target) return;
-      const terminalRoot = document.getElementById("terminal-pane-root");
-      if (!terminalRoot || !terminalRoot.contains(target)) return;
-      if (
-        target.closest(
-          "input, textarea, select, button, [contenteditable='true']",
-        )
-      )
-        return;
-      focusActiveTerminal();
-    },
-    true,
-  );
-
-  const tabBar = initTabBar({
-    wrap: document.getElementById("term-tabs-wrap")!,
-    strip: document.getElementById("term-tabs-strip")!,
-    leading: document.getElementById("term-tabbar-leading")!,
-    trailing: document.getElementById("term-tabbar-trailing")!,
-    background: document.getElementById("term-tabbar-bg")!,
-  });
-
-  function tabRenderModel(
-    tab: TabRecord,
-    groupColor: string | null = null,
-  ): TabRenderModel {
-    const group = tab.groupId
-      ? tabsState.groups.find((g) => g.id === tab.groupId)
-      : undefined;
-    const host = tabPaneHosts.get(tab.id);
-    const focused =
-      tab.id === activeTabId
-        ? focusedPaneId()
-        : (host?.getFocusedPaneId() ?? null);
-    const idx = tabsInIndexOrder().findIndex((t) => t.id === tab.id);
-    return {
-      id: tab.id,
-      index: idx >= 0 ? idx + 1 : 1,
-      name: tab.name,
-      displayName: tabDisplayName(tab.id),
-      userName: tab.userName ?? null,
-      color: tab.color || groupColor,
-      groupId: tab.groupId,
-      groupName: group?.name ?? null,
-      groupColor: group?.color ?? groupColor,
-      active: tab.id === activeTabId,
-      focusedPaneId: focused,
-    };
-  }
-
-  function renderTabsBar(): void {
-    const strip = document.getElementById("term-tabs-strip");
-    if (!strip) return;
-    strip.replaceChildren();
-    const mult = tabsState.tabs.length > 1;
-    document.documentElement.classList.toggle("term-tabs-multiple", mult);
-    // One tab (or fewer) isn't worth a tab bar — collapse it so it doesn't eat
-    // viewport. The user hide/show toggle only applies with multiple tabs.
-    document.documentElement.classList.toggle(
-      "tabs-collapsed",
-      tabsState.tabs.length <= 1,
-    );
-
-    // Sort tabs and groups by order
-    const sortedTabs = [...tabsState.tabs].sort((a, b) => a.order - b.order);
-    const sortedGroups = [...tabsState.groups].sort(
-      (a, b) => a.order - b.order,
-    );
-
-    // Group tabs by groupId
-    const groupedTabs = new Map<string, TabRecord[]>();
-    for (const tab of sortedTabs) {
-      if (tab.groupId) {
-        if (!groupedTabs.has(tab.groupId)) {
-          groupedTabs.set(tab.groupId, []);
-        }
-        groupedTabs.get(tab.groupId)!.push(tab);
-      }
-    }
-
-    // Create a unified list of items (tabs and groups) sorted by order
-    const items: Array<{
-      type: "tab" | "group";
-      order: number;
-      tab?: TabRecord;
-      group?: TabGroup;
-    }> = [];
-    for (const tab of sortedTabs) {
-      if (!tab.groupId) {
-        items.push({ type: "tab", order: tab.order, tab });
-      }
-    }
-    for (const group of sortedGroups) {
-      items.push({ type: "group", order: group.order, group });
-    }
-
-    // Render items in order
-    for (const item of items) {
-      if (item.type === "tab" && item.tab) {
-        renderTab(strip, item.tab);
-      } else if (item.type === "group" && item.group) {
-        const group = item.group;
-        const tabs = groupedTabs.get(group.id) || [];
-
-        // Render group header
-        if (renamingGroupId === group.id) {
-          const renameWrap = document.createElement("div");
-          renameWrap.className = "term-tab-rename-row";
-          renameWrap.dataset.groupId = group.id;
-          const input = document.createElement("input");
-          input.type = "text";
-          input.className = "term-tab-rename-input";
-          input.dataset.groupRename = group.id;
-          input.value = group.name;
-          input.autocomplete = "off";
-          input.spellcheck = false;
-          input.setAttribute("aria-label", "Group name");
-          input.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              finishGroupRename(true);
-            } else if (e.key === "Escape") {
-              e.preventDefault();
-              finishGroupRename(false);
-            }
-          });
-          input.addEventListener("blur", () => finishGroupRename(true));
-          renameWrap.appendChild(input);
-          strip.appendChild(renameWrap);
-          continue;
-        }
-
-        const groupHeader = document.createElement("div");
-        groupHeader.className = "term-tab-group";
-        groupHeader.draggable = true;
-        if (group.color) {
-          groupHeader.style.setProperty("--tab-group-color", group.color);
-        }
-
-        const groupRenderer = tabBar.groupRenderer();
-        if (groupRenderer) {
-          groupRenderer(
-            {
-              id: group.id,
-              name: group.name,
-              color: group.color,
-              collapsed: group.collapsed,
-              tabIds: tabs.map((t) => t.id),
-            },
-            groupHeader,
-          );
-        } else {
-          const groupName = document.createElement("span");
-          groupName.className = "term-tab-group-name";
-          groupName.textContent = group.name;
-          groupHeader.appendChild(groupName);
-        }
-
-        groupHeader.addEventListener("contextmenu", (ev) => {
-          ev.preventDefault();
-          openGroupContextMenu(ev.clientX, ev.clientY, group);
-        });
-
-        groupHeader.addEventListener("dragstart", (e) => {
-          groupDragId = group.id;
-          groupHeader.classList.add("term-tab-group--dragging");
-          if (e.dataTransfer) {
-            e.dataTransfer.effectAllowed = "move";
-            e.dataTransfer.setData("text/plain", group.id);
-          }
-        });
-
-        groupHeader.addEventListener("dragend", () => {
-          groupDragId = null;
-          groupHeader.classList.remove("term-tab-group--dragging");
-        });
-
-        groupHeader.addEventListener("dragover", (e) => {
-          e.preventDefault();
-          if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-        });
-
-        groupHeader.addEventListener("drop", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const from = tabDragId;
-          tabDragId = null;
-          document
-            .querySelectorAll(".term-tab--dragging")
-            .forEach((el) => el.classList.remove("term-tab--dragging"));
-          if (!from) return;
-          tabsState = {
-            ...tabsState,
-            tabs: tabsState.tabs.map((t) =>
-              t.id === from ? { ...t, groupId: group.id } : t,
-            ),
-          };
-          saveTabsState(tabsState);
-          renderTabsBar();
-        });
-
-        strip.appendChild(groupHeader);
-
-        // Render tabs in group (if not collapsed)
-        if (!group.collapsed) {
-          const groupTabsContainer = document.createElement("div");
-          groupTabsContainer.className = "term-tab-group-tabs";
-          if (group.color) {
-            groupTabsContainer.style.setProperty(
-              "--tab-group-color",
-              group.color,
-            );
-          }
-          for (const tab of tabs) {
-            renderTab(groupTabsContainer, tab, group.color);
-          }
-          strip.appendChild(groupTabsContainer);
-        }
-      }
-    }
-
-    function renderTab(
-      strip: HTMLElement,
-      tab: TabRecord,
-      groupColor: string | null = null,
-    ): void {
-      if (renamingTabId === tab.id) {
-        const renameWrap = document.createElement("div");
-        renameWrap.className = "term-tab-rename-row";
-        renameWrap.dataset.tabId = tab.id;
-        const input = document.createElement("input");
-        input.type = "text";
-        input.className = "term-tab-rename-input";
-        input.dataset.tabRename = tab.id;
-        input.value = tab.name;
-        input.autocomplete = "off";
-        input.spellcheck = false;
-        input.setAttribute("aria-label", "Tab name");
-        input.addEventListener("keydown", (e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            finishTabRename(true);
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            finishTabRename(false);
-          }
-        });
-        input.addEventListener("blur", () => finishTabRename(true));
-        renameWrap.appendChild(input);
-        strip.appendChild(renameWrap);
-        return;
-      }
-
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "term-tab";
-      btn.dataset.tabId = tab.id;
-      btn.title = "Right-click for tab actions";
-      btn.draggable = true;
-      btn.role = "tab";
-      btn.setAttribute(
-        "aria-selected",
-        tab.id === activeTabId ? "true" : "false",
-      );
-      if (tab.id === activeTabId)
-        btn.classList.add("term-tab--active");
-
-      const tabColor = tab.color || groupColor;
-      if (tabColor) {
-        btn.style.setProperty("--tab-color", tabColor);
-      }
-
-      const customTab = tabBar.tabRenderer();
-      if (customTab) {
-        customTab(tabRenderModel(tab, groupColor), btn);
-      } else {
-        const label = document.createElement("span");
-        label.className = "term-tab-label";
-        label.textContent = tabDisplayName(tab.id);
-        btn.appendChild(label);
-      }
-
-      if (
-        tabsState.tabs.length > 1 &&
-        !tabBar.layout().omitDefaultClose
-      ) {
-        const closeHit = document.createElement("span");
-        closeHit.className = "term-tab-close-hit";
-        closeHit.setAttribute("aria-hidden", "true");
-        closeHit.title = "Close tab";
-        closeHit.appendChild(createTabCloseIcon());
-        btn.appendChild(closeHit);
-      }
-
-      btn.addEventListener("click", (ev) => {
-        if (performance.now() < suppressTabClickUntilMs) return;
-        const t = ev.target as HTMLElement;
-        if (tabsState.tabs.length > 1 && t.closest(".term-tab-close-hit")) {
-          ev.preventDefault();
-          ev.stopPropagation();
-          closeTab(tab.id);
-          return;
-        }
-        switchToTab(tab.id);
-      });
-      btn.addEventListener("contextmenu", (ev) => {
-        ev.preventDefault();
-        openTabContextMenu(ev.clientX, ev.clientY, tab);
-      });
-
-      // Attach dragstart directly to the tab element
-      btn.addEventListener("dragstart", (e) => {
-        tabDragId = tab.id;
-        btn.classList.add("term-tab--dragging");
-        if (e.dataTransfer) {
-          e.dataTransfer.effectAllowed = "move";
-          e.dataTransfer.setData("text/plain", tab.id);
-        }
-      });
-
-      strip.appendChild(btn);
-    }
-
-    const activeTab = strip.querySelector<HTMLElement>(".term-tab--active");
-    if (activeTab) {
-      const stripRect = strip.getBoundingClientRect();
-      const activeRect = activeTab.getBoundingClientRect();
-      strip.style.setProperty(
-        "--tab-indicator-width",
-        `${Math.max(8, activeRect.width - 20)}px`,
-      );
-      strip.style.setProperty(
-        "--tab-indicator-x",
-        `${activeRect.left - stripRect.left + strip.scrollLeft + 10}px`,
-      );
-    }
-
-    tabBar.afterStripRender();
-    tabBar.notifyChanged();
-  }
-
-  let tabDragId: string | null = null;
-  let groupDragId: string | null = null;
-  let suppressTabClickUntilMs = 0;
-  document
-    .getElementById("term-tabs-strip")
-    ?.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-    });
-  document.getElementById("term-tabs-strip")?.addEventListener("drop", (e) => {
-    e.preventDefault();
-    const fromTab = tabDragId;
-    const fromGroup = groupDragId;
-    tabDragId = null;
-    groupDragId = null;
-    suppressTabClickUntilMs = performance.now() + 150;
-    document
-      .querySelectorAll(".term-tab--dragging")
-      .forEach((el) => el.classList.remove("term-tab--dragging"));
-    document
-      .querySelectorAll(".term-tab-group--dragging")
-      .forEach((el) => el.classList.remove("term-tab-group--dragging"));
-
-    // Handle tab reordering
-    if (fromTab) {
-      const over = (e.target as HTMLElement).closest?.(
-        ".term-tab",
-      ) as HTMLElement | null;
-      const toTabId = over?.dataset.tabId;
-      if (!fromTab || !toTabId || fromTab === toTabId) return;
-      const a = tabsState.tabs.findIndex((x) => x.id === fromTab);
-      const b = tabsState.tabs.findIndex((x) => x.id === toTabId);
-      if (a < 0 || b < 0) return;
-      const next = [...tabsState.tabs];
-      const [mv] = next.splice(a, 1);
-      next.splice(b, 0, mv);
-      // Update order values
-      next.forEach((tab, i) => (tab.order = i));
-      tabsState = { ...tabsState, tabs: next };
-      saveTabsState(tabsState);
-      syncLivePaneIds();
-      renderTabsBar();
-    }
-
-    // Handle group reordering
-    if (fromGroup) {
-      const over = (e.target as HTMLElement).closest?.(
-        ".term-tab-group",
-      ) as HTMLElement | null;
-      const toGroup = tabsState.groups.find((g) =>
-        over?.textContent?.includes(g.name),
-      );
-      if (!fromGroup || !toGroup || fromGroup === toGroup.id) return;
-      const a = tabsState.groups.findIndex((x) => x.id === fromGroup);
-      const b = tabsState.groups.findIndex((x) => x.id === toGroup.id);
-      if (a < 0 || b < 0) return;
-      const next = [...tabsState.groups];
-      const [mv] = next.splice(a, 1);
-      next.splice(b, 0, mv);
-      // Update order values
-      next.forEach((group, i) => (group.order = i));
-      tabsState = { ...tabsState, groups: next };
-      saveTabsState(tabsState);
-      renderTabsBar();
-    }
-  });
-
-  renderTabsBar();
-  initParttyScrollFade();
-
-  void (async () => {
-    const appWin = getCurrentWindow();
-    await appWin.onCloseRequested(async (event) => {
-      if (!retainSessionStateRef.v) {
-        shedSessionLocalState();
-        return;
-      }
-      const mode = getSessionShedOnExitMode();
-      if (mode === "keep") return;
-      if (mode === "shed") {
-        shedSessionLocalState();
-        return;
-      }
-      event.preventDefault();
-      const root = document.getElementById("shed-exit-dialog");
-      const choice = await showShedExitDialog(root);
-      if (choice === "cancel") return;
-      if (choice === "discard") shedSessionLocalState();
-      void appWin.destroy().catch(() => {});
-    });
-  })();
-
-  function showShedExitDialog(
-    root: HTMLElement | null,
-  ): Promise<"keep" | "discard" | "cancel"> {
-    if (!root) return Promise.resolve("cancel");
-    return new Promise((resolve) => {
-      root.classList.remove("shed-exit-dialog--hidden");
-      root.setAttribute("aria-hidden", "false");
-      mouseCursorForceVisible(true);
-      const finish = (v: "keep" | "discard" | "cancel") => {
-        overlay.release();
-        root.classList.add("shed-exit-dialog--hidden");
-        root.setAttribute("aria-hidden", "true");
-        mouseCursorForceVisible(false);
-        resolve(v);
-      };
-      const overlay = pushOverlay(() => finish("cancel"));
-      root
-        .querySelector("#shed-exit-keep")
-        ?.addEventListener("click", () => finish("keep"), { once: true });
-      root
-        .querySelector("#shed-exit-discard")
-        ?.addEventListener("click", () => finish("discard"), {
-          once: true,
-        });
-      root
-        .querySelector("#shed-exit-cancel")
-        ?.addEventListener("click", () => finish("cancel"), {
-          once: true,
-        });
-    });
-  }
-
-  if (paneHost) {
-    void remountAuxiliaryForFocus(
-      paneHost.getFocusedPaneId() ?? paneHost.getRootPaneId(),
-    );
-  }
-
-  const settingsPanelEl = document.getElementById("settings-panel");
-  const themeModalRoot = document.getElementById("theme-modal-root");
-
-  const extManagerEl = document.getElementById(
-    "extension-manager",
-  ) as HTMLElement | null;
-
-  const themeModalLazy = lazyCell<ThemeModalApi>();
-  let themeTargetPaneId: string | null = null;
-  let paneThemeRestore: { id: string; theme: PaneThemePrefs | null } | null =
-    null;
-
-  function resetThemeModalTarget(): void {
-    if (paneThemeRestore) {
-      applyPaneTheme(paneThemeRestore.id, paneThemeRestore.theme);
-      paneThemeRestore = null;
-    }
-    themeTargetPaneId = null;
-    // The theme modal is the last surface in its flow; give focus back to
-    // the pane.
-    focusActiveTerminal();
-  }
-
-  const ensureThemeModal = (): Promise<ThemeModalApi | null> =>
-    !themeModalRoot
-      ? Promise.resolve(null)
-      : themeModalLazy.ensure(async () => {
-          const { createThemeModal } = await import("./app/themeModal");
-          return createThemeModal(
-            themeModalRoot as HTMLElement,
-            (prefs, committed) => {
-              if (themeTargetPaneId) {
-                applyPaneTheme(themeTargetPaneId, prefs);
-                return;
-              }
-              if (committed) {
-                persisted.prefs =
-                  committed as unknown as Record<string, unknown>;
-                applyRuntimeDisplayPrefs(committed);
-              }
-              currentUiPrefs = prefs;
-              applyUiTheme(prefs);
-              refreshAllTerminalThemes();
-            },
-            resetThemeModalTarget,
-          );
-        });
-
-  function openFocusedPaneTheme(): void {
-    const paneId = paneHost?.getFocusedPaneId();
-    if (!paneId) return;
-    themeTargetPaneId = paneId;
-    const existing = paneThemes.get(paneId);
-    paneThemeRestore = {
-      id: paneId,
-      theme: existing ? { ...existing } : null,
-    };
-    const appPrefs = currentUiPrefs;
-    const initialPrefs: UiThemePrefs = {
-      ...appPrefs,
-      ui_theme: existing?.ui_theme ?? appPrefs.ui_theme,
-      ui_theme_variant:
-        existing?.ui_theme_variant ?? appPrefs.ui_theme_variant,
-    };
-    runLazy(ensureThemeModal, (tm) => {
-      tm.open({
-        title: "Pane Theme",
-        initialPrefs,
-        onCommit: (prefs) => {
-          paneThemeRestore = null;
-          applyPaneTheme(paneId, prefs);
-          persistCurrentTabLayout();
-        },
-      });
-    });
-  }
-
-
-  const settingsLazy = lazyCell<SettingsPanelApi>();
-
-  const ensureSettingsPanel = (): Promise<SettingsPanelApi | null> =>
-    !settingsPanelEl
-      ? Promise.resolve(null)
-      : settingsLazy.ensure(async () => {
-          const { createSettingsPanel } = await import("./app/settingsPanel");
-          const card = settingsPanelEl.querySelector(".settings-panel-card");
-          const head = settingsPanelEl.querySelector(".settings-panel-head");
-          if (card instanceof HTMLElement && head instanceof HTMLElement) {
-            card.style.position = "fixed";
-            attachDraggablePanel(card, head, SETTINGS_PANEL_POS_KEY);
-          }
-          return createSettingsPanel(
-            settingsPanelEl,
-            async (saved: ParttyPrefs, previous: ParttyPrefs) => {
-            syncRuntimeShedFromPrefs(saved);
-            configureDevPerfPrefs(saved);
-            focusFollowsRef.v = saved.focus_follows_cursor;
-            persisted.prefs = saved as unknown as Record<string, unknown>;
-            editorConfigRef.v = editorConfigFromPrefs(saved);
-            Object.assign(lp, mergeLifecyclePrefs(persisted.prefs));
-            autoCopySelectionRef.v = saved.auto_copy_selection;
-            rightClickPasteRef.v = saved.right_click_paste ?? true;
-            retainSessionStateRef.v = saved.retain_session_state ?? true;
-            splitLayoutStyleRef.v = normalizeSplitLayoutStyle(
-              saved.split_layout_style,
-            );
-            profileBehaviorRef.v = {
-              default_profile_id: resolveDefaultProfileId(
-                saved.default_profile_id,
-                profilesList,
-              ),
-              inherit_profile_on_split: saved.inherit_profile_on_split ?? true,
-              inherit_cwd_on_split: saved.inherit_cwd_on_split ?? true,
-              palette_tab_profile_picker:
-                saved.palette_tab_profile_picker ?? true,
-              new_tab_uses_default_profile:
-                saved.new_tab_uses_default_profile ?? true,
-              palette_profile_icons: saved.palette_profile_icons ?? true,
-              profile_selection_aliases: resolveSelectionAliases(
-                saved.profile_selection_aliases ??
-                  previous.profile_selection_aliases ??
-                  {},
-              ),
-            };
-            void (profilesReady = refreshProfilesList());
-            disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
-            altClickCursorRef.v = saved.terminal_alt_click_moves_cursor ?? true;
-            cursorBlinkRef.v = saved.terminal_cursor_blink ?? true;
-            cursorInactiveStyleRef.v =
-              ((saved as Partial<ParttyPrefs>).terminal_cursor_inactive_style as
-                | "outline"
-                | "block"
-                | "bar"
-                | "underline"
-                | "none"
-                | undefined) ?? "outline";
-            cursorWidthRef.v =
-              (saved as Partial<ParttyPrefs>).terminal_cursor_width ?? 1;
-            fontSizeRef.v =
-              (saved as Partial<ParttyPrefs>).terminal_font_size ?? 12;
-            fontWeightRef.v =
-              (saved as Partial<ParttyPrefs>).terminal_font_weight ?? "normal";
-            fontWeightBoldRef.v =
-              (saved as Partial<ParttyPrefs>).terminal_font_weight_bold ??
-              "bold";
-            lineHeightRef.v =
-              (saved as Partial<ParttyPrefs>).terminal_line_height ?? 1;
-            letterSpacingRef.v =
-              (saved as Partial<ParttyPrefs>).terminal_letter_spacing ?? 0;
-            drawBoldBrightRef.v =
-              (saved as Partial<ParttyPrefs>).terminal_draw_bold_bright ?? true;
-            smoothScrollRef.v =
-              (saved as Partial<ParttyPrefs>).terminal_smooth_scroll_duration ??
-              0;
-            scrollSensitivityRef.v =
-              (saved as Partial<ParttyPrefs>).terminal_scroll_sensitivity ?? 1;
-            fastScrollSensitivityRef.v =
-              (saved as Partial<ParttyPrefs>)
-                .terminal_fast_scroll_sensitivity ?? 5;
-            cursorStyleRef.v =
-              (saved.terminal_cursor_style as
-                | "block"
-                | "underline"
-                | "bar"
-                | undefined) ?? "block";
-            applyTerminalDisplayOptions();
-            backspaceDeleteSelectionRef.v =
-              saved.terminal_backspace_delete_selection ?? true;
-            const threshold = (saved as Partial<ParttyPrefs>)
-              .process_notification_threshold;
-            if (typeof threshold === "number" && Number.isFinite(threshold)) {
-              processNotificationThresholdRef.v = Math.max(0.1, threshold);
-            }
-            const showFor = (saved as Partial<ParttyPrefs>)
-              .process_notification_show_for;
-            if (typeof showFor === "number" && Number.isFinite(showFor)) {
-              processNotificationShowForRef.v = Math.max(
-                1000,
-                Math.min(30000, showFor),
-              );
-            }
-            processNotificationShowMsRef.v =
-              (saved as Partial<ParttyPrefs>).process_notification_show_ms ??
-              false;
-            processNotificationTransparentRef.v =
-              (saved as Partial<ParttyPrefs>)
-                .process_notification_transparent ?? false;
-            processNotificationEnabledRef.v =
-              (saved as Partial<ParttyPrefs>).process_notification_enabled ??
-              false;
-            cursorFollowWindowMoveRef.v = Boolean(
-              (saved as Partial<ParttyPrefs>).cursor_follow_window_move,
-            );
-            cursorFollowPaneFocusRef.v =
-              (saved as Partial<ParttyPrefs>).cursor_follow_pane_focus ?? true;
-            mouseHiddenRef.v = Boolean(
-              (saved as Partial<ParttyPrefs>).mouse_hidden,
-            );
-            mouseHideOnIdleRef.v = Boolean(
-              (saved as Partial<ParttyPrefs>).mouse_hide_on_idle,
-            );
-            mouseIdleSecondsRef.v = Math.max(
-              0.5,
-              Math.min(
-                300,
-                (saved as Partial<ParttyPrefs>).mouse_idle_seconds ?? 3,
-              ),
-            );
-            mouseCursorController?.sync();
-            quietPaneDeferralRef.v = Boolean(
-              (saved as Partial<ParttyPrefs>).quiet_pane_deferral,
-            );
-            applyRuntimeDisplayPrefs(saved);
-            if (saved.scrollback_lines !== previous.scrollback_lines) {
-              for (const host of tabPaneHosts.values()) {
-                host.setScrollbackLines(saved.scrollback_lines);
-              }
-            }
-            tooltips.apply(document);
-            document.documentElement.classList.toggle(
-              "pane-blur-unfocused",
-              saved.blur_unfocused_panes,
-            );
-            document.documentElement.style.setProperty(
-              "--pane-blur-radius",
-              String((saved as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6),
-            );
-            document.documentElement.style.setProperty(
-              "--pane-opacity-focused",
-              String(
-                (saved as Partial<ParttyPrefs>).pane_opacity_focused ?? 1.0,
-              ),
-            );
-            document.documentElement.style.setProperty(
-              "--pane-opacity-unfocused",
-              String(
-                (saved as Partial<ParttyPrefs>).pane_opacity_unfocused ?? 1.0,
-              ),
-            );
-            document.documentElement.classList.toggle(
-              "pane-variable-opacity",
-              Boolean((saved as Partial<ParttyPrefs>).pane_variable_opacity),
-            );
-            applyPaneFocusScalePrefs(saved);
-            const prevUi = pickUiPrefs(
-              previous as unknown as Record<string, unknown>,
-            );
-            const nextUi = pickUiPrefs(
-              saved as unknown as Record<string, unknown>,
-            );
-            if (uiPrefsChanged(prevUi, nextUi)) {
-              currentUiPrefs = nextUi;
-              applyUiTheme(nextUi);
-              refreshAllTerminalThemes();
-            }
-            const shellChanged =
-              shellPrefKey(saved.shell) !== shellPrefKey(previous.shell);
-            const cwdChanged =
-              (saved.initial_cwd ?? "").trim() !==
-              (previous.initial_cwd ?? "").trim();
-            if (shellChanged || cwdChanged) {
-              localStorage.setItem(DEFER_PTY_REINIT_KEY, "1");
-            }
-          },
-          // Restore pane focus when the settings modal closes (mirrors the
-          // tab-switch focus approach; settings never changes tabs/panes).
-          focusActiveTerminal,
-        );
-      });
-
-  const extManagerLazy = lazyCell<ExtensionManagerApi>();
-
-  const ensureExtensionManager = (): Promise<ExtensionManagerApi | null> =>
-    !extManagerEl
-      ? Promise.resolve(null)
-      : extManagerLazy.ensure(async () => {
-          const { createExtensionManager } = await import("./app/extensionManager");
-          const api = createExtensionManager(extManagerEl);
-          extManagerEl
-            .querySelector("#ext-close")
-            ?.addEventListener("click", () => api.close());
-          return api;
-        });
-
-  window.addEventListener(
-    "keydown",
-    (e) => {
-      const m = k.match(e, "pane_float_toggle", "pane_float_new", "pane_float_follow", "settings_open");
-      if (!m) return;
-      const t = e.target as HTMLElement | null;
-      if (
-        t?.closest("#command-palette") ||
-        t?.closest("#settings-panel")
-      )
-        return;
-      e.preventDefault();
-      e.stopPropagation();
-      switch (m) {
-        case "pane_float_toggle":
-          toggleFocusedPaneFloating();
-          break;
-        case "pane_float_new":
-          createFloatingPaneWithCwd();
-          break;
-        case "pane_float_follow":
-          toggleFocusedPaneFollow();
-          break;
-        case "settings_open":
-          runLazy(ensureSettingsPanel, (api) => api.open());
-          break;
-      }
-    },
-    true,
-  );
-
-  async function pasteFromClipboard(): Promise<void> {
-    try {
-      const text = await invoke<string>("clipboard_read_text");
-      if (!text) return;
-      const pid = paneHost?.getFocusedPaneId();
-      if (!pid) return;
-      const term = paneHost?.getPaneTerminal(pid)?.term;
-      if (!term) return;
-      // Go through xterm so newlines normalize and bracketed paste wraps when
-      // the app (TUI) enabled it — raw ptyWrite skipped both and broke OpenCode etc.
-      // Path-shaped clipboard content is translated per the focused pane's shell.
-      term.focus();
-      term.paste(
-        translatePasteText(
-          text,
-          pathStyleForPaneId(pid),
-          clipboardPathSourceForPaste(text),
-        ),
-      );
-    } catch {
-      /* empty clipboard or read failed */
-    }
-  }
-
-  window.addEventListener("keydown", maybeBlockBrowserPrintShortcut, true);
-
-  document.addEventListener(
-    "contextmenu",
-    (e) => {
-      const target = e.target as Node | null;
-      if (!target || !terminalContent?.contains(target)) return;
-      e.preventDefault();
-      if (!rightClickPasteRef.v) {
-        getFocusedTerm()?.focus();
-        return;
-      }
-      void pasteFromClipboard();
-      getFocusedTerm()?.focus();
-    },
-    true,
-  );
-
-  async function newTerminalSession(): Promise<void> {
-    const killIds = paneHost?.getLeafIdsInOrder() ?? [];
-    for (const pid of killIds) {
-      await invoke("pty_kill_pane", { paneId: pid }).catch(() => {});
-    }
-    liveCwd = null;
-    paneCwdHints.clear();
-    paneRemoteIsWindows.clear();
-    lastPtyDims.clear();
-    shedWebgl();
-    const tabId = activeTabId;
-    disposeTabPaneHost(tabId);
-    clearPaneLayout();
-    const rid = tabRootPaneId(tabKeyForTabId(tabId));
-    paneHost = createTabPaneShellAndHost(tabId, {
-      initialTree: { kind: "leaf", id: rid },
-      initialFocusedId: rid,
-    });
-    for (const [id, shell] of tabPaneShells) {
-      shell.classList.toggle("term-tab-pane-shell--hidden", id !== tabId);
-    }
-    lastFocusedPaneId = rid;
-    await remountAuxiliaryForFocus(paneHost.getFocusedPaneId());
-    await ensurePtyForPane(rid);
-    getFocusedTerm()?.writeln("\r\n\x1b[90m[new session]\x1b[0m\r\n");
-  }
-
-  const cpRoot = document.getElementById("command-palette");
-  const cpInput = document.getElementById(
-    "command-palette-input",
-  ) as HTMLInputElement | null;
-  const cpList = document.getElementById("command-palette-list");
-  const helpPanelEl = document.getElementById("help-panel");
-  function shellPrefKey(s: string): string {
-    return s.trim().replace(/\\/g, "/").toLowerCase();
-  }
-
-  /** Apply live-updatable xterm.js options to every terminal — all tabs,
-   *  tiled and floating (forEachPane, not leaf-order) — then force a layout
-   *  pass so char-size changes (font size, line height, letter spacing) both
-   *  re-fit every pane and repaint it immediately. */
-  const applyTerminalDisplayOptions = (): void => {
-    for (const host of tabPaneHosts.values()) {
-      host.forEachPane((_leafId, pt) => {
-        const t = pt.term;
-        t.options.cursorBlink = cursorBlinkRef.v;
-        t.options.cursorInactiveStyle = cursorInactiveStyleRef.v;
-        t.options.cursorWidth = cursorWidthRef.v;
-        t.options.altClickMovesCursor = altClickCursorRef.v;
-        t.options.fontSize = fontSizeRef.v;
-        t.options.fontWeight = fontWeightRef.v as any;
-        t.options.fontWeightBold = fontWeightBoldRef.v as any;
-        t.options.lineHeight = lineHeightRef.v;
-        t.options.letterSpacing = letterSpacingRef.v;
-        t.options.drawBoldTextInBrightColors = drawBoldBrightRef.v;
-        t.options.smoothScrollDuration = smoothScrollRef.v;
-        t.options.scrollSensitivity = scrollSensitivityRef.v;
-        t.options.fastScrollSensitivity = fastScrollSensitivityRef.v;
-        t.options.cursorStyle = cursorStyleRef.v;
-      });
-      host.setCursorStyle(cursorStyleRef.v);
-    }
-    lastPtyDims.clear();
-    scheduleResizeImmediate(true);
-  };
-
-  const cpPanel = document.querySelector(".command-palette-panel");
-  const cpToolbar = document.querySelector(".command-palette-toolbar");
-  if (cpPanel instanceof HTMLElement && cpToolbar instanceof HTMLElement) {
-    cpPanel.style.position = "fixed";
-    attachDraggablePanel(cpPanel, cpToolbar, COMMAND_PALETTE_POS_KEY);
-  }
-
-  if (helpPanelEl) {
-    const hcard = helpPanelEl.querySelector(".help-panel-card");
-    const hhead = helpPanelEl.querySelector(".help-panel-head");
-    if (hcard instanceof HTMLElement && hhead instanceof HTMLElement) {
-      hcard.style.position = "fixed";
-      attachDraggablePanel(hcard, hhead, HELP_PANEL_POS_KEY);
-    }
-  }
-
-  let openHelpPanel: () => void = () => {};
-  let closeHelpPanel: () => void = () => {};
-  let toggleHelp: () => void = () => {};
-
-
-
-
-
-
-  function getTabPaletteCommands(): PaletteCommand[] {
-    return visibleTabsInOrder().map((tab, index) => {
-      const host = tabPaneHosts.get(tab.id);
-      const leafIds = host?.getLeafIdsInOrder() ?? [];
-      const paneKeywords: string[] = [];
-      for (const lid of leafIds) {
-        const parts = paneNameParts(lid);
-        paneKeywords.push(parts.profileName.toLowerCase());
-        if (parts.oscTitle) {
-          for (const word of parts.oscTitle.split(/\s+/)) {
-            const w = word.toLowerCase();
-            if (w) paneKeywords.push(w);
-          }
-        }
-        if (parts.processLabel) {
-          for (const word of parts.processLabel.split(/\s+/)) {
-            const w = word.toLowerCase();
-            if (w) paneKeywords.push(w);
-          }
-        }
-        const cwd = parts.cwd;
-        if (cwd) {
-          const segs = cwd.replace(/\\/g, "/").split("/").filter(Boolean);
-          for (const part of segs) paneKeywords.push(part.toLowerCase());
-        }
-        paneKeywords.push(lid.toLowerCase());
-      }
-      const extra = [...new Set(paneKeywords)].slice(0, 32).join(" ");
-      const label = tabDisplayName(tab.id);
-      return {
-        id: `tab-switch-${tab.id}`,
-        label: `: ${label}`,
-        keywords: `tab workspace ${tab.name} ${label} ${extra} alt ${index + 1}`,
-        hotkey:
-          index < 9 ? `Alt+${index + 1}` : index === 9 ? "Alt+0" : undefined,
-        run: () => switchToTab(tab.id),
-      };
-    });
-  }
-
-  function allPaneNameParts(): PaneNameParts[] {
-    const out: PaneNameParts[] = [];
-    for (const host of tabPaneHosts.values()) {
-      for (const id of host.getLeafIdsInOrder()) out.push(paneNameParts(id));
-    }
-    return out;
-  }
-
-  function paneIndexFlags(parts: PaneNameParts[]): Set<string> {
-    const counts = new Map<string, number>();
-    for (const p of parts) {
-      const key = paneCollisionKey(p);
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    const show = new Set<string>();
-    for (const p of parts) {
-      if ((counts.get(paneCollisionKey(p)) ?? 0) > 1) show.add(p.paneId);
-    }
-    return show;
-  }
-
-  function paneQueryHaystack(p: PaneNameParts): string {
-    return [
-      p.paneId,
-      p.profileName,
-      p.cwd ?? "",
-      p.oscTitle ?? "",
-      p.processLabel ?? "",
-      p.tabName,
-      paneHeadline(p),
-    ]
-      .join(" ")
-      .toLowerCase();
-  }
-
-  function panePaletteHtml(
-    p: PaneNameParts,
-    showIndex: boolean,
-    prefix: "@pane:" | "@proc:",
-    headline: string,
-    suffix = "",
-  ): string {
-    const sub = paneSubline(p, headline, showIndex);
-    const subHtml = sub
-      ? ` <span class="cp-label-tab">${escapeHtml(sub)}</span>`
-      : "";
-    return `<span class="cp-label-prefix">${prefix}</span><span class="cp-label-name">${escapeHtml(headline)}</span>${subHtml}${suffix}`;
-  }
-
-  function getPaneTargetCommands(query: string): PaletteCommand[] {
-    const afterTag = query.slice(6);
-    const spaceIdx = afterTag.indexOf(" ");
-    const panePart = (spaceIdx === -1 ? afterTag : afterTag.slice(0, spaceIdx))
-      .trimStart()
-      .toLowerCase();
-    const all = allPaneNameParts();
-    const showIndex = paneIndexFlags(all);
-
-    if (spaceIdx !== -1 && panePart) {
-      const command = afterTag.slice(spaceIdx + 1).trim();
-      for (const p of all) {
-        const headline = paneHeadline(p);
-        if (
-          p.paneId.toLowerCase() !== panePart &&
-          headline.toLowerCase() !== panePart
-        )
-          continue;
-        const suffix = command
-          ? ` <span class="cp-label-prefix" style="font-weight:400">→</span> ${escapeHtml(command)}`
-          : "";
-        return [
-          {
-            id: `pane-dispatch-${p.paneId}`,
-            label: `@pane:${headline}${command ? ` → ${command}` : ""}`,
-            labelHtml: panePaletteHtml(
-              p,
-              showIndex.has(p.paneId),
-              "@pane:",
-              headline,
-              suffix,
-            ),
-            keywords: paneQueryHaystack(p) + ` ${command}`,
-            run: () => dispatchPaneCommand(p.paneId, query),
-          },
-        ];
-      }
-      return [];
-    }
-
-    const items: PaletteCommand[] = [];
-    for (const p of all) {
-      if (panePart && !paneQueryHaystack(p).includes(panePart)) continue;
-      const headline = paneHeadline(p);
-      const indexed = showIndex.has(p.paneId);
-      items.push({
-        id: `pane-target-${p.paneId}`,
-        label: `@pane:${headline}`,
-        labelHtml: panePaletteHtml(p, indexed, "@pane:", headline),
-        keywords: paneQueryHaystack(p),
-        run: () => dispatchPaneCommand(p.paneId, query),
-      });
-    }
-    return items;
-  }
-
-  let processToastTimer = 0;
-  const processToast = document.getElementById(
-    "proc-toast",
-  ) as HTMLElement | null;
-
-  type NotificationButton = { label: string; run: () => void };
-  let processToastButtons: NotificationButton[] = [];
-
-  function navigateToPane(paneId: string): void {
-    for (const [tabId, host] of tabPaneHosts) {
-      if (host.getPaneTerminal(paneId)) {
-        if (tabId !== activeTabId) switchToTab(tabId);
-        host.getPaneTerminal(paneId)?.term.focus();
-        return;
-      }
-    }
-  }
-
-  function showProcessToast(
-    bodyHtml: string,
-    paneId: string,
-    buttons: NotificationButton[] = [],
-  ): void {
-    if (!processToast) return;
-    processToast.dataset.paneId = paneId;
-    processToastButtons = buttons;
-    processToast.classList.toggle("proc-toast--nav", paneId !== "");
-    processToast.title = paneId ? "Go to pane" : "";
-    processToast.innerHTML = `${bodyHtml}${buttons
-      .map(
-        (b, i) =>
-          `<button class="proc-toast-btn" data-index="${i}">${escapeHtml(b.label)}</button>`,
-      )
-      .join("")}`;
-    processToast.classList.remove("proc-toast--hidden");
-    if (processToastTimer) clearTimeout(processToastTimer);
-    processToastTimer = window.setTimeout(() => {
-      processToast.classList.add("proc-toast--hidden");
-    }, processNotificationShowForRef.v);
-  }
-
-  function showProcessNotification(
-    command: string,
-    paneName: string,
-    cwd: string,
-    startedAt: number,
-    paneId: string,
-    endedAt = Date.now(),
-  ): void {
-    if (!processToast) return;
-    processToast.classList.toggle(
-      "proc-toast--transparent",
-      processNotificationTransparentRef.v,
-    );
-    const shortCmd = truncateEnd(command, NOTIF_COMMAND_MAX);
-    const shortPaneName = truncateEnd(paneName, NOTIF_PANE_MAX);
-    const shortCwd = truncatePathTail(cwd, NOTIF_CWD_MAX);
-    const ms = Math.max(0, endedAt - startedAt);
-    let durStr: string;
-    if (processNotificationShowMsRef.v) {
-      durStr = ms >= 1000 ? `${(ms / 1000).toFixed(3)}s` : `${ms}ms`;
-    } else {
-      durStr = ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
-    }
-    showProcessToast(
-      `<span class="proc-toast-cmd">${escapeHtml(shortCmd)}</span> \u00b7 ${durStr} \u00b7 <span class="proc-toast-pane">${escapeHtml(shortPaneName)}</span> <span class="proc-toast-cwd">${escapeHtml(shortCwd)}</span>`,
-      paneId,
-    );
-  }
-
-  processToast?.addEventListener("click", (e) => {
-    const btn = (e.target as HTMLElement).closest(".proc-toast-btn");
-    if (btn) {
-      const effect =
-        processToastButtons[Number((btn as HTMLElement).dataset.index)]?.run;
-      if (effect) {
-        try {
-          effect();
-        } catch {
-          /* ignore */
-        }
-      }
-      processToast.classList.add("proc-toast--hidden");
-      return;
-    }
-    const paneId = processToast.dataset.paneId;
-    if (paneId) {
-      navigateToPane(paneId);
-      processToast.classList.add("proc-toast--hidden");
-    }
-  });
-
-  function getProcCommands(query: string): PaletteCommand[] {
-    const afterTag = query
-      .slice(query.startsWith("@proc:") ? 6 : 5)
-      .trimStart();
-    const words = afterTag ? afterTag.split(/\s+/) : [];
-    const prefix = words.join(" ").toLowerCase();
-
-    if (activeProcesses.size === 0)
-      return [
-        {
-          id: "proc-none",
-          label: "No active processes",
-          keywords: "@proc proc process",
-          run: () => {},
-        },
-      ];
-
-    const items: PaletteCommand[] = [];
-    const all = allPaneNameParts();
-    const showIndex = paneIndexFlags(all);
-    for (const [leafId, proc] of activeProcesses) {
-      const displayCmd = displayProcessCommand(proc.command);
-      if (
-        prefix &&
-        !displayCmd.toLowerCase().startsWith(prefix) &&
-        !displayCmd.toLowerCase().includes(prefix)
-      )
-        continue;
-      const p = paneNameParts(leafId);
-      const headline = procPaletteHeadline(p);
-      const shortDisplayCmd =
-        displayCmd.length > 50
-          ? displayCmd.slice(0, 47) + "\u2026"
-          : displayCmd;
-      const dur = ((Date.now() - proc.startedAt) / 1000).toFixed(0);
-      items.push({
-        id: `proc-${leafId}`,
-        label: `@proc:${shortDisplayCmd}  ${dur}s`,
-        labelHtml:
-          panePaletteHtml(p, showIndex.has(leafId), "@proc:", headline) +
-          ` <span style="color:var(--ui-chrome-muted);margin-left:0.4em">${dur}s</span>`,
-        keywords: `@proc proc ${paneQueryHaystack(p)} ${displayCmd}`,
-        run: () => {
-          for (const [tid, host] of tabPaneHosts) {
-            if (host.getPaneTerminal(leafId)) {
-              if (tid !== activeTabId) switchToTab(tid);
-              host.getPaneTerminal(leafId)?.term.focus();
-              return;
-            }
-          }
-        },
-      });
-    }
-    return items.length > 0
-      ? items
-      : [
-          {
-            id: "proc-none",
-            label: prefix
-              ? `No process matching "${prefix}"`
-              : "No active processes",
-            keywords: "@proc proc process",
-            run: () => {},
-          },
-        ];
-  }
-
-  function dispatchPaneCommand(targetPaneId: string, query: string): void {
-    const tagIdx = query.indexOf("@pane:");
-    if (tagIdx === -1) return;
-    const afterTagStart = tagIdx + 6;
-    const spaceIdx = query.indexOf(" ", afterTagStart);
-    const command = spaceIdx === -1 ? "" : query.slice(spaceIdx + 1).trim();
-    if (!command) {
-      // No command — switch to the pane's tab and focus it.
-      for (const [tabId, host] of tabPaneHosts) {
-        if (host.getPaneTerminal(targetPaneId)) {
-          if (tabId !== activeTabId) switchToTab(tabId);
-          host.getPaneTerminal(targetPaneId)?.term.focus();
-          return;
-        }
-      }
-      return;
-    }
-    const targetSessionId = getPaneTerminalById(targetPaneId)?.sessionId;
-    if (!targetSessionId) return;
-    void ptyWrite(targetSessionId, `${command}\r`).catch((e) =>
-      console.warn("pty_write @pane:", e),
-    );
-  }
-
-  async function toggleMouseHidden(): Promise<void> {
-    mouseHiddenRef.v = !mouseHiddenRef.v;
-    try {
-      const state = await invoke<{ prefs: ParttyPrefs }>("get_persisted_state");
-      const next = { ...state.prefs, mouse_hidden: mouseHiddenRef.v };
-      await invoke("set_prefs", { prefs: next });
-      persisted.prefs = next as unknown as Record<string, unknown>;
-    } catch (e) {
-      console.warn("toggleMouseHidden", e);
-    }
-    mouseCursorController?.sync();
-  }
-
-  function runWithProfile(action: ProfilePaletteAction, profileId: string): void {
-    const id = resolveDefaultProfileId(profileId, profilesList);
-    switch (action) {
-      case "new-tab":
-        openNewTab(true, id);
-        return;
-      case "split-h":
-        splitFocusedWithCwd("h", id);
-        return;
-      case "split-v":
-        splitFocusedWithCwd("v", id);
-        return;
-      case "float":
-        createFloatingPaneWithCwd(id);
-        return;
-      default: {
-        const _exhaustive: never = action;
-        void _exhaustive;
-      }
-    }
-  }
-
-  const PROFILE_ACTION_LABEL: Record<ProfilePaletteAction, string> = {
-    "new-tab": "New tab",
-    "split-h": "Split right",
-    "split-v": "Split down",
-    float: "New floating pane",
-  };
-
-  /** Active profile-picker session (hotkey / Tab). Input is filter-only; no `@profile:` prefix. */
-  let profilePickerSession: ProfilePaletteAction | null = null;
-
-  /** Active workspace-picker session. Input is filter-only over workspace ids. */
-  let workspacePickerOpen = false;
-  let workspacePickerIds: string[] = [];
-
-  async function beginWorkspacePicker(): Promise<void> {
-    let ids: string[];
-    try {
-      ids = await listWorkspaceIds();
-    } catch (e) {
-      console.error("list workspaces", e);
-      showAlert("Could not list workspaces.");
-      return;
-    }
-    if (ids.length === 0) {
-      showAlert("No workspaces found in ~/.partty/workspaces.");
-      return;
-    }
-    workspacePickerIds = ids;
-    workspacePickerOpen = true;
-    commandPalette?.open({ placeholder: "Workspace" });
-  }
-
-  function getWorkspaceCommands(filter: string): PaletteCommand[] {
-    const ranked = filterAndRankLexical(
-      workspacePickerIds.map((id) => ({
-        id: `workspace-load-${id}`,
-        label: id,
-        keywords: `workspace layout preset load ${id}`,
-      })),
-      normalizeQuery(filter),
-    );
-    return ranked.map((r) => ({
-      id: r.id!,
-      label: r.label,
-      keywords: "workspace layout preset load",
-      run: () => {
-        void applyWorkspaceById(r.label);
-      },
-    }));
-  }
-
-  function beginProfilePicker(action: ProfilePaletteAction): void {
-    profilePickerSession = action;
-    commandPalette?.open({ placeholder: "Profile" });
-  }
-
-  function listProfileCommands(
-    action: ProfilePaletteAction,
-    filter: string,
-  ): PaletteCommand[] {
-    const actionLabel = PROFILE_ACTION_LABEL[action];
-    const idToAlias = !filter.trim()
-      ? profileIdAliasMap(profileBehaviorRef.v.profile_selection_aliases)
-      : null;
-    // Same token-based ranking as the palette / theme / workspace search.
-    const ranked = filterAndRankLexical(
-      profilesList.map((p) => ({
-        profile: p,
-        id: p.id,
-        label: p.name,
-        keywords: `${p.kind} ${p.id} ${p.shell ?? ""} ${p.wslDistro ?? ""} ${p.sshHost ?? ""}`,
-      })),
-      normalizeQuery(filter),
-    );
-    return ranked
-      .map((r) => r.profile)
-      .map((p: ConnectionProfile) => {
-        const sshDetail = p.kind === "ssh" ? p.sshHost?.trim() || "" : "";
-        const showDetail =
-          sshDetail && sshDetail.toLowerCase() !== p.name.toLowerCase()
-            ? sshDetail
-            : "";
-        const showIcon =
-          profileBehaviorRef.v.palette_profile_icons && !!p.iconDataUrl;
-        const iconHtml = showIcon
-          ? `<img class="cp-profile-icon" src="${escapeHtml(p.iconDataUrl!)}" alt="" width="16" height="16" />`
-          : "";
-        const alias = idToAlias?.get(p.id) ?? null;
-        return {
-          id: `profile-run-${action}-${p.id}`,
-          label: p.name,
-          labelHtml:
-            iconHtml +
-            `<span class="cp-label-name">${escapeHtml(p.name)}</span>` +
-            (showDetail
-              ? ` <span class="cp-label-cwd">${escapeHtml(showDetail)}</span>`
-              : ""),
-          keywords: `@profile:${action} ${p.name} ${p.kind} ${p.id} ${sshDetail} ${p.shell ?? ""} ${p.wslDistro ?? ""} ${actionLabel}`,
-          hotkey: alias ?? undefined,
-          run: () => runWithProfile(action, p.id),
-        };
-      });
-  }
-
-  function getProfileActionCommands(query: string): PaletteCommand[] {
-    const parsed = parseProfilePickerQuery(query);
-    if (!parsed) {
-      return [
-        {
-          id: "profile-picker-hint",
-          label: "Select a profile",
-          labelHtml:
-            `<span class="cp-label-prefix">@profile:</span>` +
-            `<span class="cp-label-name">new-tab</span>` +
-            `<span class="cp-label-kind"> · split-h · split-v · float</span>`,
-          keywords: "@profile new-tab split-h split-v float",
-          run: () => {},
-        },
-      ];
-    }
-    return listProfileCommands(parsed.action, parsed.filter);
-  }
-
-  function openProfileSplitPicker(action: "split-h" | "split-v"): void {
-    beginProfilePicker(action);
-  }
-
-  function openProfileFloatPicker(): void {
-    beginProfilePicker("float");
-  }
-
-  function quickSelectProfileByAlias(
-    key: string,
-    currentInput: string,
-  ): PaletteCommand | null {
-    if (key.length !== 1) return null;
-    let action: ProfilePaletteAction | null = profilePickerSession;
-    if (action) {
-      if (currentInput.trim().length > 0) return null;
-    } else {
-      if (!isProfilePickerAliasContext(currentInput)) return null;
-      action = parseProfilePickerQuery(currentInput)?.action ?? null;
-    }
-    if (!action) return null;
-    const profileId = profileBehaviorRef.v.profile_selection_aliases[key];
-    if (!profileId) return null;
-    const profile = getProfileById(profileId, profilesList);
-    if (!profile) return null;
-    return {
-      id: `profile-run-${action}-${profile.id}`,
-      label: profile.name,
-      run: () => runWithProfile(action!, profile.id),
-    };
-  }
-
-  function getMergedPaletteCommands(query: string): PaletteCommand[] {
-    if (profilePickerSession) {
-      return listProfileCommands(profilePickerSession, query.trim());
-    }
-    if (workspacePickerOpen) {
-      return getWorkspaceCommands(query.trim());
-    }
-    const q = query.trimStart();
-    if (q.startsWith(":")) {
-      return getTabPaletteCommands();
-    }
-
-    if (q.startsWith("@pane:")) {
-      return getPaneTargetCommands(q);
-    }
-    if (q.startsWith("@proc")) {
-      return getProcCommands(q);
-    }
-    if (q.startsWith("@profile")) {
-      return getProfileActionCommands(q);
-    }
-
-    const commands: PaletteCommand[] = [
-      // --- Tabs ---
-      {
-        id: "tab-new",
-        label: "New tab",
-        keywords: "workspace create add profile",
-        run: () => {
-          openNewTab();
-        },
-      },
-      {
-        id: "tab-duplicate",
-        label: "Duplicate tab",
-        keywords: "workspace copy clone",
-        run: () => duplicateTab(activeTabId),
-      },
-      {
-        id: "tab-rename",
-        label: "Rename tab",
-        keywords: "workspace title edit",
-        run: () => beginTabRename(activeTabId),
-      },
-      {
-        id: "tab-close",
-        label: "Close tab",
-        keywords: "workspace remove delete",
-        run: () => closeTab(activeTabId),
-      },
-      {
-        id: "workspace-open",
-        label: "Open workspace…",
-        keywords:
-          "workspace layout preset load snapshot tab panes workspace picker",
-        run: () => {
-          void beginWorkspacePicker();
-        },
-      },
-      {
-        id: "pane-close-children",
-        label: "Reset layout",
-        keywords: "reset layout keep main root initial close children",
-        run: () => {
-          void closeAllChildPanes();
-        },
-      },
-      // --- View / appearance ---
-      // The hide/show toggle only matters with multiple tabs; a single tab
-      // bar is not worth hiding (and there's always at least one tab).
-      ...(tabsState.tabs.length > 1
-        ? [
-            {
-              id: "toggle-tabs-hidden",
-              label: document.documentElement.classList.contains("tabs-hidden")
-                ? "Show tabs"
-                : "Hide tabs",
-              keywords:
-                "focus session hide show tabs toolbar chrome distraction free",
-              run: () => {
-                setTabsHidden(
-                  !document.documentElement.classList.contains("tabs-hidden"),
-                );
-              },
-            },
-          ]
-        : []),
-      {
-        id: "toggle-mouse-hidden",
-        label: mouseHiddenRef.v ? "Show cursor" : "Hide cursor",
-        keywords: "mouse pointer cursor hide show invisible os",
-        run: () => {
-          void toggleMouseHidden();
-        },
-      },
-      {
-        id: "open-themes",
-        label: "Theme",
-        keywords: "appearance colors ui palette app global",
-        run: () => {
-          themeTargetPaneId = null;
-          paneThemeRestore = null;
-          runLazy(ensureThemeModal, (tm) => {
-            tm.open({
-              title: "App Theme",
-              initialPrefs: currentUiPrefs,
-            });
-          });
-        },
-      },
-      {
-        id: "open-pane-theme",
-        label: "Pane theme",
-        keywords: "theme pane appearance colors focused local override",
-        run: () => openFocusedPaneTheme(),
-      },
-
-      // --- Terminal / session ---
-      {
-        id: "new-session",
-        label: "Restart session",
-        keywords: "restart shell pty new terminal",
-        run: () => void newTerminalSession(),
-      },
-      {
-        id: "focus-terminal",
-        label: "Focus terminal",
-        keywords: "keyboard input",
-        run: () => {
-          getFocusedTerm()?.focus();
-        },
-      },
-      {
-        id: "paste",
-        label: "Paste",
-        keywords: "clipboard context edit",
-        run: () => void pasteFromClipboard(),
-      },
-      {
-        id: "toggle-background-work",
-        label: isBackgroundWorkMode()
-          ? "Shed on hide"
-          : "Keep alive on hide",
-        keywords:
-          "background keep alive pty buffer webview shed hide memory agent logs tui session",
-        run: () => void setBackgroundWorkMode(!isBackgroundWorkMode()),
-      },
-      // --- App ---
-      // Settings and the window operations are keybind-driven (help modal).
-      {
-        id: "open-extensions",
-        label: "Extensions",
-        keywords: "plugins addons extensions manager",
-        run: () => runLazy(ensureExtensionManager, (api) => api.open()),
-      },
-      {
-        id: "help-hotkeys",
-        label: "Shortcuts",
-        keywords: "hotkeys bindings reference help",
-        hotkey: "Ctrl+Shift+/",
-        run: () => openHelpPanel(),
-      },
-      {
-        id: "quit-app",
-        label: "Quit",
-        keywords: "exit app quit close",
-        run: () => void appWindow.destroy().catch(() => {}),
-      },
-      ...extPaletteCommands.map((c) => ({
-        id: `ext-${c.id}`,
-        label: c.label,
-        keywords: c.keywords ? `extension ${c.keywords}` : "extension",
-        run: c.run,
-      })),
-    ];
-    return commands;
-  }
-
-  function renderHelpShortcuts(): void {
-    const list = helpPanelEl?.querySelector(
-      ".help-shortcuts",
-    ) as HTMLElement | null;
-    if (!list) return;
-    const seen = new Set<string>();
-    const rows: { hotkey: string; label: string }[] = [
-      { hotkey: "Ctrl+Shift+P", label: "Command palette" },
-    ];
-    for (const cmd of getMergedPaletteCommands("")) {
-      const hotkey = cmd.hotkey?.trim();
-      if (!hotkey || seen.has(hotkey)) continue;
-      seen.add(hotkey);
-      rows.push({ hotkey, label: cmd.label.replace(/…$/, "") });
-    }
-    // Keyboard + mouse shortcuts that aren't palette commands.
-    // Keybind labels resolve live so custom rebinds show here too.
-    rows.push(
-      { hotkey: "Tab", label: "New tab / Split → pick profile" },
-      { hotkey: "@profile", label: "New tab or split with a profile" },
-      {
-        hotkey: "a / A",
-        label: "In profile picker: selection alias (case-sensitive; config.toml)",
-      },
-      { hotkey: k.label("pane_split_right"), label: "Split right" },
-      { hotkey: k.label("pane_split_down"), label: "Split down" },
-      {
-        hotkey: k.label("profile_split_right"),
-        label: "Split right with profile…",
-      },
-      {
-        hotkey: k.label("profile_split_down"),
-        label: "Split down with profile…",
-      },
-      { hotkey: k.label("pane_close"), label: "Close pane" },
-      { hotkey: k.label("pane_float_toggle"), label: "Float pane" },
-      { hotkey: k.label("pane_float_new"), label: "New floating pane" },
-      {
-        hotkey: k.label("profile_float_new"),
-        label: "New floating pane with profile…",
-      },
-      { hotkey: k.label("pane_float_follow"), label: "Toggle floating follow" },
-      { hotkey: "Alt+Arrows", label: "Focus adjacent pane" },
-      { hotkey: "Ctrl+Shift+Arrows", label: "Swap pane with neighbor" },
-      { hotkey: "Alt+1–9", label: "Switch to tab" },
-      { hotkey: "Ctrl+Shift+1–9, 0", label: "Move pane to tab" },
-      { hotkey: k.label("window_maximize"), label: "Maximize window" },
-      { hotkey: k.label("window_restore"), label: "Restore window" },
-      {
-        hotkey: k.label("window_move_next_monitor"),
-        label: "Window to next monitor",
-      },
-      {
-        hotkey: k.label("window_move_prev_monitor"),
-        label: "Window to previous monitor",
-      },
-      { hotkey: k.label("window_toggle"), label: "Hide / show overlay" },
-      { hotkey: k.label("settings_open"), label: "Settings" },
-      { hotkey: "Shift+Enter", label: "Insert newline" },
-      { hotkey: "Ctrl+Wheel", label: "Zoom focused pane" },
-      { hotkey: "Alt+Drag", label: "Move floating pane or swap tiled panes" },
-      { hotkey: "Alt+Shift+Drag", label: "Move window from anywhere" },
-      { hotkey: "Ctrl+V", label: "Paste from clipboard" },
-      { hotkey: "Right-click", label: "Paste from clipboard" },
-    );
-    list.replaceChildren(
-      ...rows.map(({ hotkey, label }) => {
-        const row = document.createElement("div");
-        row.className = "help-shortcut";
-        for (const part of hotkey.split("+")) {
-          const key = document.createElement("kbd");
-          key.className = "help-key";
-          key.textContent = part;
-          row.appendChild(key);
-        }
-        const desc = document.createElement("span");
-        desc.className = "help-desc";
-        desc.textContent = label;
-        row.appendChild(desc);
-        return row;
-      }),
-    );
-  }
-
-  const commandPalette =
-    cpRoot && cpInput && cpList
-      ? createCommandPalette({
-          root: cpRoot,
-          input: cpInput,
-          list: cpList,
-          getCommands: () => getMergedPaletteCommands(cpInput?.value ?? ""),
-          onBeforeOpen: async () => {
-            closeHelpPanel();
-            // Don't block open on profile re-detection (shell/WSL probes).
-            // Cache from boot / settings save is enough; refresh in background.
-            void (profilesReady = refreshProfilesList());
-          },
-          onClosed: () => {
-            profilePickerSession = null;
-            workspacePickerOpen = false;
-            workspacePickerIds = [];
-            getFocusedTerm()?.focus();
-            if (cpInput) cpInput.placeholder = "Command or > …";
-          },
-          onTabComplete: (currentInput: string, selected) => {
-            if (
-              currentInput.startsWith("@pane:") &&
-              selected &&
-              selected.id.startsWith("pane-target-")
-            ) {
-              return `@pane:${selected.id.slice("pane-target-".length)} `;
-            }
-            if (
-              (currentInput.startsWith("@proc:") || currentInput === "@proc") &&
-              selected &&
-              selected.id.startsWith("proc-")
-            ) {
-              const leafId = selected.id.slice(5);
-              const proc = activeProcesses.get(leafId);
-              if (proc) return `@proc:${displayProcessCommand(proc.command)} `;
-            }
-            if (profileBehaviorRef.v.palette_tab_profile_picker) {
-              const action = profileActionForPaletteCommandId(selected?.id);
-              if (action) {
-                profilePickerSession = action;
-                if (cpInput) cpInput.placeholder = "Profile";
-                return "";
-              }
-            }
-            return null;
-          },
-          onQuickSelectKey: (key, currentInput) =>
-            quickSelectProfileByAlias(key, currentInput),
-          refreshMs: 500,
-        })
-      : null;
-
-  let helpOverlay: OverlayHandle | null = null;
-  openHelpPanel = () => {
-    if (!helpPanelEl) return;
-    commandPalette?.close();
-    settingsLazy.get()?.close();
-    renderHelpShortcuts();
-    showSurface(helpPanelEl, "help-panel--hidden");
-    helpPanelEl.setAttribute("aria-hidden", "false");
-    helpOverlay?.release();
-    helpOverlay = pushOverlay(() => closeHelpPanel());
-    mouseCursorForceVisible(true);
-  };
-  closeHelpPanel = () => {
-    if (!helpPanelEl || helpPanelEl.getAttribute("aria-hidden") === "true") return;
-    helpOverlay?.release();
-    helpOverlay = null;
-    helpPanelEl.setAttribute("aria-hidden", "true");
-    mouseCursorForceVisible(false);
-    getFocusedTerm()?.focus();
-    hideSurface(helpPanelEl, "help-panel--hidden");
-  };
-  toggleHelp = () => {
-    if (!helpPanelEl) return;
-    if (helpPanelEl.classList.contains("help-panel--hidden")) openHelpPanel();
-    else closeHelpPanel();
-  };
-
-  helpPanelEl
-    ?.querySelector("[data-close-help]")
-    ?.addEventListener("click", () => closeHelpPanel());
-
-  // Tab rename modal (used when the tab bar is hidden)
-  const tabRenameModal = document.getElementById("tab-rename-modal");
-  tabRenameModal
-    ?.querySelector(".tab-rename-form")
-    ?.addEventListener("submit", (e) => {
-      e.preventDefault();
-      closeTabRenameModal(true);
-    });
-  tabRenameModal?.querySelectorAll("[data-tab-rename-close]").forEach((el) => {
-    el.addEventListener("click", () => closeTabRenameModal(false));
-  });
-  tabRenameModal
-    ?.querySelector(".tab-rename-backdrop")
-    ?.addEventListener("click", (e) => {
-      if (e.target === e.currentTarget) closeTabRenameModal(false);
-    });
-  // Escape is handled by the shared overlay stack.
-  const appWindow = getCurrentWindow();
-  // Subtle "settle" animation on the pane stack after the window itself is
-  // resized/restored/maximized or hops monitors. These operations intentionally
-  // restore→maximize the Tauri window (avoids a Windows render fault), which snaps
-  // the panes into their new size; the brief scale+fade makes that snap feel
-  // intentional and fluid instead of abrupt. Skipped when motion is off / pref
-  // disabled, and never hooked to continuous manual drag-resize.
-  function playWindowMotion(): void {
-    if (!windowMotionRef.v) return;
-    const el = document.getElementById("terminal-pane-root") ?? terminalContent;
-    if (!el) return;
-    animateClass(el, "window-motion-settle");
-  }
-
-  // Alt+Shift+Up maximizes, Alt+Shift+Down restores (see the Alt keydown handler).
-  async function setWindowMaximized(max: boolean): Promise<void> {
-    try {
-      if (max) await appWindow.maximize();
-      else await appWindow.unmaximize();
-      playWindowMotion();
-    } catch {
-      /* ignore */
-    }
-  }
-
-  // Move the window to an adjacent monitor: +1 = next (Alt+Shift+Right), -1 = previous
-  // (Alt+Shift+Left), wrapping around the list. Preserves the window's offset within
-  // the monitor, clamped to fit, and re-maximizes on the destination if it was maximized.
-  async function moveWindowToAdjacentMonitor(direction: 1 | -1): Promise<void> {
-    try {
-      const monitors = await availableMonitors();
-      if (monitors.length < 2) return;
-      const cur = await currentMonitor();
-      let idx = cur
-        ? monitors.findIndex(
-            (m) =>
-              m.position.x === cur.position.x &&
-              m.position.y === cur.position.y &&
-              m.size.width === cur.size.width &&
-              m.size.height === cur.size.height,
-          )
-        : 0;
-      if (idx < 0) idx = 0;
-      const from = cur ?? monitors[idx];
-      const n = monitors.length;
-      const to = monitors[(((idx + direction) % n) + n) % n];
-      const wasMaximized = await appWindow.isMaximized();
-      if (wasMaximized) await appWindow.unmaximize();
-      const pos = await appWindow.outerPosition();
-      const size = await appWindow.outerSize();
-      const relX = pos.x - from.position.x;
-      const relY = pos.y - from.position.y;
-      const maxX = to.position.x + Math.max(0, to.size.width - size.width);
-      const maxY = to.position.y + Math.max(0, to.size.height - size.height);
-      const nextX = Math.round(
-        Math.min(Math.max(to.position.x + relX, to.position.x), maxX),
-      );
-      const nextY = Math.round(
-        Math.min(Math.max(to.position.y + relY, to.position.y), maxY),
-      );
-      await appWindow.setPosition(new PhysicalPosition(nextX, nextY));
-      if (wasMaximized) await appWindow.maximize();
-      playWindowMotion();
-      if (cursorFollowWindowMoveRef.v) {
-        scheduleCursorWarpToPane(undefined, {
-          force: true,
-          bypassPanePref: true,
-        });
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-
-  // Alt+Shift + primary-button drag moves the window from anywhere in the client
-  // area. Useful when tabs are hidden, where the toolbar drag handle is gone. Capture
-  // phase + stopPropagation so it wins over terminal/text selection handlers.
-  window.addEventListener(
-    "mousedown",
-    (e) => {
-      if (e.button !== 0 || !e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey)
-        return;
-      e.preventDefault();
-      e.stopPropagation();
-      void appWindow.startDragging().catch(() => {});
-    },
-    true,
-  );
-
-  window.addEventListener(
-    "keydown",
-    (e) => {
-      if (!k.match(e, "help_toggle")) return;
-      const t = e.target as HTMLElement | null;
-      if (
-        t?.closest("#command-palette") &&
-        (t.tagName === "INPUT" || t.tagName === "TEXTAREA")
-      )
-        return;
-      if (
-        t?.closest("#settings-panel") &&
-        (t.tagName === "INPUT" ||
-          t.tagName === "TEXTAREA" ||
-          t.tagName === "SELECT")
-      )
-        return;
-      if (
-        t?.closest(".partty-dialog-input") ||
-        t?.closest(".partty-dialog-panel")
-      )
-        return;
-      e.preventDefault();
-      e.stopPropagation();
-      toggleHelp();
-    },
-    true,
-  );
-
-
-  if (commandPalette && cpRoot) {
-    window.addEventListener(
-      "keydown",
-      (e) => {
-        if (!k.match(e, "palette_open")) return;
-        e.preventDefault();
-        e.stopPropagation();
-        if (commandPalette.isOpen()) {
-          commandPalette.close();
-          return;
-        }
-        profilePickerSession = null;
-        commandPalette.open();
-      },
-      true,
-    );
-
-    window.addEventListener(
-      "keydown",
-      (e) => {
-        const m = k.match(
-          e,
-          "profile_split_right",
-          "profile_split_down",
-          "profile_float_new",
-        );
-        if (!m) return;
-        const t = e.target as HTMLElement | null;
-        if (
-          t?.closest("#command-palette") &&
-          (t.tagName === "INPUT" || t.tagName === "TEXTAREA")
-        )
-          return;
-        if (
-          t?.closest("#settings-panel") &&
-          (t.tagName === "INPUT" ||
-            t.tagName === "TEXTAREA" ||
-            t.tagName === "SELECT")
-        )
-          return;
-        if (
-          t?.closest(".partty-dialog-input") ||
-          t?.closest(".partty-dialog-panel")
-        )
-          return;
-        e.preventDefault();
-        e.stopPropagation();
-        if (m === "profile_float_new") {
-          openProfileFloatPicker();
-          return;
-        }
-        openProfileSplitPicker(
-          m === "profile_split_right" ? "split-h" : "split-v",
-        );
-      },
-      true,
-    );
-
-  }
-
-  type StashedPaneBuffer = {
-    data: string;
-    cols: number;
-    rows: number;
-  };
-
-  async function persistTerminalBuffersForHide(): Promise<void> {
-    if (!lp.destroy_webview_on_hide) return;
-
-    const buffers: Record<string, string> = {};
-    if (!lp.discard_buffer_on_hide) {
-      const jobs: Promise<void>[] = [];
-      for (const host of tabPaneHosts.values()) {
-        host.forEachPane((id, pt) => {
-          jobs.push(
-            (async () => {
-              try {
-                const serialize = await ensurePaneSerialize(pt);
-                const start = firstContentScrollbackLine(pt.term);
-                const end = Math.max(0, pt.term.buffer.normal.length - 1);
-                const payload: StashedPaneBuffer = {
-                  data: serialize.serialize({ range: { start, end } }),
-                  cols: pt.term.cols,
-                  rows: pt.term.rows,
-                };
-                buffers[id] = JSON.stringify(payload);
-              } catch (e) {
-                console.warn("serialize pane", id, e);
-              }
-            })(),
-          );
-        });
-      }
-      await Promise.all(jobs);
-    } else {
-      for (const host of tabPaneHosts.values()) {
-        host.forEachPane((_id, pt) => {
-          try {
-            pt.term.reset();
-          } catch {
-            /* ignore */
-          }
-        });
-      }
-    }
-
-    try {
-      await invoke("stash_terminal_buffers", { buffers });
-    } catch (e) {
-      console.warn("stash_terminal_buffers", e);
-    }
-  }
-
-  function writeTerminalSerialized(term: Terminal, data: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      try {
-        term.write(data, () => resolve());
-      } catch (e) {
-        reject(e);
-      }
-    });
-  }
-
-  async function restoreSerializedTerminals(): Promise<void> {
-    if (lp.discard_buffer_on_hide) {
-      try {
-        await invoke("take_terminal_buffers");
-      } catch {
-        /* ignore */
-      }
-      return;
-    }
-
-    let map: Record<string, string> | null = null;
-    try {
-      map = await invoke<Record<string, string> | null>("take_terminal_buffers");
-    } catch {
-      /* ignore */
-    }
-    if (!map || Object.keys(map).length === 0) return;
-
-    const writes: Promise<void>[] = [];
-    for (const host of tabPaneHosts.values()) {
-      host.forEachPane((id, pt) => {
-        const rawPane = map![id];
-        if (!rawPane) return;
-        writes.push(
-          (async () => {
-            try {
-              let data = rawPane;
-              let cols = 0;
-              let rows = 0;
-              if (rawPane.startsWith("{")) {
-                const parsed = JSON.parse(rawPane) as StashedPaneBuffer;
-                if (typeof parsed.data === "string") {
-                  data = parsed.data;
-                  cols = Number(parsed.cols) || 0;
-                  rows = Number(parsed.rows) || 0;
-                }
-              }
-              if (cols >= 2 && rows >= 1) {
-                pt.term.resize(cols, rows);
-              }
-              await writeTerminalSerialized(pt.term, data);
-              backendReplayRestoredPanes.add(id);
-            } catch (e) {
-              console.warn("restoreSerializedTerminals", id, e);
-            }
-          })(),
-        );
-      });
-    }
-    await Promise.all(writes);
-  }
-
-  async function takeNeedsScrollbackRestore(
-    fallback: boolean,
-  ): Promise<boolean> {
-    try {
-      return await invoke<boolean>("take_webview_destroyed_for_hide");
-    } catch (e) {
-      console.warn("take_webview_destroyed_for_hide", e);
-      return fallback;
-    }
-  }
-
-  async function restoreScrollbackIfNeeded(fallback: boolean): Promise<void> {
-    if (await takeNeedsScrollbackRestore(fallback)) {
-      await restoreSerializedTerminals();
-    }
-  }
-
-  function waitAnimationFrames(count = 2): Promise<void> {
-    return new Promise((resolve) => afterAnimationFrames(resolve, count));
-  }
-
-  async function ensurePtyForAllTabHosts(): Promise<void> {
-    const jobs: Promise<void>[] = [];
-    for (const host of tabPaneHosts.values()) {
-      host.forEachPane((id, pt) => {
-        jobs.push(ensurePtyForPane(id, pt));
-      });
-    }
-    await Promise.all(jobs);
-  }
-
-  async function unlockSummonSurface(): Promise<void> {
-    await releasePtyHydrationGate();
-    releaseBootSurface();
-  }
-
-  async function runPrepareShow(): Promise<void> {
-    summonInProgress = true;
-    summonPreparedByDefer = false;
-    try {
-      if (localStorage.getItem(DEFER_PTY_REINIT_KEY) === "1") {
-        localStorage.removeItem(DEFER_PTY_REINIT_KEY);
-        await newTerminalSession();
-      }
-      scheduleResizeImmediate();
-      await waitAnimationFrames(2);
-
-      // Restore before PTY ensure/replay so catch-up cannot race an empty buffer.
-      await restoreScrollbackIfNeeded(lp.destroy_webview_on_hide);
-      await ensurePtyForAllTabHosts();
-
-      await mountWebglForActivePanes();
-      const ft = getFocusedTerm();
-      if (ft) ft.refresh(0, ft.rows - 1);
-      if (paneHost) scheduleHostGeometryRepair(paneHost);
-      scheduleResizeImmediate(true);
-      await waitAnimationFrames(2);
-
-      await unlockSummonSurface();
-      summonPreparedByDefer = lp.defer_window_show_until_prepared;
-      if (lp.defer_window_show_until_prepared) {
-        await invoke("commit_show_window").catch((e) =>
-          console.error("commit_show_window", e),
-        );
-      }
-    } catch (e) {
-      summonInProgress = false;
-      summonPreparedByDefer = false;
-      await releasePtyHydrationGate().catch(() => {});
-      releaseBootSurface();
-      throw e;
-    }
-  }
-
-  await Promise.all([
-    listen<{ sessionId: string; cwd: string; remoteIsWindows?: boolean | null }>(
-      "pty-cwd",
-      (event) => {
-      const { sessionId, cwd, remoteIsWindows } = event.payload;
-      const paneId = paneBySessionId.get(sessionId)?.paneId;
-      if (!paneId) return;
-      const profile = resolvePaneProfile(paneId);
-      if (profile?.kind === "ssh" && !profileHasRemoteIntegration(profile)) {
-        return;
-      }
-      if (remoteIsWindows != null) {
-        paneRemoteIsWindows.set(paneId, remoteIsWindows);
-      }
-      paneCwdHints.set(paneId, cwd);
-      paneLinkProviders.get(paneId)?.invalidate();
-      if (extCwdChangeSubs.length > 0) {
-        for (const fn of extCwdChangeSubs) {
-          try {
-            fn(paneId, cwd);
-          } catch {
-            /* ignore */
-          }
-        }
-      }
-      refreshTabLabelForPane(paneId);
-      if (paneId !== focusedPaneId()) return;
-      if (normalizeFsPathKey(cwd) === normalizeFsPathKey(liveCwd ?? "")) return;
-      liveCwd = cwd;
-    }),
-
-    listen<{ sessionId: string; title: string }>("pty-title", (event) => {
-      const { sessionId, title } = event.payload;
-      const paneId = paneBySessionId.get(sessionId)?.paneId;
-      if (!paneId) return;
-      if (title) {
-        paneProgramNames.set(paneId, title);
-      } else {
-        paneProgramNames.delete(paneId);
-      }
-      refreshTabLabelForPane(paneId);
-    }),
-
-    listen<{
-      sessionId: string;
-      kind: string;
-      exitCode?: number | null;
-      text?: string;
-    }>("pty-shell-event", (event) => {
-      const { sessionId, kind, text, exitCode } = event.payload;
-      const paneId = paneBySessionId.get(sessionId)?.paneId;
-      if (!paneId) return;
-      switch (kind) {
-        case "commandLine": {
-          if (!text) break;
-          const merged = mergeProcessCommand(
-            pendingShellCommandLine.get(paneId) ?? "",
-            text,
-          );
-          if (merged) pendingShellCommandLine.set(paneId, merged);
-          const entry = activeProcesses.get(paneId);
-          if (entry) {
-            applyShellCommandLine(entry, text);
-          }
-          break;
-        }
-        case "preExec": {
-          let entry = activeProcesses.get(paneId);
-          if (!entry) {
-            const cmd = pendingShellCommandLine.get(paneId);
-            if (!cmd) break;
-            entry = createActiveProcessEntry(
-              cmd,
-              paneCwdHints.get(paneId) || "",
-            );
-            activeProcesses.set(paneId, entry);
-            if (extProcStartSubs.length > 0) {
-              const start = {
-                paneId,
-                command: displayProcessCommand(entry.command),
-                cwd: entry.cwd,
-              };
-              for (const fn of extProcStartSubs) {
-                try {
-                  fn(start);
-                } catch {
-                  /* ignore */
-                }
-              }
-            }
-          }
-          markProcessExecStart(entry);
-          pendingShellCommandLine.delete(paneId);
-          break;
-        }
-        case "commandDone": {
-          // OSC 133 shell integration carries the real exit code; the
-          // heuristic end path (below) passes null when it's unavailable.
-          finishActiveProcess(paneId, Date.now(), exitCode ?? null);
-          break;
-        }
-        case "promptStart": {
-          paneProgramNames.delete(paneId);
-          refreshTabLabelForPane(paneId);
-          const entry = activeProcesses.get(paneId);
-          if (entry) {
-            finishActiveProcess(paneId, Date.now());
-          }
-          break;
-        }
-      }
-    }),
-
-    listen<PtyExitEvent>("pty-exit", async (event) => {
-      const { sessionId } = event.payload;
-      const paneId = paneBySessionId.get(sessionId)?.paneId;
-      if (!paneId) return;
-      const pending = pendingPtyOutputByPane.get(paneId);
-      if (pending) {
-        pendingPtyOutputByPane.delete(paneId);
-        processPtyOutputBatch(
-          paneId,
-          drainByteChunks(pending.chunks),
-          pending.eventCount,
-          pending.queuedAt,
-        );
-      }
-      await ptyAckExit(sessionId);
-      finishActiveProcess(paneId, Date.now());
-      await closePaneOnShellExit(paneId);
-    }),
-    listen("pty-session-shed", () => {
-      liveCwd = null;
-      paneCwdHints.clear();
-    paneRemoteIsWindows.clear();
-      pendingPtyOutputByPane.clear();
-      paneHost?.forEachPane((_id, p) => {
-        p.term.reset();
-      });
-    }),
-    listen("partty-hide", () => {
-      void (async () => {
-        for (const fn of extWindowHideSubs) {
-          try {
-            fn();
-          } catch {
-            /* ignore */
-          }
-        }
-        if (paneHost && lp.destroy_webview_on_hide) {
-          persistCurrentTabLayout();
-        }
-        await persistTerminalBuffersForHide();
-        if (lp.webgl_shed_on_hide) {
-          shedWebgl();
-        }
-        // WebView teardown waits for stash (see schedule_destroy_webview_after_hide).
-      })();
-    }),
-    listen("partty-prepare-show", () => {
-      void runPrepareShow().catch((e) => {
-        console.error("partty-prepare-show", e);
-        void invoke("commit_show_window").catch(() => {
-          /* still try to show */
-        });
-      });
-    }),
-    listen("partty-show", async () => {
-      for (const fn of extWindowShowSubs) {
-        try {
-          fn();
-        } catch {
-          /* ignore */
-        }
-      }
-
-      // Defer-show: prepare already restored/painted — avoid a second pass.
-      if (summonPreparedByDefer) {
-        summonPreparedByDefer = false;
-        summonInProgress = false;
-        getFocusedTerm()?.focus();
-        mouseCursorController?.sync();
-        return;
-      }
-
-      // Non-defer summon (or prepare skipped): restore → paint → unlock, then PTY.
-      summonInProgress = true;
-      try {
-        await restoreScrollbackIfNeeded(false);
-        await mountWebglForActivePanes();
-        getFocusedTerm()?.focus();
-        scheduleResizeImmediate();
-        await waitAnimationFrames(2);
-        await unlockSummonSurface();
-        mouseCursorController?.sync();
-        if (!lp.defer_window_show_until_prepared) {
-          const jobs: Promise<void>[] = [];
-          paneHost?.forEachPane((id, pt) => {
-            jobs.push(ensurePtyForPane(id, pt));
-          });
-          await Promise.all(jobs);
-        }
-        reflowAllPanes();
-        const ft = getFocusedTerm();
-        if (ft) ft.refresh(0, ft.rows - 1);
-        getFocusedTerm()?.focus();
-      } finally {
-        summonInProgress = false;
-      }
-    }),
-  ]);
-
-  // After destroy+recreate, Rust no longer emits `partty-prepare-show` until we signal listeners exist.
-  await invoke("webview_boot_complete").catch(() => {
-    /* ignore */
-  });
-
-  scheduleIdle(() => {
-    void import("./app/settingsPanel");
-  });
-
-  window.addEventListener("resize", () => scheduleResizeDebounced());
-  void appWindow.onResized(() => scheduleResizeImmediate());
-  void appWindow.onScaleChanged(() => scheduleResizeImmediate());
-  if (terminalContent && typeof ResizeObserver !== "undefined") {
-    const ro = new ResizeObserver(() => scheduleResizeDebounced());
-    ro.observe(terminalContent);
-  }
-  // The first fit() can run before the terminal's custom font finishes loading, so
-  // xterm measures cell width with a fallback font and computes the wrong cols/rows
-  // (mis-sized canvas). Re-fit once fonts are ready, and again on any late font load.
-  if (document.fonts) {
-    void document.fonts.ready.then(() => {
-      if (summonInProgress || summonPreparedByDefer) return;
-      reflowAllPanes();
-    });
-    document.fonts.addEventListener("loadingdone", () => {
-      if (summonInProgress || summonPreparedByDefer) return;
-      reflowAllPanes();
-    });
-  }
-
-  stage?.addEventListener("mousedown", () => {
-    getFocusedTerm()?.focus();
-  });
-
-  requestAnimationFrame(() => {
-    scheduleResizeImmediate();
-    // prepare-show ensures PTYs after scrollback restore while booting.
-    if (
-      lp.preload_pty_on_startup &&
-      !document.documentElement.classList.contains("partty-booting")
-    ) {
-      paneHost?.forEachPane((id) => {
-        void ensurePtyForPane(id);
-      });
-    }
-  });
-
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState !== "visible") return;
-    // Re-read config.toml so config-only sections ([editor], ...) edited by
-    // hand while the app runs apply on the next focus — no modal needed.
-    void (async () => {
-      try {
-        const fresh = await invoke<PersistedPayload>("get_persisted_state");
-        persisted.prefs = fresh.prefs;
-        editorConfigRef.v = editorConfigFromPrefs(
-          fresh.prefs as Partial<ParttyPrefs>,
-        );
-      } catch {
-        // IPC failure or boot ordering: keep the current prefs.
-      }
-    })();
-    mouseCursorController?.sync();
-    // prepare-show already reflowed; a second pass here (from commit_show)
-    // causes a post-reveal layout bounce.
-    if (summonInProgress || summonPreparedByDefer) return;
-    scheduleResizeDebounced();
-    reflowAllPanes();
-    getFocusedTerm()?.focus();
-  });
-
-  // ── Extensions ──────────────────────────────────────────────
-  const loadExtensions = async (): Promise<void> => {
-    try {
-      const allExts = await invoke<
-        Array<{
-          id: string;
-          name: string;
-          version: string;
-          description: string;
-          code: string;
-          enabled: boolean;
-        }>
-      >("list_extensions");
-      const exts = allExts.filter((e) => e.enabled);
-      if (exts.length === 0) return;
-
-      // Listener registries — zero overhead when no extensions subscribe.
-      const extApi: Record<string, unknown> = {
-        onPtyOutput(fn: (paneId: string, data: string) => void) {
-          extPtyOutputSubs.push(fn);
-          return () => {
-            const idx = extPtyOutputSubs.indexOf(fn);
-            if (idx !== -1) extPtyOutputSubs.splice(idx, 1);
-          };
-        },
-        onPtyInput(fn: (paneId: string, data: string) => void) {
-          extPtyInputSubs.push(fn);
-          return () => {
-            const idx = extPtyInputSubs.indexOf(fn);
-            if (idx !== -1) extPtyInputSubs.splice(idx, 1);
-          };
-        },
-        onProcessStart(
-          fn: (proc: { paneId: string; command: string; cwd: string }) => void,
-        ) {
-          extProcStartSubs.push(fn);
-          return () => {
-            const idx = extProcStartSubs.indexOf(fn);
-            if (idx !== -1) extProcStartSubs.splice(idx, 1);
-          };
-        },
-        onProcessEnd(
-          fn: (proc: {
-            paneId: string;
-            command: string;
-            durationMs: number;
-            /** OSC 133 exit code, or null when the shell didn't report one. */
-            exitCode: number | null;
-          }) => void,
-        ) {
-          extProcEndSubs.push(fn);
-          return () => {
-            const idx = extProcEndSubs.indexOf(fn);
-            if (idx !== -1) extProcEndSubs.splice(idx, 1);
-          };
-        },
-        getPaneActiveProcess(paneId: string) {
-          const entry = activeProcesses.get(paneId);
-          if (!entry) return null;
-          return {
-            command: displayProcessCommand(entry.command),
-            cwd: entry.cwd,
-            startedAt: entry.startedAt,
-          };
-        },
-        getActiveProcesses() {
-          const result: Array<{
-            paneId: string;
-            command: string;
-            cwd: string;
-            startedAt: number;
-          }> = [];
-          for (const [paneId, entry] of activeProcesses) {
-            result.push({
-              paneId,
-              command: displayProcessCommand(entry.command),
-              cwd: entry.cwd,
-              startedAt: entry.startedAt,
-            });
-          }
-          return result;
-        },
-        writeToPane(paneId: string, text: string) {
-          queuePtyWrite(paneId, text);
-        },
-        showNotification(
-          command: string,
-          detail: string,
-          opts?: string | { paneId?: string; buttons?: NotificationButton[] },
-        ) {
-          if (!processNotificationEnabledRef.v) return;
-          if (!processToast) return;
-          const options =
-            typeof opts === "string" ? { paneId: opts } : (opts ?? {});
-          showProcessToast(
-            `<span class="proc-toast-cmd">${escapeHtml(truncateEnd(command, NOTIF_COMMAND_MAX))}</span> ${escapeHtml(truncateEnd(detail, NOTIF_DETAIL_MAX))}`,
-            options.paneId ?? "",
-            options.buttons ?? [],
-          );
-        },
-        getPref<T>(key: string, fallback: T): T {
-          try {
-            const raw = localStorage.getItem(`partty.ext.${key}`);
-            return raw ? JSON.parse(raw) : fallback;
-          } catch {
-            return fallback;
-          }
-        },
-        setPref<T>(key: string, value: T): void {
-          localStorage.setItem(`partty.ext.${key}`, JSON.stringify(value));
-        },
-        getAppTheme() {
-          return {
-            ui: currentUiPrefs,
-            terminal: buildXtermThemeFromPrefs(
-              persisted.prefs as PaneThemePrefs,
-            ),
-          };
-        },
-        getPaneTheme(paneId: string) {
-          const pt = getPaneTerminalById(paneId);
-          const theme = pt
-            ? { ...pt.term.options.theme }
-            : buildXtermThemeFromPrefs(persisted.prefs as PaneThemePrefs);
-          // Don't leak the hideCursor implementation detail (a transparent
-          // cursor) — report the pane's real cursor color.
-          const original = extCursorHiddenOriginal.get(paneId);
-          if (original) {
-            if (original.cursor !== undefined) theme.cursor = original.cursor;
-            if (original.cursorAccent !== undefined)
-              theme.cursorAccent = original.cursorAccent;
-          }
-          const override = paneThemes.get(paneId);
-          return { theme, override: override ?? null };
-        },
-        getFocusedPaneId: () => focusedPaneId(),
-        getPaneIds: () => {
-          const ids: string[] = [];
-          for (const host of tabPaneHosts.values()) {
-            host.forEachPane((id) => ids.push(id));
-          }
-          return ids;
-        },
-        getPaneInfo(paneId: string) {
-          if (typeof paneId !== "string" || !paneId) return null;
-          const host = getPaneHostByPaneId(paneId);
-          if (!host) return null;
-          const floatState = host.getFloatingState()[paneId];
-          return {
-            id: paneId,
-            name: paneEffectiveName(paneId),
-            programName: paneProgramNames.get(paneId) ?? null,
-            cwd: paneCwdHints.get(paneId) ?? null,
-            tabId: tabIdForPaneHost(host) ?? null,
-            floating: floatState !== undefined,
-            focused: focusedPaneId() === paneId,
-          };
-        },
-        getPaneTerminalDims(paneId: string) {
-          const pt = getPaneTerminalById(paneId);
-          if (!pt) return null;
-          return { cols: pt.term.cols, rows: pt.term.rows };
-        },
-
-        // ── Rendering & cursor (pane overlay surface) ──
-        createOverlay(paneId: string, opts?: { hideCursor?: boolean }) {
-          if (typeof paneId !== "string" || !paneId) return null;
-          const found = getPaneTerminalById(paneId);
-          const element = found?.term.element;
-          if (!found || !element) return null;
-          // Non-nullable locals so closures keep their types.
-          const term = found.term;
-
-          // Anchor to the screen box (exactly the rendered canvas area;
-          // excludes the scrollbar). Falls back to the terminal root.
-          const screen = element.querySelector(".xterm-screen");
-          const parent = screen instanceof HTMLElement ? screen : element;
-          parent.classList.add("partty-ext-overlay-anchor");
-
-          const layer = document.createElement("div");
-          layer.className = "partty-ext-overlay-layer";
-          const canvas = document.createElement("canvas");
-          canvas.className = "partty-ext-overlay-canvas";
-          layer.appendChild(canvas);
-          parent.appendChild(layer);
-
-          const maybeCtx = canvas.getContext("2d");
-          if (!maybeCtx) {
-            layer.remove();
-            return null;
-          }
-          const ctx = maybeCtx;
-
-          let destroyed = false;
-          let drawFn: ((t: number) => void) | null = null;
-          let raf = 0;
-          let pendingHidden = false;
-          let hiddenObserver: MutationObserver | null = null;
-          let cssW = 0;
-          let cssH = 0;
-
-          const isHidden = (): boolean =>
-            getComputedStyle(element).visibility === "hidden";
-
-          const handle = {
-            canvas,
-            ctx,
-            cellWidth: 0,
-            cellHeight: 0,
-            cols: 0,
-            rows: 0,
-            requestRender(draw: (t: number) => void): void {
-              if (destroyed) return;
-              drawFn = draw;
-              if (raf) return;
-              if (isHidden()) {
-                pendingHidden = true;
-                ensureHiddenObserver();
-                return;
-              }
-              raf = requestAnimationFrame(onFrame);
-            },
-            destroy(): void {
-              if (destroyed) return;
-              destroyed = true;
-              if (raf) cancelAnimationFrame(raf);
-              raf = 0;
-              hiddenObserver?.disconnect();
-              hiddenObserver = null;
-              ro.disconnect();
-              if (savedCursorTheme) {
-                extCursorHiddenPanes.delete(paneId);
-                extCursorHiddenOriginal.delete(paneId);
-                term.options.theme = {
-                  ...term.options.theme,
-                  ...savedCursorTheme,
-                };
-              }
-              layer.remove();
-              if (!parent.querySelector(".partty-ext-overlay-layer")) {
-                parent.classList.remove("partty-ext-overlay-anchor");
-              }
-            },
-          };
-
-          function measure(): void {
-            const rect = parent.getBoundingClientRect();
-            cssW = Math.max(1, Math.round(rect.width));
-            cssH = Math.max(1, Math.round(rect.height));
-            const dpr = window.devicePixelRatio || 1;
-            const pw = Math.max(1, Math.round(cssW * dpr));
-            const ph = Math.max(1, Math.round(cssH * dpr));
-            if (canvas.width !== pw) canvas.width = pw;
-            if (canvas.height !== ph) canvas.height = ph;
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            handle.cellWidth = term.cols > 0 ? cssW / term.cols : 0;
-            handle.cellHeight = term.rows > 0 ? cssH / term.rows : 0;
-            handle.cols = term.cols;
-            handle.rows = term.rows;
-          }
-
-          function ensureHiddenObserver(): void {
-            if (hiddenObserver) return;
-            const host = getPaneHostByPaneId(paneId);
-            const tabId = host ? tabIdForPaneHost(host) : null;
-            const shell = tabId ? (tabPaneShells.get(tabId) ?? null) : null;
-            if (!shell) return;
-            hiddenObserver = new MutationObserver(() => {
-              if (!isHidden() && pendingHidden && !destroyed) {
-                pendingHidden = false;
-                raf = requestAnimationFrame(onFrame);
-              }
-            });
-            hiddenObserver.observe(shell, {
-              attributes: true,
-              attributeFilter: ["class"],
-            });
-          }
-
-          function onFrame(t: number): void {
-            raf = 0;
-            if (destroyed) return;
-            if (isHidden()) {
-              pendingHidden = true;
-              ensureHiddenObserver();
-              return;
-            }
-            measure();
-            const fn = drawFn;
-            if (!fn) return;
-            // The API owns the clear: extensions draw only.
-            ctx.clearRect(0, 0, cssW, cssH);
-            try {
-              fn(t);
-            } catch {
-              /* ignore */
-            }
-          }
-
-          const ro = new ResizeObserver(() => {
-            if (destroyed) return;
-            measure();
-            if (!raf && drawFn) raf = requestAnimationFrame(onFrame);
-          });
-          ro.observe(parent);
-
-          // The WebGL renderer paints the cursor into its canvas, so CSS
-          // cannot hide it; a transparent theme cursor does. The registry
-          // lets theme re-applies (refreshAllTerminalThemes/applyPaneTheme)
-          // keep the hide in force; the immediate value is restored on
-          // destroy.
-          let savedCursorTheme: { cursor?: string; cursorAccent?: string } | null =
-            null;
-          if (opts?.hideCursor) {
-            const th = { ...term.options.theme };
-            savedCursorTheme = {
-              cursor: th.cursor,
-              cursorAccent: th.cursorAccent,
-            };
-            extCursorHiddenPanes.add(paneId);
-            extCursorHiddenOriginal.set(paneId, savedCursorTheme);
-            term.options.theme = { ...th, cursor: "rgba(0, 0, 0, 0)" };
-          }
-
-          measure();
-          const cleanups = paneHostCleanups.get(paneId) ?? [];
-          cleanups.push(() => handle.destroy());
-          paneHostCleanups.set(paneId, cleanups);
-          return handle;
-        },
-        onCursorMove(
-          paneId: string,
-          fn: (pos: { x: number; y: number; kind: "move" | "sync" }) => void,
-        ) {
-          const entry = ensureExtCursorSubs(paneId);
-          if (!entry) return () => {};
-          entry.subs.push(fn);
-          return () => removeExtCursorSub(paneId, fn);
-        },
-        getCursorPos(paneId: string) {
-          const pt = getPaneTerminalById(paneId);
-          if (!pt) return null;
-          const buf = pt.term.buffer.active;
-          return { x: buf.cursorX, y: buf.cursorY - buf.viewportY };
-        },
-        getWindowState() {
-          return {
-            visible: document.visibilityState === "visible",
-            tabsHidden: document.documentElement.classList.contains("tabs-hidden"),
-          };
-        },
-        getPaneCwd: (paneId: string) => paneCwdHints.get(paneId) ?? null,
-        getPaneName: (paneId: string) => paneEffectiveName(paneId),
-
-        // ── Pane & tab control ──
-        focusPane(paneId: string) {
-          if (typeof paneId !== "string" || !paneId) return;
-          navigateToPane(paneId);
-        },
-        closePane(paneId: string) {
-          if (typeof paneId !== "string" || !paneId) return;
-          const host = getPaneHostByPaneId(paneId);
-          if (!host) return;
-          if (host.isPristineRootTab()) {
-            const tabId = tabIdForPaneHost(host);
-            if (tabId) closeTab(tabId);
-            return;
-          }
-          const pt = host.getPaneTerminal(paneId);
-          if (pt) void ptyKillPane(pt.sessionId).catch(() => {});
-          host.removePane(paneId);
-        },
-        splitPane(paneId: string, dir: "h" | "v") {
-          if (typeof paneId !== "string" || !paneId) return null;
-          const host = getPaneHostByPaneId(paneId);
-          if (!host) return null;
-          host.setFocusedPaneId(paneId);
-          return splitFocusedWithCwd(dir) ?? null;
-        },
-        getTabs() {
-          return visibleTabsInOrder().map((t) => tabRenderModel(t));
-        },
-        getTabGroups() {
-          return [...tabsState.groups]
-            .sort((a, b) => a.order - b.order)
-            .map((g) => ({
-              id: g.id,
-              name: g.name,
-              color: g.color,
-              collapsed: g.collapsed,
-              tabIds: tabsState.tabs
-                .filter((t) => t.groupId === g.id)
-                .sort((a, b) => a.order - b.order)
-                .map((t) => t.id),
-            }));
-        },
-        switchTab(tabId: string) {
-          if (typeof tabId !== "string" || !tabId) return;
-          if (tabPaneHosts.has(tabId) || deferredTabInits.has(tabId)) {
-            switchToTab(tabId);
-          }
-        },
-
-        // ── Events ──
-        onPaneCreated(fn: (paneId: string) => void) {
-          extPaneCreatedSubs.push(fn);
-          return () => {
-            const idx = extPaneCreatedSubs.indexOf(fn);
-            if (idx !== -1) extPaneCreatedSubs.splice(idx, 1);
-          };
-        },
-        onPaneClosed(fn: (paneId: string) => void) {
-          extPaneClosedSubs.push(fn);
-          return () => {
-            const idx = extPaneClosedSubs.indexOf(fn);
-            if (idx !== -1) extPaneClosedSubs.splice(idx, 1);
-          };
-        },
-        onFocusChanged(fn: (paneId: string) => void) {
-          extFocusSubs.push(fn);
-          return () => {
-            const idx = extFocusSubs.indexOf(fn);
-            if (idx !== -1) extFocusSubs.splice(idx, 1);
-          };
-        },
-        onCwdChanged(fn: (paneId: string, cwd: string) => void) {
-          extCwdChangeSubs.push(fn);
-          return () => {
-            const idx = extCwdChangeSubs.indexOf(fn);
-            if (idx !== -1) extCwdChangeSubs.splice(idx, 1);
-          };
-        },
-
-        // ── Command palette ──
-        registerCommand(
-          id: string,
-          label:
-            | string
-            | { label: string; keywords?: string; run: () => void },
-          run?: () => void,
-        ) {
-          const def =
-            typeof label === "string"
-              ? { id, label, run: run ?? (() => {}) }
-              : { id, ...label };
-          extPaletteCommands.push({
-            id: def.id,
-            label: def.label,
-            keywords: def.keywords,
-            run: def.run,
-          });
-          return () => {
-            const idx = extPaletteCommands.findIndex((c) => c.id === id);
-            if (idx !== -1) extPaletteCommands.splice(idx, 1);
-          };
-        },
-
-        // ── Tab lifecycle ──
-        onTabSwitch(fn: (tabId: string) => void) {
-          extTabSwitchSubs.push(fn);
-          return () => {
-            const idx = extTabSwitchSubs.indexOf(fn);
-            if (idx !== -1) extTabSwitchSubs.splice(idx, 1);
-          };
-        },
-        onTabsChanged(fn: () => void) {
-          return tabBar.onChange(fn);
-        },
-        getTabBarLayout() {
-          return tabBar.layout();
-        },
-        setTabBarLayout(partial: {
-          tabJustify?: "start" | "center" | "end";
-          showSingleTab?: boolean;
-          omitDefaultClose?: boolean;
-          grow?: boolean;
-          gap?: string;
-          itemGap?: string;
-        }) {
-          const unsub = tabBar.setLayout(partial);
-          renderTabsBar();
-          return () => {
-            unsub();
-            renderTabsBar();
-          };
-        },
-        registerTabRenderer(fn: (tab: TabRenderModel, el: HTMLElement) => void) {
-          const unsub = tabBar.registerTabRenderer(fn);
-          renderTabsBar();
-          return () => {
-            unsub();
-            renderTabsBar();
-          };
-        },
-        registerGroupRenderer(
-          fn: (
-            group: {
-              id: string;
-              name: string;
-              color: string | null;
-              collapsed: boolean;
-              tabIds: string[];
-            },
-            el: HTMLElement,
-          ) => void,
-        ) {
-          const unsub = tabBar.registerGroupRenderer(fn);
-          renderTabsBar();
-          return () => {
-            unsub();
-            renderTabsBar();
-          };
-        },
-        registerTabBarItem(item: TabBarItem) {
-          if (!item || typeof item.id !== "string" || !item.id) return () => {};
-          if (
-            item.slot !== "leading" &&
-            item.slot !== "trailing" &&
-            item.slot !== "background"
-          ) {
-            return () => {};
-          }
-          if (typeof item.mount !== "function") return () => {};
-          return tabBar.registerItem(item);
-        },
-        requestTabBarRender() {
-          renderTabsBar();
-        },
-        refreshTabBarItems() {
-          tabBar.refreshItems();
-        },
-
-        // ── Window lifecycle ──
-        onWindowShow(fn: () => void) {
-          extWindowShowSubs.push(fn);
-          return () => {
-            const idx = extWindowShowSubs.indexOf(fn);
-            if (idx !== -1) extWindowShowSubs.splice(idx, 1);
-          };
-        },
-        onWindowHide(fn: () => void) {
-          extWindowHideSubs.push(fn);
-          return () => {
-            const idx = extWindowHideSubs.indexOf(fn);
-            if (idx !== -1) extWindowHideSubs.splice(idx, 1);
-          };
-        },
-
-        // ── Metadata ──
-        getAppVersion: () => pkg.version,
-      };
-
-      for (const ext of exts) {
-        try {
-          // Extension code is the body of a function receiving `api`.
-          // e.g.:  api.onPtyOutput((paneId, data) => { ... });
-          //         api.showNotification("Hello", "World");
-          const wrapped = `"use strict";\n${ext.code}\n//# sourceURL=extension:${ext.id}`;
-          const fn = new Function("api", wrapped);
-          fn(extApi);
-        } catch (e) {
-          console.error(`Extension "${ext.name}" activation failed`, e);
-        }
-      }
-    } catch {
-      // Extensions directory doesn't exist or is empty — nothing to load.
-    }
-  };
-
-  if (typeof requestIdleCallback === "function") {
-    requestIdleCallback(() => void loadExtensions(), { timeout: 3000 });
-  } else {
-    window.setTimeout(() => void loadExtensions(), 0);
-  }
-
-  if (import.meta.env.DEV) {
-    const { createDevMetricsOverlay } = await import("./app/devMetricsOverlay");
-    let devMetricsOverlay: DevMetricsOverlayApi | null = null;
-    const appRoot = document.getElementById("app");
-    const getFocusedPaneId = (): string | null | undefined =>
-      paneHost?.getFocusedPaneId();
-    if (parttyPerf.enabled && appRoot) {
-      devMetricsOverlay = createDevMetricsOverlay({
-        root: appRoot,
-        getFocusedPaneId,
-      });
-    }
-
-    window.addEventListener(
-      "keydown",
-      (e) => {
-        if (!k.match(e, "dev_toggle")) return;
-        const t = e.target as HTMLElement | null;
-        if (t?.closest("#command-palette") || t?.closest("#settings-panel"))
-          return;
-        if (!parttyPerf.enabled) return;
-        e.preventDefault();
-        e.stopPropagation();
-        if (!devMetricsOverlay && appRoot) {
-          devMetricsOverlay = createDevMetricsOverlay({
-            root: appRoot,
-            getFocusedPaneId,
-          });
-        }
-        devMetricsOverlay?.toggle();
-      },
-      true,
-    );
-  }
-
-  window.addEventListener("beforeunload", () => {
-    try {
-      persistCurrentTabLayout();
-      if (!retainSessionStateRef.v) {
-        shedSessionLocalState();
-      } else if (shouldShedSessionOnExitSilent()) {
-        shedSessionLocalState();
-      }
-    } catch {
-      /* ignore */
-    }
-    mouseCursorController?.dispose();
-    paneHost = null;
-    commandPalette?.dispose();
-  });
+	if (!import.meta.env.DEV) {
+		document.querySelectorAll("[data-dev-only]").forEach((el) => el.remove());
+	}
+	const k = createKeybinds();
+
+	/** `[editor]` section shape consumed by the ctrl+alt+click operation. */
+	type EditorConfig = {
+		splitType: "h" | "v";
+		profile: string;
+		command: string;
+	};
+
+	const editorConfigFromPrefs = (p: Partial<ParttyPrefs>): EditorConfig => {
+		// User-facing vocabulary: "v"/"vertical" = side-by-side (adjacent),
+		// "h"/"horizontal" = stacked (top-bottom). PaneHost represents these
+		// inversely (dir "h" → row, dir "v" → column), so translate here.
+		const dir = String(p.editor_split_type ?? "v").toLowerCase();
+		const splitType: "h" | "v" =
+			dir === "h" || dir === "horizontal" ? "v" : "h";
+		return {
+			splitType,
+			profile: String(p.editor_profile ?? "").trim(),
+			command: String(p.editor_command ?? "").trim(),
+		};
+	};
+
+	const persisted = await invoke<PersistedPayload>("get_persisted_state");
+	const editorConfigRef = {
+		v: editorConfigFromPrefs(persisted.prefs as Partial<ParttyPrefs>),
+	};
+	syncRuntimeShedFromPrefs(persisted.prefs as ParttyPrefs);
+	configureDevPerfPrefs(persisted.prefs as Partial<ParttyPrefs>);
+	parttyPerf.mark("boot.start");
+	const lp: ParttyLifecyclePrefs = mergeLifecyclePrefs(persisted.prefs);
+	const uiPrefs = pickUiPrefs(persisted.prefs);
+	let currentUiPrefs = uiPrefs;
+	applyUiTheme(uiPrefs);
+	applyTerminalDisplayPrefs(persisted.prefs as Partial<ParttyPrefs>);
+
+	document.documentElement.classList.toggle(
+		"pane-blur-unfocused",
+		Boolean((persisted.prefs as Partial<ParttyPrefs>).blur_unfocused_panes),
+	);
+	document.documentElement.style.setProperty(
+		"--pane-blur-radius",
+		String((persisted.prefs as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6),
+	);
+	document.documentElement.style.setProperty(
+		"--pane-opacity-focused",
+		String(
+			(persisted.prefs as Partial<ParttyPrefs>).pane_opacity_focused ?? 1.0,
+		),
+	);
+	document.documentElement.style.setProperty(
+		"--pane-opacity-unfocused",
+		String(
+			(persisted.prefs as Partial<ParttyPrefs>).pane_opacity_unfocused ?? 1.0,
+		),
+	);
+	document.documentElement.classList.toggle(
+		"pane-variable-opacity",
+		Boolean((persisted.prefs as Partial<ParttyPrefs>).pane_variable_opacity),
+	);
+	applyPaneFocusScalePrefs(persisted.prefs as Partial<ParttyPrefs>);
+
+	const tabsHidden = localStorage.getItem(TABS_HIDDEN_KEY) === "1";
+	document.documentElement.classList.toggle("tabs-hidden", tabsHidden);
+	const releaseBootSurface = (): void => {
+		document.documentElement.classList.remove("partty-booting");
+	};
+
+	/** True from prepare-show until partty-show finishes (suppresses duplicate reflows). */
+	let summonInProgress = false;
+	/** Prepare already restored/mounted under defer-show; partty-show should no-op. */
+	let summonPreparedByDefer = false;
+
+	let paneHost: PaneHost | null = null;
+	const paneCwdHints = new Map<string, string>();
+	/** OSC 633 `IsWindows` for integrated SSH panes (Unix vs Windows remote). */
+	const paneRemoteIsWindows = new Map<string, boolean>();
+	const paneProfileIds = new Map<string, string>();
+	const paneShellState = new Map<string, ShellIntegrationState>();
+	const paneProgramNames = new Map<string, string>();
+	const paneThemes = new Map<string, PaneThemePrefs>();
+	const lastPtyDims = new Map<string, { cols: number; rows: number }>();
+	/** Stable sessionId → live terminal. PTY association keys on `sessionId`;
+	 * `pt.paneId` is read at use-time so it tracks re-keys. */
+	const paneBySessionId = new Map<string, PaneTerminal>();
+	const pendingNewPaneCwd = { v: null as string | null };
+	const pendingPaneSpawnCwd = new Map<string, string>();
+	const pendingNewPaneProfile = { v: null as string | null };
+	const pendingPaneSpawnProfile = new Map<string, string>();
+	const pendingPaneSpawnStartup = new Map<string, string>();
+	let profilesList: ConnectionProfile[] = [
+		{
+			version: 1,
+			id: LOCAL_DEFAULT_PROFILE_ID,
+			name: "Local",
+			kind: "local",
+			shell: null,
+			builtin: true,
+		},
+	];
+	let profilesReady: Promise<void> | null = null;
+	const focusFollowsRef = { v: lp.focus_follows_cursor };
+	const autoCopySelectionRef = {
+		v: Boolean((persisted.prefs as Partial<ParttyPrefs>).auto_copy_selection),
+	};
+	const rightClickPasteRef = {
+		v: (persisted.prefs as Partial<ParttyPrefs>).right_click_paste ?? true,
+	};
+	const retainSessionStateRef = {
+		v: (persisted.prefs as Partial<ParttyPrefs>).retain_session_state ?? true,
+	};
+	const splitLayoutStyleRef = {
+		v: normalizeSplitLayoutStyle(
+			(persisted.prefs as Partial<ParttyPrefs>).split_layout_style,
+		),
+	};
+	const profileBehaviorRef = {
+		v: {
+			default_profile_id:
+				(persisted.prefs as Partial<ParttyPrefs>).default_profile_id ??
+				DEFAULT_PROFILE_BEHAVIOR.default_profile_id,
+			inherit_profile_on_split:
+				(persisted.prefs as Partial<ParttyPrefs>).inherit_profile_on_split ??
+				DEFAULT_PROFILE_BEHAVIOR.inherit_profile_on_split,
+			inherit_cwd_on_split:
+				(persisted.prefs as Partial<ParttyPrefs>).inherit_cwd_on_split ??
+				DEFAULT_PROFILE_BEHAVIOR.inherit_cwd_on_split,
+			palette_tab_profile_picker:
+				(persisted.prefs as Partial<ParttyPrefs>).palette_tab_profile_picker ??
+				DEFAULT_PROFILE_BEHAVIOR.palette_tab_profile_picker,
+			new_tab_uses_default_profile:
+				(persisted.prefs as Partial<ParttyPrefs>)
+					.new_tab_uses_default_profile ??
+				DEFAULT_PROFILE_BEHAVIOR.new_tab_uses_default_profile,
+			palette_profile_icons:
+				(persisted.prefs as Partial<ParttyPrefs>).palette_profile_icons ??
+				DEFAULT_PROFILE_BEHAVIOR.palette_profile_icons,
+			profile_selection_aliases: resolveSelectionAliases(
+				(persisted.prefs as Partial<ParttyPrefs>).profile_selection_aliases ??
+					DEFAULT_PROFILE_BEHAVIOR.profile_selection_aliases,
+			),
+		} satisfies ProfileBehaviorPrefs,
+	};
+
+	let profilesLoaded = false;
+
+	function reresolveAllPaneProfileIds(): void {
+		if (!profilesLoaded) return;
+		for (const paneId of [...paneProfileIds.keys()]) {
+			const preferred = paneProfileIds.get(paneId);
+			if (!preferred) continue;
+			const resolved = resolveDefaultProfileId(preferred, profilesList);
+			paneProfileIds.set(paneId, resolved);
+			ensurePaneThemeFromProfile(paneId, resolved);
+		}
+	}
+
+	/** Keep persisted profile ids until list_profiles finishes; then validate. */
+	function assignPaneProfileId(
+		paneId: string,
+		preferred: string | null | undefined,
+	): string {
+		const raw = preferred?.trim() || profileBehaviorRef.v.default_profile_id;
+		if (!profilesLoaded) {
+			paneProfileIds.set(paneId, raw);
+			return raw;
+		}
+		const resolved = resolveDefaultProfileId(raw, profilesList);
+		paneProfileIds.set(paneId, resolved);
+		ensurePaneThemeFromProfile(paneId, resolved);
+		return resolved;
+	}
+
+	function resolvePaneProfile(paneId: string): ConnectionProfile | null {
+		const profileId = resolveDefaultProfileId(
+			paneProfileIds.get(paneId) ?? profileBehaviorRef.v.default_profile_id,
+			profilesList,
+		);
+		return getProfileById(profileId, profilesList);
+	}
+
+	function pathStyleForPaneId(paneId: string): PathStyle {
+		const profile = resolvePaneProfile(paneId);
+		if (profile?.kind === "ssh") {
+			return sshPathStyleFromRemote(
+				paneRemoteIsWindows.get(paneId),
+				paneCwdHints.get(paneId),
+			);
+		}
+		const globalShell =
+			((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
+			"pwsh";
+		const shellOverride =
+			resolveProfileShell(profile, globalShell, profilesList) ?? "";
+		return pathStyleForProfile(profile ?? undefined, shellOverride);
+	}
+
+	function paneEffectiveCwd(paneId: string): string | null {
+		const hint = paneCwdHints.get(paneId);
+		const profile = resolvePaneProfile(paneId);
+		if (profile?.kind === "ssh") {
+			return profileHasRemoteIntegration(profile) ? (hint ?? null) : null;
+		}
+		if (hint) return hint;
+		if (paneHost?.getFocusedPaneId() === paneId) return liveCwd;
+		return null;
+	}
+
+	let lastClipboardPathContext: (PastePathSource & { path: string }) | null =
+		null;
+
+	function rememberClipboardPath(paneId: string, path: string): void {
+		lastClipboardPathContext = {
+			path,
+			style: pathStyleForPaneId(paneId),
+			cwd: paneEffectiveCwd(paneId),
+		};
+	}
+
+	function clipboardPathSourceForPaste(text: string): PastePathSource | null {
+		const ctx = lastClipboardPathContext;
+		if (!ctx) return null;
+		const pasted = text.trim().replace(/^['"]|['"]$/g, "");
+		const copied = ctx.path.trim().replace(/^['"]|['"]$/g, "");
+		if (pasted !== copied) return null;
+		return { style: ctx.style, cwd: ctx.cwd };
+	}
+
+	function resolvePendingSpawnContext(
+		parentId: string,
+		explicitProfileId?: string | null,
+	): { profileId: string; cwd: string | null } {
+		let profileId: string;
+		if (explicitProfileId) {
+			profileId = resolveDefaultProfileId(explicitProfileId, profilesList);
+		} else if (profileBehaviorRef.v.inherit_profile_on_split) {
+			profileId = resolveDefaultProfileId(
+				paneProfileIds.get(parentId) ?? profileBehaviorRef.v.default_profile_id,
+				profilesList,
+			);
+		} else {
+			profileId = resolveDefaultProfileId(
+				profileBehaviorRef.v.default_profile_id,
+				profilesList,
+			);
+		}
+
+		const profile = getProfileById(profileId, profilesList);
+		const parentProfile = resolvePaneProfile(parentId);
+		const inheritCwd =
+			(profile?.inheritCwd ?? profileBehaviorRef.v.inherit_cwd_on_split) &&
+			profile?.kind !== "ssh" &&
+			parentProfile?.kind !== "ssh";
+		const cwd = inheritCwd ? (paneCwdHints.get(parentId) ?? null) : null;
+		return { profileId, cwd };
+	}
+
+	async function refreshProfilesList(): Promise<void> {
+		profilesLoaded = false;
+		try {
+			profilesList = await fetchProfiles();
+			profileBehaviorRef.v.default_profile_id = resolveDefaultProfileId(
+				profileBehaviorRef.v.default_profile_id,
+				profilesList,
+			);
+		} catch (e) {
+			console.warn("list_profiles", e);
+			if (
+				profilesList.length === 0 ||
+				!getProfileById(LOCAL_DEFAULT_PROFILE_ID, profilesList)
+			) {
+				profilesList = [
+					{
+						version: 1,
+						id: LOCAL_DEFAULT_PROFILE_ID,
+						name: "Local",
+						kind: "local",
+						shell: null,
+						builtin: true,
+					},
+				];
+			}
+		} finally {
+			profilesLoaded = true;
+			reresolveAllPaneProfileIds();
+		}
+	}
+
+	function ensureProfilesLoaded(): Promise<void> {
+		if (!profilesReady) {
+			profilesReady = refreshProfilesList();
+		}
+		return profilesReady;
+	}
+	const disableTooltipsRef = {
+		v: (persisted.prefs as Partial<ParttyPrefs>).ui_disable_tooltips ?? false,
+	};
+	const altClickCursorRef = {
+		v:
+			(persisted.prefs as Partial<ParttyPrefs>)
+				.terminal_alt_click_moves_cursor ?? true,
+	};
+	const cursorBlinkRef = {
+		v: (persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_blink ?? true,
+	};
+	const cursorInactiveStyleRef = {
+		v:
+			((persisted.prefs as Partial<ParttyPrefs>)
+				.terminal_cursor_inactive_style as
+				| "outline"
+				| "block"
+				| "bar"
+				| "underline"
+				| "none"
+				| undefined) ?? "outline",
+	};
+	const cursorWidthRef = {
+		v: (persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_width ?? 1,
+	};
+	const fontSizeRef = {
+		v: (persisted.prefs as Partial<ParttyPrefs>).terminal_font_size ?? 12,
+	};
+	const fontWeightRef = {
+		v:
+			(persisted.prefs as Partial<ParttyPrefs>).terminal_font_weight ??
+			"normal",
+	};
+	const fontWeightBoldRef = {
+		v:
+			(persisted.prefs as Partial<ParttyPrefs>).terminal_font_weight_bold ??
+			"bold",
+	};
+	const lineHeightRef = {
+		v: (persisted.prefs as Partial<ParttyPrefs>).terminal_line_height ?? 1,
+	};
+	const letterSpacingRef = {
+		v: (persisted.prefs as Partial<ParttyPrefs>).terminal_letter_spacing ?? 0,
+	};
+	const drawBoldBrightRef = {
+		v:
+			(persisted.prefs as Partial<ParttyPrefs>).terminal_draw_bold_bright ??
+			true,
+	};
+	const smoothScrollRef = {
+		v:
+			(persisted.prefs as Partial<ParttyPrefs>)
+				.terminal_smooth_scroll_duration ?? 0,
+	};
+	const scrollSensitivityRef = {
+		v:
+			(persisted.prefs as Partial<ParttyPrefs>).terminal_scroll_sensitivity ??
+			1,
+	};
+	const fastScrollSensitivityRef = {
+		v:
+			(persisted.prefs as Partial<ParttyPrefs>)
+				.terminal_fast_scroll_sensitivity ?? 5,
+	};
+	const backspaceDeleteSelectionRef = {
+		v:
+			(persisted.prefs as Partial<ParttyPrefs>)
+				.terminal_backspace_delete_selection ?? true,
+	};
+
+	const cursorStyleRef = {
+		v:
+			((persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_style as
+				| "block"
+				| "underline"
+				| "bar"
+				| undefined) ?? "block",
+	};
+	const processNotificationThresholdRef = {
+		v: ((p) => (Number.isFinite(p) ? Math.max(0.1, p) : 5.0))(
+			(persisted.prefs as Partial<ParttyPrefs>)
+				.process_notification_threshold ?? 5.0,
+		),
+	};
+	const processNotificationShowForRef = {
+		v: ((p) =>
+			Number.isFinite(p) ? Math.max(1000, Math.min(30000, p)) : 5000)(
+			(persisted.prefs as Partial<ParttyPrefs>).process_notification_show_for ??
+				5000,
+		),
+	};
+	const processNotificationShowMsRef = {
+		v:
+			(persisted.prefs as Partial<ParttyPrefs>).process_notification_show_ms ??
+			false,
+	};
+	const processNotificationTransparentRef = {
+		v:
+			(persisted.prefs as Partial<ParttyPrefs>)
+				.process_notification_transparent ?? false,
+	};
+	const processNotificationEnabledRef = {
+		v:
+			(persisted.prefs as Partial<ParttyPrefs>).process_notification_enabled ??
+			false,
+	};
+	const cursorFollowWindowMoveRef = {
+		v: Boolean(
+			(persisted.prefs as Partial<ParttyPrefs>).cursor_follow_window_move,
+		),
+	};
+	const cursorFollowPaneFocusRef = {
+		v:
+			(persisted.prefs as Partial<ParttyPrefs>).cursor_follow_pane_focus ??
+			true,
+	};
+	const windowMotionRef = {
+		v: (persisted.prefs as Partial<ParttyPrefs>).terminal_window_motion ?? true,
+	};
+	const applyRuntimeDisplayPrefs = (raw: Partial<ParttyPrefs>): void => {
+		applyTerminalDisplayPrefs(raw);
+		windowMotionRef.v = raw.terminal_window_motion ?? true;
+	};
+	const quietPaneDeferralRef = {
+		v: Boolean((persisted.prefs as Partial<ParttyPrefs>).quiet_pane_deferral),
+	};
+	const mouseHiddenRef = {
+		v: Boolean((persisted.prefs as Partial<ParttyPrefs>).mouse_hidden),
+	};
+	const mouseHideOnIdleRef = {
+		v: Boolean((persisted.prefs as Partial<ParttyPrefs>).mouse_hide_on_idle),
+	};
+	const mouseIdleSecondsRef = {
+		v: Math.max(
+			0.5,
+			Math.min(
+				300,
+				(persisted.prefs as Partial<ParttyPrefs>).mouse_idle_seconds ?? 3,
+			),
+		),
+	};
+	let mouseCursorController: MouseCursorController | null = null;
+	const mouseCursorDragRef = {
+		suppress: null as ((dragging: boolean) => void) | null,
+	};
+
+	const bootAppWindow = getCurrentWindow();
+	mouseCursorController = createMouseCursorController(
+		() => bootAppWindow,
+		() => ({
+			hidden: mouseHiddenRef.v,
+			hideOnIdle: mouseHideOnIdleRef.v,
+			idleSeconds: mouseIdleSecondsRef.v,
+		}),
+	);
+	bindMouseCursorForceVisible((active) =>
+		mouseCursorController?.setSuppress(active),
+	);
+	mouseCursorDragRef.suppress = (dragging) =>
+		mouseCursorController?.setSuppress(dragging);
+	mouseCursorController.sync();
+	window.addEventListener(
+		"mousemove",
+		() => mouseCursorController?.notifyActivity(),
+		{ passive: true },
+	);
+	window.addEventListener(
+		"mousedown",
+		() => mouseCursorController?.notifyActivity(),
+		{ passive: true },
+	);
+	window.addEventListener(
+		"keydown",
+		() => mouseCursorController?.notifyActivity(),
+		{ passive: true },
+	);
+
+	const activeProcesses = new Map<string, ActiveProcessEntry>();
+	/** Latest OSC 633;E line per pane, merged until pre-exec or finish. */
+	const pendingShellCommandLine = new Map<string, string>();
+	const paneHostCleanups = new Map<string, Array<() => void>>();
+	const paneLinkProviders = new Map<string, TerminalLinkProviderController>();
+	/** Extension PTY input subscribers — zero-cost when empty. */
+	const extPtyInputSubs: Array<(paneId: string, data: string) => void> = [];
+	/** Extension PTY output subscribers — zero-cost when empty. */
+	const extPtyOutputSubs: Array<(paneId: string, data: string) => void> = [];
+	/** Decodes raw PTY bytes only when extension output subscribers exist. */
+	const ptyOutputDecoder = new TextDecoder("utf-8");
+	/** Extension process lifecyle subscribers — zero-cost when empty. */
+	const extProcStartSubs: Array<
+		(proc: { paneId: string; command: string; cwd: string }) => void
+	> = [];
+	const extProcEndSubs: Array<
+		(proc: {
+			paneId: string;
+			command: string;
+			durationMs: number;
+			exitCode: number | null;
+		}) => void
+	> = [];
+	/** Extension pane lifecycle subscribers. */
+	const extPaneCreatedSubs: Array<(paneId: string) => void> = [];
+	const extPaneClosedSubs: Array<(paneId: string) => void> = [];
+	const extFocusSubs: Array<(paneId: string) => void> = [];
+	/** Extension cwd / rename subscribers (fired on live OSC7 + rename commits). */
+	const extCwdChangeSubs: Array<(paneId: string, cwd: string) => void> = [];
+	/** Extension palette commands. */
+	const extPaletteCommands: Array<{
+		id: string;
+		label: string;
+		keywords?: string;
+		run: () => void;
+	}> = [];
+	/** Extension tab lifecycle subscribers. */
+	const extTabSwitchSubs: Array<(tabId: string) => void> = [];
+	/** Extension window visibility subscribers. */
+	const extWindowShowSubs: Array<() => void> = [];
+	const extWindowHideSubs: Array<() => void> = [];
+
+	// ── Extension cursor subscriptions (per-pane, lazy; zero-cost when unused) ──
+	type ExtCursorSubEntry = {
+		subs: Array<(pos: { x: number; y: number; kind: "move" | "sync" }) => void>;
+		dispose: (() => void) | null;
+	};
+	const extCursorMoveSubs = new Map<string, ExtCursorSubEntry>();
+	/** Panes whose terminal cursor is hidden by an extension overlay. */
+	const extCursorHiddenPanes = new Set<string>();
+	/** Original cursor colors of panes with a hidden cursor, so the extension
+	 *  surface reports the real theme (not the transparent hide hack). */
+	const extCursorHiddenOriginal = new Map<
+		string,
+		{ cursor?: string; cursorAccent?: string }
+	>();
+
+	function ensureExtCursorSubs(paneId: string): ExtCursorSubEntry | null {
+		const pt = getPaneTerminalById(paneId);
+		if (!pt) return null;
+		let entry = extCursorMoveSubs.get(paneId);
+		if (entry) return entry;
+		// xterm reports the event without a payload and only fires it from the
+		// input parser — the cursor's VIEW row also changes on viewport scroll
+		// and terminal resize, so re-emit on those too. Deliver the
+		// view-relative row the drawing surface needs, tagged with the source:
+		// "move" = the cursor actually moved, "sync" = a view-relative
+		// re-emission (scroll/resize) where the cursor teleports.
+		const emit = (kind: "move" | "sync") => (): void => {
+			const buf = pt.term.buffer.active;
+			const viewY = buf.cursorY - buf.viewportY;
+			const cur = extCursorMoveSubs.get(paneId);
+			if (!cur) return;
+			for (const fn of cur.subs) {
+				try {
+					fn({ x: buf.cursorX, y: viewY, kind });
+				} catch {
+					/* ignore */
+				}
+			}
+		};
+		const d1 = pt.term.onCursorMove(emit("move"));
+		const d2 = pt.term.onScroll(emit("sync"));
+		const d3 = pt.term.onResize(emit("sync"));
+		const dispose = (): void => {
+			d1.dispose();
+			d2.dispose();
+			d3.dispose();
+		};
+		entry = { subs: [], dispose };
+		extCursorMoveSubs.set(paneId, entry);
+		return entry;
+	}
+
+	function removeExtCursorSub(
+		paneId: string,
+		fn: (pos: { x: number; y: number; kind: "move" | "sync" }) => void,
+	): void {
+		const entry = extCursorMoveSubs.get(paneId);
+		if (!entry) return;
+		const idx = entry.subs.indexOf(fn);
+		if (idx !== -1) entry.subs.splice(idx, 1);
+		if (entry.subs.length === 0) {
+			entry.dispose?.();
+			extCursorMoveSubs.delete(paneId);
+		}
+	}
+
+	const pendingPtyWriteByPane = new Map<string, StringChunkBuffer>();
+	const pendingPtyOutputByPane = new Map<string, PendingPtyOutput>();
+	let pendingPtyWriteRaf = 0;
+	let pendingPtyOutputRaf = 0;
+	let pendingPtyOutputTimer = 0;
+	let liveCwd: string | null = null;
+	let lastFocusedPaneId = "";
+
+	// ConPTY input buffers are small (~1–2KB). Fast shells drain fine; busy TUIs
+	// (OpenCode, etc.) don't — a single large write silently drops. Chunk + pace.
+	const PTY_BULK_CHARS = 512;
+	const PTY_CHUNK_CHARS = 256;
+	const PTY_CHUNK_DELAY_MS = 4;
+	/** Serializes bulk/chunked writes per pane so they don't race RAF keystrokes. */
+	const ptyBulkWriteTailByPane = new Map<string, Promise<void>>();
+	const ptyBulkActiveByPane = new Set<string>();
+
+	const appendPendingPtyWrite = (paneId: string, data: string): void => {
+		let buf = pendingPtyWriteByPane.get(paneId);
+		if (!buf) {
+			buf = createStringChunkBuffer();
+			pendingPtyWriteByPane.set(paneId, buf);
+		}
+		pushStringChunk(buf, data);
+	};
+
+	const flushPendingPtyWrites = (): void => {
+		pendingPtyWriteRaf = 0;
+		if (pendingPtyWriteByPane.size === 0) return;
+		for (const [paneId, buf] of pendingPtyWriteByPane) {
+			// Don't interleave with an in-flight chunked paste.
+			if (ptyBulkActiveByPane.has(paneId)) continue;
+			pendingPtyWriteByPane.delete(paneId);
+			const data = drainStringChunks(buf);
+			parttyPerf.mark("pty.input.flushes");
+			parttyPerf.mark("pty.input.flush.chars", data.length);
+			void writePtyPayload(paneId, data);
+		}
+	};
+
+	const flushPendingPtyWriteForPane = (paneId: string): void => {
+		if (ptyBulkActiveByPane.has(paneId)) return;
+		const buf = pendingPtyWriteByPane.get(paneId);
+		if (!buf || buf.totalChars === 0) return;
+		pendingPtyWriteByPane.delete(paneId);
+		const pending = drainStringChunks(buf);
+		parttyPerf.mark("pty.input.flush_pane");
+		parttyPerf.mark("pty.input.flush_pane.chars", pending.length);
+		void writePtyPayload(paneId, pending);
+	};
+
+	const isLatencySensitiveInput = (data: string): boolean => {
+		if (data.length > 8) return false;
+		if (data.includes("\x1b")) return true;
+		return data.length <= 2;
+	};
+
+	const isBulkPtyInput = (data: string): boolean =>
+		data.length > PTY_BULK_CHARS || data.includes("\x1b[200~");
+
+	const sleepMs = (ms: number): Promise<void> =>
+		new Promise((resolve) => setTimeout(resolve, ms));
+
+	/** Write to PTY, chunking large payloads so ConPTY doesn't drop bytes. */
+	function writePtyPayload(paneId: string, data: string): Promise<void> {
+		if (!data) return Promise.resolve();
+		const sessionId = getPaneTerminalById(paneId)?.sessionId;
+		if (!sessionId)
+			return Promise.reject(new Error(`no session for ${paneId}`));
+		if (!isBulkPtyInput(data)) {
+			return ptyWrite(sessionId, data).catch((e) => {
+				console.error("pty_write", e);
+			});
+		}
+		const prev = ptyBulkWriteTailByPane.get(paneId) ?? Promise.resolve();
+		const next = prev
+			.catch(() => {})
+			.then(async () => {
+				ptyBulkActiveByPane.add(paneId);
+				try {
+					const queuedBuf = pendingPtyWriteByPane.get(paneId);
+					if (queuedBuf && queuedBuf.totalChars > 0) {
+						pendingPtyWriteByPane.delete(paneId);
+						const queued = drainStringChunks(queuedBuf);
+						await ptyWrite(sessionId, queued).catch((e) =>
+							console.error("pty_write", e),
+						);
+					}
+					for (let i = 0; i < data.length; i += PTY_CHUNK_CHARS) {
+						const chunk = data.slice(i, i + PTY_CHUNK_CHARS);
+						await ptyWrite(sessionId, chunk).catch((e) =>
+							console.error("pty_write", e),
+						);
+						if (i + PTY_CHUNK_CHARS < data.length) {
+							await sleepMs(PTY_CHUNK_DELAY_MS);
+						}
+					}
+				} finally {
+					ptyBulkActiveByPane.delete(paneId);
+					const afterBuf = pendingPtyWriteByPane.get(paneId);
+					if (afterBuf && afterBuf.totalChars > 0) {
+						pendingPtyWriteByPane.delete(paneId);
+						const after = drainStringChunks(afterBuf);
+						await ptyWrite(sessionId, after).catch((e) =>
+							console.error("pty_write", e),
+						);
+					}
+				}
+			});
+		ptyBulkWriteTailByPane.set(paneId, next);
+		return next;
+	}
+
+	let lastKeydownTs = 0;
+	document.addEventListener(
+		"keydown",
+		() => {
+			lastKeydownTs = performance.now();
+		},
+		true,
+	);
+
+	const queuePtyWrite = (
+		paneId: string,
+		data: string,
+		immediate = false,
+	): void => {
+		if (!data) return;
+		parttyPerf.recordPtyInputBytes(paneId, data.length);
+		const keydownTs = lastKeydownTs;
+		if (keydownTs) {
+			lastKeydownTs = 0;
+			if (parttyPerf.enabled) {
+				parttyPerf.time(
+					"input.keydown.to.onData.ms",
+					performance.now() - keydownTs,
+				);
+			}
+		}
+		// Pastes / large bursts: don't RAF-coalesce into one oversized ConPTY write.
+		if (isBulkPtyInput(data)) {
+			flushPendingPtyWriteForPane(paneId);
+			parttyPerf.mark("pty.input.bulk.calls");
+			parttyPerf.mark("pty.input.bulk.chars", data.length);
+			void writePtyPayload(paneId, data);
+			return;
+		}
+		// During chunked paste, hold keystrokes until the paste finishes.
+		if (ptyBulkActiveByPane.has(paneId)) {
+			appendPendingPtyWrite(paneId, data);
+			return;
+		}
+		if (immediate || isLatencySensitiveInput(data)) {
+			flushPendingPtyWriteForPane(paneId);
+			parttyPerf.mark("pty.input.immediate.calls");
+			parttyPerf.mark("pty.input.immediate.chars", data.length);
+			parttyPerf.beginPtyRoundtrip(paneId, keydownTs);
+			void writePtyPayload(paneId, data);
+			parttyPerf.mark("pty.input.immediate");
+			return;
+		}
+		parttyPerf.mark("pty.input.queued.calls");
+		parttyPerf.mark("pty.input.queued.chars", data.length);
+		appendPendingPtyWrite(paneId, data);
+		if (pendingPtyWriteRaf) return;
+		pendingPtyWriteRaf = requestAnimationFrame(flushPendingPtyWrites);
+	};
+
+	function finishActiveProcess(
+		paneId: string,
+		endedAt: number,
+		exitCode: number | null = null,
+	): void {
+		const entry = activeProcesses.get(paneId);
+		if (!entry) return;
+		// Authoritative completion of the OSC command path: this is the future
+		// record point for an atuin-style history DB (command, cwd, exit, duration).
+		const command = displayProcessCommand(entry.command);
+		const durMs = processDurationMs(entry, endedAt);
+		if (durMs / 1000 >= processNotificationThresholdRef.v) {
+			if (!processNotificationEnabledRef.v) {
+				activeProcesses.delete(paneId);
+				return;
+			}
+			const paneName = paneEffectiveName(paneId);
+			showProcessNotification(
+				command,
+				paneName,
+				entry.cwd,
+				entry.startedAt,
+				paneId,
+				endedAt,
+			);
+		}
+		if (extProcEndSubs.length > 0) {
+			const proc = { paneId, command, durationMs: durMs, exitCode };
+			for (const fn of extProcEndSubs) {
+				try {
+					fn(proc);
+				} catch {
+					/* ignore */
+				}
+			}
+		}
+		activeProcesses.delete(paneId);
+		pendingShellCommandLine.delete(paneId);
+	}
+
+	function processPtyOutputBatch(
+		paneId: string,
+		data: Uint8Array,
+		eventCount: number,
+		queuedAt: number,
+	): void {
+		const pt = getPaneTerminalById(paneId);
+		if (!pt) return;
+		const timing = parttyPerf.enabled;
+		if (timing) {
+			parttyPerf.recordPtyOutputBytes(paneId, data.length);
+			parttyPerf.mark("pty.output.flushes");
+			parttyPerf.mark("pty.output.events", eventCount);
+			parttyPerf.mark("pty.output.chars", data.length);
+			parttyPerf.time("pty.output.queue.ms", performance.now() - queuedAt);
+		}
+		const writeStarted = timing ? performance.now() : 0;
+		// OSC 7 / 133 / 633 are stripped and forwarded as structured `pty-cwd` /
+		// `pty-shell-event` side-channel events by the Rust emitter.  Write the
+		// pre-cleaned bytes directly — no character-by-character JS parsing needed.
+		try {
+			if (timing) parttyPerf.beginTermWrite(paneId);
+			pt.term.write(data);
+			if (timing) {
+				const elapsed = performance.now() - writeStarted;
+				parttyPerf.time("xterm.write.ms", elapsed);
+				parttyPerf.paneTime(paneId, "xterm.render.ms", elapsed);
+			}
+		} catch (e) {
+			console.warn("xterm.write", e);
+		}
+	}
+
+	function clearPtyOutputFlushHandles(): void {
+		if (pendingPtyOutputRaf) {
+			cancelAnimationFrame(pendingPtyOutputRaf);
+			pendingPtyOutputRaf = 0;
+		}
+		if (pendingPtyOutputTimer) {
+			window.clearTimeout(pendingPtyOutputTimer);
+			pendingPtyOutputTimer = 0;
+		}
+	}
+
+	function flushPendingPtyOutputs(): void {
+		clearPtyOutputFlushHandles();
+		if (pendingPtyOutputByPane.size === 0) return;
+		const now = performance.now();
+		const focusedPaneId = paneHost?.getFocusedPaneId();
+		const batches = [...pendingPtyOutputByPane.entries()];
+		pendingPtyOutputByPane.clear();
+		for (const [paneId, batch] of batches) {
+			const isFocused = paneId === focusedPaneId;
+			const age = now - batch.queuedAt;
+			if (
+				!isFocused &&
+				age < PTY_OUTPUT_BACKGROUND_FLUSH_MS &&
+				peekByteChunkBytes(batch.chunks) < PTY_OUTPUT_MAX_BATCH_BYTES
+			) {
+				pendingPtyOutputByPane.set(paneId, batch);
+				continue;
+			}
+			processPtyOutputBatch(
+				paneId,
+				drainByteChunks(batch.chunks),
+				batch.eventCount,
+				batch.queuedAt,
+			);
+		}
+		if (pendingPtyOutputByPane.size > 0) schedulePtyOutputFlush();
+	}
+
+	function schedulePtyOutputFlush(): void {
+		if (!pendingPtyOutputRaf) {
+			pendingPtyOutputRaf = requestAnimationFrame(flushPendingPtyOutputs);
+		}
+		if (!pendingPtyOutputTimer) {
+			pendingPtyOutputTimer = window.setTimeout(
+				flushPendingPtyOutputs,
+				PTY_OUTPUT_FLUSH_MS,
+			);
+		}
+	}
+
+	function queuePtyOutput(paneId: string, data: Uint8Array): void {
+		if (!data || data.byteLength === 0) return;
+		if (
+			!pendingPtyOutputByPane.has(paneId) &&
+			paneId === paneHost?.getFocusedPaneId()
+		) {
+			parttyPerf.mark("pty.output.immediate.chars", data.length);
+			processPtyOutputBatch(
+				paneId,
+				data,
+				1,
+				parttyPerf.enabled ? performance.now() : 0,
+			);
+			parttyPerf.mark("pty.output.immediate");
+			return;
+		}
+		parttyPerf.mark("pty.output.queued.events");
+		parttyPerf.mark("pty.output.queued.chars", data.length);
+		const existing = pendingPtyOutputByPane.get(paneId);
+		if (existing) {
+			pushByteChunk(existing.chunks, data);
+			existing.eventCount++;
+		} else {
+			const chunks = createByteChunkBuffer();
+			pushByteChunk(chunks, data);
+			pendingPtyOutputByPane.set(paneId, {
+				chunks,
+				eventCount: 1,
+				queuedAt: performance.now(),
+			});
+		}
+		const batch = pendingPtyOutputByPane.get(paneId);
+		if (
+			batch &&
+			peekByteChunkBytes(batch.chunks) >= PTY_OUTPUT_MAX_BATCH_BYTES
+		) {
+			flushPendingPtyOutputs();
+			return;
+		}
+		schedulePtyOutputFlush();
+	}
+
+	/**
+	 * Binary PTY output from Rust, delivered over the pane's output `Channel`
+	 * (`InvokeResponseBody::Raw` → `ArrayBuffer`). Rust holds output until
+	 * `set_pty_output_unlocked` after scrollback restore.
+	 */
+	function deliverDirectPtyOut(paneId: string, data: Uint8Array): void {
+		queuePtyOutput(paneId, data);
+		parttyPerf.completePtyRoundtrip(paneId);
+		if (extPtyOutputSubs.length > 0) {
+			const text = ptyOutputDecoder.decode(data);
+			for (const fn of extPtyOutputSubs) {
+				try {
+					fn(paneId, text);
+				} catch {
+					/* ignore */
+				}
+			}
+		}
+	}
+
+	async function releasePtyHydrationGate(): Promise<void> {
+		try {
+			await invoke("set_pty_output_unlocked", { unlocked: true });
+		} catch (e) {
+			console.warn("set_pty_output_unlocked", e);
+		}
+	}
+
+	const handleTerminalLinkActivation = (
+		paneId: string,
+		ev: MouseEvent,
+		match: TerminalLinkMatch,
+	): void => {
+		if (!(ev.ctrlKey || ev.metaKey) || ev.button !== 0) return;
+		// Ctrl+Alt+click is reserved for the configured editor path action.
+		if (ev.altKey) {
+			if (match.kind === "path")
+				handleCtrlAltClickPath(paneId, match.value, ev);
+			return;
+		}
+		ev.preventDefault();
+		ev.stopPropagation();
+		if (match.kind === "url") {
+			void invoke("open_external_url", { url: match.value }).catch(
+				(e) => void showAlert(String(e), "Open link"),
+			);
+			return;
+		}
+		rememberClipboardPath(paneId, match.value);
+		copyToClipboard(match.value);
+	};
+
+	/**
+	 * Ctrl+Alt+click on a path opens a new split pane with `[editor].profile`
+	 * (or the default) and types `[editor].command` into it. `~path~` resolves
+	 * to the path under the cursor (relative fragments expanded against the
+	 * pane's cwd), translated into the target shell's dialect — including
+	 * reverse mappings like a WSL path reaching an NTFS-native profile.
+	 */
+	const handleCtrlAltClickPath = (
+		paneId: string,
+		raw: string,
+		ev: MouseEvent,
+	): boolean => {
+		const editor = editorConfigRef.v;
+		if (!editor.command) return false;
+		const cwd = paneEffectiveCwd(paneId);
+		ev.preventDefault();
+		ev.stopPropagation();
+
+		const profileId = resolveDefaultProfileId(
+			editor.profile || profileBehaviorRef.v.default_profile_id,
+			profilesList,
+		);
+		paneHost?.setFocusedPaneId(paneId);
+		const newId = splitFocusedWithCwd(editor.splitType, profileId);
+		if (!newId) return true;
+		const targetStyle = pathStyleForPaneId(newId);
+		const target = quotePath(
+			translatePathFromSource(raw, targetStyle, cwd),
+			targetStyle,
+		);
+		// Run at shell startup (spawn-time startup command) instead of typing it
+		// in after the prompt — the editor pane opens straight into the editor.
+		pendingPaneSpawnStartup.set(
+			newId,
+			editor.command.replace("~path~", target),
+		);
+		return true;
+	};
+
+	const tooltips = createTooltipController(() => disableTooltipsRef.v);
+	tooltips.ensureObserver();
+	tooltips.apply(document);
+
+	function copyToClipboard(text: string): void {
+		if (!text) return;
+		void navigator.clipboard.writeText(text).catch(() => {});
+	}
+
+	function cleanupPaneVisualState(paneId: string): void {
+		// Clean up event listeners registered in onPaneCreated.
+		const cleanups = paneHostCleanups.get(paneId);
+		if (cleanups) {
+			for (const fn of cleanups) fn();
+			paneHostCleanups.delete(paneId);
+		}
+		paneLinkProviders.get(paneId)?.dispose();
+		paneLinkProviders.delete(paneId);
+		disposeWebglForPane(paneId);
+		paneShellState.delete(paneId);
+		paneCwdHints.delete(paneId);
+		paneRemoteIsWindows.delete(paneId);
+		paneProfileIds.delete(paneId);
+		lastPtyDims.delete(paneId);
+		pendingPtyWriteByPane.delete(paneId);
+		pendingPtyOutputByPane.delete(paneId);
+		activeProcesses.delete(paneId);
+		pendingShellCommandLine.delete(paneId);
+		backendReplayRestoredPanes.delete(paneId);
+	}
+
+	const paneWebglStates = new Map<string, PaneWebglState>();
+	const backendReplayRestoredPanes = new Set<string>();
+
+	function getFocusedTerm(): Terminal | null {
+		const id = lastFocusedPaneId || paneHost?.getFocusedPaneId();
+		if (!id) return null;
+		return getPaneTerminalById(id)?.term ?? null;
+	}
+
+	function getPaneTerminalById(paneId: string): PaneTerminal | null {
+		const active = paneHost?.getPaneTerminal(paneId);
+		if (active) return active;
+		for (const host of tabPaneHosts.values()) {
+			const pt = host.getPaneTerminal(paneId);
+			if (pt) return pt;
+		}
+		return null;
+	}
+
+	function getPaneHostByPaneId(paneId: string): PaneHost | null {
+		for (const host of tabPaneHosts.values()) {
+			if (host.getPaneTerminal(paneId)) return host;
+			if (findPaneLeaf(host.getTree(), paneId)) return host;
+		}
+		return null;
+	}
+
+	function focusActiveTerminal(): void {
+		const id = lastFocusedPaneId || paneHost?.getFocusedPaneId();
+		if (!id) return;
+		const pt = getPaneTerminalById(id) ?? null;
+		if (!pt) return;
+		pt.term.focus();
+		void ptyFocusPane(pt.sessionId).catch(() => {});
+	}
+
+	function focusedPaneId(): string | null {
+		return lastFocusedPaneId || paneHost?.getFocusedPaneId() || null;
+	}
+
+	function tabsInIndexOrder(): TabRecord[] {
+		return [...tabsState.tabs].sort((a, b) => a.order - b.order);
+	}
+
+	function tabKeyForTabId(tabId: string): string {
+		const i = tabsInIndexOrder().findIndex((t) => t.id === tabId);
+		return i >= 0 ? String(i + 1) : "1";
+	}
+
+	function paneProfileName(paneId: string): string {
+		const profile = resolvePaneProfile(paneId);
+		return profile?.name?.trim() || profile?.id || "local";
+	}
+
+	function paneCwdForIdentity(paneId: string): string | null {
+		const profile = resolvePaneProfile(paneId);
+		if (profile?.kind === "ssh" && !profileHasRemoteIntegration(profile)) {
+			return null;
+		}
+		return paneCwdHints.get(paneId) ?? null;
+	}
+
+	function paneNameParts(paneId: string): PaneNameParts {
+		const host = getPaneHostByPaneId(paneId);
+		const tabId = host ? tabIdForPaneHost(host) : null;
+		const tab = tabId ? tabsState.tabs.find((t) => t.id === tabId) : undefined;
+		const proc = activeProcesses.get(paneId);
+		return {
+			paneId,
+			profileName: paneProfileName(paneId),
+			cwd: paneCwdForIdentity(paneId),
+			oscTitle: paneProgramNames.get(paneId) ?? null,
+			processLabel: proc ? displayProcessCommand(proc.command) : null,
+			tabName: tab?.userName ?? "",
+		};
+	}
+
+	function paneEffectiveName(paneId: string): string {
+		return paneHeadline(paneNameParts(paneId));
+	}
+
+	function tabDisplayName(tabId: string): string {
+		const tab = tabsState.tabs.find((t) => t.id === tabId);
+		let osc: string | undefined;
+		if (tab?.userName) {
+			const host = tabPaneHosts.get(tabId);
+			const fid = host ? host.getFocusedPaneId() : null;
+			osc = fid ? paneProgramNames.get(fid) : undefined;
+		}
+		return formatTabDisplayName(tab, osc, tabId);
+	}
+
+	function refreshTabLabelForPane(paneId: string): void {
+		const host = getPaneHostByPaneId(paneId);
+		if (!host) return;
+		if (focusedPaneId() !== paneId && host.getFocusedPaneId() !== paneId)
+			return;
+		const tabId = tabIdForPaneHost(host);
+		if (!tabId) return;
+		const tab = tabsState.tabs.find((t) => t.id === tabId);
+		if (!tab) return;
+		let dirty = false;
+		if (!tab.userName) {
+			const next = autoTabNameFromPane(paneNameParts(paneId));
+			if (tab.name !== next) {
+				tab.name = next;
+				saveTabsState(tabsState);
+				dirty = true;
+			}
+		} else {
+			dirty = true;
+		}
+		if (dirty) renderTabsBar();
+	}
+
+	function persistHostLayout(host: PaneHost): void {
+		const tabId = tabIdForPaneHost(host);
+		const pl = layoutForPaneHost(host);
+		if (tabId && pl) persistLayoutForTab(tabId, pl);
+	}
+
+	function focusAdjacentPaneByArrow(
+		key: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown",
+	): boolean {
+		const currentId = focusedPaneId();
+		if (!currentId) return false;
+		const next = directionalAdjacentLeafId(
+			collectFocusHopGeometries(),
+			currentId,
+			key,
+		);
+		if (!next) return false;
+		focusPaneGlobal(next);
+		scheduleCursorWarpToPane(next, { force: true });
+		return true;
+	}
+
+	function swapFocusedPaneWithAdjacent(
+		key: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown",
+	): boolean {
+		const host = paneHost;
+		if (!host) return false;
+		const currentId = host.getFocusedPaneId();
+		if (!currentId) return false;
+		const swapped = host.swapPaneWithAdjacent(currentId, key);
+		if (swapped) {
+			scheduleCursorWarpToPane(currentId, {
+				force: true,
+				delayMs: motionDurationMs("medium"),
+			});
+		}
+		return swapped;
+	}
+
+	async function closeFocusedPane(paneId?: string): Promise<void> {
+		const id = paneId ?? focusedPaneId();
+		if (!id) return;
+		const ownerHost = getPaneHostByPaneId(id);
+		const activeHost = paneHost;
+		if (!ownerHost || !activeHost) return;
+
+		if (
+			ownerHost === activeHost &&
+			ownerHost.isPristineRootTab() &&
+			!ownerHost.isPaneFloating(id)
+		) {
+			closeTab(activeTabId);
+			return;
+		}
+
+		const treeIds: string[] = [];
+		collectLeafIds(ownerHost.getTree(), treeIds);
+		if (treeIds.length <= 1) return;
+
+		try {
+			const pt = ownerHost.getPaneTerminal(id);
+			if (pt) await ptyKillPane(pt.sessionId);
+			if (!ownerHost.removePane(id)) return;
+			parttyPerf.resetPane(id);
+			persistHostLayout(ownerHost);
+			scheduleResizeImmediate();
+		} catch (e) {
+			console.warn("pty_kill_pane", e);
+		}
+	}
+
+	let quitOnShellExitPending = false;
+
+	/**
+	 * A pane's shell exiting (its topmost process terminating) means the pane
+	 * is obsolete: close it. When the exiting pane was the app's last one,
+	 * treat it as a request to quit — like the palette Quit command. The
+	 * Ctrl+Shift+W keybind still refuses to close the final pane; this path
+	 * is pty-exit only.
+	 */
+	async function closePaneOnShellExit(paneId: string): Promise<void> {
+		// Not a live pane (e.g. a parked warm session's shell died) — nothing to close.
+		if (!getPaneHostByPaneId(paneId)) return;
+		let leafCount = 0;
+		for (const [, host] of tabPaneHosts) {
+			const ids: string[] = [];
+			collectLeafIds(host.getTree(), ids);
+			leafCount += ids.length;
+		}
+		if (leafCount <= 1 && !quitOnShellExitPending) {
+			quitOnShellExitPending = true;
+			void appWindow.destroy().catch(() => {});
+			return;
+		}
+		await closeFocusedPane(paneId);
+	}
+
+	async function closeAllChildPanes(): Promise<void> {
+		const removed = paneHost?.closeAllChildPanes() ?? [];
+		for (const id of removed) {
+			parttyPerf.resetPane(id);
+		}
+		const r = paneHost?.getRootPaneId();
+		if (r) {
+			const pt = paneHost?.getPaneTerminal(r);
+			if (pt) {
+				pt.term.focus();
+				void ptyFocusPane(pt.sessionId).catch(() => {});
+			}
+		}
+		scheduleResizeImmediate();
+	}
+
+	function disposeWebglForPane(paneId: string): void {
+		const state = paneWebglStates.get(paneId);
+		if (!state) return;
+		const started = performance.now();
+		state.status = "disposed";
+		try {
+			state.contextLossDispose?.dispose();
+		} catch {
+			/* ignore */
+		}
+		try {
+			state.addon?.dispose();
+		} catch {
+			/* ignore */
+		}
+		paneWebglStates.delete(paneId);
+		parttyPerf.mark("webgl.dispose");
+		parttyPerf.time("webgl.dispose.ms", performance.now() - started);
+		updateWebglPerfGauges();
+	}
+
+	function shedWebgl(): void {
+		for (const paneId of [...paneWebglStates.keys()])
+			disposeWebglForPane(paneId);
+	}
+
+	function updateWebglPerfGauges(): void {
+		let pending = 0;
+		let ready = 0;
+		let failed = 0;
+		for (const state of paneWebglStates.values()) {
+			if (state.status === "pending") pending++;
+			else if (state.status === "ready") ready++;
+			else if (state.status === "failed") failed++;
+		}
+		parttyPerf.gauge("webgl.panes.pending", pending);
+		parttyPerf.gauge("webgl.panes.ready", ready);
+		parttyPerf.gauge("webgl.panes.failed", failed);
+	}
+
+	async function ensureWebglOnPane(paneId: string): Promise<void> {
+		if (!lp.preload_webgl_on_startup && document.visibilityState === "hidden")
+			return;
+		const pt = paneHost?.getPaneTerminal(paneId);
+		if (!pt) return;
+		const existing = paneWebglStates.get(paneId);
+		if (existing?.status === "ready" || existing?.status === "pending") return;
+		if (
+			existing?.status === "failed" &&
+			existing.lastFailureAt &&
+			Date.now() - existing.lastFailureAt < 10_000
+		) {
+			return;
+		}
+
+		const generation = (existing?.generation ?? 0) + 1;
+		const state: PaneWebglState = {
+			status: "pending",
+			attempts: existing?.attempts ?? 0,
+			generation,
+		};
+		paneWebglStates.set(paneId, state);
+		updateWebglPerfGauges();
+		parttyPerf.mark("webgl.mount.start");
+
+		const delays = [0, 50, 120, 240];
+		for (let i = 0; i < delays.length; i++) {
+			if (delays[i] > 0)
+				await new Promise<void>((r) => setTimeout(r, delays[i]));
+			if (paneWebglStates.get(paneId)?.generation !== generation) return;
+			const started = performance.now();
+			try {
+				state.attempts++;
+				const addon = await createWebglAddon();
+				pt.term.loadAddon(addon);
+				state.contextLossDispose = addon.onContextLoss(() => {
+					parttyPerf.mark("webgl.context_loss");
+					disposeWebglForPane(paneId);
+					void ensureWebglOnPane(paneId);
+				});
+				state.addon = addon;
+				state.status = "ready";
+				paneWebglStates.set(paneId, state);
+				updateWebglPerfGauges();
+				pt.term.refresh(0, pt.term.rows - 1);
+				parttyPerf.mark("webgl.mount.ready");
+				parttyPerf.time("webgl.mount.ms", performance.now() - started);
+				return;
+			} catch (e) {
+				state.lastError = e;
+				parttyPerf.mark("webgl.mount.failure");
+			}
+		}
+
+		state.status = "failed";
+		state.lastFailureAt = Date.now();
+		paneWebglStates.set(paneId, state);
+		updateWebglPerfGauges();
+	}
+
+	/** Remount WebGL on panes in the active tab host (e.g. after hide shed). */
+	async function mountWebglForActivePanes(): Promise<void> {
+		const ids: string[] = [];
+		paneHost?.forEachPane((id) => ids.push(id));
+		await Promise.all(ids.map((id) => ensureWebglOnPane(id)));
+	}
+
+	async function setBackgroundWorkMode(keepAlive: boolean): Promise<void> {
+		const current = persisted.prefs as Partial<ParttyPrefs>;
+		const next: ParttyPrefs = {
+			...(current as ParttyPrefs),
+			shed_on_hide: !keepAlive,
+			destroy_webview_on_hide: true,
+			webgl_shed_on_hide: true,
+			discard_buffer_on_hide: !keepAlive,
+		};
+		await invoke("set_prefs", { prefs: next });
+		persisted.prefs = next as unknown as Record<string, unknown>;
+		Object.assign(lp, mergeLifecyclePrefs(persisted.prefs));
+	}
+
+	function isBackgroundWorkMode(): boolean {
+		const p = persisted.prefs as Partial<ParttyPrefs>;
+		return p.shed_on_hide !== true && p.discard_buffer_on_hide !== true;
+	}
+
+	function isTerminalVisiblyEmpty(term: Terminal): boolean {
+		const active = term.buffer.active;
+		if (active.length > 1) return false;
+		return (active.getLine(0)?.translateToString(false).trim() ?? "") === "";
+	}
+
+	async function replayBackendSnapshotOnce(
+		paneId: string,
+		pt: PaneTerminal,
+	): Promise<void> {
+		if (backendReplayRestoredPanes.has(paneId)) return;
+		backendReplayRestoredPanes.add(paneId);
+		if (!isTerminalVisiblyEmpty(pt.term)) return;
+		try {
+			const snapshot = await ptyReplaySnapshot(pt.sessionId);
+			if (snapshot && snapshot.byteLength > 0) {
+				pt.term.write(new Uint8Array(snapshot));
+			}
+		} catch (e) {
+			console.warn("pty_replay_snapshot", e);
+		}
+	}
+
+	function toggleFocusedPaneFloating(): boolean {
+		const id = focusedPaneId();
+		if (!id || !paneHost) return false;
+		const ownerHost = getPaneHostByPaneId(id);
+		if (!ownerHost) return false;
+
+		if (!ownerHost.isPaneFloating(id)) {
+			if (ownerHost !== paneHost || paneHost.getFocusedPaneId() !== id) {
+				return false;
+			}
+			const changed = paneHost.toggleFocusedFloating();
+			if (!changed) return false;
+			persistCurrentTabLayout();
+			scheduleResizeImmediate();
+			return true;
+		}
+
+		if (ownerHost.isPaneFollowing(id) && ownerHost !== paneHost) {
+			const pt = takePaneForTransfer(ownerHost, id);
+			if (!pt) return false;
+			if (!receiveTransferredPane(paneHost, id, pt)) {
+				ownerHost.restoreTakenPane(id, pt);
+				return false;
+			}
+			ownerHost.clearPaneMoveRollback();
+			persistHostLayout(ownerHost);
+			persistCurrentTabLayout();
+			paneHost.setFocusedPaneId(id);
+			scheduleCreationReflow(id);
+			scheduleResizeImmediate();
+			return true;
+		}
+
+		const changed = ownerHost.togglePaneFloating(id);
+		if (!changed) return false;
+		persistHostLayout(ownerHost);
+		scheduleResizeImmediate();
+		return true;
+	}
+
+	function toggleFocusedPaneFollow(): boolean {
+		const id = focusedPaneId();
+		if (!id) return false;
+		const ownerHost = getPaneHostByPaneId(id);
+		if (!ownerHost?.isPaneFloating(id)) return false;
+		const changed = ownerHost.togglePaneFollow(id);
+		if (!changed) return false;
+		syncLivePaneIds();
+		persistHostLayout(ownerHost);
+		scheduleResizeImmediate();
+		return true;
+	}
+
+	function createFloatingPaneWithCwd(profileId?: string | null): string | null {
+		const parentId = paneHost?.getFocusedPaneId();
+		if (!parentId) return null;
+		const pending = resolvePendingSpawnContext(parentId, profileId);
+		pendingNewPaneCwd.v = pending.cwd;
+		pendingNewPaneProfile.v = pending.profileId;
+		const newId = paneHost?.createFloatingPane() ?? null;
+		if (!newId) {
+			pendingNewPaneCwd.v = null;
+			pendingNewPaneProfile.v = null;
+			return null;
+		}
+		persistCurrentTabLayout();
+		if (!document.documentElement.classList.contains("partty-booting")) {
+			scheduleCreationReflow(newId);
+		}
+		return newId;
+	}
+
+	function splitFocusedWithCwd(
+		dir: "h" | "v",
+		profileId?: string | null,
+	): string | null {
+		const parentId = paneHost?.getFocusedPaneId();
+		if (!parentId) return null;
+		const pending = resolvePendingSpawnContext(parentId, profileId);
+		pendingNewPaneCwd.v = pending.cwd;
+		pendingNewPaneProfile.v = pending.profileId;
+		const newId = paneHost?.splitFocused(dir) ?? null;
+		if (!newId) {
+			pendingNewPaneCwd.v = null;
+			pendingNewPaneProfile.v = null;
+		}
+		return newId;
+	}
+
+	function resolveProfileForNewTab(explicit?: string | null): string {
+		if (explicit) return resolveDefaultProfileId(explicit, profilesList);
+		if (!profileBehaviorRef.v.new_tab_uses_default_profile) {
+			const focused = paneHost?.getFocusedPaneId();
+			if (focused) {
+				const inherited = paneProfileIds.get(focused);
+				if (inherited) return resolveDefaultProfileId(inherited, profilesList);
+			}
+		}
+		return resolveDefaultProfileId(
+			profileBehaviorRef.v.default_profile_id,
+			profilesList,
+		);
+	}
+
+	function zoomPaneTerminal(paneId: string, direction: number): void {
+		const pt = paneHost?.getPaneTerminal(paneId);
+		if (!pt || !paneHost) return;
+		const current = Number(pt.term.options.fontSize ?? 12);
+		const next = Math.max(6, Math.min(32, current + direction));
+		if (next === current) return;
+		paneHost.setPaneFontSize(paneId, next);
+		lastPtyDims.delete(paneId);
+		scheduleResizeImmediate(true);
+	}
+
+	const pendingZoomByPane = new Map<string, number>();
+	let zoomRaf = 0;
+
+	function flushPendingPaneZoom(): void {
+		zoomRaf = 0;
+		const entries = [...pendingZoomByPane.entries()];
+		pendingZoomByPane.clear();
+		for (const [paneId, delta] of entries) {
+			zoomPaneTerminal(paneId, Math.sign(delta));
+		}
+	}
+
+	function handlePaneZoomWheel(paneId: string, ev: WheelEvent): void {
+		if (!ev.ctrlKey) return;
+		ev.preventDefault();
+		ev.stopPropagation();
+		const direction = ev.deltaY < 0 ? 1 : -1;
+		pendingZoomByPane.set(
+			paneId,
+			(pendingZoomByPane.get(paneId) ?? 0) + direction,
+		);
+		if (!zoomRaf) zoomRaf = requestAnimationFrame(flushPendingPaneZoom);
+	}
+
+	/** Map wheel deltas to xterm scrollLines (Alt = fast). */
+	function scrollTermByWheel(term: Terminal, ev: WheelEvent): void {
+		if (ev.deltaY === 0 && ev.deltaX === 0) return;
+		const sens = Math.max(0.1, Number(term.options.scrollSensitivity) || 1);
+		const fast = ev.altKey
+			? Math.max(1, Number(term.options.fastScrollSensitivity) || 5)
+			: 1;
+		const delta = ev.deltaY !== 0 ? ev.deltaY : ev.deltaX;
+		let lines: number;
+		if (ev.deltaMode === WheelEvent.DOM_DELTA_LINE) {
+			lines = delta * sens;
+		} else if (ev.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+			lines = delta * term.rows * sens;
+		} else {
+			lines = (delta / 16) * sens;
+		}
+		lines *= fast;
+		let amount = Math.round(lines);
+		if (amount === 0) amount = delta < 0 ? -1 : 1;
+		term.scrollLines(amount);
+	}
+
+	/** Reclaim wheel for scrollback when mouse-tracking would swallow it. */
+	function attachTermWheelHandler(
+		term: Terminal,
+		getPaneId: () => string,
+	): void {
+		term.attachCustomWheelEventHandler((ev) => {
+			if (ev.ctrlKey) {
+				handlePaneZoomWheel(getPaneId(), ev);
+				return false;
+			}
+			const forceScrollback =
+				ev.shiftKey ||
+				(term.modes.mouseTrackingMode !== "none" &&
+					term.buffer.active.type === "normal");
+			if (!forceScrollback) return true;
+			ev.preventDefault();
+			ev.stopPropagation();
+			scrollTermByWheel(term, ev);
+			return false;
+		});
+	}
+
+	/** Forward wheel from host padding (misses xterm's scrollable element). */
+	function handlePaneHostWheel(paneId: string, ev: WheelEvent): void {
+		if (ev.ctrlKey) {
+			handlePaneZoomWheel(paneId, ev);
+			return;
+		}
+		const target = ev.target as HTMLElement | null;
+		if (
+			target?.closest(".xterm-scrollable-element") ||
+			target?.closest(".xterm-viewport") ||
+			target?.closest(".xterm-screen")
+		) {
+			return;
+		}
+		const pt = getPaneHostByPaneId(paneId)?.getPaneTerminal(paneId);
+		if (!pt) return;
+		ev.preventDefault();
+		ev.stopPropagation();
+		scrollTermByWheel(pt.term, ev);
+	}
+
+	function installPaneControlSurface(): void {
+		(window as unknown as { parttyPanes?: unknown }).parttyPanes = {
+			list: () => paneHost?.getPaneDescriptors() ?? [],
+			focused: () => paneHost?.getFocusedPaneDescriptor() ?? null,
+			metrics: (paneId?: string) => {
+				const id = paneId || paneHost?.getFocusedPaneId();
+				return id ? (paneHost?.getPaneDescriptor(id, true) ?? null) : null;
+			},
+			focus: (paneId: string) => paneHost?.setFocusedPaneId(paneId),
+			zoom: (paneId: string, delta: number) =>
+				zoomPaneTerminal(paneId, Number(delta) || 0),
+		};
+	}
+
+	function attachTermKeyHandler(term: Terminal, getPaneId: () => string): void {
+		term.attachCustomKeyEventHandler((e) => {
+			if (e.type !== "keydown") return true;
+
+			const m = k.match(
+				e,
+				"terminal_newline",
+				"pane_focus_left",
+				"pane_focus_right",
+				"pane_focus_up",
+				"pane_focus_down",
+				"terminal_copy",
+				"terminal_paste",
+				"palette_chord",
+				"pane_split_right",
+				"pane_split_down",
+				"profile_split_right",
+				"profile_split_down",
+				"profile_float_new",
+				"pane_move_to_tab",
+				"pane_float_toggle",
+				"pane_float_new",
+				"pane_float_follow",
+				"pane_swap_left",
+				"pane_swap_right",
+				"pane_swap_up",
+				"pane_swap_down",
+				"pane_close",
+			);
+
+			if (m) {
+				switch (m) {
+					case "terminal_newline":
+						e.preventDefault();
+						queuePtyWrite(getPaneId(), "\n", true);
+						return false;
+					case "pane_focus_left":
+					case "pane_focus_right":
+					case "pane_focus_up":
+					case "pane_focus_down":
+						if (
+							focusAdjacentPaneByArrow(
+								e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown",
+							)
+						) {
+							e.preventDefault();
+							return false;
+						}
+						break;
+					case "terminal_copy":
+						if (term.hasSelection()) {
+							e.preventDefault();
+							copyToClipboard(term.getSelection());
+							return false;
+						}
+						break;
+					case "terminal_paste":
+						e.preventDefault();
+						void pasteFromClipboard();
+						return false;
+					case "palette_chord":
+						e.preventDefault();
+						return false;
+					case "pane_split_right":
+						e.preventDefault();
+						splitFocusedWithCwd("h");
+						return false;
+					case "pane_split_down":
+						e.preventDefault();
+						splitFocusedWithCwd("v");
+						return false;
+					case "profile_split_right":
+					case "profile_split_down":
+					case "profile_float_new":
+						e.preventDefault();
+						return false;
+					case "pane_move_to_tab": {
+						const idx = tabHotkeyIndexFromEvent(e);
+						if (idx != null) {
+							e.preventDefault();
+							moveFocusedPaneToTabHotkeyIndex(idx);
+							return false;
+						}
+						break;
+					}
+					case "pane_float_toggle":
+						e.preventDefault();
+						toggleFocusedPaneFloating();
+						return false;
+					case "pane_float_new":
+						e.preventDefault();
+						createFloatingPaneWithCwd();
+						return false;
+					case "pane_float_follow":
+						e.preventDefault();
+						toggleFocusedPaneFollow();
+						return false;
+					case "pane_swap_left":
+					case "pane_swap_right":
+					case "pane_swap_up":
+					case "pane_swap_down":
+						e.preventDefault();
+						return swapFocusedPaneWithAdjacent(
+							e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown",
+						);
+					case "pane_close":
+						e.preventDefault();
+						void closeFocusedPane(getPaneId());
+						return false;
+				}
+				return true;
+			}
+
+			if (
+				!e.ctrlKey &&
+				!e.shiftKey &&
+				!e.altKey &&
+				!e.metaKey &&
+				e.key === "Backspace" &&
+				term.hasSelection() &&
+				backspaceDeleteSelectionRef.v
+			) {
+				e.preventDefault();
+				// Delete the selected region by moving to its end and sending N DELs.
+				// Only single-line selections on the cursor line — multi-line / scrollback
+				// is a no-op beyond clearing the selection (TUIs / history aren't editable).
+				const range = term.getSelectionPosition();
+				term.clearSelection();
+				if (!range) return false;
+
+				const buf = term.buffer.active;
+				const cursorX = buf.cursorX;
+				const cursorAbsY = buf.baseY + buf.cursorY;
+				// getSelectionPosition returns 0-based coords (typings incorrectly say 1-based).
+				let x0 = range.start.x;
+				let y0 = range.start.y;
+				let x1 = range.end.x;
+				let y1 = range.end.y;
+				if (y0 > y1 || (y0 === y1 && x0 > x1)) {
+					const tx = x0;
+					const ty = y0;
+					x0 = x1;
+					y0 = y1;
+					x1 = tx;
+					y1 = ty;
+				}
+				if (y0 !== y1 || y0 !== cursorAbsY) return false;
+
+				const left = x0;
+				const right = x1; // exclusive end column
+				const cellCount = right - left;
+				if (cellCount <= 0) return false;
+
+				let payload = "";
+				if (cursorX < right) {
+					payload += "\x1b[C".repeat(right - cursorX);
+				} else if (cursorX > right) {
+					payload += "\x1b[D".repeat(cursorX - right);
+				}
+				// DEL — same as xterm's default Backspace on Windows hosts.
+				payload += "\x7f".repeat(cellCount);
+				queuePtyWrite(getPaneId(), payload, true);
+				return false;
+			}
+			return true;
+		});
+	}
+
+	const terminalContent = document.getElementById("terminal-content");
+	const stage = document.getElementById("terminal-stage");
+
+	/** Force the transparent cursor on panes whose extension overlay hides it.
+	 *  Theme re-applies rebuild `options.theme` and would otherwise clobber
+	 *  the hide (double cursor next to the extension's own rendering). */
+	function applyExtCursorHides(paneId: string, pt: PaneTerminal): void {
+		if (!extCursorHiddenPanes.has(paneId)) return;
+		pt.term.options.theme = {
+			...pt.term.options.theme,
+			cursor: "rgba(0, 0, 0, 0)",
+		};
+	}
+
+	function refreshAllTerminalThemes(): void {
+		// Refresh all tabs so theme changes don't drift on inactive tabs
+		for (const host of tabPaneHosts.values()) {
+			host.remountPaneSurfaces();
+			host.forEachPane((id, pt) => {
+				const th = xtermThemeForPane(id);
+				pt.term.options.theme = {
+					...th,
+					cursorAccent: th.background ?? TERM_BG_FALLBACK,
+				};
+				applyExtCursorHides(id, pt);
+				pt.term.refresh(0, pt.term.rows - 1);
+			});
+		}
+	}
+
+	function applyPaneTheme(paneId: string, prefs: PaneThemePrefs | null): void {
+		if (prefs) paneThemes.set(paneId, normalizePaneThemePrefs(prefs));
+		else paneThemes.delete(paneId);
+		paneHost?.remountPaneSurfaces();
+		const pt = paneHost?.getPaneTerminal(paneId);
+		if (pt) {
+			const th = xtermThemeForPane(paneId);
+			pt.term.options.theme = {
+				...th,
+				cursorAccent: th.background ?? TERM_BG_FALLBACK,
+			};
+			applyExtCursorHides(paneId, pt);
+			pt.term.refresh(0, pt.term.rows - 1);
+		}
+	}
+
+	let debounceTimer = 0;
+	let layoutRaf = 0;
+	let layoutForceRefresh = false;
+	let terminalLayoutSuspended = false;
+	let pendingSuspendedLayout = false;
+
+	function runLayoutPassForHost(host: PaneHost, forceRefresh = false): void {
+		const passStarted = performance.now();
+		let paneCount = 0;
+		const resizeBatch: Array<{
+			sessionId: string;
+			cols: number;
+			rows: number;
+		}> = [];
+		const refreshPanes: PaneTerminal[] = [];
+
+		host.forEachPane((paneId, pt) => {
+			paneCount++;
+			const fitStarted = performance.now();
+			pt.fit.fit();
+			parttyPerf.time("layout.fit.ms", performance.now() - fitStarted);
+			const d = ptyDims(pt.fit);
+			if (!d) return;
+			const safe = clampPtyColsRows(d.cols, d.rows);
+			const prev = lastPtyDims.get(paneId);
+			const unchanged = prev?.cols === safe.cols && prev?.rows === safe.rows;
+			if (unchanged) {
+				if (forceRefresh) pt.term.refresh(0, pt.term.rows - 1);
+				return;
+			}
+			lastPtyDims.set(paneId, safe);
+			resizeBatch.push({
+				sessionId: pt.sessionId,
+				cols: safe.cols,
+				rows: safe.rows,
+			});
+			refreshPanes.push(pt);
+		});
+
+		if (resizeBatch.length > 0) {
+			parttyPerf.mark("layout.pty_resize");
+			parttyPerf.mark("layout.pty_resize.count", resizeBatch.length);
+			const invokeStarted = performance.now();
+			void ptyResizeBatch(resizeBatch)
+				.then(() => {
+					parttyPerf.time(
+						"layout.pty_resize.invoke.ms",
+						performance.now() - invokeStarted,
+					);
+					for (const pt of refreshPanes) {
+						pt.term.refresh(0, pt.term.rows - 1);
+					}
+				})
+				.catch((e) => console.warn("pty_resize_batch", e));
+		}
+
+		parttyPerf.mark("layout.pass");
+		parttyPerf.gauge("layout.pass.panes", paneCount);
+		parttyPerf.time("layout.pass.ms", performance.now() - passStarted);
+	}
+
+	function runLayoutPass(forceRefresh = false): void {
+		parttyPerf.mark(
+			forceRefresh || layoutForceRefresh
+				? "layout.pass.force"
+				: "layout.pass.normal",
+		);
+		layoutRaf = 0;
+		const shouldForceRefresh = forceRefresh || layoutForceRefresh;
+		layoutForceRefresh = false;
+		if (!paneHost) return;
+		runLayoutPassForHost(paneHost, shouldForceRefresh);
+		for (const host of tabPaneHosts.values()) {
+			if (host === paneHost) continue;
+			for (const state of Object.values(host.getFloatingState())) {
+				if (state.follow) {
+					runLayoutPassForHost(host, shouldForceRefresh);
+					break;
+				}
+			}
+		}
+	}
+
+	/** PTY + xterm stay aligned after pane/window refocus (TUIs need SIGWINCH-sized PTY + refresh). */
+	function reflowAllPanes(): void {
+		parttyPerf.mark("layout.reflow_all");
+		lastPtyDims.clear();
+		scheduleResizeImmediate(true);
+	}
+
+	function refreshAllPaneThemes(): void {
+		for (const host of tabPaneHosts.values()) {
+			host.forEachPane((paneId, pt) => {
+				const th = xtermThemeForPane(paneId);
+				pt.term.options.theme = {
+					...th,
+					cursorAccent: th.background ?? TERM_BG_FALLBACK,
+				};
+				try {
+					pt.term.refresh(0, pt.term.rows - 1);
+				} catch {
+					/* ignore */
+				}
+			});
+			if (host === paneHost) host.remountPaneSurfaces();
+		}
+	}
+
+	function scheduleDeferredCustomThemes(): void {
+		if (!prefsNeedCustomThemes(currentUiPrefs, paneThemes.values())) return;
+		void ensureCustomThemesLoaded().then(() => {
+			applyUiTheme(currentUiPrefs);
+			refreshAllPaneThemes();
+		});
+	}
+
+	// Coalesced reflow after pane create — layout metrics can settle a frame late.
+	const pendingCreationReflowHosts = new Set<PaneHost>();
+	const pendingCreationReflowPanes = new Set<string>();
+	let creationReflowRaf = 0;
+	let creationReflowLateTimer = 0;
+
+	function flushCreationReflows(): void {
+		creationReflowRaf = 0;
+		const hosts = [...pendingCreationReflowHosts];
+		const paneIds = [...pendingCreationReflowPanes];
+		pendingCreationReflowHosts.clear();
+		pendingCreationReflowPanes.clear();
+
+		for (const paneId of paneIds) lastPtyDims.delete(paneId);
+		for (const host of hosts) {
+			const ids: string[] = [];
+			collectLeafIds(host.getTree(), ids);
+			for (const id of ids) lastPtyDims.delete(id);
+		}
+
+		const run = (): void => {
+			for (const paneId of paneIds) {
+				const host = getPaneHostByPaneId(paneId);
+				const pt = host?.getPaneTerminal(paneId);
+				if (pt) pt.fit.fit();
+			}
+			for (const host of hosts) {
+				if (host === paneHost) scheduleResizeImmediate(true);
+				else runLayoutPassForHost(host, true);
+			}
+		};
+
+		afterAnimationFrames(run);
+		if (creationReflowLateTimer) window.clearTimeout(creationReflowLateTimer);
+		if (document.fonts?.status === "loading") {
+			void document.fonts.ready.then(run);
+		} else {
+			creationReflowLateTimer = window.setTimeout(run, 80);
+		}
+	}
+
+	function scheduleCreationReflow(paneId: string): void {
+		const host = getPaneHostByPaneId(paneId);
+		if (host) pendingCreationReflowHosts.add(host);
+		else pendingCreationReflowPanes.add(paneId);
+		if (creationReflowRaf) return;
+		creationReflowRaf = requestAnimationFrame(flushCreationReflows);
+	}
+
+	function scheduleCreationReflowForHost(host: PaneHost): void {
+		pendingCreationReflowHosts.add(host);
+		if (creationReflowRaf) return;
+		creationReflowRaf = requestAnimationFrame(flushCreationReflows);
+	}
+
+	function scheduleHostGeometryRepair(host: PaneHost): void {
+		const ids: string[] = [];
+		collectLeafIds(host.getTree(), ids);
+		for (const id of ids) lastPtyDims.delete(id);
+		scheduleCreationReflowForHost(host);
+	}
+
+	function setTabsHidden(next: boolean): void {
+		document.documentElement.classList.toggle("tabs-hidden", next);
+		localStorage.setItem(TABS_HIDDEN_KEY, next ? "1" : "0");
+		tooltips.apply(document);
+		scheduleResizeImmediate();
+	}
+
+	function requestLayoutPass(forceRefresh = false): void {
+		layoutForceRefresh ||= forceRefresh;
+		if (terminalLayoutSuspended) {
+			pendingSuspendedLayout = true;
+			return;
+		}
+		if (layoutRaf) return;
+		layoutRaf = requestAnimationFrame(() => {
+			afterAnimationFrames(runLayoutPass, 1);
+		});
+	}
+
+	function scheduleResizeDebounced(forceRefresh = false): void {
+		layoutForceRefresh ||= forceRefresh;
+		if (terminalLayoutSuspended) {
+			pendingSuspendedLayout = true;
+			return;
+		}
+		if (debounceTimer) window.clearTimeout(debounceTimer);
+		debounceTimer = window.setTimeout(() => {
+			debounceTimer = 0;
+			requestLayoutPass();
+		}, RESIZE_DEBOUNCE_MS);
+	}
+
+	function scheduleResizeImmediate(forceRefresh = false): void {
+		layoutForceRefresh ||= forceRefresh;
+		if (terminalLayoutSuspended) {
+			pendingSuspendedLayout = true;
+			return;
+		}
+		if (debounceTimer) window.clearTimeout(debounceTimer);
+		debounceTimer = 0;
+		requestLayoutPass();
+	}
+
+	function setTerminalLayoutSuspended(suspended: boolean): void {
+		if (terminalLayoutSuspended === suspended) return;
+		terminalLayoutSuspended = suspended;
+		document.documentElement.classList.toggle(
+			"terminal-layout-suspended",
+			suspended,
+		);
+		if (!suspended && pendingSuspendedLayout) {
+			pendingSuspendedLayout = false;
+			scheduleResizeImmediate(true);
+		}
+	}
+
+	async function ensurePtyForPane(
+		paneId: string,
+		ptIn?: PaneTerminal,
+		initialCwd?: string | null,
+	): Promise<void> {
+		await ensureProfilesLoaded();
+		const pt = ptIn ?? getPaneTerminalById(paneId);
+		if (!pt) return;
+		const startupOverride = pendingPaneSpawnStartup.get(paneId) ?? null;
+		const profileId = assignPaneProfileId(
+			paneId,
+			paneProfileIds.get(paneId) ?? profileBehaviorRef.v.default_profile_id,
+		);
+		const profile = getProfileById(profileId, profilesList);
+		const effectiveCwd =
+			profile?.kind === "ssh"
+				? null
+				: (initialCwd ?? paneCwdHints.get(paneId) ?? null);
+		const globalShell =
+			((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
+			"pwsh";
+		const shellOverride = resolveProfileShell(
+			profile,
+			globalShell,
+			profilesList,
+		);
+		const ensureStarted = performance.now();
+		pt.fit.fit();
+		let d = ptyDims(pt.fit);
+		if (!d) {
+			await waitAnimationFrames(1);
+			pt.fit.fit();
+			d = ptyDims(pt.fit);
+		}
+		if (!d) {
+			await waitAnimationFrames(1);
+			pt.fit.fit();
+			d = ptyDims(pt.fit);
+		}
+		let raw = d ?? { cols: PTY_FALLBACK_COLS, rows: PTY_FALLBACK_ROWS };
+		let safe = clampPtyColsRows(raw.cols, raw.rows);
+		const maxAttempts = 4;
+		let lastErr: unknown;
+		for (let attempt = 0; attempt < maxAttempts; attempt++) {
+			if (attempt > 0) {
+				await new Promise<void>((r) => setTimeout(r, 55 * attempt));
+				pt.fit.fit();
+				const d2 = ptyDims(pt.fit);
+				raw = d2 ?? raw;
+				safe = clampPtyColsRows(raw.cols, raw.rows);
+			}
+			try {
+				// Fresh output channel per ensure: on resummon after a webview
+				// rebuild Rust swaps it in (`session.set_output_channel`), which is
+				// how live output re-attaches without restarting the shell.
+				const output = new Channel<ArrayBuffer>();
+				output.onmessage = (buf: ArrayBuffer) => {
+					deliverDirectPtyOut(pt.paneId, new Uint8Array(buf));
+				};
+				await ptyEnsure(
+					pt.sessionId,
+					safe.cols,
+					safe.rows,
+					effectiveCwd,
+					shellOverride,
+					profileId,
+					startupOverride,
+					output,
+				);
+				pendingPaneSpawnStartup.delete(paneId);
+				await replayBackendSnapshotOnce(paneId, pt);
+				lastPtyDims.set(paneId, safe);
+				parttyPerf.mark("pty.ensure.success");
+				parttyPerf.time("pty.ensure.ms", performance.now() - ensureStarted);
+				return;
+			} catch (e) {
+				lastErr = e;
+				parttyPerf.mark("pty.ensure.failure");
+				const msg = String(e).toLowerCase();
+				if (
+					/not found|cannot find|does not exist|no such file|access denied|permission denied|invalid/i.test(
+						msg,
+					)
+				) {
+					break;
+				}
+			}
+		}
+		const msg = String(lastErr);
+		console.error("pty_ensure failed:", lastErr);
+		parttyPerf.mark("pty.ensure.failure");
+		parttyPerf.time("pty.ensure.ms", performance.now() - ensureStarted);
+		try {
+			pt.term.write(
+				`\r\n\x1b[31mShell failed after retries.\x1b[0m \x1b[90m${msg}\x1b[0m\r\n`,
+			);
+		} catch {
+			/* ignore */
+		}
+	}
+
+	/** Coalesce heavy focus side-effects so arrow spam stays visual-only. */
+	let pendingFocusAuxId: string | null = null;
+	let focusAuxRaf = 0;
+	function scheduleFocusAuxiliary(paneId: string): void {
+		pendingFocusAuxId = paneId;
+		if (focusAuxRaf) return;
+		focusAuxRaf = requestAnimationFrame(() => {
+			focusAuxRaf = 0;
+			const id = pendingFocusAuxId;
+			pendingFocusAuxId = null;
+			if (!id) return;
+			const pt = paneHost?.getPaneTerminal(id);
+			if (pt) {
+				lastPtyDims.delete(id);
+				pt.fit.fit();
+				scheduleResizeImmediate(true);
+			}
+			void remountAuxiliaryForFocus(id);
+		});
+	}
+
+	async function remountAuxiliaryForFocus(paneId: string): Promise<void> {
+		const pt = paneHost?.getPaneTerminal(paneId);
+		if (!pt) return;
+		// Skip stale work if the user already hopped to another pane.
+		if (paneHost?.getFocusedPaneId() !== paneId) return;
+
+		await ensureWebglOnPane(paneId);
+		if (paneHost?.getFocusedPaneId() !== paneId) return;
+
+		pt.term.focus();
+	}
+
+	let tabsState: TabsStateV1 = loadTabsState();
+	let activeTabId =
+		tabsState.tabs.find((t) => t.id === tabsState.activeTabId)?.id ??
+		tabsState.tabs[0]?.id ??
+		"tab-1";
+	tabsState = { ...tabsState, activeTabId: activeTabId };
+	saveTabsState(tabsState);
+	const tabPaneHosts = new Map<string, PaneHost>();
+	const tabPaneShells = new Map<string, HTMLElement>();
+	type DeferredTabInit = { init: PaneHostInit; rootPaneId: string };
+	const deferredTabInits = new Map<string, DeferredTabInit>();
+
+	function rekeyKeyed<T>(map: Map<string, T>, from: string, to: string): void {
+		if (from === to || !map.has(from)) return;
+		const value = map.get(from)!;
+		map.delete(from);
+		map.set(to, value);
+	}
+
+	function rekeyKeyedSet(set: Set<string>, from: string, to: string): void {
+		if (set.delete(from)) set.add(to);
+	}
+
+	function rekeyPaneRuntimeState(from: string, to: string): void {
+		if (from === to) return;
+		rekeyKeyed(paneCwdHints, from, to);
+		rekeyKeyed(paneRemoteIsWindows, from, to);
+		rekeyKeyed(paneProfileIds, from, to);
+		rekeyKeyed(paneShellState, from, to);
+		rekeyKeyed(paneProgramNames, from, to);
+		rekeyKeyed(paneThemes, from, to);
+		rekeyKeyed(lastPtyDims, from, to);
+		rekeyKeyed(pendingPaneSpawnCwd, from, to);
+		rekeyKeyed(pendingPaneSpawnProfile, from, to);
+		rekeyKeyed(pendingPaneSpawnStartup, from, to);
+		rekeyKeyed(activeProcesses, from, to);
+		rekeyKeyed(pendingShellCommandLine, from, to);
+		rekeyKeyed(paneHostCleanups, from, to);
+		rekeyKeyed(paneLinkProviders, from, to);
+		rekeyKeyed(extCursorMoveSubs, from, to);
+		rekeyKeyed(extCursorHiddenOriginal, from, to);
+		rekeyKeyed(pendingPtyWriteByPane, from, to);
+		rekeyKeyed(pendingPtyOutputByPane, from, to);
+		rekeyKeyed(ptyBulkWriteTailByPane, from, to);
+		rekeyKeyed(pendingZoomByPane, from, to);
+		rekeyKeyed(paneWebglStates, from, to);
+		rekeyKeyedSet(extCursorHiddenPanes, from, to);
+		rekeyKeyedSet(ptyBulkActiveByPane, from, to);
+		rekeyKeyedSet(backendReplayRestoredPanes, from, to);
+		rekeyKeyedSet(pendingCreationReflowPanes, from, to);
+		if (lastFocusedPaneId === from) lastFocusedPaneId = to;
+	}
+
+	function retargetPaneId(host: PaneHost, from: string, to: string): void {
+		if (from === to) return;
+		if (!host.rekeyPane(from, to)) return;
+		rekeyPaneRuntimeState(from, to);
+	}
+
+	function allocPaneIdForTab(tabId: string): string {
+		const host = tabPaneHosts.get(tabId);
+		const tabKey = tabKeyForTabId(tabId);
+		const used = new Set<string>();
+		if (host) {
+			for (const id of host.getLeafIdsInOrder()) {
+				const parsed = parsePaneId(id);
+				if (parsed && parsed.tabKey === tabKey) used.add(parsed.slot);
+			}
+		}
+		return formatPaneId(tabKey, nextSlot(used));
+	}
+
+	function followSlotsInUse(): Set<string> {
+		const used = new Set<string>();
+		for (const host of tabPaneHosts.values()) {
+			for (const id of host.getLeafIdsInOrder()) {
+				if (!host.isPaneFollowing(id)) continue;
+				const parsed = parsePaneId(id);
+				if (parsed) used.add(parsed.slot);
+			}
+		}
+		return used;
+	}
+
+	function syncLivePaneIds(): void {
+		const tabs = tabsInIndexOrder();
+		const planned: Array<{ host: PaneHost; from: string; to: string }> = [];
+		const followUsed = new Set<string>();
+		for (let i = 0; i < tabs.length; i++) {
+			const tab = tabs[i]!;
+			const tabKey = String(i + 1);
+			const host = tabPaneHosts.get(tab.id);
+			if (!host) {
+				const deferred = deferredTabInits.get(tab.id);
+				if (!deferred?.init.initialTree) continue;
+				const mapped = mapLayoutToTabKey(
+					{
+						v: 1,
+						tree: deferred.init.initialTree,
+						focusedId: deferred.init.initialFocusedId ?? "",
+						floating: deferred.init.initialFloating,
+					},
+					tabKey,
+					followUsed,
+				);
+				deferred.init.initialTree = mapped.layout.tree;
+				deferred.init.initialFocusedId = mapped.layout.focusedId;
+				deferred.init.initialFloating = mapped.layout.floating;
+				deferred.rootPaneId = resolveTabRootPaneId(mapped.layout);
+				continue;
+			}
+			const localUsed = new Set<string>();
+			for (const id of host.getLeafIdsInOrder()) {
+				const follow = host.isPaneFollowing(id);
+				const prev = parsePaneId(id);
+				let slot = prev?.slot;
+				if (follow) {
+					if (!slot || followUsed.has(slot)) slot = nextSlot(followUsed);
+					followUsed.add(slot);
+					const to = formatPaneId(FOLLOW_TAB_MARK, slot);
+					if (to !== id) planned.push({ host, from: id, to });
+				} else {
+					if (!slot || localUsed.has(slot)) slot = nextSlot(localUsed);
+					localUsed.add(slot);
+					const to = formatPaneId(tabKey, slot);
+					if (to !== id) planned.push({ host, from: id, to });
+				}
+			}
+		}
+		if (planned.length === 0) return;
+		planned.forEach((move, i) => retargetPaneId(move.host, move.from, `#${i}`));
+		planned.forEach((move, i) => retargetPaneId(move.host, `#${i}`, move.to));
+	}
+
+	function layoutNeedsLiveHost(layout: PersistedPaneLayout): boolean {
+		for (const state of Object.values(layout.floating ?? {})) {
+			if (state.follow) return true;
+		}
+		return false;
+	}
+
+	function applyTabLayoutMetadata(layout: PersistedPaneLayout): void {
+		seedPaneMapsFromLayout(
+			layout,
+			{ paneThemes, paneProfileIds, paneCwdHints },
+			{ seedCwds: retainSessionStateRef.v },
+		);
+	}
+	const paneRootEl = document.getElementById("terminal-pane-root");
+	if (!paneRootEl) throw new Error("#terminal-pane-root missing");
+	const terminalPaneRoot = paneRootEl;
+	const floatFollowLayer = document.createElement("div");
+	floatFollowLayer.id = "term-float-follow-layer";
+	floatFollowLayer.className = "term-float-follow-layer";
+	terminalPaneRoot.appendChild(floatFollowLayer);
+
+	function syncGlobalPaneFocus(focusedId: string): void {
+		for (const root of [terminalPaneRoot, floatFollowLayer]) {
+			root.querySelectorAll(".pane-leaf").forEach((el) => {
+				const pid = (el as HTMLElement).dataset.paneId;
+				el.classList.toggle("pane-leaf--focused", pid === focusedId);
+			});
+		}
+	}
+
+	function isFollowingPaneFocused(): boolean {
+		const id = lastFocusedPaneId;
+		if (!id) return false;
+		return getPaneHostByPaneId(id)?.isPaneFollowing(id) ?? false;
+	}
+
+	function collectFocusHopGeometries() {
+		const geometries = [];
+		if (paneHost) geometries.push(...paneHost.getLeafGeometries());
+		for (const host of tabPaneHosts.values()) {
+			if (host === paneHost) continue;
+			geometries.push(...host.getFollowingLeafGeometries());
+		}
+		return geometries;
+	}
+
+	function focusPaneGlobal(paneId: string): void {
+		const owner = getPaneHostByPaneId(paneId);
+		if (!owner) return;
+		if (owner.isPaneFollowing(paneId)) {
+			owner.focusPane(paneId, { retainHostFocus: true });
+			return;
+		}
+		owner.setFocusedPaneId(paneId);
+	}
+
+	let pointerFocusRaf = 0;
+	let pendingPointerFocusId: string | null = null;
+	let lastPointerPos: { x: number; y: number } | null = null;
+
+	function focusPaneUnderPointer(): void {
+		if (!focusFollowsRef.v || !lastPointerPos) return;
+		const leaf = document
+			.elementFromPoint(lastPointerPos.x, lastPointerPos.y)
+			?.closest(".pane-leaf") as HTMLElement | null;
+		const id = leaf?.dataset.paneId;
+		if (id && getPaneHostByPaneId(id) && id !== focusedPaneId()) {
+			focusPaneGlobal(id);
+		}
+	}
+
+	function installPointerFocusFollow(): void {
+		const onMove = (ev: PointerEvent): void => {
+			lastPointerPos = { x: ev.clientX, y: ev.clientY };
+			if (!focusFollowsRef.v) return;
+			for (const host of tabPaneHosts.values()) {
+				if (host.isPaneInteractionActive()) return;
+			}
+			const leaf = document
+				.elementFromPoint(ev.clientX, ev.clientY)
+				?.closest(".pane-leaf") as HTMLElement | null;
+			const id = leaf?.dataset.paneId;
+			if (!id || !getPaneHostByPaneId(id)) return;
+			const current = focusedPaneId();
+			if (id === current) return;
+			pendingPointerFocusId = id;
+			if (pointerFocusRaf) return;
+			pointerFocusRaf = requestAnimationFrame(() => {
+				pointerFocusRaf = 0;
+				const nextId = pendingPointerFocusId;
+				pendingPointerFocusId = null;
+				if (!nextId || nextId === focusedPaneId()) return;
+				focusPaneGlobal(nextId);
+			});
+		};
+		terminalPaneRoot.addEventListener("pointermove", onMove, true);
+	}
+
+	type CursorWarpOptions = {
+		/** Warp even when pointer-follow-focus is enabled. */
+		force?: boolean;
+		/** Wait for layout/animation before measuring pane bounds. */
+		delayMs?: number;
+		/** Skip the cursor-follow-pane pref check (monitor moves). */
+		bypassPanePref?: boolean;
+	};
+
+	let cursorWarpReady = false;
+
+	function scheduleCursorWarpToPane(
+		paneId?: string,
+		opts: CursorWarpOptions = {},
+	): void {
+		if (!cursorWarpReady) return;
+		if (!opts.bypassPanePref && !cursorFollowPaneFocusRef.v) return;
+		if (!opts.force && focusFollowsRef.v) return;
+
+		const run = (): void => {
+			afterAnimationFrames(() => {
+				void warpCursorToPane(paneId);
+			});
+		};
+
+		const delay = opts.delayMs ?? 0;
+		if (delay > 0) window.setTimeout(run, delay);
+		else run();
+	}
+
+	async function warpCursorToPane(paneId?: string): Promise<void> {
+		try {
+			const id = paneId ?? paneHost?.getFocusedPaneId();
+			if (!id) return;
+			const host = getPaneHostByPaneId(id) ?? paneHost;
+			if (!host) return;
+			const el = host
+				.getHostRoot()
+				.querySelector(
+					`.pane-leaf[data-pane-id="${CSS.escape(id)}"]`,
+				) as HTMLElement | null;
+			const rect = el?.getBoundingClientRect();
+			const cx = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
+			const cy = rect ? rect.top + rect.height / 2 : window.innerHeight / 2;
+			await appWindow.setCursorPosition(
+				new LogicalPosition(Math.round(cx), Math.round(cy)),
+			);
+			if (host === paneHost) {
+				getFocusedTerm()?.focus();
+			} else {
+				host.getPaneTerminal(id)?.term.focus();
+			}
+		} catch {
+			/* ignore */
+		}
+	}
+
+	function xtermThemeForPane(paneId: string) {
+		const paneTheme = resolvePaneThemePrefs(paneId);
+		return paneTheme
+			? buildXtermThemeFromPrefs(paneTheme)
+			: buildXtermThemeFromDocument();
+	}
+
+	function cssVarsForPane(paneId: string): Record<string, string> | null {
+		const paneTheme = resolvePaneThemePrefs(paneId);
+		return paneTheme ? themeCssVarsForPrefs(paneTheme) : null;
+	}
+
+	function themePrefsFromProfileId(
+		profileId: string | null | undefined,
+	): PaneThemePrefs | null {
+		if (!profileId) return null;
+		const profile = getProfileById(
+			resolveDefaultProfileId(profileId, profilesList),
+			profilesList,
+		);
+		const ref = profile?.theme?.trim();
+		return ref ? parseProfileThemeRef(ref) : null;
+	}
+
+	/** Explicit pane theme, else profile theme (including pending spawn). */
+	function resolvePaneThemePrefs(paneId: string): PaneThemePrefs | null {
+		return (
+			paneThemes.get(paneId) ??
+			themePrefsFromProfileId(
+				pendingPaneSpawnProfile.get(paneId) ??
+					paneProfileIds.get(paneId) ??
+					pendingNewPaneProfile.v,
+			)
+		);
+	}
+
+	function ensurePaneThemeFromProfile(
+		paneId: string,
+		profileId: string | null | undefined,
+	): void {
+		if (paneThemes.has(paneId)) return;
+		const prefs = themePrefsFromProfileId(profileId);
+		if (prefs) paneThemes.set(paneId, prefs);
+	}
+
+	function createPaneHost(
+		container: HTMLElement,
+		init: PaneHostInit | undefined,
+		rootPaneId: string,
+		tabId: string,
+	): PaneHost {
+		return new PaneHost(
+			container,
+			{
+				rootPaneId,
+				scrollbackLines: lp.scrollback_lines,
+				fontStack: terminalFontStackFromDocument(),
+				cursorStyle: cursorStyleRef.v,
+				cursorBlink: cursorBlinkRef.v,
+				cursorInactiveStyle: cursorInactiveStyleRef.v,
+				cursorWidth: cursorWidthRef.v,
+				altClickMovesCursor: altClickCursorRef.v,
+				fontSize: fontSizeRef.v,
+				fontWeight: fontWeightRef.v,
+				fontWeightBold: fontWeightBoldRef.v,
+				lineHeight: lineHeightRef.v,
+				letterSpacing: letterSpacingRef.v,
+				drawBoldTextInBrightColors: drawBoldBrightRef.v,
+				smoothScrollDuration: smoothScrollRef.v,
+				scrollSensitivity: scrollSensitivityRef.v,
+				fastScrollSensitivity: fastScrollSensitivityRef.v,
+				sideloadOpenconsole: Boolean(
+					(persisted.prefs as Partial<ParttyPrefs>)
+						.terminal_sideload_openconsole,
+				),
+				linkHandler: {
+					activate: (_event, uri) => {
+						const url = normalizeExternalUrl(uri);
+						if (url) {
+							void invoke("open_external_url", { url }).catch(
+								(e) => void showAlert(String(e), "Open link"),
+							);
+						}
+					},
+				},
+				getTheme: (paneId) => xtermThemeForPane(paneId),
+				getPaneName: (paneId) => paneEffectiveName(paneId),
+				allocPaneId: () => allocPaneIdForTab(tabId),
+				getPaneCssVars: (paneId) => cssVarsForPane(paneId),
+				getSplitLayoutStyle: () => splitLayoutStyleRef.v,
+				focusFollowsCursor: () => focusFollowsRef.v,
+				followMount: floatFollowLayer,
+				applyPaneFocusClasses: syncGlobalPaneFocus,
+				getGlobalFocusedPaneId: focusedPaneId,
+				suppressEnterAnimation: () =>
+					document.documentElement.classList.contains("partty-booting"),
+				onPaneFocus: (id) => {
+					lastFocusedPaneId = id;
+					const pt = getPaneTerminalById(id);
+					// Sync hot path only: terminal focus + PTY focus IPC.
+					// Fit / WebGL / CWD are coalesced to the next frame
+					// so Ctrl+Arrow hops stay visually instant.
+					if (pt) {
+						pt.term.focus();
+						paneLinkProviders.get(id)?.scheduleViewportPrewarm();
+						requestAnimationFrame(() => {
+							const tr = pt.term.buffer.active.cursorY;
+							if (tr >= 0 && tr < pt.term.rows) pt.term.refresh(tr, tr);
+						});
+						void ptyFocusPane(pt.sessionId).catch(() => {});
+					}
+					const hint = paneCwdHints.get(id);
+					if (hint) {
+						liveCwd = hint;
+					}
+					scheduleFocusAuxiliary(id);
+					try {
+						scheduleCursorWarpToPane(id);
+					} catch {
+						/* ignore */
+					}
+					refreshTabLabelForPane(id);
+					// Notify extension subscribers.
+					if (extFocusSubs.length > 0) {
+						for (const fn of extFocusSubs) {
+							try {
+								fn(id);
+							} catch {
+								/* ignore */
+							}
+						}
+					}
+				},
+				onPaneCreated: (id, pt) => {
+					paneBySessionId.set(pt.sessionId, pt);
+					attachTermKeyHandler(pt.term, () => pt.paneId);
+					attachTermWheelHandler(pt.term, () => pt.paneId);
+					const linkProvider = registerTerminalLinkProvider(pt.term, {
+						getCwd: () => paneEffectiveCwd(pt.paneId),
+						isFocused: () => focusedPaneId() === pt.paneId,
+						activate: (event, match) =>
+							handleTerminalLinkActivation(pt.paneId, event, match),
+					});
+					paneLinkProviders.set(id, linkProvider);
+					pt.term.onRender(() => {
+						parttyPerf.finishTermRender(id);
+					});
+					pt.term.onData((data) => {
+						parttyPerf.recordInputEvent();
+						queuePtyWrite(pt.paneId, data);
+						// Notify extension PTY input subscribers (zero-cost when empty).
+						if (extPtyInputSubs.length > 0) {
+							for (const fn of extPtyInputSubs) {
+								try {
+									fn(pt.paneId, data);
+								} catch {
+									/* ignore */
+								}
+							}
+						}
+					});
+					const onHostWheel = (ev: WheelEvent) =>
+						handlePaneHostWheel(pt.paneId, ev);
+					pt.host.addEventListener("wheel", onHostWheel, { passive: false });
+					const onSelDispose = pt.term.onSelectionChange(() => {
+						if (!autoCopySelectionRef.v || !pt.term.hasSelection()) return;
+						copyToClipboard(pt.term.getSelection());
+					});
+
+					// Register cleanup for pane teardown.
+					paneHostCleanups.set(id, [
+						() => pt.host.removeEventListener("wheel", onHostWheel),
+						() => onSelDispose.dispose(),
+					]);
+					if (lp.preload_webgl_on_startup) void ensureWebglOnPane(id);
+					const explicitProfile =
+						pendingPaneSpawnProfile.get(id) ?? pendingNewPaneProfile.v;
+					pendingPaneSpawnProfile.delete(id);
+					pendingNewPaneProfile.v = null;
+					const explicitCwd =
+						pendingPaneSpawnCwd.get(id) ?? pendingNewPaneCwd.v;
+					pendingPaneSpawnCwd.delete(id);
+					pendingNewPaneCwd.v = null;
+					const inheritedCwd = explicitCwd ?? paneCwdHints.get(id) ?? null;
+					if (inheritedCwd) {
+						const spawnProfile = getProfileById(
+							resolveDefaultProfileId(
+								explicitProfile ??
+									paneProfileIds.get(id) ??
+									profileBehaviorRef.v.default_profile_id,
+								profilesList,
+							),
+							profilesList,
+						);
+						if (spawnProfile?.kind !== "ssh") {
+							paneCwdHints.set(id, inheritedCwd);
+						}
+					}
+
+					assignPaneProfileId(
+						id,
+						explicitProfile ??
+							paneProfileIds.get(id) ??
+							profileBehaviorRef.v.default_profile_id,
+					);
+
+					// During destroy→recreate boot, prepare-show owns ensure after scrollback
+					// restore — avoid a premature ensure that races rehydration.
+					if (!document.documentElement.classList.contains("partty-booting")) {
+						queueMicrotask(() => {
+							void ensurePtyForPane(pt.paneId, pt, inheritedCwd);
+						});
+					}
+					// Boot/rehydrate: prepare-show does one host repair; skip staggered bounce.
+					if (!document.documentElement.classList.contains("partty-booting")) {
+						scheduleCreationReflow(id);
+					}
+					// Notify extension subscribers.
+					if (extPaneCreatedSubs.length > 0) {
+						for (const fn of extPaneCreatedSubs) {
+							try {
+								fn(id);
+							} catch {
+								/* ignore */
+							}
+						}
+					}
+				},
+				onPaneDisposed: (pid, sessionId) => {
+					void ptyKillPane(sessionId).catch(() => {});
+					paneBySessionId.delete(sessionId);
+					paneThemes.delete(pid);
+					cleanupPaneVisualState(pid);
+					parttyPerf.resetPane(pid);
+					// Notify extension subscribers.
+					if (extPaneClosedSubs.length > 0) {
+						for (const fn of extPaneClosedSubs) {
+							try {
+								fn(pid);
+							} catch {
+								/* ignore */
+							}
+						}
+					}
+				},
+				onPaneLayout: () => scheduleResizeImmediate(),
+				onPaneLayoutDrag: (dragging) => {
+					setTerminalLayoutSuspended(dragging);
+					mouseCursorDragRef.suppress?.(dragging);
+				},
+				onPaneReorder: () => persistCurrentTabLayout(),
+			},
+			init,
+		);
+	}
+
+	function createTabPaneShellAndHost(
+		tabId: string,
+		init: PaneHostInit,
+		rootPaneId?: string,
+	): PaneHost {
+		const shell = document.createElement("div");
+		shell.className = "term-tab-pane-shell";
+		shell.dataset.tabId = tabId;
+		terminalPaneRoot.appendChild(shell);
+		const rid = rootPaneId ?? tabRootPaneId(tabKeyForTabId(tabId));
+		const host = createPaneHost(shell, init, rid, tabId);
+		tabPaneHosts.set(tabId, host);
+		tabPaneShells.set(tabId, shell);
+		if (tabId !== activeTabId) {
+			shell.classList.add("term-tab-pane-shell--hidden");
+		}
+		return host;
+	}
+
+	function ensureTabPaneHost(tabId: string): PaneHost | null {
+		const existing = tabPaneHosts.get(tabId);
+		if (existing) return existing;
+		const deferred = deferredTabInits.get(tabId);
+		if (!deferred) return null;
+		deferredTabInits.delete(tabId);
+		return createTabPaneShellAndHost(tabId, deferred.init, deferred.rootPaneId);
+	}
+
+	void ensureProfilesLoaded();
+
+	{
+		const followSlots = new Set<string>();
+		const ordered = tabsInIndexOrder();
+		for (let i = 0; i < ordered.length; i++) {
+			const tab = ordered[i]!;
+			const tabKey = String(i + 1);
+			let layout = initialLayoutForTab(tab.id, i === 0);
+			layout = mapLayoutToTabKey(layout, tabKey, followSlots).layout;
+			if (!isPaneLayoutUsable(layout)) {
+				layout = emptyTabLayout(tabKey);
+			}
+			applyTabLayoutMetadata(layout);
+			const init: PaneHostInit = {
+				initialTree: layout.tree,
+				initialFocusedId: layout.focusedId,
+				initialFloating: layout.floating,
+			};
+			const rootId = resolveTabRootPaneId(layout);
+			if (tab.id === activeTabId || layoutNeedsLiveHost(layout)) {
+				createTabPaneShellAndHost(tab.id, init, rootId);
+				if (tab.id !== activeTabId) {
+					tabPaneShells
+						.get(tab.id)
+						?.classList.add("term-tab-pane-shell--hidden");
+				}
+			} else {
+				deferredTabInits.set(tab.id, { init, rootPaneId: rootId });
+			}
+		}
+	}
+	paneHost = tabPaneHosts.get(activeTabId)!;
+	lastFocusedPaneId = paneHost.getFocusedPaneId();
+	syncGlobalPaneFocus(lastFocusedPaneId);
+	installPointerFocusFollow();
+	scheduleDeferredCustomThemes();
+	void ensureProfilesLoaded().then(() => scheduleDeferredCustomThemes());
+	installPaneControlSurface();
+	cursorWarpReady = true;
+
+	// Prevent the Alt key from focusing the system menu bar on release,
+	// which would steal focus from the terminal after Alt+scroll.
+	document.addEventListener(
+		"keydown",
+		(e) => {
+			if (e.key === "Alt" && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+				e.preventDefault();
+			}
+		},
+		true,
+	);
+
+	function persistCurrentTabLayout(): void {
+		if (!paneHost) return;
+		const pl = layoutForPaneHost(paneHost);
+		if (!pl) return;
+		persistLayoutForTab(activeTabId, pl);
+	}
+
+	function layoutForPaneHost(host: PaneHost): PersistedPaneLayout | null {
+		const tree = host.getTree();
+		const rid = host.getRootPaneId();
+		if (!tree || !findPaneLeaf(tree, rid)) return null;
+		const panes = host.getPaneDescriptors();
+		return {
+			v: 1,
+			tree,
+			focusedId: host.getFocusedPaneId(),
+			floating: host.getFloatingState(),
+			paneThemes: paneMapSubset(panes, paneThemes),
+			paneCwds: retainSessionStateRef.v
+				? paneMapSubset(panes, paneCwdHints)
+				: undefined,
+			paneProfileIds: paneMapSubset(panes, paneProfileIds),
+		};
+	}
+
+	function paneMapSubset<T>(
+		panes: { id: string }[],
+		map: Map<string, T>,
+	): Record<string, T> {
+		return Object.fromEntries(
+			panes
+				.filter((pane) => map.has(pane.id))
+				.map((pane) => [pane.id, map.get(pane.id)!]),
+		);
+	}
+
+	function switchToTab(tabId: string): void {
+		if (tabId === activeTabId) return;
+		const nextHost = ensureTabPaneHost(tabId);
+		if (!nextHost) return;
+		persistCurrentTabLayout();
+
+		const prevTabId = activeTabId;
+		const prevShell = tabPaneShells.get(prevTabId);
+		const nextShell = tabPaneShells.get(tabId);
+		const motionOn = !motionDisabled();
+		const prevTabIndex = tabsState.tabs.findIndex(
+			(tab) => tab.id === prevTabId,
+		);
+		const nextTabIndex = tabsState.tabs.findIndex((tab) => tab.id === tabId);
+		const reverseTabMotion =
+			prevTabIndex >= 0 && nextTabIndex >= 0 && nextTabIndex < prevTabIndex;
+		const enteringClass = reverseTabMotion
+			? "term-tab-pane-shell--entering-reverse"
+			: "term-tab-pane-shell--entering";
+		const leavingClass = reverseTabMotion
+			? "term-tab-pane-shell--leaving-reverse"
+			: "term-tab-pane-shell--leaving";
+
+		activeTabId = tabId;
+		tabsState = { ...tabsState, activeTabId: tabId };
+		saveTabsState(tabsState);
+
+		for (const fn of extTabSwitchSubs) {
+			try {
+				fn(tabId);
+			} catch {
+				/* ignore */
+			}
+		}
+
+		// Only the prev→next pair participates in the crossfade; everything else
+		// is hidden immediately so stacked shells never flash or tear.
+		for (const [id, shell] of tabPaneShells) {
+			cancelElementAnimations(shell);
+			shell.classList.remove(
+				"term-tab-pane-shell--entering",
+				"term-tab-pane-shell--entering-reverse",
+				"term-tab-pane-shell--leaving",
+				"term-tab-pane-shell--leaving-reverse",
+			);
+			if (id !== tabId && id !== prevTabId) {
+				shell.classList.add("term-tab-pane-shell--hidden");
+			}
+		}
+
+		paneHost = nextHost;
+		if (!isFollowingPaneFocused()) {
+			lastFocusedPaneId = paneHost.getFocusedPaneId();
+		}
+		syncGlobalPaneFocus(lastFocusedPaneId);
+		if (lastFocusedPaneId) refreshTabLabelForPane(lastFocusedPaneId);
+
+		// When focus-follows-cursor is on, refocus to whichever pane the
+		// mouse is already hovering over after the tab switch. Defer one
+		// frame so the incoming tab's DOM is laid out and visible.
+		requestAnimationFrame(() => focusPaneUnderPointer());
+
+		if (nextShell) {
+			nextShell.classList.remove("term-tab-pane-shell--hidden");
+		}
+
+		if (prevShell && prevShell !== nextShell && motionOn) {
+			prevShell.classList.remove("term-tab-pane-shell--hidden");
+			const capturedPrev = prevTabId;
+			animateClass(prevShell, leavingClass, () => {
+				if (activeTabId === capturedPrev) return;
+				prevShell.classList.add("term-tab-pane-shell--hidden");
+			});
+		} else if (prevShell && prevShell !== nextShell) {
+			prevShell.classList.add("term-tab-pane-shell--hidden");
+		}
+
+		if (nextShell && motionOn) {
+			const capturedTabId = tabId;
+			animateClass(nextShell, enteringClass, () => {
+				if (activeTabId !== capturedTabId) return;
+				for (const [id, shell] of tabPaneShells) {
+					if (id !== capturedTabId)
+						shell.classList.add("term-tab-pane-shell--hidden");
+				}
+				scheduleCreationReflowForHost(nextHost);
+				scheduleResizeImmediate(true);
+			});
+		} else {
+			for (const [id, shell] of tabPaneShells) {
+				shell.classList.toggle("term-tab-pane-shell--hidden", id !== tabId);
+			}
+			scheduleCreationReflowForHost(nextHost);
+			scheduleResizeImmediate(true);
+		}
+
+		const hint = paneCwdHints.get(lastFocusedPaneId);
+		if (hint) {
+			liveCwd = hint;
+		}
+		document.documentElement.classList.toggle(
+			"term-tabs-multiple",
+			tabsState.tabs.length > 1,
+		);
+		renderTabsBar();
+		getFocusedTerm()?.focus();
+		scheduleCursorWarpToPane(lastFocusedPaneId, {
+			force: true,
+			delayMs: motionDurationMs("medium"),
+		});
+		// Notify extension subscribers on tab switch (onPaneFocus only fires within a tab).
+		if (extFocusSubs.length > 0 && lastFocusedPaneId) {
+			for (const fn of extFocusSubs) {
+				try {
+					fn(lastFocusedPaneId);
+				} catch {
+					/* ignore */
+				}
+			}
+		}
+		requestAnimationFrame(() => {
+			nextHost.forEachPane((id, pt) => {
+				void ensurePtyForPane(id, pt);
+			});
+		});
+	}
+
+	function visibleTabsInOrder(): TabRecord[] {
+		const sortedTabs = [...tabsState.tabs].sort((a, b) => a.order - b.order);
+		const sortedGroups = [...tabsState.groups].sort(
+			(a, b) => a.order - b.order,
+		);
+		const groupedTabs = new Map<string, TabRecord[]>();
+		for (const tab of sortedTabs) {
+			if (!tab.groupId) continue;
+			const bucket = groupedTabs.get(tab.groupId) ?? [];
+			bucket.push(tab);
+			groupedTabs.set(tab.groupId, bucket);
+		}
+		const items: Array<{
+			type: "tab" | "group";
+			order: number;
+			tab?: TabRecord;
+			group?: TabGroup;
+		}> = [];
+		for (const tab of sortedTabs) {
+			if (!tab.groupId) items.push({ type: "tab", order: tab.order, tab });
+		}
+		for (const group of sortedGroups)
+			items.push({ type: "group", order: group.order, group });
+		items.sort((a, b) => a.order - b.order);
+
+		const visible: TabRecord[] = [];
+		for (const item of items) {
+			if (item.type === "tab" && item.tab) visible.push(item.tab);
+			else if (item.type === "group" && item.group && !item.group.collapsed) {
+				visible.push(...(groupedTabs.get(item.group.id) ?? []));
+			}
+		}
+		return visible;
+	}
+
+	function tabForHotkeyIndex(index: number): TabRecord | null {
+		return visibleTabsInOrder()[index] ?? null;
+	}
+
+	function switchOrCreateTabForHotkeyIndex(index: number): void {
+		const existing = tabForHotkeyIndex(index);
+		if (existing) switchToTab(existing.id);
+		else openNewTab();
+	}
+
+	function openTabWithTransferredPane(
+		paneId: string,
+		pt: PaneTerminal,
+		switchTo: boolean,
+	): string {
+		const tabId = crypto.randomUUID();
+		const name = nextTabName(tabsState.tabs);
+		const layout: PersistedPaneLayout = {
+			v: 1,
+			tree: { kind: "leaf", id: paneId },
+			focusedId: paneId,
+		};
+		const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
+		tabsState = {
+			...tabsState,
+			tabs: [
+				...tabsState.tabs,
+				{ id: tabId, name, groupId: null, color: null, order: maxOrder + 1 },
+			],
+		};
+		saveTabsState(tabsState);
+		persistLayoutForTab(tabId, layout);
+		createTabPaneShellAndHost(
+			tabId,
+			{
+				initialTree: layout.tree,
+				initialFocusedId: paneId,
+				preloadedPanes: { [paneId]: pt },
+			},
+			paneId,
+		);
+		if (switchTo) switchToTab(tabId);
+		else renderTabsBar();
+		syncLivePaneIds();
+		return tabId;
+	}
+
+	function rootPaneHasUserState(host: PaneHost): boolean {
+		const rootId = host.getRootPaneId();
+		if (lastPtyDims.has(rootId)) return true;
+		if (activeProcesses.has(rootId)) return true;
+		const pt = host.getPaneTerminal(rootId);
+		if (!pt) return false;
+		const buf = pt.term.buffer.active;
+		if (buf.length > 1 || buf.baseY > 0) return true;
+		if (buf.length === 1) {
+			const text = buf.getLine(0)?.translateToString() ?? "";
+			if (text.trim().length > 0) return true;
+		}
+		return false;
+	}
+
+	function receiveTransferredPane(
+		targetHost: PaneHost,
+		paneId: string,
+		pt: PaneTerminal,
+	): boolean {
+		if (targetHost.isPristineRootTab() && !rootPaneHasUserState(targetHost)) {
+			return targetHost.rebindAsTransferredRoot(paneId, pt);
+		}
+		return targetHost.receivePaneAtRoot(paneId, pt, PANE_TRANSFER_SPLIT_DIR);
+	}
+
+	function takePaneForTransfer(
+		host: PaneHost,
+		paneId: string,
+	): PaneTerminal | null {
+		if (host.isPristineRootTab()) {
+			return host.takeSolePane(paneId, { saveRollback: true });
+		}
+		return host.takePane(paneId, { saveRollback: true });
+	}
+
+	function moveFocusedPaneToTabHotkeyIndex(index: number): void {
+		const sourceTabId = activeTabId;
+		const sourceHost = paneHost;
+		const paneId = sourceHost?.getFocusedPaneId();
+		if (!sourceHost || !paneId) return;
+
+		const closingSourceTab = sourceHost.isPristineRootTab();
+		const pt = takePaneForTransfer(sourceHost, paneId);
+		if (!pt) return;
+
+		const sourceSurvivorIds: string[] = [];
+		if (!closingSourceTab) {
+			collectLeafIds(sourceHost.getTree(), sourceSurvivorIds);
+			for (const id of sourceSurvivorIds) lastPtyDims.delete(id);
+		}
+
+		const existing = tabForHotkeyIndex(index);
+		if (existing?.id === sourceTabId) {
+			sourceHost.restoreTakenPane(paneId, pt);
+			return;
+		}
+
+		let targetTabId: string;
+		let targetHost: PaneHost;
+
+		if (existing) {
+			targetTabId = existing.id;
+			const host = ensureTabPaneHost(targetTabId);
+			if (!host || !receiveTransferredPane(host, paneId, pt)) {
+				sourceHost.restoreTakenPane(paneId, pt);
+				return;
+			}
+			targetHost = host;
+		} else {
+			targetTabId = openTabWithTransferredPane(paneId, pt, false);
+			targetHost = tabPaneHosts.get(targetTabId)!;
+			if (!targetHost) {
+				sourceHost.restoreTakenPane(paneId, pt);
+				return;
+			}
+		}
+
+		sourceHost.clearPaneMoveRollback();
+		if (!closingSourceTab) {
+			const sourceLayout = layoutForPaneHost(sourceHost);
+			if (sourceLayout) persistLayoutForTab(sourceTabId, sourceLayout);
+		}
+		const targetLayout = layoutForPaneHost(targetHost);
+		if (targetLayout) persistLayoutForTab(targetTabId, targetLayout);
+		targetHost.setFocusedPaneId(paneId);
+		if (closingSourceTab) {
+			closeTab(sourceTabId);
+			if (!quietPaneDeferralRef.v) {
+				switchToTab(targetTabId);
+			}
+		} else if (quietPaneDeferralRef.v) {
+			renderTabsBar();
+			sourceHost.getPaneTerminal(sourceHost.getFocusedPaneId())?.term.focus();
+		} else {
+			switchToTab(targetTabId);
+		}
+		scheduleCreationReflow(paneId);
+		if (!closingSourceTab && paneHost === sourceHost) {
+			scheduleHostGeometryRepair(sourceHost);
+		}
+		syncLivePaneIds();
+	}
+
+	const tabMenuEl = document.getElementById("tab-context-menu");
+	let tabMenuOverlay: OverlayHandle | null = null;
+
+	function hideTabContextMenu(): void {
+		tabMenuOverlay?.release();
+		tabMenuOverlay = null;
+		tabMenuEl?.classList.add("tab-context-menu--hidden");
+		tabMenuEl?.replaceChildren();
+		tabMenuEl?.setAttribute("aria-hidden", "true");
+	}
+
+	function showTabContextMenuAt(clientX: number, clientY: number): void {
+		if (!tabMenuEl) return;
+		tabMenuEl.style.left = `${Math.min(clientX, window.innerWidth - 160)}px`;
+		tabMenuEl.style.top = `${Math.min(clientY, window.innerHeight - 120)}px`;
+		tabMenuEl.classList.remove("tab-context-menu--hidden");
+		tabMenuEl.setAttribute("aria-hidden", "false");
+		tabMenuOverlay?.release();
+		tabMenuOverlay = pushOverlay(hideTabContextMenu);
+	}
+
+	function duplicateTab(fromTabId: string): void {
+		persistCurrentTabLayout();
+		const tabKey = String(tabsInIndexOrder().length + 1);
+		const raw = loadLayoutForTab(fromTabId) ?? emptyTabLayout(tabKey);
+		const newId = crypto.randomUUID();
+		const dup = duplicateTabLayout(raw, tabKey, followSlotsInUse());
+		persistLayoutForTab(newId, dup);
+		const sourceName =
+			tabsState.tabs.find((t) => t.id === fromTabId)?.name ??
+			nextTabName(tabsState.tabs);
+		const existing = new Set(tabsState.tabs.map((t) => t.name.toLowerCase()));
+		const m = sourceName.match(/^(.*?)(\d+)?$/);
+		const base = (m?.[1] ?? sourceName).trimEnd() || sourceName;
+		let n = Number.parseInt(m?.[2] ?? "", 10);
+		if (!Number.isFinite(n)) n = 1;
+		let candidate = `${base}${n + 1}`;
+		while (existing.has(candidate.toLowerCase())) {
+			n += 1;
+			candidate = `${base}${n + 1}`;
+		}
+		const sourceTab = tabsState.tabs.find((t) => t.id === fromTabId);
+		const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
+		tabsState = {
+			...tabsState,
+			tabs: [
+				...tabsState.tabs,
+				{
+					id: newId,
+					name: candidate,
+					groupId: sourceTab?.groupId ?? null,
+					color: sourceTab?.color ?? null,
+					order: maxOrder + 1,
+				},
+			],
+		};
+		saveTabsState(tabsState);
+		applyTabLayoutMetadata(dup);
+		createTabPaneShellAndHost(newId, {
+			initialTree: dup.tree,
+			initialFocusedId: dup.focusedId,
+		});
+		switchToTab(newId);
+	}
+
+	function tabIdForPaneHost(host: PaneHost): string | null {
+		for (const [tabId, h] of tabPaneHosts) {
+			if (h === host) return tabId;
+		}
+		return null;
+	}
+
+	function disposeTabPaneHost(tabId: string): void {
+		deferredTabInits.delete(tabId);
+		const h = tabPaneHosts.get(tabId);
+		if (h) {
+			h.dispose();
+			tabPaneHosts.delete(tabId);
+		}
+		const shell = tabPaneShells.get(tabId);
+		shell?.remove();
+		tabPaneShells.delete(tabId);
+	}
+
+	function closeTab(tabId: string): void {
+		if (tabsState.tabs.length <= 1) return;
+		const idx = tabsState.tabs.findIndex((t) => t.id === tabId);
+		if (idx < 0) return;
+		persistCurrentTabLayout();
+		if (tabId === activeTabId) {
+			const other = tabsState.tabs[idx + 1] ?? tabsState.tabs[idx - 1];
+			if (!other) return;
+			switchToTab(other.id);
+		}
+		tabsState = {
+			...tabsState,
+			tabs: tabsState.tabs.filter((t) => t.id !== tabId),
+		};
+		saveTabsState(tabsState);
+		disposeTabPaneHost(tabId);
+		try {
+			localStorage.removeItem(tabLayoutKey(tabId));
+		} catch {
+			/* ignore */
+		}
+		syncLivePaneIds();
+		document.documentElement.classList.toggle(
+			"term-tabs-multiple",
+			tabsState.tabs.length > 1,
+		);
+		renderTabsBar();
+		scheduleResizeImmediate(true);
+		if (paneHost) scheduleHostGeometryRepair(paneHost);
+		getFocusedTerm()?.focus();
+	}
+
+	let renamingTabId: string | null = null;
+	let renamingGroupId: string | null = null;
+
+	function finishTabRename(commit: boolean): void {
+		const id = renamingTabId;
+		if (!id) return;
+		const strip = document.getElementById("term-tabs-strip");
+		const inp = strip?.querySelector(
+			`input[data-tab-rename="${id}"]`,
+		) as HTMLInputElement | null;
+		const raw = inp?.value ?? "";
+		renamingTabId = null;
+		if (commit) {
+			const v = raw.trim();
+			if (v) {
+				const t = tabsState.tabs.find((x) => x.id === id);
+				if (t) applyUserTabRename(t, v);
+				saveTabsState(tabsState);
+			}
+		}
+		renderTabsBar();
+	}
+
+	let tabRenameOverlay: OverlayHandle | null = null;
+
+	function openTabRenameModal(): void {
+		const modal = document.getElementById("tab-rename-modal");
+		const input = document.getElementById(
+			"tab-rename-input",
+		) as HTMLInputElement | null;
+		const form = modal?.querySelector(
+			".tab-rename-form",
+		) as HTMLFormElement | null;
+		if (!modal || !input || !form) return;
+		const tab = tabsState.tabs.find((t) => t.id === renamingTabId);
+		input.value = tab?.name ?? "";
+		modal.classList.remove("tab-rename-modal--hidden");
+		modal.setAttribute("aria-hidden", "false");
+		tabRenameOverlay?.release();
+		tabRenameOverlay = pushOverlay(() => closeTabRenameModal(false));
+		mouseCursorForceVisible(true);
+		requestAnimationFrame(() => {
+			input.focus();
+			input.select();
+		});
+	}
+
+	function closeTabRenameModal(commit: boolean): void {
+		const modal = document.getElementById("tab-rename-modal");
+		if (!modal) return;
+		tabRenameOverlay?.release();
+		tabRenameOverlay = null;
+		modal.classList.add("tab-rename-modal--hidden");
+		modal.setAttribute("aria-hidden", "true");
+		mouseCursorForceVisible(false);
+		if (commit) {
+			const id = renamingTabId;
+			const input = document.getElementById(
+				"tab-rename-input",
+			) as HTMLInputElement | null;
+			const v = input?.value.trim();
+			if (id && v) {
+				const t = tabsState.tabs.find((x) => x.id === id);
+				if (t) applyUserTabRename(t, v);
+				saveTabsState(tabsState);
+			}
+		}
+		renamingTabId = null;
+		renderTabsBar();
+		getFocusedTerm()?.focus();
+	}
+
+	function beginTabRename(tabId: string): void {
+		renamingTabId = tabId;
+		if (document.documentElement.classList.contains("tabs-hidden")) {
+			openTabRenameModal();
+			return;
+		}
+		renderTabsBar();
+		requestAnimationFrame(() => {
+			const strip = document.getElementById("term-tabs-strip");
+			const inp = strip?.querySelector(
+				`input[data-tab-rename="${tabId}"]`,
+			) as HTMLInputElement | null;
+			inp?.focus();
+			inp?.select();
+		});
+	}
+
+	function finishGroupRename(commit: boolean): void {
+		const id = renamingGroupId;
+		if (!id) return;
+		const strip = document.getElementById("term-tabs-strip");
+		const inp = strip?.querySelector(
+			`input[data-group-rename="${id}"]`,
+		) as HTMLInputElement | null;
+		const raw = inp?.value ?? "";
+		renamingGroupId = null;
+		if (commit) {
+			const v = raw.trim();
+			if (v) {
+				const g = tabsState.groups.find((x) => x.id === id);
+				if (g) g.name = v;
+				saveTabsState(tabsState);
+			}
+		}
+		renderTabsBar();
+	}
+
+	function beginGroupRename(groupId: string): void {
+		renamingGroupId = groupId;
+		renderTabsBar();
+		requestAnimationFrame(() => {
+			const strip = document.getElementById("term-tabs-strip");
+			const inp = strip?.querySelector(
+				`input[data-group-rename="${groupId}"]`,
+			) as HTMLInputElement | null;
+			inp?.focus();
+			inp?.select();
+		});
+	}
+
+	function openNewTab(switchTo = true, profileId?: string | null): string {
+		const id = crypto.randomUUID();
+		const name = nextTabName(tabsState.tabs);
+		const tabKey = String(tabsInIndexOrder().length + 1);
+		const empty = emptyTabLayout(tabKey);
+		const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
+		const resolvedProfile = resolveProfileForNewTab(profileId);
+		const rootId = empty.focusedId;
+		paneProfileIds.set(rootId, resolvedProfile);
+		pendingPaneSpawnProfile.set(rootId, resolvedProfile);
+		ensurePaneThemeFromProfile(rootId, resolvedProfile);
+		tabsState = {
+			...tabsState,
+			tabs: [
+				...tabsState.tabs,
+				{
+					id,
+					name,
+					userName: null,
+					groupId: null,
+					color: null,
+					order: maxOrder + 1,
+				},
+			],
+		};
+		saveTabsState(tabsState);
+		persistLayoutForTab(id, {
+			...empty,
+			paneProfileIds: { [rootId]: resolvedProfile },
+		});
+		createTabPaneShellAndHost(id, {
+			initialTree: empty.tree,
+			initialFocusedId: empty.focusedId,
+		});
+		if (switchTo) switchToTab(id);
+		else renderTabsBar();
+		return id;
+	}
+
+	function workspaceOpenMode(): WorkspaceOpenMode {
+		return (persisted.prefs as Partial<ParttyPrefs>).workspace_open_mode ===
+			"replace"
+			? "replace"
+			: "new-tab";
+	}
+
+	function seedWorkspaceMaps(mapped: PersistedPaneLayout): void {
+		seedPaneMapsFromLayout(
+			mapped,
+			{ paneThemes, paneProfileIds, paneCwdHints },
+			{
+				seedCwds: true,
+				resolveCwdFallbacks: true,
+				profiles: profilesList,
+				defaultProfileId: profileBehaviorRef.v.default_profile_id,
+				globalInitialCwd:
+					(persisted.prefs as Partial<ParttyPrefs>).initial_cwd ?? null,
+			},
+		);
+	}
+
+	async function applyWorkspaceById(id: string): Promise<void> {
+		await ensureProfilesLoaded();
+		let workspace: Workspace;
+		try {
+			workspace = await readWorkspace(id);
+		} catch (e) {
+			console.error("read workspace", id, e);
+			showAlert(`Could not read workspace \`${id}\`.`);
+			return;
+		}
+		applyWorkspace(workspace);
+	}
+
+	function applyWorkspace(workspace: Workspace): void {
+		if (workspaceOpenMode() === "replace") {
+			applyWorkspaceToCurrentTab(workspace);
+		} else {
+			applyWorkspaceToNewTab(workspace);
+		}
+	}
+
+	function applyWorkspaceToNewTab(workspace: Workspace): void {
+		persistCurrentTabLayout();
+		const newTabId = crypto.randomUUID();
+		const maxOrder = Math.max(0, ...tabsState.tabs.map((t) => t.order));
+		const title =
+			workspace.tabName?.trim() || workspace.name.trim() || workspace.id;
+		tabsState = {
+			...tabsState,
+			tabs: [
+				...tabsState.tabs,
+				{
+					id: newTabId,
+					name: title,
+					userName: null,
+					groupId: null,
+					color: null,
+					order: maxOrder + 1,
+				},
+			],
+		};
+		saveTabsState(tabsState);
+
+		const { layout: mapped, idMap } = remapWorkspaceLayoutForTab(
+			workspace.layout,
+			tabKeyForTabId(newTabId),
+			followSlotsInUse(),
+		);
+		if (!isPaneLayoutUsable(mapped)) {
+			tabsState = {
+				...tabsState,
+				tabs: tabsState.tabs.filter((t) => t.id !== newTabId),
+			};
+			saveTabsState(tabsState);
+			showAlert("Workspace layout could not be applied.");
+			return;
+		}
+
+		persistLayoutForTab(newTabId, mapped);
+		seedWorkspaceMaps(mapped);
+		queueWorkspaceStartupCommands(
+			workspace.layout.startupCommands,
+			idMap,
+			pendingPaneSpawnStartup,
+		);
+		createTabPaneShellAndHost(
+			newTabId,
+			{
+				initialTree: mapped.tree,
+				initialFocusedId: mapped.focusedId,
+				initialFloating: mapped.floating,
+			},
+			resolveTabRootPaneId(mapped),
+		);
+		switchToTab(newTabId);
+	}
+
+	function applyWorkspaceToCurrentTab(workspace: Workspace): void {
+		const tabId = activeTabId;
+		persistCurrentTabLayout();
+
+		const { layout: mapped, idMap } = remapWorkspaceLayoutForTab(
+			workspace.layout,
+			tabKeyForTabId(tabId),
+			followSlotsInUse(),
+		);
+		if (!isPaneLayoutUsable(mapped)) {
+			showAlert("Workspace layout could not be applied.");
+			return;
+		}
+
+		const tab = tabsState.tabs.find((t) => t.id === tabId);
+		const title = workspace.tabName?.trim() || workspace.name.trim();
+		if (tab && title) {
+			tab.name = title;
+			saveTabsState(tabsState);
+		}
+
+		const oldHost = tabPaneHosts.get(tabId);
+		if (oldHost) {
+			for (const pane of oldHost.getPaneDescriptors()) {
+				paneThemes.delete(pane.id);
+			}
+			disposeTabPaneHost(tabId);
+		}
+
+		seedWorkspaceMaps(mapped);
+
+		queueWorkspaceStartupCommands(
+			workspace.layout.startupCommands,
+			idMap,
+			pendingPaneSpawnStartup,
+		);
+
+		const newHost = createTabPaneShellAndHost(
+			tabId,
+			{
+				initialTree: mapped.tree,
+				initialFocusedId: mapped.focusedId,
+				initialFloating: mapped.floating,
+			},
+			resolveTabRootPaneId(mapped),
+		);
+		paneHost = newHost;
+		lastFocusedPaneId = newHost.getFocusedPaneId();
+		persistLayoutForTab(tabId, mapped);
+		installPaneControlSurface();
+		renderTabsBar();
+		scheduleResizeImmediate(true);
+		scheduleCreationReflowForHost(newHost);
+	}
+
+	function openTabContextMenu(
+		clientX: number,
+		clientY: number,
+		tab: TabRecord,
+	): void {
+		if (!tabMenuEl) return;
+		tabMenuEl.replaceChildren();
+		const mk = (label: string, fn: () => void) => {
+			const b = document.createElement("button");
+			b.type = "button";
+			b.className = "tab-context-menu-item";
+			b.role = "menuitem";
+			b.textContent = label;
+			b.addEventListener("click", (ev) => {
+				ev.stopPropagation();
+				hideTabContextMenu();
+				fn();
+			});
+			tabMenuEl.appendChild(b);
+		};
+		mk("Rename", () => {
+			beginTabRename(tab.id);
+		});
+		mk("Set color", () => {
+			const input = document.createElement("input");
+			input.type = "color";
+			input.value = tab.color || "#ffffff";
+			input.style.position = "absolute";
+			input.style.left = "-9999px";
+			input.style.top = "-9999px";
+			input.style.opacity = "0";
+			document.body.appendChild(input);
+			input.addEventListener("input", () => {
+				tabsState = {
+					...tabsState,
+					tabs: tabsState.tabs.map((t) =>
+						t.id === tab.id ? { ...t, color: input.value } : t,
+					),
+				};
+				saveTabsState(tabsState);
+				renderTabsBar();
+			});
+			input.addEventListener("change", () => {
+				document.body.removeChild(input);
+			});
+			input.addEventListener("cancel", () => {
+				document.body.removeChild(input);
+			});
+			input.click();
+		});
+		mk("Duplicate", () => duplicateTab(tab.id));
+		mk("Add to new group", () => {
+			const groupId = crypto.randomUUID();
+			const groupName = `Group ${tabsState.groups.length + 1}`;
+			const maxOrder = Math.max(0, ...tabsState.groups.map((g) => g.order));
+			tabsState = {
+				...tabsState,
+				groups: [
+					...tabsState.groups,
+					{
+						id: groupId,
+						name: groupName,
+						color: null,
+						collapsed: false,
+						order: maxOrder + 1,
+					},
+				],
+				tabs: tabsState.tabs.map((t) =>
+					t.id === tab.id ? { ...t, groupId } : t,
+				),
+			};
+			saveTabsState(tabsState);
+			renderTabsBar();
+		});
+		for (const group of tabsState.groups) {
+			if (group.id === tab.groupId) continue;
+			mk(`Add to “${group.name}”`, () => {
+				tabsState = {
+					...tabsState,
+					tabs: tabsState.tabs.map((t) =>
+						t.id === tab.id ? { ...t, groupId: group.id } : t,
+					),
+				};
+				saveTabsState(tabsState);
+				renderTabsBar();
+			});
+		}
+		if (tab.groupId) {
+			mk("Remove from group", () => {
+				tabsState = {
+					...tabsState,
+					tabs: tabsState.tabs.map((t) =>
+						t.id === tab.id ? { ...t, groupId: null } : t,
+					),
+				};
+				saveTabsState(tabsState);
+				renderTabsBar();
+			});
+		}
+		if (tabsState.tabs.length > 1) {
+			mk("Close", () => closeTab(tab.id));
+		}
+		showTabContextMenuAt(clientX, clientY);
+	}
+
+	function openGroupContextMenu(
+		clientX: number,
+		clientY: number,
+		group: TabGroup,
+	): void {
+		if (!tabMenuEl) return;
+		tabMenuEl.replaceChildren();
+		const mk = (label: string, fn: () => void) => {
+			const b = document.createElement("button");
+			b.type = "button";
+			b.className = "tab-context-menu-item";
+			b.role = "menuitem";
+			b.textContent = label;
+			b.addEventListener("click", (ev) => {
+				ev.stopPropagation();
+				hideTabContextMenu();
+				fn();
+			});
+			tabMenuEl.appendChild(b);
+		};
+		mk("Rename group", () => {
+			beginGroupRename(group.id);
+		});
+		mk("Set group color", () => {
+			const input = document.createElement("input");
+			input.type = "color";
+			input.value = group.color || "#ffffff";
+			input.style.position = "absolute";
+			input.style.left = "-9999px";
+			input.style.top = "-9999px";
+			input.style.opacity = "0";
+			document.body.appendChild(input);
+			input.addEventListener("input", () => {
+				tabsState = {
+					...tabsState,
+					groups: tabsState.groups.map((g) =>
+						g.id === group.id ? { ...g, color: input.value } : g,
+					),
+				};
+				saveTabsState(tabsState);
+				renderTabsBar();
+			});
+			input.addEventListener("change", () => {
+				document.body.removeChild(input);
+			});
+			input.addEventListener("cancel", () => {
+				document.body.removeChild(input);
+			});
+			input.click();
+		});
+		mk(group.collapsed ? "Expand group" : "Collapse group", () => {
+			tabsState = {
+				...tabsState,
+				groups: tabsState.groups.map((g) =>
+					g.id === group.id ? { ...g, collapsed: !g.collapsed } : g,
+				),
+			};
+			saveTabsState(tabsState);
+			renderTabsBar();
+		});
+		mk("Disband group", () => {
+			tabsState = {
+				...tabsState,
+				groups: tabsState.groups.filter((g) => g.id !== group.id),
+				tabs: tabsState.tabs.map((t) =>
+					t.groupId === group.id ? { ...t, groupId: null } : t,
+				),
+			};
+			saveTabsState(tabsState);
+			renderTabsBar();
+		});
+		showTabContextMenuAt(clientX, clientY);
+	}
+
+	document.addEventListener(
+		"pointerdown",
+		(e) => {
+			if (tabMenuEl?.classList.contains("tab-context-menu--hidden")) return;
+			if (tabMenuEl && !tabMenuEl.contains(e.target as Node))
+				hideTabContextMenu();
+		},
+		true,
+	);
+
+	window.addEventListener(
+		"keydown",
+		(e) => {
+			const mMoveTab = k.matchParam(e, "pane_move_to_tab");
+			if (mMoveTab) {
+				const t = e.target as HTMLElement | null;
+				if (t?.closest("#command-palette") || t?.closest("#settings-panel"))
+					return;
+				e.preventDefault();
+				e.stopPropagation();
+				moveFocusedPaneToTabHotkeyIndex(
+					mMoveTab.param === 0 ? 9 : mMoveTab.param - 1,
+				);
+				return;
+			}
+
+			const mSwitchTab = k.matchParam(e, "tab_switch");
+			if (mSwitchTab) {
+				e.preventDefault();
+				e.stopPropagation();
+				if (e.shiftKey) return;
+				switchOrCreateTabForHotkeyIndex(
+					mSwitchTab.param === 0 ? 9 : mSwitchTab.param - 1,
+				);
+				return;
+			}
+
+			const m = k.match(
+				e,
+				"window_toggle",
+				"window_move_next_monitor",
+				"window_move_prev_monitor",
+				"window_maximize",
+				"window_restore",
+			);
+
+			if (m === "window_toggle") {
+				e.preventDefault();
+				e.stopPropagation();
+				void invoke("toggle_overlay").catch(() => {});
+				return;
+			}
+			if (m === "window_move_next_monitor") {
+				e.preventDefault();
+				e.stopPropagation();
+				void moveWindowToAdjacentMonitor(1);
+				return;
+			}
+			if (m === "window_move_prev_monitor") {
+				e.preventDefault();
+				e.stopPropagation();
+				void moveWindowToAdjacentMonitor(-1);
+				return;
+			}
+			if (m === "window_maximize") {
+				e.preventDefault();
+				e.stopPropagation();
+				void setWindowMaximized(true);
+				return;
+			}
+			if (m === "window_restore") {
+				e.preventDefault();
+				e.stopPropagation();
+				void setWindowMaximized(false);
+				return;
+			}
+		},
+		true,
+	);
+
+	document.addEventListener(
+		"pointerdown",
+		(e) => {
+			const target = e.target as HTMLElement | null;
+			if (!target) return;
+			const terminalRoot = document.getElementById("terminal-pane-root");
+			if (!terminalRoot || !terminalRoot.contains(target)) return;
+			if (
+				target.closest(
+					"input, textarea, select, button, [contenteditable='true']",
+				)
+			)
+				return;
+			focusActiveTerminal();
+		},
+		true,
+	);
+
+	const tabBar = initTabBar({
+		wrap: document.getElementById("term-tabs-wrap")!,
+		strip: document.getElementById("term-tabs-strip")!,
+		leading: document.getElementById("term-tabbar-leading")!,
+		trailing: document.getElementById("term-tabbar-trailing")!,
+		background: document.getElementById("term-tabbar-bg")!,
+	});
+
+	function tabRenderModel(
+		tab: TabRecord,
+		groupColor: string | null = null,
+	): TabRenderModel {
+		const group = tab.groupId
+			? tabsState.groups.find((g) => g.id === tab.groupId)
+			: undefined;
+		const host = tabPaneHosts.get(tab.id);
+		const focused =
+			tab.id === activeTabId
+				? focusedPaneId()
+				: (host?.getFocusedPaneId() ?? null);
+		const idx = tabsInIndexOrder().findIndex((t) => t.id === tab.id);
+		return {
+			id: tab.id,
+			index: idx >= 0 ? idx + 1 : 1,
+			name: tab.name,
+			displayName: tabDisplayName(tab.id),
+			userName: tab.userName ?? null,
+			color: tab.color || groupColor,
+			groupId: tab.groupId,
+			groupName: group?.name ?? null,
+			groupColor: group?.color ?? groupColor,
+			active: tab.id === activeTabId,
+			focusedPaneId: focused,
+		};
+	}
+
+	function renderTabsBar(): void {
+		const strip = document.getElementById("term-tabs-strip");
+		if (!strip) return;
+		strip.replaceChildren();
+		const mult = tabsState.tabs.length > 1;
+		document.documentElement.classList.toggle("term-tabs-multiple", mult);
+		// One tab (or fewer) isn't worth a tab bar — collapse it so it doesn't eat
+		// viewport. The user hide/show toggle only applies with multiple tabs.
+		document.documentElement.classList.toggle(
+			"tabs-collapsed",
+			tabsState.tabs.length <= 1,
+		);
+
+		// Sort tabs and groups by order
+		const sortedTabs = [...tabsState.tabs].sort((a, b) => a.order - b.order);
+		const sortedGroups = [...tabsState.groups].sort(
+			(a, b) => a.order - b.order,
+		);
+
+		// Group tabs by groupId
+		const groupedTabs = new Map<string, TabRecord[]>();
+		for (const tab of sortedTabs) {
+			if (tab.groupId) {
+				if (!groupedTabs.has(tab.groupId)) {
+					groupedTabs.set(tab.groupId, []);
+				}
+				groupedTabs.get(tab.groupId)!.push(tab);
+			}
+		}
+
+		// Create a unified list of items (tabs and groups) sorted by order
+		const items: Array<{
+			type: "tab" | "group";
+			order: number;
+			tab?: TabRecord;
+			group?: TabGroup;
+		}> = [];
+		for (const tab of sortedTabs) {
+			if (!tab.groupId) {
+				items.push({ type: "tab", order: tab.order, tab });
+			}
+		}
+		for (const group of sortedGroups) {
+			items.push({ type: "group", order: group.order, group });
+		}
+
+		// Render items in order
+		for (const item of items) {
+			if (item.type === "tab" && item.tab) {
+				renderTab(strip, item.tab);
+			} else if (item.type === "group" && item.group) {
+				const group = item.group;
+				const tabs = groupedTabs.get(group.id) || [];
+
+				// Render group header
+				if (renamingGroupId === group.id) {
+					const renameWrap = document.createElement("div");
+					renameWrap.className = "term-tab-rename-row";
+					renameWrap.dataset.groupId = group.id;
+					const input = document.createElement("input");
+					input.type = "text";
+					input.className = "term-tab-rename-input";
+					input.dataset.groupRename = group.id;
+					input.value = group.name;
+					input.autocomplete = "off";
+					input.spellcheck = false;
+					input.setAttribute("aria-label", "Group name");
+					input.addEventListener("keydown", (e) => {
+						if (e.key === "Enter") {
+							e.preventDefault();
+							finishGroupRename(true);
+						} else if (e.key === "Escape") {
+							e.preventDefault();
+							finishGroupRename(false);
+						}
+					});
+					input.addEventListener("blur", () => finishGroupRename(true));
+					renameWrap.appendChild(input);
+					strip.appendChild(renameWrap);
+					continue;
+				}
+
+				const groupHeader = document.createElement("div");
+				groupHeader.className = "term-tab-group";
+				groupHeader.draggable = true;
+				if (group.color) {
+					groupHeader.style.setProperty("--tab-group-color", group.color);
+				}
+
+				const groupRenderer = tabBar.groupRenderer();
+				if (groupRenderer) {
+					groupRenderer(
+						{
+							id: group.id,
+							name: group.name,
+							color: group.color,
+							collapsed: group.collapsed,
+							tabIds: tabs.map((t) => t.id),
+						},
+						groupHeader,
+					);
+				} else {
+					const groupName = document.createElement("span");
+					groupName.className = "term-tab-group-name";
+					groupName.textContent = group.name;
+					groupHeader.appendChild(groupName);
+				}
+
+				groupHeader.addEventListener("contextmenu", (ev) => {
+					ev.preventDefault();
+					openGroupContextMenu(ev.clientX, ev.clientY, group);
+				});
+
+				groupHeader.addEventListener("dragstart", (e) => {
+					groupDragId = group.id;
+					groupHeader.classList.add("term-tab-group--dragging");
+					if (e.dataTransfer) {
+						e.dataTransfer.effectAllowed = "move";
+						e.dataTransfer.setData("text/plain", group.id);
+					}
+				});
+
+				groupHeader.addEventListener("dragend", () => {
+					groupDragId = null;
+					groupHeader.classList.remove("term-tab-group--dragging");
+				});
+
+				groupHeader.addEventListener("dragover", (e) => {
+					e.preventDefault();
+					if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+				});
+
+				groupHeader.addEventListener("drop", (e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					const from = tabDragId;
+					tabDragId = null;
+					document
+						.querySelectorAll(".term-tab--dragging")
+						.forEach((el) => el.classList.remove("term-tab--dragging"));
+					if (!from) return;
+					tabsState = {
+						...tabsState,
+						tabs: tabsState.tabs.map((t) =>
+							t.id === from ? { ...t, groupId: group.id } : t,
+						),
+					};
+					saveTabsState(tabsState);
+					renderTabsBar();
+				});
+
+				strip.appendChild(groupHeader);
+
+				// Render tabs in group (if not collapsed)
+				if (!group.collapsed) {
+					const groupTabsContainer = document.createElement("div");
+					groupTabsContainer.className = "term-tab-group-tabs";
+					if (group.color) {
+						groupTabsContainer.style.setProperty(
+							"--tab-group-color",
+							group.color,
+						);
+					}
+					for (const tab of tabs) {
+						renderTab(groupTabsContainer, tab, group.color);
+					}
+					strip.appendChild(groupTabsContainer);
+				}
+			}
+		}
+
+		function renderTab(
+			strip: HTMLElement,
+			tab: TabRecord,
+			groupColor: string | null = null,
+		): void {
+			if (renamingTabId === tab.id) {
+				const renameWrap = document.createElement("div");
+				renameWrap.className = "term-tab-rename-row";
+				renameWrap.dataset.tabId = tab.id;
+				const input = document.createElement("input");
+				input.type = "text";
+				input.className = "term-tab-rename-input";
+				input.dataset.tabRename = tab.id;
+				input.value = tab.name;
+				input.autocomplete = "off";
+				input.spellcheck = false;
+				input.setAttribute("aria-label", "Tab name");
+				input.addEventListener("keydown", (e) => {
+					if (e.key === "Enter") {
+						e.preventDefault();
+						finishTabRename(true);
+					} else if (e.key === "Escape") {
+						e.preventDefault();
+						finishTabRename(false);
+					}
+				});
+				input.addEventListener("blur", () => finishTabRename(true));
+				renameWrap.appendChild(input);
+				strip.appendChild(renameWrap);
+				return;
+			}
+
+			const btn = document.createElement("button");
+			btn.type = "button";
+			btn.className = "term-tab";
+			btn.dataset.tabId = tab.id;
+			btn.title = "Right-click for tab actions";
+			btn.draggable = true;
+			btn.role = "tab";
+			btn.setAttribute(
+				"aria-selected",
+				tab.id === activeTabId ? "true" : "false",
+			);
+			if (tab.id === activeTabId) btn.classList.add("term-tab--active");
+
+			const tabColor = tab.color || groupColor;
+			if (tabColor) {
+				btn.style.setProperty("--tab-color", tabColor);
+			}
+
+			const customTab = tabBar.tabRenderer();
+			if (customTab) {
+				customTab(tabRenderModel(tab, groupColor), btn);
+			} else {
+				const label = document.createElement("span");
+				label.className = "term-tab-label";
+				label.textContent = tabDisplayName(tab.id);
+				btn.appendChild(label);
+			}
+
+			if (tabsState.tabs.length > 1 && !tabBar.layout().omitDefaultClose) {
+				const closeHit = document.createElement("span");
+				closeHit.className = "term-tab-close-hit";
+				closeHit.setAttribute("aria-hidden", "true");
+				closeHit.title = "Close tab";
+				closeHit.appendChild(createTabCloseIcon());
+				btn.appendChild(closeHit);
+			}
+
+			btn.addEventListener("click", (ev) => {
+				if (performance.now() < suppressTabClickUntilMs) return;
+				const t = ev.target as HTMLElement;
+				if (tabsState.tabs.length > 1 && t.closest(".term-tab-close-hit")) {
+					ev.preventDefault();
+					ev.stopPropagation();
+					closeTab(tab.id);
+					return;
+				}
+				switchToTab(tab.id);
+			});
+			btn.addEventListener("contextmenu", (ev) => {
+				ev.preventDefault();
+				openTabContextMenu(ev.clientX, ev.clientY, tab);
+			});
+
+			// Attach dragstart directly to the tab element
+			btn.addEventListener("dragstart", (e) => {
+				tabDragId = tab.id;
+				btn.classList.add("term-tab--dragging");
+				if (e.dataTransfer) {
+					e.dataTransfer.effectAllowed = "move";
+					e.dataTransfer.setData("text/plain", tab.id);
+				}
+			});
+
+			strip.appendChild(btn);
+		}
+
+		const activeTab = strip.querySelector<HTMLElement>(".term-tab--active");
+		if (activeTab) {
+			const stripRect = strip.getBoundingClientRect();
+			const activeRect = activeTab.getBoundingClientRect();
+			strip.style.setProperty(
+				"--tab-indicator-width",
+				`${Math.max(8, activeRect.width - 20)}px`,
+			);
+			strip.style.setProperty(
+				"--tab-indicator-x",
+				`${activeRect.left - stripRect.left + strip.scrollLeft + 10}px`,
+			);
+		}
+
+		tabBar.afterStripRender();
+		tabBar.notifyChanged();
+	}
+
+	let tabDragId: string | null = null;
+	let groupDragId: string | null = null;
+	let suppressTabClickUntilMs = 0;
+	document
+		.getElementById("term-tabs-strip")
+		?.addEventListener("dragover", (e) => {
+			e.preventDefault();
+			if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+		});
+	document.getElementById("term-tabs-strip")?.addEventListener("drop", (e) => {
+		e.preventDefault();
+		const fromTab = tabDragId;
+		const fromGroup = groupDragId;
+		tabDragId = null;
+		groupDragId = null;
+		suppressTabClickUntilMs = performance.now() + 150;
+		document
+			.querySelectorAll(".term-tab--dragging")
+			.forEach((el) => el.classList.remove("term-tab--dragging"));
+		document
+			.querySelectorAll(".term-tab-group--dragging")
+			.forEach((el) => el.classList.remove("term-tab-group--dragging"));
+
+		// Handle tab reordering
+		if (fromTab) {
+			const over = (e.target as HTMLElement).closest?.(
+				".term-tab",
+			) as HTMLElement | null;
+			const toTabId = over?.dataset.tabId;
+			if (!fromTab || !toTabId || fromTab === toTabId) return;
+			const a = tabsState.tabs.findIndex((x) => x.id === fromTab);
+			const b = tabsState.tabs.findIndex((x) => x.id === toTabId);
+			if (a < 0 || b < 0) return;
+			const next = [...tabsState.tabs];
+			const [mv] = next.splice(a, 1);
+			next.splice(b, 0, mv);
+			// Update order values
+			next.forEach((tab, i) => (tab.order = i));
+			tabsState = { ...tabsState, tabs: next };
+			saveTabsState(tabsState);
+			syncLivePaneIds();
+			renderTabsBar();
+		}
+
+		// Handle group reordering
+		if (fromGroup) {
+			const over = (e.target as HTMLElement).closest?.(
+				".term-tab-group",
+			) as HTMLElement | null;
+			const toGroup = tabsState.groups.find((g) =>
+				over?.textContent?.includes(g.name),
+			);
+			if (!fromGroup || !toGroup || fromGroup === toGroup.id) return;
+			const a = tabsState.groups.findIndex((x) => x.id === fromGroup);
+			const b = tabsState.groups.findIndex((x) => x.id === toGroup.id);
+			if (a < 0 || b < 0) return;
+			const next = [...tabsState.groups];
+			const [mv] = next.splice(a, 1);
+			next.splice(b, 0, mv);
+			// Update order values
+			next.forEach((group, i) => (group.order = i));
+			tabsState = { ...tabsState, groups: next };
+			saveTabsState(tabsState);
+			renderTabsBar();
+		}
+	});
+
+	renderTabsBar();
+	initParttyScrollFade();
+
+	void (async () => {
+		const appWin = getCurrentWindow();
+		await appWin.onCloseRequested(async (event) => {
+			if (!retainSessionStateRef.v) {
+				shedSessionLocalState();
+				return;
+			}
+			const mode = getSessionShedOnExitMode();
+			if (mode === "keep") return;
+			if (mode === "shed") {
+				shedSessionLocalState();
+				return;
+			}
+			event.preventDefault();
+			const root = document.getElementById("shed-exit-dialog");
+			const choice = await showShedExitDialog(root);
+			if (choice === "cancel") return;
+			if (choice === "discard") shedSessionLocalState();
+			void appWin.destroy().catch(() => {});
+		});
+	})();
+
+	function showShedExitDialog(
+		root: HTMLElement | null,
+	): Promise<"keep" | "discard" | "cancel"> {
+		if (!root) return Promise.resolve("cancel");
+		return new Promise((resolve) => {
+			root.classList.remove("shed-exit-dialog--hidden");
+			root.setAttribute("aria-hidden", "false");
+			mouseCursorForceVisible(true);
+			const finish = (v: "keep" | "discard" | "cancel") => {
+				overlay.release();
+				root.classList.add("shed-exit-dialog--hidden");
+				root.setAttribute("aria-hidden", "true");
+				mouseCursorForceVisible(false);
+				resolve(v);
+			};
+			const overlay = pushOverlay(() => finish("cancel"));
+			root
+				.querySelector("#shed-exit-keep")
+				?.addEventListener("click", () => finish("keep"), { once: true });
+			root
+				.querySelector("#shed-exit-discard")
+				?.addEventListener("click", () => finish("discard"), {
+					once: true,
+				});
+			root
+				.querySelector("#shed-exit-cancel")
+				?.addEventListener("click", () => finish("cancel"), {
+					once: true,
+				});
+		});
+	}
+
+	if (paneHost) {
+		void remountAuxiliaryForFocus(
+			paneHost.getFocusedPaneId() ?? paneHost.getRootPaneId(),
+		);
+	}
+
+	const settingsPanelEl = document.getElementById("settings-panel");
+	const themeModalRoot = document.getElementById("theme-modal-root");
+
+	const extManagerEl = document.getElementById(
+		"extension-manager",
+	) as HTMLElement | null;
+
+	const themeModalLazy = lazyCell<ThemeModalApi>();
+	let themeTargetPaneId: string | null = null;
+	let paneThemeRestore: { id: string; theme: PaneThemePrefs | null } | null =
+		null;
+
+	function resetThemeModalTarget(): void {
+		if (paneThemeRestore) {
+			applyPaneTheme(paneThemeRestore.id, paneThemeRestore.theme);
+			paneThemeRestore = null;
+		}
+		themeTargetPaneId = null;
+		// The theme modal is the last surface in its flow; give focus back to
+		// the pane.
+		focusActiveTerminal();
+	}
+
+	const ensureThemeModal = (): Promise<ThemeModalApi | null> =>
+		!themeModalRoot
+			? Promise.resolve(null)
+			: themeModalLazy.ensure(async () => {
+					const { createThemeModal } = await import("./app/themeModal");
+					return createThemeModal(
+						themeModalRoot as HTMLElement,
+						(prefs, committed) => {
+							if (themeTargetPaneId) {
+								applyPaneTheme(themeTargetPaneId, prefs);
+								return;
+							}
+							if (committed) {
+								persisted.prefs = committed as unknown as Record<
+									string,
+									unknown
+								>;
+								applyRuntimeDisplayPrefs(committed);
+							}
+							currentUiPrefs = prefs;
+							applyUiTheme(prefs);
+							refreshAllTerminalThemes();
+						},
+						resetThemeModalTarget,
+					);
+				});
+
+	function openFocusedPaneTheme(): void {
+		const paneId = paneHost?.getFocusedPaneId();
+		if (!paneId) return;
+		themeTargetPaneId = paneId;
+		const existing = paneThemes.get(paneId);
+		paneThemeRestore = {
+			id: paneId,
+			theme: existing ? { ...existing } : null,
+		};
+		const appPrefs = currentUiPrefs;
+		const initialPrefs: UiThemePrefs = {
+			...appPrefs,
+			ui_theme: existing?.ui_theme ?? appPrefs.ui_theme,
+			ui_theme_variant: existing?.ui_theme_variant ?? appPrefs.ui_theme_variant,
+		};
+		runLazy(ensureThemeModal, (tm) => {
+			tm.open({
+				title: "Pane Theme",
+				initialPrefs,
+				onCommit: (prefs) => {
+					paneThemeRestore = null;
+					applyPaneTheme(paneId, prefs);
+					persistCurrentTabLayout();
+				},
+			});
+		});
+	}
+
+	const settingsLazy = lazyCell<SettingsPanelApi>();
+
+	const ensureSettingsPanel = (): Promise<SettingsPanelApi | null> =>
+		!settingsPanelEl
+			? Promise.resolve(null)
+			: settingsLazy.ensure(async () => {
+					const { createSettingsPanel } = await import("./app/settingsPanel");
+					const card = settingsPanelEl.querySelector(".settings-panel-card");
+					const head = settingsPanelEl.querySelector(".settings-panel-head");
+					if (card instanceof HTMLElement && head instanceof HTMLElement) {
+						card.style.position = "fixed";
+						attachDraggablePanel(card, head, SETTINGS_PANEL_POS_KEY);
+					}
+					return createSettingsPanel(
+						settingsPanelEl,
+						async (saved: ParttyPrefs, previous: ParttyPrefs) => {
+							syncRuntimeShedFromPrefs(saved);
+							configureDevPerfPrefs(saved);
+							focusFollowsRef.v = saved.focus_follows_cursor;
+							persisted.prefs = saved as unknown as Record<string, unknown>;
+							editorConfigRef.v = editorConfigFromPrefs(saved);
+							Object.assign(lp, mergeLifecyclePrefs(persisted.prefs));
+							autoCopySelectionRef.v = saved.auto_copy_selection;
+							rightClickPasteRef.v = saved.right_click_paste ?? true;
+							retainSessionStateRef.v = saved.retain_session_state ?? true;
+							splitLayoutStyleRef.v = normalizeSplitLayoutStyle(
+								saved.split_layout_style,
+							);
+							profileBehaviorRef.v = {
+								default_profile_id: resolveDefaultProfileId(
+									saved.default_profile_id,
+									profilesList,
+								),
+								inherit_profile_on_split:
+									saved.inherit_profile_on_split ?? true,
+								inherit_cwd_on_split: saved.inherit_cwd_on_split ?? true,
+								palette_tab_profile_picker:
+									saved.palette_tab_profile_picker ?? true,
+								new_tab_uses_default_profile:
+									saved.new_tab_uses_default_profile ?? true,
+								palette_profile_icons: saved.palette_profile_icons ?? true,
+								profile_selection_aliases: resolveSelectionAliases(
+									saved.profile_selection_aliases ??
+										previous.profile_selection_aliases ??
+										{},
+								),
+							};
+							void (profilesReady = refreshProfilesList());
+							disableTooltipsRef.v = saved.ui_disable_tooltips ?? false;
+							altClickCursorRef.v =
+								saved.terminal_alt_click_moves_cursor ?? true;
+							cursorBlinkRef.v = saved.terminal_cursor_blink ?? true;
+							cursorInactiveStyleRef.v =
+								((saved as Partial<ParttyPrefs>)
+									.terminal_cursor_inactive_style as
+									| "outline"
+									| "block"
+									| "bar"
+									| "underline"
+									| "none"
+									| undefined) ?? "outline";
+							cursorWidthRef.v =
+								(saved as Partial<ParttyPrefs>).terminal_cursor_width ?? 1;
+							fontSizeRef.v =
+								(saved as Partial<ParttyPrefs>).terminal_font_size ?? 12;
+							fontWeightRef.v =
+								(saved as Partial<ParttyPrefs>).terminal_font_weight ??
+								"normal";
+							fontWeightBoldRef.v =
+								(saved as Partial<ParttyPrefs>).terminal_font_weight_bold ??
+								"bold";
+							lineHeightRef.v =
+								(saved as Partial<ParttyPrefs>).terminal_line_height ?? 1;
+							letterSpacingRef.v =
+								(saved as Partial<ParttyPrefs>).terminal_letter_spacing ?? 0;
+							drawBoldBrightRef.v =
+								(saved as Partial<ParttyPrefs>).terminal_draw_bold_bright ??
+								true;
+							smoothScrollRef.v =
+								(saved as Partial<ParttyPrefs>)
+									.terminal_smooth_scroll_duration ?? 0;
+							scrollSensitivityRef.v =
+								(saved as Partial<ParttyPrefs>).terminal_scroll_sensitivity ??
+								1;
+							fastScrollSensitivityRef.v =
+								(saved as Partial<ParttyPrefs>)
+									.terminal_fast_scroll_sensitivity ?? 5;
+							cursorStyleRef.v =
+								(saved.terminal_cursor_style as
+									| "block"
+									| "underline"
+									| "bar"
+									| undefined) ?? "block";
+							applyTerminalDisplayOptions();
+							backspaceDeleteSelectionRef.v =
+								saved.terminal_backspace_delete_selection ?? true;
+							const threshold = (saved as Partial<ParttyPrefs>)
+								.process_notification_threshold;
+							if (typeof threshold === "number" && Number.isFinite(threshold)) {
+								processNotificationThresholdRef.v = Math.max(0.1, threshold);
+							}
+							const showFor = (saved as Partial<ParttyPrefs>)
+								.process_notification_show_for;
+							if (typeof showFor === "number" && Number.isFinite(showFor)) {
+								processNotificationShowForRef.v = Math.max(
+									1000,
+									Math.min(30000, showFor),
+								);
+							}
+							processNotificationShowMsRef.v =
+								(saved as Partial<ParttyPrefs>).process_notification_show_ms ??
+								false;
+							processNotificationTransparentRef.v =
+								(saved as Partial<ParttyPrefs>)
+									.process_notification_transparent ?? false;
+							processNotificationEnabledRef.v =
+								(saved as Partial<ParttyPrefs>).process_notification_enabled ??
+								false;
+							cursorFollowWindowMoveRef.v = Boolean(
+								(saved as Partial<ParttyPrefs>).cursor_follow_window_move,
+							);
+							cursorFollowPaneFocusRef.v =
+								(saved as Partial<ParttyPrefs>).cursor_follow_pane_focus ??
+								true;
+							mouseHiddenRef.v = Boolean(
+								(saved as Partial<ParttyPrefs>).mouse_hidden,
+							);
+							mouseHideOnIdleRef.v = Boolean(
+								(saved as Partial<ParttyPrefs>).mouse_hide_on_idle,
+							);
+							mouseIdleSecondsRef.v = Math.max(
+								0.5,
+								Math.min(
+									300,
+									(saved as Partial<ParttyPrefs>).mouse_idle_seconds ?? 3,
+								),
+							);
+							mouseCursorController?.sync();
+							quietPaneDeferralRef.v = Boolean(
+								(saved as Partial<ParttyPrefs>).quiet_pane_deferral,
+							);
+							applyRuntimeDisplayPrefs(saved);
+							if (saved.scrollback_lines !== previous.scrollback_lines) {
+								for (const host of tabPaneHosts.values()) {
+									host.setScrollbackLines(saved.scrollback_lines);
+								}
+							}
+							tooltips.apply(document);
+							document.documentElement.classList.toggle(
+								"pane-blur-unfocused",
+								saved.blur_unfocused_panes,
+							);
+							document.documentElement.style.setProperty(
+								"--pane-blur-radius",
+								String((saved as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6),
+							);
+							document.documentElement.style.setProperty(
+								"--pane-opacity-focused",
+								String(
+									(saved as Partial<ParttyPrefs>).pane_opacity_focused ?? 1.0,
+								),
+							);
+							document.documentElement.style.setProperty(
+								"--pane-opacity-unfocused",
+								String(
+									(saved as Partial<ParttyPrefs>).pane_opacity_unfocused ?? 1.0,
+								),
+							);
+							document.documentElement.classList.toggle(
+								"pane-variable-opacity",
+								Boolean((saved as Partial<ParttyPrefs>).pane_variable_opacity),
+							);
+							applyPaneFocusScalePrefs(saved);
+							const prevUi = pickUiPrefs(
+								previous as unknown as Record<string, unknown>,
+							);
+							const nextUi = pickUiPrefs(
+								saved as unknown as Record<string, unknown>,
+							);
+							if (uiPrefsChanged(prevUi, nextUi)) {
+								currentUiPrefs = nextUi;
+								applyUiTheme(nextUi);
+								refreshAllTerminalThemes();
+							}
+							const shellChanged =
+								shellPrefKey(saved.shell) !== shellPrefKey(previous.shell);
+							const cwdChanged =
+								(saved.initial_cwd ?? "").trim() !==
+								(previous.initial_cwd ?? "").trim();
+							if (shellChanged || cwdChanged) {
+								localStorage.setItem(DEFER_PTY_REINIT_KEY, "1");
+							}
+						},
+						// Restore pane focus when the settings modal closes (mirrors the
+						// tab-switch focus approach; settings never changes tabs/panes).
+						focusActiveTerminal,
+					);
+				});
+
+	const extManagerLazy = lazyCell<ExtensionManagerApi>();
+
+	const ensureExtensionManager = (): Promise<ExtensionManagerApi | null> =>
+		!extManagerEl
+			? Promise.resolve(null)
+			: extManagerLazy.ensure(async () => {
+					const { createExtensionManager } = await import(
+						"./app/extensionManager"
+					);
+					const api = createExtensionManager(extManagerEl);
+					extManagerEl
+						.querySelector("#ext-close")
+						?.addEventListener("click", () => api.close());
+					return api;
+				});
+
+	window.addEventListener(
+		"keydown",
+		(e) => {
+			const m = k.match(
+				e,
+				"pane_float_toggle",
+				"pane_float_new",
+				"pane_float_follow",
+				"settings_open",
+			);
+			if (!m) return;
+			const t = e.target as HTMLElement | null;
+			if (t?.closest("#command-palette") || t?.closest("#settings-panel"))
+				return;
+			e.preventDefault();
+			e.stopPropagation();
+			switch (m) {
+				case "pane_float_toggle":
+					toggleFocusedPaneFloating();
+					break;
+				case "pane_float_new":
+					createFloatingPaneWithCwd();
+					break;
+				case "pane_float_follow":
+					toggleFocusedPaneFollow();
+					break;
+				case "settings_open":
+					runLazy(ensureSettingsPanel, (api) => api.open());
+					break;
+			}
+		},
+		true,
+	);
+
+	async function pasteFromClipboard(): Promise<void> {
+		try {
+			const text = await invoke<string>("clipboard_read_text");
+			if (!text) return;
+			const pid = paneHost?.getFocusedPaneId();
+			if (!pid) return;
+			const term = paneHost?.getPaneTerminal(pid)?.term;
+			if (!term) return;
+			// Go through xterm so newlines normalize and bracketed paste wraps when
+			// the app (TUI) enabled it — raw ptyWrite skipped both and broke OpenCode etc.
+			// Path-shaped clipboard content is translated per the focused pane's shell.
+			term.focus();
+			term.paste(
+				translatePasteText(
+					text,
+					pathStyleForPaneId(pid),
+					clipboardPathSourceForPaste(text),
+				),
+			);
+		} catch {
+			/* empty clipboard or read failed */
+		}
+	}
+
+	window.addEventListener("keydown", maybeBlockBrowserPrintShortcut, true);
+
+	document.addEventListener(
+		"contextmenu",
+		(e) => {
+			const target = e.target as Node | null;
+			if (!target || !terminalContent?.contains(target)) return;
+			e.preventDefault();
+			if (!rightClickPasteRef.v) {
+				getFocusedTerm()?.focus();
+				return;
+			}
+			void pasteFromClipboard();
+			getFocusedTerm()?.focus();
+		},
+		true,
+	);
+
+	async function newTerminalSession(): Promise<void> {
+		const killIds = paneHost?.getLeafIdsInOrder() ?? [];
+		for (const pid of killIds) {
+			await invoke("pty_kill_pane", { paneId: pid }).catch(() => {});
+		}
+		liveCwd = null;
+		paneCwdHints.clear();
+		paneRemoteIsWindows.clear();
+		lastPtyDims.clear();
+		shedWebgl();
+		const tabId = activeTabId;
+		disposeTabPaneHost(tabId);
+		clearPaneLayout();
+		const rid = tabRootPaneId(tabKeyForTabId(tabId));
+		paneHost = createTabPaneShellAndHost(tabId, {
+			initialTree: { kind: "leaf", id: rid },
+			initialFocusedId: rid,
+		});
+		for (const [id, shell] of tabPaneShells) {
+			shell.classList.toggle("term-tab-pane-shell--hidden", id !== tabId);
+		}
+		lastFocusedPaneId = rid;
+		await remountAuxiliaryForFocus(paneHost.getFocusedPaneId());
+		await ensurePtyForPane(rid);
+		getFocusedTerm()?.writeln("\r\n\x1b[90m[new session]\x1b[0m\r\n");
+	}
+
+	const cpRoot = document.getElementById("command-palette");
+	const cpInput = document.getElementById(
+		"command-palette-input",
+	) as HTMLInputElement | null;
+	const cpList = document.getElementById("command-palette-list");
+	const helpPanelEl = document.getElementById("help-panel");
+	function shellPrefKey(s: string): string {
+		return s.trim().replace(/\\/g, "/").toLowerCase();
+	}
+
+	/** Apply live-updatable xterm.js options to every terminal — all tabs,
+	 *  tiled and floating (forEachPane, not leaf-order) — then force a layout
+	 *  pass so char-size changes (font size, line height, letter spacing) both
+	 *  re-fit every pane and repaint it immediately. */
+	const applyTerminalDisplayOptions = (): void => {
+		for (const host of tabPaneHosts.values()) {
+			host.forEachPane((_leafId, pt) => {
+				const t = pt.term;
+				t.options.cursorBlink = cursorBlinkRef.v;
+				t.options.cursorInactiveStyle = cursorInactiveStyleRef.v;
+				t.options.cursorWidth = cursorWidthRef.v;
+				t.options.altClickMovesCursor = altClickCursorRef.v;
+				t.options.fontSize = fontSizeRef.v;
+				t.options.fontWeight = fontWeightRef.v as any;
+				t.options.fontWeightBold = fontWeightBoldRef.v as any;
+				t.options.lineHeight = lineHeightRef.v;
+				t.options.letterSpacing = letterSpacingRef.v;
+				t.options.drawBoldTextInBrightColors = drawBoldBrightRef.v;
+				t.options.smoothScrollDuration = smoothScrollRef.v;
+				t.options.scrollSensitivity = scrollSensitivityRef.v;
+				t.options.fastScrollSensitivity = fastScrollSensitivityRef.v;
+				t.options.cursorStyle = cursorStyleRef.v;
+			});
+			host.setCursorStyle(cursorStyleRef.v);
+		}
+		lastPtyDims.clear();
+		scheduleResizeImmediate(true);
+	};
+
+	const cpPanel = document.querySelector(".command-palette-panel");
+	const cpToolbar = document.querySelector(".command-palette-toolbar");
+	if (cpPanel instanceof HTMLElement && cpToolbar instanceof HTMLElement) {
+		cpPanel.style.position = "fixed";
+		attachDraggablePanel(cpPanel, cpToolbar, COMMAND_PALETTE_POS_KEY);
+	}
+
+	if (helpPanelEl) {
+		const hcard = helpPanelEl.querySelector(".help-panel-card");
+		const hhead = helpPanelEl.querySelector(".help-panel-head");
+		if (hcard instanceof HTMLElement && hhead instanceof HTMLElement) {
+			hcard.style.position = "fixed";
+			attachDraggablePanel(hcard, hhead, HELP_PANEL_POS_KEY);
+		}
+	}
+
+	let openHelpPanel: () => void = () => {};
+	let closeHelpPanel: () => void = () => {};
+	let toggleHelp: () => void = () => {};
+
+	function getTabPaletteCommands(): PaletteCommand[] {
+		return visibleTabsInOrder().map((tab, index) => {
+			const host = tabPaneHosts.get(tab.id);
+			const leafIds = host?.getLeafIdsInOrder() ?? [];
+			const paneKeywords: string[] = [];
+			for (const lid of leafIds) {
+				const parts = paneNameParts(lid);
+				paneKeywords.push(parts.profileName.toLowerCase());
+				if (parts.oscTitle) {
+					for (const word of parts.oscTitle.split(/\s+/)) {
+						const w = word.toLowerCase();
+						if (w) paneKeywords.push(w);
+					}
+				}
+				if (parts.processLabel) {
+					for (const word of parts.processLabel.split(/\s+/)) {
+						const w = word.toLowerCase();
+						if (w) paneKeywords.push(w);
+					}
+				}
+				const cwd = parts.cwd;
+				if (cwd) {
+					const segs = cwd.replace(/\\/g, "/").split("/").filter(Boolean);
+					for (const part of segs) paneKeywords.push(part.toLowerCase());
+				}
+				paneKeywords.push(lid.toLowerCase());
+			}
+			const extra = [...new Set(paneKeywords)].slice(0, 32).join(" ");
+			const label = tabDisplayName(tab.id);
+			return {
+				id: `tab-switch-${tab.id}`,
+				label: `: ${label}`,
+				keywords: `tab workspace ${tab.name} ${label} ${extra} alt ${index + 1}`,
+				hotkey:
+					index < 9 ? `Alt+${index + 1}` : index === 9 ? "Alt+0" : undefined,
+				run: () => switchToTab(tab.id),
+			};
+		});
+	}
+
+	function allPaneNameParts(): PaneNameParts[] {
+		const out: PaneNameParts[] = [];
+		for (const host of tabPaneHosts.values()) {
+			for (const id of host.getLeafIdsInOrder()) out.push(paneNameParts(id));
+		}
+		return out;
+	}
+
+	function paneIndexFlags(parts: PaneNameParts[]): Set<string> {
+		const counts = new Map<string, number>();
+		for (const p of parts) {
+			const key = paneCollisionKey(p);
+			counts.set(key, (counts.get(key) ?? 0) + 1);
+		}
+		const show = new Set<string>();
+		for (const p of parts) {
+			if ((counts.get(paneCollisionKey(p)) ?? 0) > 1) show.add(p.paneId);
+		}
+		return show;
+	}
+
+	function paneQueryHaystack(p: PaneNameParts): string {
+		return [
+			p.paneId,
+			p.profileName,
+			p.cwd ?? "",
+			p.oscTitle ?? "",
+			p.processLabel ?? "",
+			p.tabName,
+			paneHeadline(p),
+		]
+			.join(" ")
+			.toLowerCase();
+	}
+
+	function panePaletteHtml(
+		p: PaneNameParts,
+		showIndex: boolean,
+		prefix: "@pane:" | "@proc:",
+		headline: string,
+		suffix = "",
+	): string {
+		const sub = paneSubline(p, headline, showIndex);
+		const subHtml = sub
+			? ` <span class="cp-label-tab">${escapeHtml(sub)}</span>`
+			: "";
+		return `<span class="cp-label-prefix">${prefix}</span><span class="cp-label-name">${escapeHtml(headline)}</span>${subHtml}${suffix}`;
+	}
+
+	function getPaneTargetCommands(query: string): PaletteCommand[] {
+		const afterTag = query.slice(6);
+		const spaceIdx = afterTag.indexOf(" ");
+		const panePart = (spaceIdx === -1 ? afterTag : afterTag.slice(0, spaceIdx))
+			.trimStart()
+			.toLowerCase();
+		const all = allPaneNameParts();
+		const showIndex = paneIndexFlags(all);
+
+		if (spaceIdx !== -1 && panePart) {
+			const command = afterTag.slice(spaceIdx + 1).trim();
+			for (const p of all) {
+				const headline = paneHeadline(p);
+				if (
+					p.paneId.toLowerCase() !== panePart &&
+					headline.toLowerCase() !== panePart
+				)
+					continue;
+				const suffix = command
+					? ` <span class="cp-label-prefix" style="font-weight:400">→</span> ${escapeHtml(command)}`
+					: "";
+				return [
+					{
+						id: `pane-dispatch-${p.paneId}`,
+						label: `@pane:${headline}${command ? ` → ${command}` : ""}`,
+						labelHtml: panePaletteHtml(
+							p,
+							showIndex.has(p.paneId),
+							"@pane:",
+							headline,
+							suffix,
+						),
+						keywords: paneQueryHaystack(p) + ` ${command}`,
+						run: () => dispatchPaneCommand(p.paneId, query),
+					},
+				];
+			}
+			return [];
+		}
+
+		const items: PaletteCommand[] = [];
+		for (const p of all) {
+			if (panePart && !paneQueryHaystack(p).includes(panePart)) continue;
+			const headline = paneHeadline(p);
+			const indexed = showIndex.has(p.paneId);
+			items.push({
+				id: `pane-target-${p.paneId}`,
+				label: `@pane:${headline}`,
+				labelHtml: panePaletteHtml(p, indexed, "@pane:", headline),
+				keywords: paneQueryHaystack(p),
+				run: () => dispatchPaneCommand(p.paneId, query),
+			});
+		}
+		return items;
+	}
+
+	let processToastTimer = 0;
+	const processToast = document.getElementById(
+		"proc-toast",
+	) as HTMLElement | null;
+
+	type NotificationButton = { label: string; run: () => void };
+	let processToastButtons: NotificationButton[] = [];
+
+	function navigateToPane(paneId: string): void {
+		for (const [tabId, host] of tabPaneHosts) {
+			if (host.getPaneTerminal(paneId)) {
+				if (tabId !== activeTabId) switchToTab(tabId);
+				host.getPaneTerminal(paneId)?.term.focus();
+				return;
+			}
+		}
+	}
+
+	function showProcessToast(
+		bodyHtml: string,
+		paneId: string,
+		buttons: NotificationButton[] = [],
+	): void {
+		if (!processToast) return;
+		processToast.dataset.paneId = paneId;
+		processToastButtons = buttons;
+		processToast.classList.toggle("proc-toast--nav", paneId !== "");
+		processToast.title = paneId ? "Go to pane" : "";
+		processToast.innerHTML = `${bodyHtml}${buttons
+			.map(
+				(b, i) =>
+					`<button class="proc-toast-btn" data-index="${i}">${escapeHtml(b.label)}</button>`,
+			)
+			.join("")}`;
+		processToast.classList.remove("proc-toast--hidden");
+		if (processToastTimer) clearTimeout(processToastTimer);
+		processToastTimer = window.setTimeout(() => {
+			processToast.classList.add("proc-toast--hidden");
+		}, processNotificationShowForRef.v);
+	}
+
+	function showProcessNotification(
+		command: string,
+		paneName: string,
+		cwd: string,
+		startedAt: number,
+		paneId: string,
+		endedAt = Date.now(),
+	): void {
+		if (!processToast) return;
+		processToast.classList.toggle(
+			"proc-toast--transparent",
+			processNotificationTransparentRef.v,
+		);
+		const shortCmd = truncateEnd(command, NOTIF_COMMAND_MAX);
+		const shortPaneName = truncateEnd(paneName, NOTIF_PANE_MAX);
+		const shortCwd = truncatePathTail(cwd, NOTIF_CWD_MAX);
+		const ms = Math.max(0, endedAt - startedAt);
+		let durStr: string;
+		if (processNotificationShowMsRef.v) {
+			durStr = ms >= 1000 ? `${(ms / 1000).toFixed(3)}s` : `${ms}ms`;
+		} else {
+			durStr = ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+		}
+		showProcessToast(
+			`<span class="proc-toast-cmd">${escapeHtml(shortCmd)}</span> \u00b7 ${durStr} \u00b7 <span class="proc-toast-pane">${escapeHtml(shortPaneName)}</span> <span class="proc-toast-cwd">${escapeHtml(shortCwd)}</span>`,
+			paneId,
+		);
+	}
+
+	processToast?.addEventListener("click", (e) => {
+		const btn = (e.target as HTMLElement).closest(".proc-toast-btn");
+		if (btn) {
+			const effect =
+				processToastButtons[Number((btn as HTMLElement).dataset.index)]?.run;
+			if (effect) {
+				try {
+					effect();
+				} catch {
+					/* ignore */
+				}
+			}
+			processToast.classList.add("proc-toast--hidden");
+			return;
+		}
+		const paneId = processToast.dataset.paneId;
+		if (paneId) {
+			navigateToPane(paneId);
+			processToast.classList.add("proc-toast--hidden");
+		}
+	});
+
+	function getProcCommands(query: string): PaletteCommand[] {
+		const afterTag = query
+			.slice(query.startsWith("@proc:") ? 6 : 5)
+			.trimStart();
+		const words = afterTag ? afterTag.split(/\s+/) : [];
+		const prefix = words.join(" ").toLowerCase();
+
+		if (activeProcesses.size === 0)
+			return [
+				{
+					id: "proc-none",
+					label: "No active processes",
+					keywords: "@proc proc process",
+					run: () => {},
+				},
+			];
+
+		const items: PaletteCommand[] = [];
+		const all = allPaneNameParts();
+		const showIndex = paneIndexFlags(all);
+		for (const [leafId, proc] of activeProcesses) {
+			const displayCmd = displayProcessCommand(proc.command);
+			if (
+				prefix &&
+				!displayCmd.toLowerCase().startsWith(prefix) &&
+				!displayCmd.toLowerCase().includes(prefix)
+			)
+				continue;
+			const p = paneNameParts(leafId);
+			const headline = procPaletteHeadline(p);
+			const shortDisplayCmd =
+				displayCmd.length > 50
+					? displayCmd.slice(0, 47) + "\u2026"
+					: displayCmd;
+			const dur = ((Date.now() - proc.startedAt) / 1000).toFixed(0);
+			items.push({
+				id: `proc-${leafId}`,
+				label: `@proc:${shortDisplayCmd}  ${dur}s`,
+				labelHtml:
+					panePaletteHtml(p, showIndex.has(leafId), "@proc:", headline) +
+					` <span style="color:var(--ui-chrome-muted);margin-left:0.4em">${dur}s</span>`,
+				keywords: `@proc proc ${paneQueryHaystack(p)} ${displayCmd}`,
+				run: () => {
+					for (const [tid, host] of tabPaneHosts) {
+						if (host.getPaneTerminal(leafId)) {
+							if (tid !== activeTabId) switchToTab(tid);
+							host.getPaneTerminal(leafId)?.term.focus();
+							return;
+						}
+					}
+				},
+			});
+		}
+		return items.length > 0
+			? items
+			: [
+					{
+						id: "proc-none",
+						label: prefix
+							? `No process matching "${prefix}"`
+							: "No active processes",
+						keywords: "@proc proc process",
+						run: () => {},
+					},
+				];
+	}
+
+	function dispatchPaneCommand(targetPaneId: string, query: string): void {
+		const tagIdx = query.indexOf("@pane:");
+		if (tagIdx === -1) return;
+		const afterTagStart = tagIdx + 6;
+		const spaceIdx = query.indexOf(" ", afterTagStart);
+		const command = spaceIdx === -1 ? "" : query.slice(spaceIdx + 1).trim();
+		if (!command) {
+			// No command — switch to the pane's tab and focus it.
+			for (const [tabId, host] of tabPaneHosts) {
+				if (host.getPaneTerminal(targetPaneId)) {
+					if (tabId !== activeTabId) switchToTab(tabId);
+					host.getPaneTerminal(targetPaneId)?.term.focus();
+					return;
+				}
+			}
+			return;
+		}
+		const targetSessionId = getPaneTerminalById(targetPaneId)?.sessionId;
+		if (!targetSessionId) return;
+		void ptyWrite(targetSessionId, `${command}\r`).catch((e) =>
+			console.warn("pty_write @pane:", e),
+		);
+	}
+
+	async function toggleMouseHidden(): Promise<void> {
+		mouseHiddenRef.v = !mouseHiddenRef.v;
+		try {
+			const state = await invoke<{ prefs: ParttyPrefs }>("get_persisted_state");
+			const next = { ...state.prefs, mouse_hidden: mouseHiddenRef.v };
+			await invoke("set_prefs", { prefs: next });
+			persisted.prefs = next as unknown as Record<string, unknown>;
+		} catch (e) {
+			console.warn("toggleMouseHidden", e);
+		}
+		mouseCursorController?.sync();
+	}
+
+	function runWithProfile(
+		action: ProfilePaletteAction,
+		profileId: string,
+	): void {
+		const id = resolveDefaultProfileId(profileId, profilesList);
+		switch (action) {
+			case "new-tab":
+				openNewTab(true, id);
+				return;
+			case "split-h":
+				splitFocusedWithCwd("h", id);
+				return;
+			case "split-v":
+				splitFocusedWithCwd("v", id);
+				return;
+			case "float":
+				createFloatingPaneWithCwd(id);
+				return;
+			default: {
+				const _exhaustive: never = action;
+				void _exhaustive;
+			}
+		}
+	}
+
+	const PROFILE_ACTION_LABEL: Record<ProfilePaletteAction, string> = {
+		"new-tab": "New tab",
+		"split-h": "Split right",
+		"split-v": "Split down",
+		float: "New floating pane",
+	};
+
+	/** Active profile-picker session (hotkey / Tab). Input is filter-only; no `@profile:` prefix. */
+	let profilePickerSession: ProfilePaletteAction | null = null;
+
+	/** Active workspace-picker session. Input is filter-only over workspace ids. */
+	let workspacePickerOpen = false;
+	let workspacePickerIds: string[] = [];
+
+	async function beginWorkspacePicker(): Promise<void> {
+		let ids: string[];
+		try {
+			ids = await listWorkspaceIds();
+		} catch (e) {
+			console.error("list workspaces", e);
+			showAlert("Could not list workspaces.");
+			return;
+		}
+		if (ids.length === 0) {
+			showAlert("No workspaces found in ~/.partty/workspaces.");
+			return;
+		}
+		workspacePickerIds = ids;
+		workspacePickerOpen = true;
+		commandPalette?.open({ placeholder: "Workspace" });
+	}
+
+	function getWorkspaceCommands(filter: string): PaletteCommand[] {
+		const ranked = filterAndRankLexical(
+			workspacePickerIds.map((id) => ({
+				id: `workspace-load-${id}`,
+				label: id,
+				keywords: `workspace layout preset load ${id}`,
+			})),
+			normalizeQuery(filter),
+		);
+		return ranked.map((r) => ({
+			id: r.id!,
+			label: r.label,
+			keywords: "workspace layout preset load",
+			run: () => {
+				void applyWorkspaceById(r.label);
+			},
+		}));
+	}
+
+	function beginProfilePicker(action: ProfilePaletteAction): void {
+		profilePickerSession = action;
+		commandPalette?.open({ placeholder: "Profile" });
+	}
+
+	function listProfileCommands(
+		action: ProfilePaletteAction,
+		filter: string,
+	): PaletteCommand[] {
+		const actionLabel = PROFILE_ACTION_LABEL[action];
+		const idToAlias = !filter.trim()
+			? profileIdAliasMap(profileBehaviorRef.v.profile_selection_aliases)
+			: null;
+		// Same token-based ranking as the palette / theme / workspace search.
+		const ranked = filterAndRankLexical(
+			profilesList.map((p) => ({
+				profile: p,
+				id: p.id,
+				label: p.name,
+				keywords: `${p.kind} ${p.id} ${p.shell ?? ""} ${p.wslDistro ?? ""} ${p.sshHost ?? ""}`,
+			})),
+			normalizeQuery(filter),
+		);
+		return ranked
+			.map((r) => r.profile)
+			.map((p: ConnectionProfile) => {
+				const sshDetail = p.kind === "ssh" ? p.sshHost?.trim() || "" : "";
+				const showDetail =
+					sshDetail && sshDetail.toLowerCase() !== p.name.toLowerCase()
+						? sshDetail
+						: "";
+				const showIcon =
+					profileBehaviorRef.v.palette_profile_icons && !!p.iconDataUrl;
+				const iconHtml = showIcon
+					? `<img class="cp-profile-icon" src="${escapeHtml(p.iconDataUrl!)}" alt="" width="16" height="16" />`
+					: "";
+				const alias = idToAlias?.get(p.id) ?? null;
+				return {
+					id: `profile-run-${action}-${p.id}`,
+					label: p.name,
+					labelHtml:
+						iconHtml +
+						`<span class="cp-label-name">${escapeHtml(p.name)}</span>` +
+						(showDetail
+							? ` <span class="cp-label-cwd">${escapeHtml(showDetail)}</span>`
+							: ""),
+					keywords: `@profile:${action} ${p.name} ${p.kind} ${p.id} ${sshDetail} ${p.shell ?? ""} ${p.wslDistro ?? ""} ${actionLabel}`,
+					hotkey: alias ?? undefined,
+					run: () => runWithProfile(action, p.id),
+				};
+			});
+	}
+
+	function getProfileActionCommands(query: string): PaletteCommand[] {
+		const parsed = parseProfilePickerQuery(query);
+		if (!parsed) {
+			return [
+				{
+					id: "profile-picker-hint",
+					label: "Select a profile",
+					labelHtml:
+						`<span class="cp-label-prefix">@profile:</span>` +
+						`<span class="cp-label-name">new-tab</span>` +
+						`<span class="cp-label-kind"> · split-h · split-v · float</span>`,
+					keywords: "@profile new-tab split-h split-v float",
+					run: () => {},
+				},
+			];
+		}
+		return listProfileCommands(parsed.action, parsed.filter);
+	}
+
+	function openProfileSplitPicker(action: "split-h" | "split-v"): void {
+		beginProfilePicker(action);
+	}
+
+	function openProfileFloatPicker(): void {
+		beginProfilePicker("float");
+	}
+
+	function quickSelectProfileByAlias(
+		key: string,
+		currentInput: string,
+	): PaletteCommand | null {
+		if (key.length !== 1) return null;
+		let action: ProfilePaletteAction | null = profilePickerSession;
+		if (action) {
+			if (currentInput.trim().length > 0) return null;
+		} else {
+			if (!isProfilePickerAliasContext(currentInput)) return null;
+			action = parseProfilePickerQuery(currentInput)?.action ?? null;
+		}
+		if (!action) return null;
+		const profileId = profileBehaviorRef.v.profile_selection_aliases[key];
+		if (!profileId) return null;
+		const profile = getProfileById(profileId, profilesList);
+		if (!profile) return null;
+		return {
+			id: `profile-run-${action}-${profile.id}`,
+			label: profile.name,
+			run: () => runWithProfile(action!, profile.id),
+		};
+	}
+
+	function getMergedPaletteCommands(query: string): PaletteCommand[] {
+		if (profilePickerSession) {
+			return listProfileCommands(profilePickerSession, query.trim());
+		}
+		if (workspacePickerOpen) {
+			return getWorkspaceCommands(query.trim());
+		}
+		const q = query.trimStart();
+		if (q.startsWith(":")) {
+			return getTabPaletteCommands();
+		}
+
+		if (q.startsWith("@pane:")) {
+			return getPaneTargetCommands(q);
+		}
+		if (q.startsWith("@proc")) {
+			return getProcCommands(q);
+		}
+		if (q.startsWith("@profile")) {
+			return getProfileActionCommands(q);
+		}
+
+		const commands: PaletteCommand[] = [
+			// --- Tabs ---
+			{
+				id: "tab-new",
+				label: "New tab",
+				keywords: "workspace create add profile",
+				run: () => {
+					openNewTab();
+				},
+			},
+			{
+				id: "tab-duplicate",
+				label: "Duplicate tab",
+				keywords: "workspace copy clone",
+				run: () => duplicateTab(activeTabId),
+			},
+			{
+				id: "tab-rename",
+				label: "Rename tab",
+				keywords: "workspace title edit",
+				run: () => beginTabRename(activeTabId),
+			},
+			{
+				id: "tab-close",
+				label: "Close tab",
+				keywords: "workspace remove delete",
+				run: () => closeTab(activeTabId),
+			},
+			{
+				id: "workspace-open",
+				label: "Open workspace…",
+				keywords:
+					"workspace layout preset load snapshot tab panes workspace picker",
+				run: () => {
+					void beginWorkspacePicker();
+				},
+			},
+			{
+				id: "pane-close-children",
+				label: "Reset layout",
+				keywords: "reset layout keep main root initial close children",
+				run: () => {
+					void closeAllChildPanes();
+				},
+			},
+			// --- View / appearance ---
+			// The hide/show toggle only matters with multiple tabs; a single tab
+			// bar is not worth hiding (and there's always at least one tab).
+			...(tabsState.tabs.length > 1
+				? [
+						{
+							id: "toggle-tabs-hidden",
+							label: document.documentElement.classList.contains("tabs-hidden")
+								? "Show tabs"
+								: "Hide tabs",
+							keywords:
+								"focus session hide show tabs toolbar chrome distraction free",
+							run: () => {
+								setTabsHidden(
+									!document.documentElement.classList.contains("tabs-hidden"),
+								);
+							},
+						},
+					]
+				: []),
+			{
+				id: "toggle-mouse-hidden",
+				label: mouseHiddenRef.v ? "Show cursor" : "Hide cursor",
+				keywords: "mouse pointer cursor hide show invisible os",
+				run: () => {
+					void toggleMouseHidden();
+				},
+			},
+			{
+				id: "open-themes",
+				label: "Theme",
+				keywords: "appearance colors ui palette app global",
+				run: () => {
+					themeTargetPaneId = null;
+					paneThemeRestore = null;
+					runLazy(ensureThemeModal, (tm) => {
+						tm.open({
+							title: "App Theme",
+							initialPrefs: currentUiPrefs,
+						});
+					});
+				},
+			},
+			{
+				id: "open-pane-theme",
+				label: "Pane theme",
+				keywords: "theme pane appearance colors focused local override",
+				run: () => openFocusedPaneTheme(),
+			},
+
+			// --- Terminal / session ---
+			{
+				id: "new-session",
+				label: "Restart session",
+				keywords: "restart shell pty new terminal",
+				run: () => void newTerminalSession(),
+			},
+			{
+				id: "focus-terminal",
+				label: "Focus terminal",
+				keywords: "keyboard input",
+				run: () => {
+					getFocusedTerm()?.focus();
+				},
+			},
+			{
+				id: "paste",
+				label: "Paste",
+				keywords: "clipboard context edit",
+				run: () => void pasteFromClipboard(),
+			},
+			{
+				id: "toggle-background-work",
+				label: isBackgroundWorkMode() ? "Shed on hide" : "Keep alive on hide",
+				keywords:
+					"background keep alive pty buffer webview shed hide memory agent logs tui session",
+				run: () => void setBackgroundWorkMode(!isBackgroundWorkMode()),
+			},
+			// --- App ---
+			// Settings and the window operations are keybind-driven (help modal).
+			{
+				id: "open-extensions",
+				label: "Extensions",
+				keywords: "plugins addons extensions manager",
+				run: () => runLazy(ensureExtensionManager, (api) => api.open()),
+			},
+			{
+				id: "help-hotkeys",
+				label: "Shortcuts",
+				keywords: "hotkeys bindings reference help",
+				hotkey: "Ctrl+Shift+/",
+				run: () => openHelpPanel(),
+			},
+			{
+				id: "quit-app",
+				label: "Quit",
+				keywords: "exit app quit close",
+				run: () => void appWindow.destroy().catch(() => {}),
+			},
+			...extPaletteCommands.map((c) => ({
+				id: `ext-${c.id}`,
+				label: c.label,
+				keywords: c.keywords ? `extension ${c.keywords}` : "extension",
+				run: c.run,
+			})),
+		];
+		return commands;
+	}
+
+	function renderHelpShortcuts(): void {
+		const list = helpPanelEl?.querySelector(
+			".help-shortcuts",
+		) as HTMLElement | null;
+		if (!list) return;
+		const seen = new Set<string>();
+		const rows: { hotkey: string; label: string }[] = [
+			{ hotkey: "Ctrl+Shift+P", label: "Command palette" },
+		];
+		for (const cmd of getMergedPaletteCommands("")) {
+			const hotkey = cmd.hotkey?.trim();
+			if (!hotkey || seen.has(hotkey)) continue;
+			seen.add(hotkey);
+			rows.push({ hotkey, label: cmd.label.replace(/…$/, "") });
+		}
+		// Keyboard + mouse shortcuts that aren't palette commands.
+		// Keybind labels resolve live so custom rebinds show here too.
+		rows.push(
+			{ hotkey: "Tab", label: "New tab / Split → pick profile" },
+			{ hotkey: "@profile", label: "New tab or split with a profile" },
+			{
+				hotkey: "a / A",
+				label:
+					"In profile picker: selection alias (case-sensitive; config.toml)",
+			},
+			{ hotkey: k.label("pane_split_right"), label: "Split right" },
+			{ hotkey: k.label("pane_split_down"), label: "Split down" },
+			{
+				hotkey: k.label("profile_split_right"),
+				label: "Split right with profile…",
+			},
+			{
+				hotkey: k.label("profile_split_down"),
+				label: "Split down with profile…",
+			},
+			{ hotkey: k.label("pane_close"), label: "Close pane" },
+			{ hotkey: k.label("pane_float_toggle"), label: "Float pane" },
+			{ hotkey: k.label("pane_float_new"), label: "New floating pane" },
+			{
+				hotkey: k.label("profile_float_new"),
+				label: "New floating pane with profile…",
+			},
+			{ hotkey: k.label("pane_float_follow"), label: "Toggle floating follow" },
+			{ hotkey: "Alt+Arrows", label: "Focus adjacent pane" },
+			{ hotkey: "Ctrl+Shift+Arrows", label: "Swap pane with neighbor" },
+			{ hotkey: "Alt+1–9", label: "Switch to tab" },
+			{ hotkey: "Ctrl+Shift+1–9, 0", label: "Move pane to tab" },
+			{ hotkey: k.label("window_maximize"), label: "Maximize window" },
+			{ hotkey: k.label("window_restore"), label: "Restore window" },
+			{
+				hotkey: k.label("window_move_next_monitor"),
+				label: "Window to next monitor",
+			},
+			{
+				hotkey: k.label("window_move_prev_monitor"),
+				label: "Window to previous monitor",
+			},
+			{ hotkey: k.label("window_toggle"), label: "Hide / show overlay" },
+			{ hotkey: k.label("settings_open"), label: "Settings" },
+			{ hotkey: "Shift+Enter", label: "Insert newline" },
+			{ hotkey: "Ctrl+Wheel", label: "Zoom focused pane" },
+			{ hotkey: "Alt+Drag", label: "Move floating pane or swap tiled panes" },
+			{ hotkey: "Alt+Shift+Drag", label: "Move window from anywhere" },
+			{ hotkey: "Ctrl+V", label: "Paste from clipboard" },
+			{ hotkey: "Right-click", label: "Paste from clipboard" },
+		);
+		list.replaceChildren(
+			...rows.map(({ hotkey, label }) => {
+				const row = document.createElement("div");
+				row.className = "help-shortcut";
+				for (const part of hotkey.split("+")) {
+					const key = document.createElement("kbd");
+					key.className = "help-key";
+					key.textContent = part;
+					row.appendChild(key);
+				}
+				const desc = document.createElement("span");
+				desc.className = "help-desc";
+				desc.textContent = label;
+				row.appendChild(desc);
+				return row;
+			}),
+		);
+	}
+
+	const commandPalette =
+		cpRoot && cpInput && cpList
+			? createCommandPalette({
+					root: cpRoot,
+					input: cpInput,
+					list: cpList,
+					getCommands: () => getMergedPaletteCommands(cpInput?.value ?? ""),
+					onBeforeOpen: async () => {
+						closeHelpPanel();
+						// Don't block open on profile re-detection (shell/WSL probes).
+						// Cache from boot / settings save is enough; refresh in background.
+						void (profilesReady = refreshProfilesList());
+					},
+					onClosed: () => {
+						profilePickerSession = null;
+						workspacePickerOpen = false;
+						workspacePickerIds = [];
+						getFocusedTerm()?.focus();
+						if (cpInput) cpInput.placeholder = "Command or > …";
+					},
+					onTabComplete: (currentInput: string, selected) => {
+						if (
+							currentInput.startsWith("@pane:") &&
+							selected &&
+							selected.id.startsWith("pane-target-")
+						) {
+							return `@pane:${selected.id.slice("pane-target-".length)} `;
+						}
+						if (
+							(currentInput.startsWith("@proc:") || currentInput === "@proc") &&
+							selected &&
+							selected.id.startsWith("proc-")
+						) {
+							const leafId = selected.id.slice(5);
+							const proc = activeProcesses.get(leafId);
+							if (proc) return `@proc:${displayProcessCommand(proc.command)} `;
+						}
+						if (profileBehaviorRef.v.palette_tab_profile_picker) {
+							const action = profileActionForPaletteCommandId(selected?.id);
+							if (action) {
+								profilePickerSession = action;
+								if (cpInput) cpInput.placeholder = "Profile";
+								return "";
+							}
+						}
+						return null;
+					},
+					onQuickSelectKey: (key, currentInput) =>
+						quickSelectProfileByAlias(key, currentInput),
+					refreshMs: 500,
+				})
+			: null;
+
+	let helpOverlay: OverlayHandle | null = null;
+	openHelpPanel = () => {
+		if (!helpPanelEl) return;
+		commandPalette?.close();
+		settingsLazy.get()?.close();
+		renderHelpShortcuts();
+		showSurface(helpPanelEl, "help-panel--hidden");
+		helpPanelEl.setAttribute("aria-hidden", "false");
+		helpOverlay?.release();
+		helpOverlay = pushOverlay(() => closeHelpPanel());
+		mouseCursorForceVisible(true);
+	};
+	closeHelpPanel = () => {
+		if (!helpPanelEl || helpPanelEl.getAttribute("aria-hidden") === "true")
+			return;
+		helpOverlay?.release();
+		helpOverlay = null;
+		helpPanelEl.setAttribute("aria-hidden", "true");
+		mouseCursorForceVisible(false);
+		getFocusedTerm()?.focus();
+		hideSurface(helpPanelEl, "help-panel--hidden");
+	};
+	toggleHelp = () => {
+		if (!helpPanelEl) return;
+		if (helpPanelEl.classList.contains("help-panel--hidden")) openHelpPanel();
+		else closeHelpPanel();
+	};
+
+	helpPanelEl
+		?.querySelector("[data-close-help]")
+		?.addEventListener("click", () => closeHelpPanel());
+
+	// Tab rename modal (used when the tab bar is hidden)
+	const tabRenameModal = document.getElementById("tab-rename-modal");
+	tabRenameModal
+		?.querySelector(".tab-rename-form")
+		?.addEventListener("submit", (e) => {
+			e.preventDefault();
+			closeTabRenameModal(true);
+		});
+	tabRenameModal?.querySelectorAll("[data-tab-rename-close]").forEach((el) => {
+		el.addEventListener("click", () => closeTabRenameModal(false));
+	});
+	tabRenameModal
+		?.querySelector(".tab-rename-backdrop")
+		?.addEventListener("click", (e) => {
+			if (e.target === e.currentTarget) closeTabRenameModal(false);
+		});
+	// Escape is handled by the shared overlay stack.
+	const appWindow = getCurrentWindow();
+	// Subtle "settle" animation on the pane stack after the window itself is
+	// resized/restored/maximized or hops monitors. These operations intentionally
+	// restore→maximize the Tauri window (avoids a Windows render fault), which snaps
+	// the panes into their new size; the brief scale+fade makes that snap feel
+	// intentional and fluid instead of abrupt. Skipped when motion is off / pref
+	// disabled, and never hooked to continuous manual drag-resize.
+	function playWindowMotion(): void {
+		if (!windowMotionRef.v) return;
+		const el = document.getElementById("terminal-pane-root") ?? terminalContent;
+		if (!el) return;
+		animateClass(el, "window-motion-settle");
+	}
+
+	// Alt+Shift+Up maximizes, Alt+Shift+Down restores (see the Alt keydown handler).
+	async function setWindowMaximized(max: boolean): Promise<void> {
+		try {
+			if (max) await appWindow.maximize();
+			else await appWindow.unmaximize();
+			playWindowMotion();
+		} catch {
+			/* ignore */
+		}
+	}
+
+	// Move the window to an adjacent monitor: +1 = next (Alt+Shift+Right), -1 = previous
+	// (Alt+Shift+Left), wrapping around the list. Preserves the window's offset within
+	// the monitor, clamped to fit, and re-maximizes on the destination if it was maximized.
+	async function moveWindowToAdjacentMonitor(direction: 1 | -1): Promise<void> {
+		try {
+			const monitors = await availableMonitors();
+			if (monitors.length < 2) return;
+			const cur = await currentMonitor();
+			let idx = cur
+				? monitors.findIndex(
+						(m) =>
+							m.position.x === cur.position.x &&
+							m.position.y === cur.position.y &&
+							m.size.width === cur.size.width &&
+							m.size.height === cur.size.height,
+					)
+				: 0;
+			if (idx < 0) idx = 0;
+			const from = cur ?? monitors[idx];
+			const n = monitors.length;
+			const to = monitors[(((idx + direction) % n) + n) % n];
+			const wasMaximized = await appWindow.isMaximized();
+			if (wasMaximized) await appWindow.unmaximize();
+			const pos = await appWindow.outerPosition();
+			const size = await appWindow.outerSize();
+			const relX = pos.x - from.position.x;
+			const relY = pos.y - from.position.y;
+			const maxX = to.position.x + Math.max(0, to.size.width - size.width);
+			const maxY = to.position.y + Math.max(0, to.size.height - size.height);
+			const nextX = Math.round(
+				Math.min(Math.max(to.position.x + relX, to.position.x), maxX),
+			);
+			const nextY = Math.round(
+				Math.min(Math.max(to.position.y + relY, to.position.y), maxY),
+			);
+			await appWindow.setPosition(new PhysicalPosition(nextX, nextY));
+			if (wasMaximized) await appWindow.maximize();
+			playWindowMotion();
+			if (cursorFollowWindowMoveRef.v) {
+				scheduleCursorWarpToPane(undefined, {
+					force: true,
+					bypassPanePref: true,
+				});
+			}
+		} catch {
+			/* ignore */
+		}
+	}
+
+	// Alt+Shift + primary-button drag moves the window from anywhere in the client
+	// area. Useful when tabs are hidden, where the toolbar drag handle is gone. Capture
+	// phase + stopPropagation so it wins over terminal/text selection handlers.
+	window.addEventListener(
+		"mousedown",
+		(e) => {
+			if (e.button !== 0 || !e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey)
+				return;
+			e.preventDefault();
+			e.stopPropagation();
+			void appWindow.startDragging().catch(() => {});
+		},
+		true,
+	);
+
+	window.addEventListener(
+		"keydown",
+		(e) => {
+			if (!k.match(e, "help_toggle")) return;
+			const t = e.target as HTMLElement | null;
+			if (
+				t?.closest("#command-palette") &&
+				(t.tagName === "INPUT" || t.tagName === "TEXTAREA")
+			)
+				return;
+			if (
+				t?.closest("#settings-panel") &&
+				(t.tagName === "INPUT" ||
+					t.tagName === "TEXTAREA" ||
+					t.tagName === "SELECT")
+			)
+				return;
+			if (
+				t?.closest(".partty-dialog-input") ||
+				t?.closest(".partty-dialog-panel")
+			)
+				return;
+			e.preventDefault();
+			e.stopPropagation();
+			toggleHelp();
+		},
+		true,
+	);
+
+	if (commandPalette && cpRoot) {
+		window.addEventListener(
+			"keydown",
+			(e) => {
+				if (!k.match(e, "palette_open")) return;
+				e.preventDefault();
+				e.stopPropagation();
+				if (commandPalette.isOpen()) {
+					commandPalette.close();
+					return;
+				}
+				profilePickerSession = null;
+				commandPalette.open();
+			},
+			true,
+		);
+
+		window.addEventListener(
+			"keydown",
+			(e) => {
+				const m = k.match(
+					e,
+					"profile_split_right",
+					"profile_split_down",
+					"profile_float_new",
+				);
+				if (!m) return;
+				const t = e.target as HTMLElement | null;
+				if (
+					t?.closest("#command-palette") &&
+					(t.tagName === "INPUT" || t.tagName === "TEXTAREA")
+				)
+					return;
+				if (
+					t?.closest("#settings-panel") &&
+					(t.tagName === "INPUT" ||
+						t.tagName === "TEXTAREA" ||
+						t.tagName === "SELECT")
+				)
+					return;
+				if (
+					t?.closest(".partty-dialog-input") ||
+					t?.closest(".partty-dialog-panel")
+				)
+					return;
+				e.preventDefault();
+				e.stopPropagation();
+				if (m === "profile_float_new") {
+					openProfileFloatPicker();
+					return;
+				}
+				openProfileSplitPicker(
+					m === "profile_split_right" ? "split-h" : "split-v",
+				);
+			},
+			true,
+		);
+	}
+
+	type StashedPaneBuffer = {
+		data: string;
+		cols: number;
+		rows: number;
+	};
+
+	async function persistTerminalBuffersForHide(): Promise<void> {
+		if (!lp.destroy_webview_on_hide) return;
+
+		const buffers: Record<string, string> = {};
+		if (!lp.discard_buffer_on_hide) {
+			const jobs: Promise<void>[] = [];
+			for (const host of tabPaneHosts.values()) {
+				host.forEachPane((id, pt) => {
+					jobs.push(
+						(async () => {
+							try {
+								const serialize = await ensurePaneSerialize(pt);
+								const start = firstContentScrollbackLine(pt.term);
+								const end = Math.max(0, pt.term.buffer.normal.length - 1);
+								const payload: StashedPaneBuffer = {
+									data: serialize.serialize({ range: { start, end } }),
+									cols: pt.term.cols,
+									rows: pt.term.rows,
+								};
+								buffers[id] = JSON.stringify(payload);
+							} catch (e) {
+								console.warn("serialize pane", id, e);
+							}
+						})(),
+					);
+				});
+			}
+			await Promise.all(jobs);
+		} else {
+			for (const host of tabPaneHosts.values()) {
+				host.forEachPane((_id, pt) => {
+					try {
+						pt.term.reset();
+					} catch {
+						/* ignore */
+					}
+				});
+			}
+		}
+
+		try {
+			await invoke("stash_terminal_buffers", { buffers });
+		} catch (e) {
+			console.warn("stash_terminal_buffers", e);
+		}
+	}
+
+	function writeTerminalSerialized(
+		term: Terminal,
+		data: string,
+	): Promise<void> {
+		return new Promise((resolve, reject) => {
+			try {
+				term.write(data, () => resolve());
+			} catch (e) {
+				reject(e);
+			}
+		});
+	}
+
+	async function restoreSerializedTerminals(): Promise<void> {
+		if (lp.discard_buffer_on_hide) {
+			try {
+				await invoke("take_terminal_buffers");
+			} catch {
+				/* ignore */
+			}
+			return;
+		}
+
+		let map: Record<string, string> | null = null;
+		try {
+			map = await invoke<Record<string, string> | null>(
+				"take_terminal_buffers",
+			);
+		} catch {
+			/* ignore */
+		}
+		if (!map || Object.keys(map).length === 0) return;
+
+		const writes: Promise<void>[] = [];
+		for (const host of tabPaneHosts.values()) {
+			host.forEachPane((id, pt) => {
+				const rawPane = map![id];
+				if (!rawPane) return;
+				writes.push(
+					(async () => {
+						try {
+							let data = rawPane;
+							let cols = 0;
+							let rows = 0;
+							if (rawPane.startsWith("{")) {
+								const parsed = JSON.parse(rawPane) as StashedPaneBuffer;
+								if (typeof parsed.data === "string") {
+									data = parsed.data;
+									cols = Number(parsed.cols) || 0;
+									rows = Number(parsed.rows) || 0;
+								}
+							}
+							if (cols >= 2 && rows >= 1) {
+								pt.term.resize(cols, rows);
+							}
+							await writeTerminalSerialized(pt.term, data);
+							backendReplayRestoredPanes.add(id);
+						} catch (e) {
+							console.warn("restoreSerializedTerminals", id, e);
+						}
+					})(),
+				);
+			});
+		}
+		await Promise.all(writes);
+	}
+
+	async function takeNeedsScrollbackRestore(
+		fallback: boolean,
+	): Promise<boolean> {
+		try {
+			return await invoke<boolean>("take_webview_destroyed_for_hide");
+		} catch (e) {
+			console.warn("take_webview_destroyed_for_hide", e);
+			return fallback;
+		}
+	}
+
+	async function restoreScrollbackIfNeeded(fallback: boolean): Promise<void> {
+		if (await takeNeedsScrollbackRestore(fallback)) {
+			await restoreSerializedTerminals();
+		}
+	}
+
+	function waitAnimationFrames(count = 2): Promise<void> {
+		return new Promise((resolve) => afterAnimationFrames(resolve, count));
+	}
+
+	async function ensurePtyForAllTabHosts(): Promise<void> {
+		const jobs: Promise<void>[] = [];
+		for (const host of tabPaneHosts.values()) {
+			host.forEachPane((id, pt) => {
+				jobs.push(ensurePtyForPane(id, pt));
+			});
+		}
+		await Promise.all(jobs);
+	}
+
+	async function unlockSummonSurface(): Promise<void> {
+		await releasePtyHydrationGate();
+		releaseBootSurface();
+	}
+
+	async function runPrepareShow(): Promise<void> {
+		summonInProgress = true;
+		summonPreparedByDefer = false;
+		try {
+			if (localStorage.getItem(DEFER_PTY_REINIT_KEY) === "1") {
+				localStorage.removeItem(DEFER_PTY_REINIT_KEY);
+				await newTerminalSession();
+			}
+			scheduleResizeImmediate();
+			await waitAnimationFrames(2);
+
+			// Restore before PTY ensure/replay so catch-up cannot race an empty buffer.
+			await restoreScrollbackIfNeeded(lp.destroy_webview_on_hide);
+			await ensurePtyForAllTabHosts();
+
+			await mountWebglForActivePanes();
+			const ft = getFocusedTerm();
+			if (ft) ft.refresh(0, ft.rows - 1);
+			if (paneHost) scheduleHostGeometryRepair(paneHost);
+			scheduleResizeImmediate(true);
+			await waitAnimationFrames(2);
+
+			await unlockSummonSurface();
+			summonPreparedByDefer = lp.defer_window_show_until_prepared;
+			if (lp.defer_window_show_until_prepared) {
+				await invoke("commit_show_window").catch((e) =>
+					console.error("commit_show_window", e),
+				);
+			}
+		} catch (e) {
+			summonInProgress = false;
+			summonPreparedByDefer = false;
+			await releasePtyHydrationGate().catch(() => {});
+			releaseBootSurface();
+			throw e;
+		}
+	}
+
+	await Promise.all([
+		listen<{
+			sessionId: string;
+			cwd: string;
+			remoteIsWindows?: boolean | null;
+		}>("pty-cwd", (event) => {
+			const { sessionId, cwd, remoteIsWindows } = event.payload;
+			const paneId = paneBySessionId.get(sessionId)?.paneId;
+			if (!paneId) return;
+			const profile = resolvePaneProfile(paneId);
+			if (profile?.kind === "ssh" && !profileHasRemoteIntegration(profile)) {
+				return;
+			}
+			if (remoteIsWindows != null) {
+				paneRemoteIsWindows.set(paneId, remoteIsWindows);
+			}
+			paneCwdHints.set(paneId, cwd);
+			paneLinkProviders.get(paneId)?.invalidate();
+			if (extCwdChangeSubs.length > 0) {
+				for (const fn of extCwdChangeSubs) {
+					try {
+						fn(paneId, cwd);
+					} catch {
+						/* ignore */
+					}
+				}
+			}
+			refreshTabLabelForPane(paneId);
+			if (paneId !== focusedPaneId()) return;
+			if (normalizeFsPathKey(cwd) === normalizeFsPathKey(liveCwd ?? "")) return;
+			liveCwd = cwd;
+		}),
+
+		listen<{ sessionId: string; title: string }>("pty-title", (event) => {
+			const { sessionId, title } = event.payload;
+			const paneId = paneBySessionId.get(sessionId)?.paneId;
+			if (!paneId) return;
+			if (title) {
+				paneProgramNames.set(paneId, title);
+			} else {
+				paneProgramNames.delete(paneId);
+			}
+			refreshTabLabelForPane(paneId);
+		}),
+
+		listen<{
+			sessionId: string;
+			kind: string;
+			exitCode?: number | null;
+			text?: string;
+		}>("pty-shell-event", (event) => {
+			const { sessionId, kind, text, exitCode } = event.payload;
+			const paneId = paneBySessionId.get(sessionId)?.paneId;
+			if (!paneId) return;
+			switch (kind) {
+				case "commandLine": {
+					if (!text) break;
+					const merged = mergeProcessCommand(
+						pendingShellCommandLine.get(paneId) ?? "",
+						text,
+					);
+					if (merged) pendingShellCommandLine.set(paneId, merged);
+					const entry = activeProcesses.get(paneId);
+					if (entry) {
+						applyShellCommandLine(entry, text);
+					}
+					break;
+				}
+				case "preExec": {
+					let entry = activeProcesses.get(paneId);
+					if (!entry) {
+						const cmd = pendingShellCommandLine.get(paneId);
+						if (!cmd) break;
+						entry = createActiveProcessEntry(
+							cmd,
+							paneCwdHints.get(paneId) || "",
+						);
+						activeProcesses.set(paneId, entry);
+						if (extProcStartSubs.length > 0) {
+							const start = {
+								paneId,
+								command: displayProcessCommand(entry.command),
+								cwd: entry.cwd,
+							};
+							for (const fn of extProcStartSubs) {
+								try {
+									fn(start);
+								} catch {
+									/* ignore */
+								}
+							}
+						}
+					}
+					markProcessExecStart(entry);
+					pendingShellCommandLine.delete(paneId);
+					break;
+				}
+				case "commandDone": {
+					// OSC 133 shell integration carries the real exit code; the
+					// heuristic end path (below) passes null when it's unavailable.
+					finishActiveProcess(paneId, Date.now(), exitCode ?? null);
+					break;
+				}
+				case "promptStart": {
+					paneProgramNames.delete(paneId);
+					refreshTabLabelForPane(paneId);
+					const entry = activeProcesses.get(paneId);
+					if (entry) {
+						finishActiveProcess(paneId, Date.now());
+					}
+					break;
+				}
+			}
+		}),
+
+		listen<PtyExitEvent>("pty-exit", async (event) => {
+			const { sessionId } = event.payload;
+			const paneId = paneBySessionId.get(sessionId)?.paneId;
+			if (!paneId) return;
+			const pending = pendingPtyOutputByPane.get(paneId);
+			if (pending) {
+				pendingPtyOutputByPane.delete(paneId);
+				processPtyOutputBatch(
+					paneId,
+					drainByteChunks(pending.chunks),
+					pending.eventCount,
+					pending.queuedAt,
+				);
+			}
+			await ptyAckExit(sessionId);
+			finishActiveProcess(paneId, Date.now());
+			await closePaneOnShellExit(paneId);
+		}),
+		listen("pty-session-shed", () => {
+			liveCwd = null;
+			paneCwdHints.clear();
+			paneRemoteIsWindows.clear();
+			pendingPtyOutputByPane.clear();
+			paneHost?.forEachPane((_id, p) => {
+				p.term.reset();
+			});
+		}),
+		listen("partty-hide", () => {
+			void (async () => {
+				for (const fn of extWindowHideSubs) {
+					try {
+						fn();
+					} catch {
+						/* ignore */
+					}
+				}
+				if (paneHost && lp.destroy_webview_on_hide) {
+					persistCurrentTabLayout();
+				}
+				await persistTerminalBuffersForHide();
+				if (lp.webgl_shed_on_hide) {
+					shedWebgl();
+				}
+				// WebView teardown waits for stash (see schedule_destroy_webview_after_hide).
+			})();
+		}),
+		listen("partty-prepare-show", () => {
+			void runPrepareShow().catch((e) => {
+				console.error("partty-prepare-show", e);
+				void invoke("commit_show_window").catch(() => {
+					/* still try to show */
+				});
+			});
+		}),
+		listen("partty-show", async () => {
+			for (const fn of extWindowShowSubs) {
+				try {
+					fn();
+				} catch {
+					/* ignore */
+				}
+			}
+
+			// Defer-show: prepare already restored/painted — avoid a second pass.
+			if (summonPreparedByDefer) {
+				summonPreparedByDefer = false;
+				summonInProgress = false;
+				getFocusedTerm()?.focus();
+				mouseCursorController?.sync();
+				return;
+			}
+
+			// Non-defer summon (or prepare skipped): restore → paint → unlock, then PTY.
+			summonInProgress = true;
+			try {
+				await restoreScrollbackIfNeeded(false);
+				await mountWebglForActivePanes();
+				getFocusedTerm()?.focus();
+				scheduleResizeImmediate();
+				await waitAnimationFrames(2);
+				await unlockSummonSurface();
+				mouseCursorController?.sync();
+				if (!lp.defer_window_show_until_prepared) {
+					const jobs: Promise<void>[] = [];
+					paneHost?.forEachPane((id, pt) => {
+						jobs.push(ensurePtyForPane(id, pt));
+					});
+					await Promise.all(jobs);
+				}
+				reflowAllPanes();
+				const ft = getFocusedTerm();
+				if (ft) ft.refresh(0, ft.rows - 1);
+				getFocusedTerm()?.focus();
+			} finally {
+				summonInProgress = false;
+			}
+		}),
+	]);
+
+	// After destroy+recreate, Rust no longer emits `partty-prepare-show` until we signal listeners exist.
+	await invoke("webview_boot_complete").catch(() => {
+		/* ignore */
+	});
+
+	scheduleIdle(() => {
+		void import("./app/settingsPanel");
+	});
+
+	window.addEventListener("resize", () => scheduleResizeDebounced());
+	void appWindow.onResized(() => scheduleResizeImmediate());
+	void appWindow.onScaleChanged(() => scheduleResizeImmediate());
+	if (terminalContent && typeof ResizeObserver !== "undefined") {
+		const ro = new ResizeObserver(() => scheduleResizeDebounced());
+		ro.observe(terminalContent);
+	}
+	// The first fit() can run before the terminal's custom font finishes loading, so
+	// xterm measures cell width with a fallback font and computes the wrong cols/rows
+	// (mis-sized canvas). Re-fit once fonts are ready, and again on any late font load.
+	if (document.fonts) {
+		void document.fonts.ready.then(() => {
+			if (summonInProgress || summonPreparedByDefer) return;
+			reflowAllPanes();
+		});
+		document.fonts.addEventListener("loadingdone", () => {
+			if (summonInProgress || summonPreparedByDefer) return;
+			reflowAllPanes();
+		});
+	}
+
+	stage?.addEventListener("mousedown", () => {
+		getFocusedTerm()?.focus();
+	});
+
+	requestAnimationFrame(() => {
+		scheduleResizeImmediate();
+		// prepare-show ensures PTYs after scrollback restore while booting.
+		if (
+			lp.preload_pty_on_startup &&
+			!document.documentElement.classList.contains("partty-booting")
+		) {
+			paneHost?.forEachPane((id) => {
+				void ensurePtyForPane(id);
+			});
+		}
+	});
+
+	document.addEventListener("visibilitychange", () => {
+		if (document.visibilityState !== "visible") return;
+		// Re-read config.toml so config-only sections ([editor], ...) edited by
+		// hand while the app runs apply on the next focus — no modal needed.
+		void (async () => {
+			try {
+				const fresh = await invoke<PersistedPayload>("get_persisted_state");
+				persisted.prefs = fresh.prefs;
+				editorConfigRef.v = editorConfigFromPrefs(
+					fresh.prefs as Partial<ParttyPrefs>,
+				);
+			} catch {
+				// IPC failure or boot ordering: keep the current prefs.
+			}
+		})();
+		mouseCursorController?.sync();
+		// prepare-show already reflowed; a second pass here (from commit_show)
+		// causes a post-reveal layout bounce.
+		if (summonInProgress || summonPreparedByDefer) return;
+		scheduleResizeDebounced();
+		reflowAllPanes();
+		getFocusedTerm()?.focus();
+	});
+
+	// ── Extensions ──────────────────────────────────────────────
+	const loadExtensions = async (): Promise<void> => {
+		try {
+			const allExts =
+				await invoke<
+					Array<{
+						id: string;
+						name: string;
+						version: string;
+						description: string;
+						code: string;
+						enabled: boolean;
+					}>
+				>("list_extensions");
+			const exts = allExts.filter((e) => e.enabled);
+			if (exts.length === 0) return;
+
+			// Listener registries — zero overhead when no extensions subscribe.
+			const extApi: Record<string, unknown> = {
+				onPtyOutput(fn: (paneId: string, data: string) => void) {
+					extPtyOutputSubs.push(fn);
+					return () => {
+						const idx = extPtyOutputSubs.indexOf(fn);
+						if (idx !== -1) extPtyOutputSubs.splice(idx, 1);
+					};
+				},
+				onPtyInput(fn: (paneId: string, data: string) => void) {
+					extPtyInputSubs.push(fn);
+					return () => {
+						const idx = extPtyInputSubs.indexOf(fn);
+						if (idx !== -1) extPtyInputSubs.splice(idx, 1);
+					};
+				},
+				onProcessStart(
+					fn: (proc: { paneId: string; command: string; cwd: string }) => void,
+				) {
+					extProcStartSubs.push(fn);
+					return () => {
+						const idx = extProcStartSubs.indexOf(fn);
+						if (idx !== -1) extProcStartSubs.splice(idx, 1);
+					};
+				},
+				onProcessEnd(
+					fn: (proc: {
+						paneId: string;
+						command: string;
+						durationMs: number;
+						/** OSC 133 exit code, or null when the shell didn't report one. */
+						exitCode: number | null;
+					}) => void,
+				) {
+					extProcEndSubs.push(fn);
+					return () => {
+						const idx = extProcEndSubs.indexOf(fn);
+						if (idx !== -1) extProcEndSubs.splice(idx, 1);
+					};
+				},
+				getPaneActiveProcess(paneId: string) {
+					const entry = activeProcesses.get(paneId);
+					if (!entry) return null;
+					return {
+						command: displayProcessCommand(entry.command),
+						cwd: entry.cwd,
+						startedAt: entry.startedAt,
+					};
+				},
+				getActiveProcesses() {
+					const result: Array<{
+						paneId: string;
+						command: string;
+						cwd: string;
+						startedAt: number;
+					}> = [];
+					for (const [paneId, entry] of activeProcesses) {
+						result.push({
+							paneId,
+							command: displayProcessCommand(entry.command),
+							cwd: entry.cwd,
+							startedAt: entry.startedAt,
+						});
+					}
+					return result;
+				},
+				writeToPane(paneId: string, text: string) {
+					queuePtyWrite(paneId, text);
+				},
+				showNotification(
+					command: string,
+					detail: string,
+					opts?: string | { paneId?: string; buttons?: NotificationButton[] },
+				) {
+					if (!processNotificationEnabledRef.v) return;
+					if (!processToast) return;
+					const options =
+						typeof opts === "string" ? { paneId: opts } : (opts ?? {});
+					showProcessToast(
+						`<span class="proc-toast-cmd">${escapeHtml(truncateEnd(command, NOTIF_COMMAND_MAX))}</span> ${escapeHtml(truncateEnd(detail, NOTIF_DETAIL_MAX))}`,
+						options.paneId ?? "",
+						options.buttons ?? [],
+					);
+				},
+				getPref<T>(key: string, fallback: T): T {
+					try {
+						const raw = localStorage.getItem(`partty.ext.${key}`);
+						return raw ? JSON.parse(raw) : fallback;
+					} catch {
+						return fallback;
+					}
+				},
+				setPref<T>(key: string, value: T): void {
+					localStorage.setItem(`partty.ext.${key}`, JSON.stringify(value));
+				},
+				getAppTheme() {
+					return {
+						ui: currentUiPrefs,
+						terminal: buildXtermThemeFromPrefs(
+							persisted.prefs as PaneThemePrefs,
+						),
+					};
+				},
+				getPaneTheme(paneId: string) {
+					const pt = getPaneTerminalById(paneId);
+					const theme = pt
+						? { ...pt.term.options.theme }
+						: buildXtermThemeFromPrefs(persisted.prefs as PaneThemePrefs);
+					// Don't leak the hideCursor implementation detail (a transparent
+					// cursor) — report the pane's real cursor color.
+					const original = extCursorHiddenOriginal.get(paneId);
+					if (original) {
+						if (original.cursor !== undefined) theme.cursor = original.cursor;
+						if (original.cursorAccent !== undefined)
+							theme.cursorAccent = original.cursorAccent;
+					}
+					const override = paneThemes.get(paneId);
+					return { theme, override: override ?? null };
+				},
+				getFocusedPaneId: () => focusedPaneId(),
+				getPaneIds: () => {
+					const ids: string[] = [];
+					for (const host of tabPaneHosts.values()) {
+						host.forEachPane((id) => ids.push(id));
+					}
+					return ids;
+				},
+				getPaneInfo(paneId: string) {
+					if (typeof paneId !== "string" || !paneId) return null;
+					const host = getPaneHostByPaneId(paneId);
+					if (!host) return null;
+					const floatState = host.getFloatingState()[paneId];
+					return {
+						id: paneId,
+						name: paneEffectiveName(paneId),
+						programName: paneProgramNames.get(paneId) ?? null,
+						cwd: paneCwdHints.get(paneId) ?? null,
+						tabId: tabIdForPaneHost(host) ?? null,
+						floating: floatState !== undefined,
+						focused: focusedPaneId() === paneId,
+					};
+				},
+				getPaneTerminalDims(paneId: string) {
+					const pt = getPaneTerminalById(paneId);
+					if (!pt) return null;
+					return { cols: pt.term.cols, rows: pt.term.rows };
+				},
+
+				// ── Rendering & cursor (pane overlay surface) ──
+				createOverlay(paneId: string, opts?: { hideCursor?: boolean }) {
+					if (typeof paneId !== "string" || !paneId) return null;
+					const found = getPaneTerminalById(paneId);
+					const element = found?.term.element;
+					if (!found || !element) return null;
+					// Non-nullable locals so closures keep their types.
+					const term = found.term;
+
+					// Anchor to the screen box (exactly the rendered canvas area;
+					// excludes the scrollbar). Falls back to the terminal root.
+					const screen = element.querySelector(".xterm-screen");
+					const parent = screen instanceof HTMLElement ? screen : element;
+					parent.classList.add("partty-ext-overlay-anchor");
+
+					const layer = document.createElement("div");
+					layer.className = "partty-ext-overlay-layer";
+					const canvas = document.createElement("canvas");
+					canvas.className = "partty-ext-overlay-canvas";
+					layer.appendChild(canvas);
+					parent.appendChild(layer);
+
+					const maybeCtx = canvas.getContext("2d");
+					if (!maybeCtx) {
+						layer.remove();
+						return null;
+					}
+					const ctx = maybeCtx;
+
+					let destroyed = false;
+					let drawFn: ((t: number) => void) | null = null;
+					let raf = 0;
+					let pendingHidden = false;
+					let hiddenObserver: MutationObserver | null = null;
+					let cssW = 0;
+					let cssH = 0;
+
+					const isHidden = (): boolean =>
+						getComputedStyle(element).visibility === "hidden";
+
+					const handle = {
+						canvas,
+						ctx,
+						cellWidth: 0,
+						cellHeight: 0,
+						cols: 0,
+						rows: 0,
+						requestRender(draw: (t: number) => void): void {
+							if (destroyed) return;
+							drawFn = draw;
+							if (raf) return;
+							if (isHidden()) {
+								pendingHidden = true;
+								ensureHiddenObserver();
+								return;
+							}
+							raf = requestAnimationFrame(onFrame);
+						},
+						destroy(): void {
+							if (destroyed) return;
+							destroyed = true;
+							if (raf) cancelAnimationFrame(raf);
+							raf = 0;
+							hiddenObserver?.disconnect();
+							hiddenObserver = null;
+							ro.disconnect();
+							if (savedCursorTheme) {
+								extCursorHiddenPanes.delete(paneId);
+								extCursorHiddenOriginal.delete(paneId);
+								term.options.theme = {
+									...term.options.theme,
+									...savedCursorTheme,
+								};
+							}
+							layer.remove();
+							if (!parent.querySelector(".partty-ext-overlay-layer")) {
+								parent.classList.remove("partty-ext-overlay-anchor");
+							}
+						},
+					};
+
+					function measure(): void {
+						const rect = parent.getBoundingClientRect();
+						cssW = Math.max(1, Math.round(rect.width));
+						cssH = Math.max(1, Math.round(rect.height));
+						const dpr = window.devicePixelRatio || 1;
+						const pw = Math.max(1, Math.round(cssW * dpr));
+						const ph = Math.max(1, Math.round(cssH * dpr));
+						if (canvas.width !== pw) canvas.width = pw;
+						if (canvas.height !== ph) canvas.height = ph;
+						ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+						handle.cellWidth = term.cols > 0 ? cssW / term.cols : 0;
+						handle.cellHeight = term.rows > 0 ? cssH / term.rows : 0;
+						handle.cols = term.cols;
+						handle.rows = term.rows;
+					}
+
+					function ensureHiddenObserver(): void {
+						if (hiddenObserver) return;
+						const host = getPaneHostByPaneId(paneId);
+						const tabId = host ? tabIdForPaneHost(host) : null;
+						const shell = tabId ? (tabPaneShells.get(tabId) ?? null) : null;
+						if (!shell) return;
+						hiddenObserver = new MutationObserver(() => {
+							if (!isHidden() && pendingHidden && !destroyed) {
+								pendingHidden = false;
+								raf = requestAnimationFrame(onFrame);
+							}
+						});
+						hiddenObserver.observe(shell, {
+							attributes: true,
+							attributeFilter: ["class"],
+						});
+					}
+
+					function onFrame(t: number): void {
+						raf = 0;
+						if (destroyed) return;
+						if (isHidden()) {
+							pendingHidden = true;
+							ensureHiddenObserver();
+							return;
+						}
+						measure();
+						const fn = drawFn;
+						if (!fn) return;
+						// The API owns the clear: extensions draw only.
+						ctx.clearRect(0, 0, cssW, cssH);
+						try {
+							fn(t);
+						} catch {
+							/* ignore */
+						}
+					}
+
+					const ro = new ResizeObserver(() => {
+						if (destroyed) return;
+						measure();
+						if (!raf && drawFn) raf = requestAnimationFrame(onFrame);
+					});
+					ro.observe(parent);
+
+					// The WebGL renderer paints the cursor into its canvas, so CSS
+					// cannot hide it; a transparent theme cursor does. The registry
+					// lets theme re-applies (refreshAllTerminalThemes/applyPaneTheme)
+					// keep the hide in force; the immediate value is restored on
+					// destroy.
+					let savedCursorTheme: {
+						cursor?: string;
+						cursorAccent?: string;
+					} | null = null;
+					if (opts?.hideCursor) {
+						const th = { ...term.options.theme };
+						savedCursorTheme = {
+							cursor: th.cursor,
+							cursorAccent: th.cursorAccent,
+						};
+						extCursorHiddenPanes.add(paneId);
+						extCursorHiddenOriginal.set(paneId, savedCursorTheme);
+						term.options.theme = { ...th, cursor: "rgba(0, 0, 0, 0)" };
+					}
+
+					measure();
+					const cleanups = paneHostCleanups.get(paneId) ?? [];
+					cleanups.push(() => handle.destroy());
+					paneHostCleanups.set(paneId, cleanups);
+					return handle;
+				},
+				onCursorMove(
+					paneId: string,
+					fn: (pos: { x: number; y: number; kind: "move" | "sync" }) => void,
+				) {
+					const entry = ensureExtCursorSubs(paneId);
+					if (!entry) return () => {};
+					entry.subs.push(fn);
+					return () => removeExtCursorSub(paneId, fn);
+				},
+				getCursorPos(paneId: string) {
+					const pt = getPaneTerminalById(paneId);
+					if (!pt) return null;
+					const buf = pt.term.buffer.active;
+					return { x: buf.cursorX, y: buf.cursorY - buf.viewportY };
+				},
+				getWindowState() {
+					return {
+						visible: document.visibilityState === "visible",
+						tabsHidden:
+							document.documentElement.classList.contains("tabs-hidden"),
+					};
+				},
+				getPaneCwd: (paneId: string) => paneCwdHints.get(paneId) ?? null,
+				getPaneName: (paneId: string) => paneEffectiveName(paneId),
+
+				// ── Pane & tab control ──
+				focusPane(paneId: string) {
+					if (typeof paneId !== "string" || !paneId) return;
+					navigateToPane(paneId);
+				},
+				closePane(paneId: string) {
+					if (typeof paneId !== "string" || !paneId) return;
+					const host = getPaneHostByPaneId(paneId);
+					if (!host) return;
+					if (host.isPristineRootTab()) {
+						const tabId = tabIdForPaneHost(host);
+						if (tabId) closeTab(tabId);
+						return;
+					}
+					const pt = host.getPaneTerminal(paneId);
+					if (pt) void ptyKillPane(pt.sessionId).catch(() => {});
+					host.removePane(paneId);
+				},
+				splitPane(paneId: string, dir: "h" | "v") {
+					if (typeof paneId !== "string" || !paneId) return null;
+					const host = getPaneHostByPaneId(paneId);
+					if (!host) return null;
+					host.setFocusedPaneId(paneId);
+					return splitFocusedWithCwd(dir) ?? null;
+				},
+				getTabs() {
+					return visibleTabsInOrder().map((t) => tabRenderModel(t));
+				},
+				getTabGroups() {
+					return [...tabsState.groups]
+						.sort((a, b) => a.order - b.order)
+						.map((g) => ({
+							id: g.id,
+							name: g.name,
+							color: g.color,
+							collapsed: g.collapsed,
+							tabIds: tabsState.tabs
+								.filter((t) => t.groupId === g.id)
+								.sort((a, b) => a.order - b.order)
+								.map((t) => t.id),
+						}));
+				},
+				switchTab(tabId: string) {
+					if (typeof tabId !== "string" || !tabId) return;
+					if (tabPaneHosts.has(tabId) || deferredTabInits.has(tabId)) {
+						switchToTab(tabId);
+					}
+				},
+
+				// ── Events ──
+				onPaneCreated(fn: (paneId: string) => void) {
+					extPaneCreatedSubs.push(fn);
+					return () => {
+						const idx = extPaneCreatedSubs.indexOf(fn);
+						if (idx !== -1) extPaneCreatedSubs.splice(idx, 1);
+					};
+				},
+				onPaneClosed(fn: (paneId: string) => void) {
+					extPaneClosedSubs.push(fn);
+					return () => {
+						const idx = extPaneClosedSubs.indexOf(fn);
+						if (idx !== -1) extPaneClosedSubs.splice(idx, 1);
+					};
+				},
+				onFocusChanged(fn: (paneId: string) => void) {
+					extFocusSubs.push(fn);
+					return () => {
+						const idx = extFocusSubs.indexOf(fn);
+						if (idx !== -1) extFocusSubs.splice(idx, 1);
+					};
+				},
+				onCwdChanged(fn: (paneId: string, cwd: string) => void) {
+					extCwdChangeSubs.push(fn);
+					return () => {
+						const idx = extCwdChangeSubs.indexOf(fn);
+						if (idx !== -1) extCwdChangeSubs.splice(idx, 1);
+					};
+				},
+
+				// ── Command palette ──
+				registerCommand(
+					id: string,
+					label: string | { label: string; keywords?: string; run: () => void },
+					run?: () => void,
+				) {
+					const def =
+						typeof label === "string"
+							? { id, label, run: run ?? (() => {}) }
+							: { id, ...label };
+					extPaletteCommands.push({
+						id: def.id,
+						label: def.label,
+						keywords: def.keywords,
+						run: def.run,
+					});
+					return () => {
+						const idx = extPaletteCommands.findIndex((c) => c.id === id);
+						if (idx !== -1) extPaletteCommands.splice(idx, 1);
+					};
+				},
+
+				// ── Tab lifecycle ──
+				onTabSwitch(fn: (tabId: string) => void) {
+					extTabSwitchSubs.push(fn);
+					return () => {
+						const idx = extTabSwitchSubs.indexOf(fn);
+						if (idx !== -1) extTabSwitchSubs.splice(idx, 1);
+					};
+				},
+				onTabsChanged(fn: () => void) {
+					return tabBar.onChange(fn);
+				},
+				getTabBarLayout() {
+					return tabBar.layout();
+				},
+				setTabBarLayout(partial: {
+					tabJustify?: "start" | "center" | "end";
+					showSingleTab?: boolean;
+					omitDefaultClose?: boolean;
+					grow?: boolean;
+					gap?: string;
+					itemGap?: string;
+				}) {
+					const unsub = tabBar.setLayout(partial);
+					renderTabsBar();
+					return () => {
+						unsub();
+						renderTabsBar();
+					};
+				},
+				registerTabRenderer(
+					fn: (tab: TabRenderModel, el: HTMLElement) => void,
+				) {
+					const unsub = tabBar.registerTabRenderer(fn);
+					renderTabsBar();
+					return () => {
+						unsub();
+						renderTabsBar();
+					};
+				},
+				registerGroupRenderer(
+					fn: (
+						group: {
+							id: string;
+							name: string;
+							color: string | null;
+							collapsed: boolean;
+							tabIds: string[];
+						},
+						el: HTMLElement,
+					) => void,
+				) {
+					const unsub = tabBar.registerGroupRenderer(fn);
+					renderTabsBar();
+					return () => {
+						unsub();
+						renderTabsBar();
+					};
+				},
+				registerTabBarItem(item: TabBarItem) {
+					if (!item || typeof item.id !== "string" || !item.id) return () => {};
+					if (
+						item.slot !== "leading" &&
+						item.slot !== "trailing" &&
+						item.slot !== "background"
+					) {
+						return () => {};
+					}
+					if (typeof item.mount !== "function") return () => {};
+					return tabBar.registerItem(item);
+				},
+				requestTabBarRender() {
+					renderTabsBar();
+				},
+				refreshTabBarItems() {
+					tabBar.refreshItems();
+				},
+
+				// ── Window lifecycle ──
+				onWindowShow(fn: () => void) {
+					extWindowShowSubs.push(fn);
+					return () => {
+						const idx = extWindowShowSubs.indexOf(fn);
+						if (idx !== -1) extWindowShowSubs.splice(idx, 1);
+					};
+				},
+				onWindowHide(fn: () => void) {
+					extWindowHideSubs.push(fn);
+					return () => {
+						const idx = extWindowHideSubs.indexOf(fn);
+						if (idx !== -1) extWindowHideSubs.splice(idx, 1);
+					};
+				},
+
+				// ── Metadata ──
+				getAppVersion: () => pkg.version,
+			};
+
+			for (const ext of exts) {
+				try {
+					// Extension code is the body of a function receiving `api`.
+					// e.g.:  api.onPtyOutput((paneId, data) => { ... });
+					//         api.showNotification("Hello", "World");
+					const wrapped = `"use strict";\n${ext.code}\n//# sourceURL=extension:${ext.id}`;
+					const fn = new Function("api", wrapped);
+					fn(extApi);
+				} catch (e) {
+					console.error(`Extension "${ext.name}" activation failed`, e);
+				}
+			}
+		} catch {
+			// Extensions directory doesn't exist or is empty — nothing to load.
+		}
+	};
+
+	if (typeof requestIdleCallback === "function") {
+		requestIdleCallback(() => void loadExtensions(), { timeout: 3000 });
+	} else {
+		window.setTimeout(() => void loadExtensions(), 0);
+	}
+
+	if (import.meta.env.DEV) {
+		const { createDevMetricsOverlay } = await import("./app/devMetricsOverlay");
+		let devMetricsOverlay: DevMetricsOverlayApi | null = null;
+		const appRoot = document.getElementById("app");
+		const getFocusedPaneId = (): string | null | undefined =>
+			paneHost?.getFocusedPaneId();
+		if (parttyPerf.enabled && appRoot) {
+			devMetricsOverlay = createDevMetricsOverlay({
+				root: appRoot,
+				getFocusedPaneId,
+			});
+		}
+
+		window.addEventListener(
+			"keydown",
+			(e) => {
+				if (!k.match(e, "dev_toggle")) return;
+				const t = e.target as HTMLElement | null;
+				if (t?.closest("#command-palette") || t?.closest("#settings-panel"))
+					return;
+				if (!parttyPerf.enabled) return;
+				e.preventDefault();
+				e.stopPropagation();
+				if (!devMetricsOverlay && appRoot) {
+					devMetricsOverlay = createDevMetricsOverlay({
+						root: appRoot,
+						getFocusedPaneId,
+					});
+				}
+				devMetricsOverlay?.toggle();
+			},
+			true,
+		);
+	}
+
+	window.addEventListener("beforeunload", () => {
+		try {
+			persistCurrentTabLayout();
+			if (!retainSessionStateRef.v) {
+				shedSessionLocalState();
+			} else if (shouldShedSessionOnExitSilent()) {
+				shedSessionLocalState();
+			}
+		} catch {
+			/* ignore */
+		}
+		mouseCursorController?.dispose();
+		paneHost = null;
+		commandPalette?.dispose();
+	});
 }
 
 void boot().catch((e) => {
-  console.error("boot failed", e);
+	console.error("boot failed", e);
 });

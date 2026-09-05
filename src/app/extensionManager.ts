@@ -1,45 +1,48 @@
 import { invoke } from "@tauri-apps/api/core";
-
-import { mouseCursorForceVisible } from "./mouseCursor";
-import { pushOverlay, type OverlayHandle } from "./overlayStack";
 import { hideSurface, showSurface } from "./../util/motion";
+import { mouseCursorForceVisible } from "./mouseCursor";
+import { type OverlayHandle, pushOverlay } from "./overlayStack";
 
 export type ExtensionMeta = {
-  id: string;
-  name: string;
-  version: string;
-  description: string;
-  enabled: boolean;
+	id: string;
+	name: string;
+	version: string;
+	description: string;
+	enabled: boolean;
 };
 
 export type ExtensionManagerApi = {
-  open(): void;
-  close(): void;
-  isOpen(): boolean;
-  dispose(): void;
+	open(): void;
+	close(): void;
+	isOpen(): boolean;
+	dispose(): void;
 };
 
 export function createExtensionManager(el: HTMLElement): ExtensionManagerApi {
-  let open = false;
-  let overlay: OverlayHandle | null = null;
-  const list = el.querySelector(".extension-manager-list") as HTMLElement | null;
+	let open = false;
+	let overlay: OverlayHandle | null = null;
+	const list = el.querySelector(
+		".extension-manager-list",
+	) as HTMLElement | null;
 
-  async function loadExtensions(): Promise<ExtensionMeta[]> {
-    try {
-      return await invoke<ExtensionMeta[]>("list_extensions");
-    } catch {
-      return [];
-    }
-  }
+	async function loadExtensions(): Promise<ExtensionMeta[]> {
+		try {
+			return await invoke<ExtensionMeta[]>("list_extensions");
+		} catch {
+			return [];
+		}
+	}
 
-  async function render(): Promise<void> {
-    if (!list) return;
-    const exts = await loadExtensions();
-    if (exts.length === 0) {
-      list.innerHTML = `<div class="extension-manager-empty">No extensions installed.<br><small>Place folders in %LOCALAPPDATA%\\partty\\extensions\\</small></div>`;
-      return;
-    }
-    list.innerHTML = exts.map((ext) => `
+	async function render(): Promise<void> {
+		if (!list) return;
+		const exts = await loadExtensions();
+		if (exts.length === 0) {
+			list.innerHTML = `<div class="extension-manager-empty">No extensions installed.<br><small>Place folders in %LOCALAPPDATA%\\partty\\extensions\\</small></div>`;
+			return;
+		}
+		list.innerHTML = exts
+			.map(
+				(ext) => `
       <div class="extension-manager-item">
         <div class="extension-manager-item-info">
           <span class="extension-manager-item-name">${esc(ext.name)}</span>
@@ -50,48 +53,63 @@ export function createExtensionManager(el: HTMLElement): ExtensionManagerApi {
           <input class="settings-checkbox-input" type="checkbox" data-ext-id="${esc(ext.id)}" ${ext.enabled ? "checked" : ""}>
         </label>
       </div>
-    `).join("");
+    `,
+			)
+			.join("");
 
-    list.querySelectorAll<HTMLInputElement>(".settings-checkbox-input[data-ext-id]").forEach((input) => {
-      input.addEventListener("change", async () => {
-        const id = input.dataset.extId!;
-        const enabled = input.checked;
-        await invoke("set_extension_enabled", { id, enabled }).catch(() => {});
-        setTimeout(() => render(), 100);
-      });
-    });
-  }
+		list
+			.querySelectorAll<HTMLInputElement>(
+				".settings-checkbox-input[data-ext-id]",
+			)
+			.forEach((input) => {
+				input.addEventListener("change", async () => {
+					const id = input.dataset.extId!;
+					const enabled = input.checked;
+					await invoke("set_extension_enabled", { id, enabled }).catch(
+						() => {},
+					);
+					setTimeout(() => render(), 100);
+				});
+			});
+	}
 
-  function esc(s: string): string {
-    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  }
+	function esc(s: string): string {
+		return s
+			.replace(/&/g, "&amp;")
+			.replace(/</g, "&lt;")
+			.replace(/>/g, "&gt;")
+			.replace(/"/g, "&quot;");
+	}
 
-  const closeImpl = () => {
-    if (!open) return;
-    open = false;
-    overlay?.release();
-    overlay = null;
-    mouseCursorForceVisible(false);
-    el.setAttribute("aria-hidden", "true");
-    hideSurface(el, "extension-manager--hidden");
-  };
+	const closeImpl = () => {
+		if (!open) return;
+		open = false;
+		overlay?.release();
+		overlay = null;
+		mouseCursorForceVisible(false);
+		el.setAttribute("aria-hidden", "true");
+		hideSurface(el, "extension-manager--hidden");
+	};
 
-  el.querySelector(".extension-manager-backdrop")?.addEventListener("click", (e) => {
-    if (e.target === e.currentTarget) closeImpl();
-  });
+	el.querySelector(".extension-manager-backdrop")?.addEventListener(
+		"click",
+		(e) => {
+			if (e.target === e.currentTarget) closeImpl();
+		},
+	);
 
-  return {
-    open: async () => {
-      if (open) return;
-      open = true;
-      overlay = pushOverlay(closeImpl);
-      mouseCursorForceVisible(true);
-      showSurface(el, "extension-manager--hidden");
-      el.setAttribute("aria-hidden", "false");
-      await render();
-    },
-    close: closeImpl,
-    isOpen: () => open,
-    dispose: () => {},
-  };
+	return {
+		open: async () => {
+			if (open) return;
+			open = true;
+			overlay = pushOverlay(closeImpl);
+			mouseCursorForceVisible(true);
+			showSurface(el, "extension-manager--hidden");
+			el.setAttribute("aria-hidden", "false");
+			await render();
+		},
+		close: closeImpl,
+		isOpen: () => open,
+		dispose: () => {},
+	};
 }

@@ -14,60 +14,67 @@ console.log("[ext] App version:", api.getAppVersion());
 
 // ── PTY observation
 const unsub = api.onPtyOutput((paneId, data) => {
-  if (data.includes("NEEDS PERMISSION")) {
-    api.showNotification("Agent waiting", "Respond in the pane", {
-      paneId,
-      buttons: [
-        { label: "Approve", run: () => api.writeToPane(paneId, "yes\n") },
-      ],
-    });
-  }
+	if (data.includes("NEEDS PERMISSION")) {
+		api.showNotification("Agent waiting", "Respond in the pane", {
+			paneId,
+			buttons: [
+				{ label: "Approve", run: () => api.writeToPane(paneId, "yes\n") },
+			],
+		});
+	}
 });
 
 // ── Process lifecycle — track which pane is running what
 api.onProcessStart((proc) => {
-  console.debug("[ext] Process started:", proc.command, "in pane", proc.paneId);
+	console.debug("[ext] Process started:", proc.command, "in pane", proc.paneId);
 });
 
 api.onProcessEnd((proc) => {
-  console.debug("[ext] Process ended:", proc.command,
-    `(${(proc.durationMs / 1000).toFixed(1)}s)`);
+	console.debug(
+		"[ext] Process ended:",
+		proc.command,
+		`(${(proc.durationMs / 1000).toFixed(1)}s)`,
+	);
 });
 
 // ── Tab lifecycle
 api.onTabSwitch((tabId) => {
-  console.debug("[ext] Switched to tab:", tabId);
+	console.debug("[ext] Switched to tab:", tabId);
 });
 
 // ── Window lifecycle
 api.onWindowShow(() => {
-  console.debug("[ext] Window shown");
+	console.debug("[ext] Window shown");
 });
 
 api.onWindowHide(() => {
-  console.debug("[ext] Window hidden");
+	console.debug("[ext] Window hidden");
 });
 
 // ── Query active process in any pane
 const focused = api.getFocusedPaneId();
 if (focused) {
-  const active = api.getPaneActiveProcess(focused);
-  if (active) {
-    console.debug("[ext] Active in focused pane:", active.command);
-  }
+	const active = api.getPaneActiveProcess(focused);
+	if (active) {
+		console.debug("[ext] Active in focused pane:", active.command);
+	}
 }
 
 // ── Read the current app theme
 const appTheme = api.getAppTheme();
-console.debug("[ext] Theme:", appTheme.ui.ui_theme, appTheme.ui.ui_theme_variant);
+console.debug(
+	"[ext] Theme:",
+	appTheme.ui.ui_theme,
+	appTheme.ui.ui_theme_variant,
+);
 
 // ── Extension-scoped preference (survives restarts)
 const count = (api.getPref("launchCount", 0) || 0) + 1;
 api.setPref("launchCount", count);
 
 api.showNotification(
-  "Extension loaded",
-  `Launched ${count} time${count === 1 ? "" : "s"}`
+	"Extension loaded",
+	`Launched ${count} time${count === 1 ? "" : "s"}`,
 );
 
 // ── Tab bar (optional)
@@ -112,4 +119,3 @@ api.showNotification(
 //     el.textContent = tab?.focusedPaneId ?? "";
 //   },
 // });
-

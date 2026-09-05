@@ -13,9 +13,9 @@
 const dummy = { hasSubscribers: false };
 
 export function channel(): unknown {
-  return dummy;
+	return dummy;
 }
 
 export function tracingChannel(): unknown {
-  return dummy;
+	return dummy;
 }
