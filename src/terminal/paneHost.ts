@@ -1315,6 +1315,9 @@ export class PaneHost {
       state.follow = false;
     }
     this.mountTree();
+    const reparented = this.floatingLeafEl(paneId);
+    const settleClass = next ? "pane-leaf--floating-enter" : "pane-leaf--floating-return";
+    if (reparented) animateClass(reparented, settleClass);
     this.focusPane(paneId, { retainHostFocus: next });
     this.opts.onPaneReorder?.();
     return true;

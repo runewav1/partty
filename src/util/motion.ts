@@ -136,6 +136,27 @@ export function animateClass(
   runClassAnimation(el, className, safetyTimeoutMs, onFinish);
 }
 
+export function hideSurface(
+  el: HTMLElement,
+  hiddenClass: string,
+  onHidden?: () => void,
+): void {
+  animateClass(
+    el,
+    "motion-surface--leaving",
+    () => {
+      el.classList.add(hiddenClass);
+      onHidden?.();
+    },
+  );
+}
+
+export function showSurface(el: HTMLElement, hiddenClass: string): void {
+  cancelElementAnimations(el);
+  el.classList.remove("motion-surface--leaving");
+  el.classList.remove(hiddenClass);
+}
+
 /** Run a callback after a paint boundary without creating a Promise. */
 export function afterAnimationFrames(callback: () => void, count = 2): void {
   if (count <= 0) {

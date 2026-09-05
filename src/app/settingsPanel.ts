@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { mouseCursorForceVisible } from "./mouseCursor";
 import { pushOverlay, type OverlayHandle } from "./overlayStack";
+import { hideSurface, showSurface } from "./../util/motion";
 
 /** Where a workspace opens when loaded: `new-tab` (default) | `replace` current tab. */
 export type WorkspaceOpenMode = "new-tab" | "replace";
@@ -597,10 +598,10 @@ export function createSettingsPanel(
     overlay?.release();
     overlay = null;
     mouseCursorForceVisible(false);
-    root.classList.add("settings-panel--hidden");
     root.setAttribute("aria-hidden", "true");
     if (save) void doSave();
     onClosed?.();
+    hideSurface(root, "settings-panel--hidden");
   }
 
   let listenersInstalled = false;
@@ -645,7 +646,7 @@ export function createSettingsPanel(
       overlay = pushOverlay(() => close());
       mouseCursorForceVisible(true);
       ensureListeners();
-      root.classList.remove("settings-panel--hidden");
+      showSurface(root, "settings-panel--hidden");
       root.setAttribute("aria-hidden", "false");
       const search = root.querySelector("#settings-search") as HTMLInputElement | null;
       if (search) search.value = "";

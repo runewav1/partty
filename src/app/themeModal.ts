@@ -8,6 +8,7 @@ import {
   normalizeQuery,
   type LexicalSearchItem,
 } from "./../util/lexicalSearch";
+import { hideSurface, showSurface } from "./../util/motion";
 import type { ParttyPrefs } from "./settingsPanel";
 import { ensureCustomThemesLoaded, normalizePaneThemePrefs, pickUiPrefs, themeCssVarsForPrefs, THEME_OPTIONS, getThemePrefsCache, type UiThemePrefs } from "./../terminal/uiTheme";
 import { THEME_MODAL_POS_KEY } from "./../util/storageKeys";
@@ -282,7 +283,6 @@ export function createThemeModal(
     overlay?.release();
     overlay = null;
     mouseCursorForceVisible(false);
-    root.classList.add("theme-modal--hidden");
     root.setAttribute("aria-hidden", "true");
     document.documentElement.classList.remove("theme-modal-open");
     window.removeEventListener("keydown", onKey, true);
@@ -293,6 +293,7 @@ export function createThemeModal(
     commitOverride = null;
     searchInput.value = "";
     onClosed?.();
+    hideSurface(root, "theme-modal--hidden");
   }
 
   return {
@@ -332,7 +333,7 @@ export function createThemeModal(
         if (!open) return;
         selectedFlat = indexForPrefs(initial);
         updateSelection();
-        root.classList.remove("theme-modal--hidden");
+        showSurface(root, "theme-modal--hidden");
         root.setAttribute("aria-hidden", "false");
         document.documentElement.classList.add("theme-modal-open");
         previewAt(selectedFlat);

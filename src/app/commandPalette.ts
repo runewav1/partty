@@ -9,6 +9,7 @@ import {
   normalizeQuery,
   type LexicalSearchItem,
 } from "./../util/lexicalSearch";
+import { hideSurface, showSurface } from "./../util/motion";
 
 export type PaletteCommand = {
   id: string;
@@ -197,7 +198,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
         open = true;
         overlay = pushOverlay(() => closePalette(false));
         mouseCursorForceVisible(true);
-        root.classList.remove("command-palette--hidden");
+        showSurface(root, "command-palette--hidden");
         root.setAttribute("aria-hidden", "false");
         const q = pendingOpen?.query ?? "";
         const ph = pendingOpen?.placeholder;
@@ -226,12 +227,11 @@ export function createCommandPalette(mount: CommandPaletteMount): {
     overlay?.release();
     overlay = null;
     mouseCursorForceVisible(false);
-    root.classList.add("command-palette--hidden");
     root.setAttribute("aria-hidden", "true");
-    list.replaceChildren();
     input.placeholder = defaultPlaceholder;
     if (refreshTimer) { window.clearInterval(refreshTimer); refreshTimer = 0; }
     if (!skipFocus) onClosed?.();
+    hideSurface(root, "command-palette--hidden", () => list.replaceChildren());
   }
 
   function onInput(): void {

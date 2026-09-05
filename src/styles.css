@@ -49,6 +49,7 @@
   --motion-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --motion-ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
   --motion-ease-standard: cubic-bezier(0.25, 1, 0.5, 1);
+  --motion-tab-blur: 1px;
   /* Per-"Feel" duration multiplier (see html[data-motion-style]); 1 = Smooth. */
   --motion-feel: 1;
   --motion-fast: calc(0.13s * var(--partty-animation-scale) * var(--motion-feel));
@@ -172,6 +173,7 @@
 /* Smooth is the default token set above. Each preset retunes the shared easing
    curves + duration multiplier so every animation surface inherits the feel. */
 html[data-motion-style="snappy"] {
+  --motion-tab-blur: 0px;
   --motion-ease-out: cubic-bezier(0.2, 0, 0, 1);
   --motion-ease-emphasized: cubic-bezier(0.3, 0, 0, 1);
   --motion-ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
@@ -184,10 +186,9 @@ html[data-motion-style="gentle"] {
 /* ===== Shared overlay enter motion =====
    Every chrome surface (modals, panels, menus, dialogs) fades and settles in
    with the same curve. Animations replay automatically when the surface's
-   root leaves display:none, so no JS is involved. Exit stays instant by
-   design — dismissal should feel immediate. `scale` and `translate` (standalone
-   properties) are used instead of `transform` so translate-based centering and
-   dragged positions are never disturbed. */
+   root leaves display:none. Exits use a short root-level fade so dragged panel
+   transforms and centering are never disturbed. `scale` and `translate`
+   (standalone properties) keep the enter motion equally transform-safe. */
 @keyframes overlay-backdrop-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -227,6 +228,16 @@ html[data-motion-style="gentle"] {
 .extension-manager-backdrop,
 .shed-exit-dialog {
   animation: overlay-backdrop-in var(--motion-fast) var(--motion-ease-out) backwards;
+}
+
+@keyframes motion-surface-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.motion-surface--leaving {
+  animation: motion-surface-out var(--motion-fast) var(--motion-ease-out) forwards;
+  pointer-events: none !important;
 }
 
 html[data-motion-style="bouncy"] {
@@ -606,21 +617,19 @@ html:not(.term-tabs-multiple):not(.term-tabs-force-strip) .term-tabs-strip {
   background: var(--hover-overlay-light);
 }
 
-.term-tab::after {
+.term-tabs-strip::after {
   content: "";
   position: absolute;
-  left: 10px;
-  right: 10px;
+  left: 0;
   bottom: 0;
+  width: var(--tab-indicator-width, 0);
   height: 2px;
   border-radius: 2px;
   background: var(--accent-primary);
-  opacity: 0;
-  transform: scaleX(0.35);
-  transform-origin: center;
+  translate: var(--tab-indicator-x, 0);
   transition:
-    opacity var(--motion-fast) var(--motion-ease-out),
-    transform var(--motion-fast) var(--motion-ease-emphasized);
+    width var(--motion-medium) var(--motion-ease-emphasized),
+    translate var(--motion-medium) var(--motion-ease-emphasized);
   pointer-events: none;
 }
 
@@ -630,11 +639,6 @@ html:not(.term-tabs-multiple):not(.term-tabs-force-strip) .term-tabs-strip {
   transition:
     color var(--motion-fast) var(--motion-ease-out),
     background var(--motion-fast) var(--motion-ease-out);
-}
-
-.term-tab--active::after {
-  opacity: 1;
-  transform: scaleX(1);
 }
 
 .term-tab[style*="--tab-color"] {
@@ -721,15 +725,21 @@ html.term-tabs-multiple .term-toolbar {
   z-index: 0;
 }
 
-/* ── Tab switch animations (opacity + light translate only — no blur/filter) ── */
+/* Tab switches overlap asymmetrically: the old context clears quickly while
+   the new one settles. Feel presets tune the brief blur down to zero. */
 @keyframes tab-pane-enter {
   0% {
     opacity: 0;
-    transform: translateX(var(--tab-pane-enter-from, 10px));
+    transform: translateX(var(--tab-pane-enter-from, 6px)) scale(0.998);
+    filter: blur(var(--motion-tab-blur));
+  }
+  45% {
+    opacity: 0.72;
   }
   100% {
     opacity: 1;
     transform: translateX(0);
+    filter: blur(0);
   }
 }
 
@@ -740,7 +750,7 @@ html.term-tabs-multiple .term-toolbar {
   }
   100% {
     opacity: 0;
-    transform: translateX(var(--tab-pane-leave-to, -8px));
+    transform: translateX(var(--tab-pane-leave-to, -4px)) scale(0.998);
   }
 }
 
@@ -750,11 +760,11 @@ html.term-tabs-multiple .term-toolbar {
   visibility: visible;
   pointer-events: auto;
   animation: tab-pane-enter var(--motion-medium) var(--motion-ease-emphasized) backwards;
-  will-change: opacity, transform;
+  will-change: opacity, transform, filter;
 }
 
 .term-tab-pane-shell--entering-reverse {
-  --tab-pane-enter-from: -10px;
+  --tab-pane-enter-from: -6px;
 }
 
 .term-tab-pane-shell--leaving,
@@ -762,12 +772,12 @@ html.term-tabs-multiple .term-toolbar {
   z-index: 1;
   visibility: visible;
   pointer-events: none;
-  animation: tab-pane-leave var(--motion-medium) var(--motion-ease-out) forwards;
+  animation: tab-pane-leave var(--motion-fast) var(--motion-ease-out) forwards;
   will-change: opacity, transform;
 }
 
 .term-tab-pane-shell--leaving-reverse {
-  --tab-pane-leave-to: 8px;
+  --tab-pane-leave-to: 4px;
 }
 
 .term-float-follow-layer {

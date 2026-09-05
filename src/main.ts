@@ -140,8 +140,10 @@ import {
   animateClass,
   applyMotionPreferences,
   cancelElementAnimations,
+  hideSurface,
   motionDisabled,
   motionDurationMs,
+  showSurface,
 } from "./util/motion";
 import { filterAndRankLexical, normalizeQuery } from "./util/lexicalSearch";
 import pkg from "../package.json";
@@ -4664,6 +4666,20 @@ async function boot(): Promise<void> {
       strip.appendChild(btn);
     }
 
+    const activeTab = strip.querySelector<HTMLElement>(".term-tab--active");
+    if (activeTab) {
+      const stripRect = strip.getBoundingClientRect();
+      const activeRect = activeTab.getBoundingClientRect();
+      strip.style.setProperty(
+        "--tab-indicator-width",
+        `${Math.max(8, activeRect.width - 20)}px`,
+      );
+      strip.style.setProperty(
+        "--tab-indicator-x",
+        `${activeRect.left - stripRect.left + strip.scrollLeft + 10}px`,
+      );
+    }
+
     tabBar.afterStripRender();
     tabBar.notifyChanged();
   }
@@ -6085,19 +6101,20 @@ async function boot(): Promise<void> {
     commandPalette?.close();
     settingsLazy.get()?.close();
     renderHelpShortcuts();
-    helpPanelEl.classList.remove("help-panel--hidden");
+    showSurface(helpPanelEl, "help-panel--hidden");
     helpPanelEl.setAttribute("aria-hidden", "false");
     helpOverlay?.release();
     helpOverlay = pushOverlay(() => closeHelpPanel());
     mouseCursorForceVisible(true);
   };
   closeHelpPanel = () => {
+    if (!helpPanelEl || helpPanelEl.getAttribute("aria-hidden") === "true") return;
     helpOverlay?.release();
     helpOverlay = null;
-    helpPanelEl?.classList.add("help-panel--hidden");
-    helpPanelEl?.setAttribute("aria-hidden", "true");
+    helpPanelEl.setAttribute("aria-hidden", "true");
     mouseCursorForceVisible(false);
     getFocusedTerm()?.focus();
+    hideSurface(helpPanelEl, "help-panel--hidden");
   };
   toggleHelp = () => {
     if (!helpPanelEl) return;

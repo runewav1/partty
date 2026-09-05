@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { mouseCursorForceVisible } from "./mouseCursor";
 import { pushOverlay, type OverlayHandle } from "./overlayStack";
+import { hideSurface, showSurface } from "./../util/motion";
 
 export type ExtensionMeta = {
   id: string;
@@ -66,12 +67,13 @@ export function createExtensionManager(el: HTMLElement): ExtensionManagerApi {
   }
 
   const closeImpl = () => {
+    if (!open) return;
     open = false;
     overlay?.release();
     overlay = null;
     mouseCursorForceVisible(false);
-    el.classList.add("extension-manager--hidden");
     el.setAttribute("aria-hidden", "true");
+    hideSurface(el, "extension-manager--hidden");
   };
 
   el.querySelector(".extension-manager-backdrop")?.addEventListener("click", (e) => {
@@ -84,7 +86,7 @@ export function createExtensionManager(el: HTMLElement): ExtensionManagerApi {
       open = true;
       overlay = pushOverlay(closeImpl);
       mouseCursorForceVisible(true);
-      el.classList.remove("extension-manager--hidden");
+      showSurface(el, "extension-manager--hidden");
       el.setAttribute("aria-hidden", "false");
       await render();
     },
