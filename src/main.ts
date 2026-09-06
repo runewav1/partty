@@ -271,7 +271,10 @@ function scheduleIdle(cb: () => void, timeout = IDLE_WEBGL_MS): void {
 	}
 }
 
-function applyTerminalDisplayPrefs(raw: Partial<ParttyPrefs>): void {
+function applyTerminalDisplayPrefs(
+	raw: Partial<ParttyPrefs>,
+	acrylicAvailable = true,
+): void {
 	const root = document.documentElement;
 	const paneGap =
 		typeof raw.terminal_pane_gap === "number"
@@ -302,7 +305,8 @@ function applyTerminalDisplayPrefs(raw: Partial<ParttyPrefs>): void {
 			? raw.window_effect_opacity
 			: 0;
 	const appAlpha =
-		raw.window_effect_mode === "transparent"
+		raw.window_effect_mode === "transparent" ||
+		(raw.window_effect_mode === "acrylic" && !acrylicAvailable)
 			? backdropAlpha
 			: raw.window_effect_mode === "acrylic"
 				? 0
@@ -449,6 +453,15 @@ async function boot(): Promise<void> {
 	};
 
 	const persisted = await invoke<PersistedPayload>("get_persisted_state");
+	const acrylicAvailableRef = { v: true };
+	await listen<boolean>("acrylic-availability-changed", (event) => {
+		acrylicAvailableRef.v = event.payload;
+		applyTerminalDisplayPrefs(
+			persisted.prefs as Partial<ParttyPrefs>,
+			event.payload,
+		);
+	});
+	acrylicAvailableRef.v = await invoke<boolean>("get_acrylic_available");
 	const editorConfigRef = {
 		v: editorConfigFromPrefs(persisted.prefs as Partial<ParttyPrefs>),
 	};
@@ -459,7 +472,10 @@ async function boot(): Promise<void> {
 	const uiPrefs = pickUiPrefs(persisted.prefs);
 	let currentUiPrefs = uiPrefs;
 	applyUiTheme(uiPrefs);
-	applyTerminalDisplayPrefs(persisted.prefs as Partial<ParttyPrefs>);
+	applyTerminalDisplayPrefs(
+		persisted.prefs as Partial<ParttyPrefs>,
+		acrylicAvailableRef.v,
+	);
 
 	document.documentElement.classList.toggle(
 		"pane-blur-unfocused",
@@ -839,7 +855,7 @@ async function boot(): Promise<void> {
 		v: (persisted.prefs as Partial<ParttyPrefs>).terminal_window_motion ?? true,
 	};
 	const applyRuntimeDisplayPrefs = (raw: Partial<ParttyPrefs>): void => {
-		applyTerminalDisplayPrefs(raw);
+		applyTerminalDisplayPrefs(raw, acrylicAvailableRef.v);
 		windowMotionRef.v = raw.terminal_window_motion ?? true;
 	};
 	const quietPaneDeferralRef = {

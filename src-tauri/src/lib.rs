@@ -1,3 +1,4 @@
+mod backdrop;
 mod clipboard;
 mod keybinds;
 mod prefs;
@@ -53,6 +54,8 @@ pub struct AppState {
     pub hide_buffers_ready: AtomicBool,
     /// False until scrollback restore finishes — PTY emitter holds output meanwhile.
     pub pty_output_unlocked: AtomicBool,
+    /// Current runtime capability; the persisted acrylic preference is kept separately.
+    acrylic_available: AtomicBool,
 }
 
 fn make_app_session_id() -> String {
@@ -328,7 +331,7 @@ fn parse_hex_tint(s: &str) -> (u8, u8, u8) {
 /// directly — granular acrylic control isn't exposed through public Win32 APIs or
 /// tauri's effect API. Loaded at runtime like the rest of the ecosystem does.
 #[cfg(windows)]
-fn set_window_accent(win: &tauri::WebviewWindow, accent_state: u32, gradient_color: u32) {
+fn set_window_accent(win: &tauri::WebviewWindow, accent_state: u32, gradient_color: u32) -> bool {
     use std::ffi::c_void;
     use std::mem::transmute;
     use windows_sys::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
@@ -355,13 +358,13 @@ fn set_window_accent(win: &tauri::WebviewWindow, accent_state: u32, gradient_col
         Ok(h) => h,
         Err(e) => {
             eprintln!("partty: no hwnd for {}: {e}", win.label());
-            return;
+            return false;
         }
     };
 
     let user32 = unsafe { GetModuleHandleW(windows_sys::core::w!("user32.dll")) };
     if user32.is_null() {
-        return;
+        return false;
     }
     let proc = unsafe {
         GetProcAddress(
@@ -371,7 +374,7 @@ fn set_window_accent(win: &tauri::WebviewWindow, accent_state: u32, gradient_col
     };
     let Some(swca) = proc.map(|f| unsafe { transmute::<_, SetWindowCompositionAttribute>(f) })
     else {
-        return;
+        return false;
     };
 
     // Acrylic uses no accent flags; blur/disabled use `2` (window-vibrancy parity).
@@ -387,22 +390,25 @@ fn set_window_accent(win: &tauri::WebviewWindow, accent_state: u32, gradient_col
         data: &mut policy as *mut AccentPolicy as *mut c_void,
         size: std::mem::size_of::<AccentPolicy>(),
     };
-    unsafe {
-        swca(hwnd.0, &mut data);
-    }
+    unsafe { swca(hwnd.0, &mut data) != 0 }
 }
 
 /// Apply the native window backdrop for `window_effect_mode` (Windows).
 /// Only "acrylic" drives a native effect (custom SWCA); "transparent" and "off"
 /// clear any native effect — their visuals are CSS-driven via
 /// `--partty-app-bg-alpha`.
-fn apply_window_effects(win: &tauri::WebviewWindow, prefs: &prefs::Prefs) {
+fn apply_window_effects(
+    win: &tauri::WebviewWindow,
+    prefs: &prefs::Prefs,
+    acrylic_available: bool,
+) -> bool {
     #[cfg(windows)]
     {
-        if prefs
-            .window_effect_mode
-            .trim()
-            .eq_ignore_ascii_case("acrylic")
+        if acrylic_available
+            && prefs
+                .window_effect_mode
+                .trim()
+                .eq_ignore_ascii_case("acrylic")
         {
             let (r, g, b) = parse_hex_tint(&prefs.window_effect_acrylic_tint);
             let a =
@@ -410,20 +416,34 @@ fn apply_window_effects(win: &tauri::WebviewWindow, prefs: &prefs::Prefs) {
             // Acrylic rejects a zero-alpha gradient; clamp to the smallest allowed.
             let a = a.max(1);
             let gradient = (a << 24) | ((b as u32) << 16) | ((g as u32) << 8) | r as u32;
-            set_window_accent(win, 4, gradient); // ACCENT_ENABLE_ACRYLICBLURBEHIND
+            set_window_accent(win, 4, gradient) // ACCENT_ENABLE_ACRYLICBLURBEHIND
         } else {
             set_window_accent(win, 0, 0); // ACCENT_DISABLED
+            true
         }
     }
     #[cfg(not(windows))]
     {
-        let _ = (win, prefs);
+        let _ = (win, prefs, acrylic_available);
+        false
     }
 }
 
-fn apply_window_effects_to_all(app: &AppHandle, prefs: &prefs::Prefs) {
+fn refresh_window_effects(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let prefs = state.persisted.lock().prefs.clone();
+    let environment_available = backdrop::acrylic_available();
+    let acrylic_requested = prefs
+        .window_effect_mode
+        .trim()
+        .eq_ignore_ascii_case("acrylic");
+    let mut applied = true;
     for win in app.webview_windows().values() {
-        apply_window_effects(win, prefs);
+        applied &= apply_window_effects(win, &prefs, environment_available);
+    }
+    let available = environment_available && (!acrylic_requested || applied);
+    if state.acrylic_available.swap(available, Ordering::SeqCst) != available {
+        let _ = app.emit("acrylic-availability-changed", available);
     }
 }
 
@@ -656,7 +676,7 @@ async fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
         let _ = win.unmaximize();
     }
 
-    apply_window_effects(&win, &st.prefs);
+    refresh_window_effects(app);
     if !st.window.maximized {
         window_state::apply_saved_window_bounds(&win, &st.window);
     }
@@ -1049,6 +1069,11 @@ fn get_persisted_state(state: State<'_, AppState>) -> PersistedState {
 }
 
 #[tauri::command]
+fn get_acrylic_available(state: State<'_, AppState>) -> bool {
+    state.acrylic_available.load(Ordering::SeqCst)
+}
+
+#[tauri::command]
 fn list_profiles(state: State<'_, AppState>) -> Result<Vec<profiles::ProfileDto>, String> {
     let prefs = state.persisted.lock().prefs.clone();
     profiles::list_profiles(&prefs)
@@ -1100,7 +1125,7 @@ fn set_prefs(
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_skip_taskbar(prefs.hidden_from_taskbar);
     }
-    apply_window_effects_to_all(&app, &prefs);
+    refresh_window_effects(&app);
     Ok(())
 }
 
@@ -1274,6 +1299,7 @@ pub fn run() {
             terminal_serialize_stash: Mutex::new(None),
             hide_buffers_ready: AtomicBool::new(true),
             pty_output_unlocked: AtomicBool::new(true),
+            acrylic_available: AtomicBool::new(backdrop::acrylic_available()),
         })
         .invoke_handler(tauri::generate_handler![
             pty_ensure,
@@ -1286,6 +1312,7 @@ pub fn run() {
             pty_focus_pane,
             clipboard_read_text,
             get_persisted_state,
+            get_acrylic_available,
             get_app_session_id,
             stash_terminal_buffers,
             take_terminal_buffers,
@@ -1329,7 +1356,8 @@ pub fn run() {
             if st.prefs.always_on_top {
                 let _ = win.set_always_on_top(true);
             }
-            apply_window_effects(&win, &st.prefs);
+            backdrop::register(handle.clone());
+            refresh_window_effects(&handle);
 
             register_main_window_events(&handle, &win);
             attach_permission_handler(&win);
@@ -1352,9 +1380,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app, event| {
             if let RunEvent::Resumed = event {
-                let st = app.state::<AppState>();
-                let prefs = st.persisted.lock().prefs.clone();
-                apply_window_effects_to_all(app, &prefs);
+                refresh_window_effects(app);
             }
             if let RunEvent::ExitRequested { api, .. } = event {
                 // Destroy-on-hide: keep the flag set for JS restore (do not clear here).

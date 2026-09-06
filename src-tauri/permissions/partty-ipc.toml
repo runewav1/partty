@@ -13,6 +13,7 @@ commands.allow = [
   "pty_ack_exit",
   "clipboard_read_text",
   "get_persisted_state",
+  "get_acrylic_available",
   "list_extensions",
   "set_extension_enabled",
   "get_app_session_id",
