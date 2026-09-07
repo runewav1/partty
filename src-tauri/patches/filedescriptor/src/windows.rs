@@ -9,20 +9,20 @@ use std::ptr;
 use std::sync::Once;
 use std::time::Duration;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, DuplicateHandle, DUPLICATE_SAME_ACCESS, HANDLE, INVALID_HANDLE_VALUE,
+    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE, INVALID_HANDLE_VALUE,
 };
 use windows_sys::Win32::Networking::WinSock::{
-    accept, bind, closesocket, connect, getsockname, getsockopt, htonl, ioctlsocket, listen, recv,
-    send, WSAGetLastError, WSAPoll, WSASocketW, WSAStartup, ADDRESS_FAMILY, AF_INET, FIONBIO,
-    INADDR_LOOPBACK, INVALID_SOCKET, SOCKADDR, SOCKADDR_IN, SOCKET, SOCK_STREAM, SOL_SOCKET,
-    SO_ERROR, WSADATA, WSAENOTSOCK, WSA_FLAG_NO_HANDLE_INHERIT,
+    ADDRESS_FAMILY, AF_INET, FIONBIO, INADDR_LOOPBACK, INVALID_SOCKET, SO_ERROR, SOCK_STREAM,
+    SOCKADDR, SOCKADDR_IN, SOCKET, SOL_SOCKET, WSA_FLAG_NO_HANDLE_INHERIT, WSADATA, WSAENOTSOCK,
+    WSAGetLastError, WSAPoll, WSASocketW, WSAStartup, accept, bind, closesocket, connect,
+    getsockname, getsockopt, htonl, ioctlsocket, listen, recv, send,
 };
 pub use windows_sys::Win32::Networking::WinSock::{
     POLLERR, POLLHUP, POLLIN, POLLOUT, WSAPOLLFD as pollfd,
 };
 use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
 use windows_sys::Win32::Storage::FileSystem::{
-    GetFileType, ReadFile, WriteFile, FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE,
+    FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE, GetFileType, ReadFile, WriteFile,
 };
 use windows_sys::Win32::System::Console::{GetStdHandle, SetStdHandle};
 use windows_sys::Win32::System::Pipes::{CreatePipe, GetNamedPipeInfo};
@@ -66,7 +66,7 @@ impl<T: IntoRawHandle> IntoRawFileDescriptor for T {
 
 impl<T: FromRawHandle> FromRawFileDescriptor for T {
     unsafe fn from_raw_file_descriptor(handle: RawHandle) -> Self {
-        Self::from_raw_handle(handle)
+        unsafe { Self::from_raw_handle(handle) }
     }
 }
 
@@ -84,7 +84,7 @@ impl<T: IntoRawSocket> IntoRawSocketDescriptor for T {
 
 impl<T: FromRawSocket> FromRawSocketDescriptor for T {
     unsafe fn from_socket_descriptor(handle: SocketDescriptor) -> Self {
-        Self::from_raw_socket(handle as _)
+        unsafe { Self::from_raw_socket(handle as _) }
     }
 }
 
@@ -298,7 +298,7 @@ impl AsRawHandle for FileDescriptor {
 impl FromRawHandle for FileDescriptor {
     unsafe fn from_raw_handle(handle: RawHandle) -> FileDescriptor {
         Self {
-            handle: OwnedHandle::from_raw_handle(handle),
+            handle: unsafe { OwnedHandle::from_raw_handle(handle) },
         }
     }
 }
@@ -328,7 +328,7 @@ impl AsSocket for FileDescriptor {
 impl FromRawSocket for FileDescriptor {
     unsafe fn from_raw_socket(handle: RawSocket) -> FileDescriptor {
         Self {
-            handle: OwnedHandle::from_raw_handle(handle as RawHandle),
+            handle: unsafe { OwnedHandle::from_raw_handle(handle as RawHandle) },
         }
     }
 }

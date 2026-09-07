@@ -444,7 +444,7 @@ pub fn socketpair_impl() -> Result<(FileDescriptor, FileDescriptor)> {
     }
 }
 
-pub use libc::{pollfd, POLLERR, POLLHUP, POLLIN, POLLOUT};
+pub use libc::{POLLERR, POLLHUP, POLLIN, POLLOUT, pollfd};
 use std::time::Duration;
 
 #[cfg(not(target_os = "macos"))]
@@ -470,7 +470,7 @@ pub fn poll_impl(pfd: &mut [pollfd], duration: Option<Duration>) -> Result<usize
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
-    use libc::{fd_set, timeval, FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO, POLLERR, POLLIN, POLLOUT};
+    use libc::{FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO, POLLERR, POLLIN, POLLOUT, fd_set, timeval};
     use std::os::unix::io::RawFd;
 
     struct FdSet {
