@@ -2112,11 +2112,16 @@ export class PaneHost {
 		// Keep transition suppression through the layout commit + one frame so
 		// flex doesn't ease while xterm reflows (that was a common tear).
 		if (commitLayout) {
+			// Unsuspend terminal layout first so the fit fires on the very next
+			// frame after the handle is dropped, rather than waiting for the
+			// drag class to be cleared two frames later (that wait is what made
+			// terminals "pause, then fit" on drop). The drag class stays on for
+			// one more frame so flex still doesn't ease during the reflow.
+			this.opts.onPaneLayoutDrag?.(false);
 			this.opts.onPaneLayout?.();
 			afterAnimationFrames(() => {
 				if (this.layoutDragDepth !== 0) return;
 				this.root.classList.remove("pane-host--layout-dragging");
-				this.opts.onPaneLayoutDrag?.(false);
 			});
 			return;
 		}
