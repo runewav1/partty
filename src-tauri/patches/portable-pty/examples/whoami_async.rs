@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use futures::prelude::*;
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 
 // This example shows how to use the `smol` crate to use portable_pty
 // in an asynchronous application.

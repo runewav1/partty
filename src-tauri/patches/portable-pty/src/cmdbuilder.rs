@@ -41,7 +41,7 @@ impl EnvEntry {
 
 #[cfg(unix)]
 fn get_shell() -> String {
-    use nix::unistd::{access, AccessFlags};
+    use nix::unistd::{AccessFlags, access};
     use std::ffi::CStr;
     use std::str;
 
@@ -106,8 +106,8 @@ fn get_base_env() -> BTreeMap<OsString, EnvEntry> {
         use std::os::windows::ffi::OsStringExt;
         use windows_sys::Win32::System::Environment::ExpandEnvironmentStringsW;
         use windows_sys::Win32::System::Registry::{
-            RegCloseKey, RegEnumValueW, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER,
-            HKEY_LOCAL_MACHINE, KEY_READ, REG_EXPAND_SZ, REG_MULTI_SZ, REG_SZ,
+            HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, REG_EXPAND_SZ, REG_MULTI_SZ,
+            REG_SZ, RegCloseKey, RegEnumValueW, RegOpenKeyExW, RegQueryValueExW,
         };
 
         fn open_reg(root: HKEY, subkey: &str) -> Option<HKEY> {
@@ -502,7 +502,7 @@ impl CommandBuilder {
     }
 
     fn search_path(&self, exe: &OsStr, cwd: &OsStr) -> anyhow::Result<OsString> {
-        use nix::unistd::{access, AccessFlags};
+        use nix::unistd::{AccessFlags, access};
 
         let exe_path: &Path = exe.as_ref();
         if exe_path.is_relative() {
@@ -630,7 +630,7 @@ impl CommandBuilder {
     /// We take the contents of the $SHELL env var first, then
     /// fall back to looking it up from the password database.
     pub fn get_shell(&self) -> String {
-        use nix::unistd::{access, AccessFlags};
+        use nix::unistd::{AccessFlags, access};
 
         if let Some(shell) = self.get_env("SHELL").and_then(OsStr::to_str) {
             match access(shell, AccessFlags::X_OK) {

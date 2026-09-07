@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use std::task::{Context, Poll};
 use windows_sys::Win32::Foundation::STILL_ACTIVE;
 use windows_sys::Win32::System::Threading::{
-    GetExitCodeProcess, GetProcessId, TerminateProcess, WaitForSingleObject, INFINITE,
+    GetExitCodeProcess, GetProcessId, INFINITE, TerminateProcess, WaitForSingleObject,
 };
 
 pub mod conpty;
@@ -43,11 +43,7 @@ impl WinChild {
         let proc = self.proc.lock().unwrap().try_clone().unwrap();
         let res = unsafe { TerminateProcess(proc.as_raw_handle(), 1) };
         let err = IoError::last_os_error();
-        if res == 0 {
-            Err(err)
-        } else {
-            Ok(())
-        }
+        if res == 0 { Err(err) } else { Ok(()) }
     }
 }
 
@@ -72,11 +68,7 @@ impl ChildKiller for WinChildKiller {
     fn kill(&mut self) -> IoResult<()> {
         let res = unsafe { TerminateProcess(self.proc.as_raw_handle(), 1) };
         let err = IoError::last_os_error();
-        if res == 0 {
-            Err(err)
-        } else {
-            Ok(())
-        }
+        if res == 0 { Err(err) } else { Ok(()) }
     }
 
     fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
@@ -109,11 +101,7 @@ impl Child for WinChild {
 
     fn process_id(&self) -> Option<u32> {
         let res = unsafe { GetProcessId(self.proc.lock().unwrap().as_raw_handle()) };
-        if res == 0 {
-            None
-        } else {
-            Some(res)
-        }
+        if res == 0 { None } else { Some(res) }
     }
 
     fn as_raw_handle(&self) -> Option<std::os::windows::io::RawHandle> {
@@ -133,14 +121,20 @@ impl std::future::Future for WinChild {
                 struct PassRawHandleToWaiterThread(pub RawHandle);
                 unsafe impl Send for PassRawHandleToWaiterThread {}
 
+                impl PassRawHandleToWaiterThread {
+                    fn wait(&self) {
+                        unsafe {
+                            WaitForSingleObject(self.0 as _, INFINITE);
+                        }
+                    }
+                }
+
                 let proc = self.proc.lock().unwrap().try_clone()?;
                 let handle = PassRawHandleToWaiterThread(proc.as_raw_handle());
 
                 let waker = cx.waker().clone();
                 std::thread::spawn(move || {
-                    unsafe {
-                        WaitForSingleObject(handle.0 as _, INFINITE);
-                    }
+                    handle.wait();
                     waker.wake();
                 });
                 Poll::Pending

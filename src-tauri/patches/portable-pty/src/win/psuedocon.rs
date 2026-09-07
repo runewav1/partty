@@ -1,25 +1,25 @@
 use super::WinChild;
 use crate::cmdbuilder::CommandBuilder;
 use crate::win::procthreadattr::ProcThreadAttributeList;
-use anyhow::{bail, ensure, Error};
+use anyhow::{Error, bail, ensure};
 use filedescriptor::{FileDescriptor, OwnedHandle};
 use std::ffi::OsString;
 use std::io::Error as IoError;
 use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{mem, ptr};
-use windows_sys::core::HRESULT;
 use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, S_OK};
 use windows_sys::Win32::System::Console::COORD;
 use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 use windows_sys::Win32::System::Threading::{
-    CreateProcessW, CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, PROCESS_INFORMATION,
+    CREATE_UNICODE_ENVIRONMENT, CreateProcessW, EXTENDED_STARTUPINFO_PRESENT, PROCESS_INFORMATION,
     STARTF_USESTDHANDLES, STARTUPINFOEXW,
 };
+use windows_sys::core::HRESULT;
 
 // `HPCON` intentionally mirrors the Windows SDK typedef name.
 #[allow(clippy::upper_case_acronyms)]
@@ -107,10 +107,10 @@ fn load_conpty() -> ConPtyFuncs {
 
     // Look next to the executable first (works regardless of CWD), then CWD.
     let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            candidates.push(dir.join("conpty.dll"));
-        }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        candidates.push(dir.join("conpty.dll"));
     }
     candidates.push(PathBuf::from("conpty.dll"));
 

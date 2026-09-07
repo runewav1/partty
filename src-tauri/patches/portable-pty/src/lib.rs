@@ -38,7 +38,7 @@
 //! ```
 //!
 use anyhow::Error;
-use downcast_rs::{impl_downcast, Downcast};
+use downcast_rs::{Downcast, impl_downcast};
 #[cfg(unix)]
 use libc;
 #[cfg(feature = "serde_support")]
@@ -227,11 +227,10 @@ impl From<std::process::ExitStatus> for ExitStatus {
             }
         }
 
-        let code =
-            status
-                .code()
-                .map(|c| c as u32)
-                .unwrap_or_else(|| if status.success() { 0 } else { 1 });
+        let code = status
+            .code()
+            .map(|c| c as u32)
+            .unwrap_or_else(|| if status.success() { 0 } else { 1 });
 
         ExitStatus { code, signal: None }
     }
