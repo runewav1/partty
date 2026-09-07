@@ -1,0 +1,4 @@
+# ignore target/ artifacts folder
+target/
+
+Cargo.lock

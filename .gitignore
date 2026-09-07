@@ -31,5 +31,5 @@ TODO.md
 src-tauri/icons/
 src-tauri/patches/portable-pty/target
 src-tauri/patches/portable-pty/Cargo.lock
-
-
+src-tauri/patches/filedescriptor/target
+src-tauri/patches/filedescriptor/Cargo.lock
