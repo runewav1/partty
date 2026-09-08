@@ -1,5 +1,5 @@
 import type { WebglAddon } from "@xterm/addon-webgl";
-import type { WebgpuAddon } from "@partty/addon-webgpu";
+import type { WebgpuAddon, WebgpuSession } from "@partty/addon-webgpu";
 import type { Terminal } from "@xterm/xterm";
 
 /** Subset of Rust `Prefs` used by the webview lifecycle (snake_case from JSON). */
@@ -109,26 +109,41 @@ export type RendererKind = "webgl" | "webgpu" | "dom";
 
 /**
  * Inspect the renderer actually installed by RenderService, not the addon that
- * created it. WebGL and WebGPU both use GpuRenderer, so the backend object is
- * the distinguishing signal (WebglBackend vs WebgpuBackend).
+ * created it. The fork renderers use a GpuRenderer with a distinguishable
+ * backend object; the official `@xterm/addon-webgl` renderer has no `_backend`
+ * split and its class name is minified, so a webgl2 canvas context is the
+ * reliable signal for it.
  */
 export function activeRendererKind(term: Terminal): RendererKind {
 	const renderer = (term as unknown as {
 		_core?: {
 			_renderService?: {
 				_renderer?: {
-					value?: { _backend?: { constructor?: { name?: string } } };
+					value?: {
+						_backend?: { constructor?: { name?: string } };
+						_canvas?: HTMLCanvasElement;
+					};
 				};
 			};
 		};
 	})._core?._renderService?._renderer?.value;
-	const name = renderer?._backend?.constructor?.name;
-	if (name === "WebgpuBackend") return "webgpu";
-	if (name === "WebglBackend") return "webgl";
+	if (!renderer) return "dom";
+	const backendName = renderer._backend?.constructor?.name;
+	if (backendName === "WebgpuBackend") return "webgpu";
+	if (backendName === "WebglBackend") return "webgl";
+	if (renderer._canvas) {
+		try {
+			if (renderer._canvas.getContext("webgl2") instanceof WebGL2RenderingContext) {
+				return "webgl";
+			}
+		} catch {
+			/* ignore */
+		}
+	}
 	return "dom";
 }
 
-let webgpuSession: import("@partty/addon-webgpu").WebgpuSession | undefined;
+let webgpuSession: WebgpuSession | undefined;
 let webgpuFailed = false;
 
 /**

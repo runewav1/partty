@@ -384,8 +384,6 @@ type PaneWebglState = {
 	attempts: number;
 	generation: number;
 	addon?: TerminalRendererAddon;
-	/** The backend actually installed and verified, when ready. */
-	rendererKind?: RendererKind;
 	lastError?: unknown;
 	lastFailureAt?: number;
 	contextLossDispose?: { dispose(): void };
@@ -1782,7 +1780,7 @@ async function boot(): Promise<void> {
 			if (paneWebglStates.get(paneId)?.generation !== generation) return;
 			const started = performance.now();
 			let addon: TerminalRendererAddon | undefined;
-try {
+			try {
 				const useWebgpu = Boolean(
 					(persisted.prefs as Partial<ParttyPrefs>).terminal_webgpu,
 				);
@@ -1806,7 +1804,6 @@ try {
 						`expected ${want} renderer but active renderer is ${kind}`,
 					);
 				}
-				state.rendererKind = kind;
 				const failed = () => {
 					parttyPerf.mark("webgl.context_loss");
 					disposeWebglForPane(paneId);
