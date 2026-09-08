@@ -42,6 +42,8 @@ export type ParttyPrefs = {
 	 * conhost filters out. Also loads the terminal image addon.
 	 */
 	terminal_sideload_openconsole?: boolean;
+	/** Use the experimental WebGPU renderer (single shared device) instead of WebGL. */
+	terminal_webgpu?: boolean;
 	/** Retain pane layouts, working directories, and tab state when the window closes. */
 	retain_session_state?: boolean;
 	ui_theme: string;
@@ -367,6 +369,7 @@ export function createSettingsPanel(
 			terminal_no_focus_border: gc("terminal_no_focus_border"),
 			split_layout_style: splitLayoutStyle,
 			terminal_sideload_openconsole: gc("terminal_sideload_openconsole"),
+			terminal_webgpu: gc("terminal_webgpu"),
 			quiet_pane_deferral: gc("quiet_pane_deferral"),
 			default_profile_id:
 				g("default_profile_id") ||
@@ -892,6 +895,7 @@ export function createSettingsPanel(
 			"terminal_sideload_openconsole",
 			pr.terminal_sideload_openconsole ?? false,
 		);
+		setChk("terminal_webgpu", pr.terminal_webgpu ?? false);
 
 		applySettingsTree();
 		applySettingsSearch();

@@ -1,0 +1,2 @@
+minimumReleaseAgeExclude:
+  - '@partty/addon-webgpu@0.1.0'

@@ -277,6 +277,8 @@
                 <div class="settings-toggles">
                   <label class="settings-checkbox-label" title="Use a sideloaded conpty.dll / OpenConsole.exe deployed next to the binary as the ConPTY host (Windows Terminal's approach), enabling image protocols (sixel / kitty / iTerm) that the inbox host filters out"><span>Sideload OpenConsole host</span><input class="settings-checkbox-input" type="checkbox" name="terminal_sideload_openconsole" /></label>
                   <div class="settings-toggle-desc">Unstable. Requires conpty.dll + OpenConsole.exe next to partty.exe and a restart; without them the inbox host is used.</div>
+                  <label class="settings-checkbox-label" title="Render terminals with the experimental WebGPU renderer using a single shared device across all panes. When enabled, WebGL is never used and WebGPU must be available, otherwise panes fall back to DOM with errors logged"><span>Enable WebGPU renderer</span><input class="settings-checkbox-input" type="checkbox" name="terminal_webgpu" /></label>
+                  <div class="settings-toggle-desc">Experimental. Shares one WebGPU device, pipelines and glyph atlases across panes. Requires WebView2 WebGPU support and a restart.</div>
                 </div>
               </div>
             </div>

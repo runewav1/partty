@@ -109,6 +109,9 @@ importers:
 
   .:
     dependencies:
+      '@partty/addon-webgpu':
+        specifier: 0.1.0
+        version: 0.1.0
       '@tauri-apps/api':
         specifier: ^2.11.1
         version: 2.11.1
@@ -134,7 +137,7 @@ importers:
         specifier: beta
         version: 0.20.0-beta.300(@xterm/xterm@6.1.0-beta.304)
       '@xterm/xterm':
-        specifier: beta
+        specifier: 6.1.0-beta.304
         version: 6.1.0-beta.304
     devDependencies:
       '@tauri-apps/cli':
@@ -151,6 +154,9 @@ packages:
 
   '@oxc-project/types@0.147.0':
     resolution: {integrity: sha512-IJ3s6ltHLp45S0bh7phkX+gJO7A1Wuz2EaqpAhb8WjqDwbzMiWKHhyyT42tskaWjEYXtHtVCPpnBJVT9+dcRLg==}
+
+  '@partty/addon-webgpu@0.1.0':
+    resolution: {integrity: sha512-H/78op2etBT6nIWISuNQ+/A4TKfZKzDORJQL5YrubGrrgHXR1937joqQANYV4mERn76j60Q0s99fkglLtEpC2Q==}
 
   '@rolldown/binding-android-arm-eabi@1.2.6':
     resolution: {integrity: sha512-b+jTcARdTiFLI6jB4a5XjTm0RWd6KcRfQj/I2356fxUZemiho9zQLxo0RtCuMDAyKcLo6cEltkgbQp6d1+sjjQ==}
@@ -669,6 +675,8 @@ packages:
 snapshots:
 
   '@oxc-project/types@0.147.0': {}
+
+  '@partty/addon-webgpu@0.1.0': {}
 
   '@rolldown/binding-android-arm-eabi@1.2.6':
     optional: true

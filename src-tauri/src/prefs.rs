@@ -237,6 +237,10 @@ pub struct Prefs {
     pub terminal_animation_style: String,
     #[serde(default)]
     pub terminal_sideload_openconsole: bool,
+    /// Use the experimental WebGPU renderer (shared single-device context).
+    /// Defaults to WebGL; WebGPU is used exclusively when enabled.
+    #[serde(default)]
+    pub terminal_webgpu: bool,
     #[serde(default = "default_true")]
     pub terminal_window_motion: bool,
     #[serde(default = "default_split_layout_style")]
@@ -393,6 +397,7 @@ impl Default for Prefs {
             terminal_animation_style: default_terminal_animation_style(),
             terminal_window_motion: true,
             terminal_sideload_openconsole: false,
+            terminal_webgpu: false,
             split_layout_style: default_split_layout_style(),
             quiet_pane_deferral: false,
             default_profile_id: default_default_profile_id(),
@@ -1054,6 +1059,10 @@ pub struct TerminalExperimentalSection {
     /// first spawn). Falls back to the inbox host when the DLLs are absent.
     #[serde(default)]
     pub sideload_openconsole: bool,
+    /// Use the experimental WebGPU renderer with a single shared device across
+    /// all terminal panes. When enabled, WebGL is never used.
+    #[serde(default)]
+    pub webgpu: bool,
 }
 
 /// Ctrl+Alt+click on a path in a terminal pane opens a new split pane with
@@ -1162,6 +1171,7 @@ impl From<ConfigToml> for Prefs {
             terminal_animation_style: c.animation.easing,
             terminal_window_motion: c.animation.window_motion,
             terminal_sideload_openconsole: c.terminal.experimental.sideload_openconsole,
+            terminal_webgpu: c.terminal.experimental.webgpu,
             split_layout_style: c.split.layout,
             quiet_pane_deferral: c.split.quiet_defer,
             default_profile_id: c.profiles.default,
@@ -1226,6 +1236,7 @@ impl From<&Prefs> for ConfigToml {
             terminal: TerminalSection {
                 experimental: TerminalExperimentalSection {
                     sideload_openconsole: p.terminal_sideload_openconsole,
+                    webgpu: p.terminal_webgpu,
                 },
             },
             cursor: CursorSection {

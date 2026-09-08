@@ -9,7 +9,7 @@ import {
 } from "@tauri-apps/api/window";
 import type { FitAddon } from "@xterm/addon-fit";
 
-import type { WebglAddon } from "@xterm/addon-webgl";
+import type { TerminalRendererAddon } from "./terminal/termLifecycle";
 import type { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
@@ -166,10 +166,13 @@ import {
 	type PersistedPaneLayout,
 } from "./terminal/paneLayout";
 import {
-	createWebglAddon,
+	activeRendererKind,
+	createRendererAddon,
+	disposeWebgpuSession,
 	firstContentScrollbackLine,
 	mergeLifecyclePrefs,
 	type ParttyLifecyclePrefs,
+	type RendererKind,
 } from "./terminal/termLifecycle";
 import {
 	applyUiTheme,
@@ -380,7 +383,9 @@ type PaneWebglState = {
 	status: PaneWebglStatus;
 	attempts: number;
 	generation: number;
-	addon?: WebglAddon;
+	addon?: TerminalRendererAddon;
+	/** The backend actually installed and verified, when ready. */
+	rendererKind?: RendererKind;
 	lastError?: unknown;
 	lastFailureAt?: number;
 	contextLossDispose?: { dispose(): void };
@@ -1728,6 +1733,7 @@ async function boot(): Promise<void> {
 	function shedWebgl(): void {
 		for (const paneId of [...paneWebglStates.keys()])
 			disposeWebglForPane(paneId);
+		disposeWebgpuSession();
 	}
 
 	function updateWebglPerfGauges(): void {
@@ -1775,24 +1781,51 @@ async function boot(): Promise<void> {
 				await new Promise<void>((r) => setTimeout(r, delays[i]));
 			if (paneWebglStates.get(paneId)?.generation !== generation) return;
 			const started = performance.now();
-			try {
+			let addon: TerminalRendererAddon | undefined;
+try {
+				const useWebgpu = Boolean(
+					(persisted.prefs as Partial<ParttyPrefs>).terminal_webgpu,
+				);
 				state.attempts++;
-				const addon = await createWebglAddon();
+				addon = await createRendererAddon(useWebgpu);
+				if (
+					paneWebglStates.get(paneId)?.generation !== generation ||
+					paneHost?.getPaneTerminal(paneId) !== pt
+				) {
+					addon.dispose();
+					return;
+				}
 				pt.term.loadAddon(addon);
-				state.contextLossDispose = addon.onContextLoss(() => {
+				// Verify the renderer actually installed by RenderService, not the
+				// addon we just created. WebGPU mode must be webgpu; a silent
+				// WebGL/DOM install is a hard, recorded failure.
+				const kind = activeRendererKind(pt.term);
+				const want: RendererKind = useWebgpu ? "webgpu" : "webgl";
+				if (pt.term.element && kind !== want) {
+					throw new Error(
+						`expected ${want} renderer but active renderer is ${kind}`,
+					);
+				}
+				state.rendererKind = kind;
+				const failed = () => {
 					parttyPerf.mark("webgl.context_loss");
 					disposeWebglForPane(paneId);
 					void ensureWebglOnPane(paneId);
-				});
+				};
+				const loss = addon.onContextLoss(failed);
+				const error = "onError" in addon ? addon.onError(failed) : undefined;
+				state.contextLossDispose = { dispose() { loss.dispose(); error?.dispose(); } };
 				state.addon = addon;
 				state.status = "ready";
 				paneWebglStates.set(paneId, state);
 				updateWebglPerfGauges();
+				console.info(`${kind} renderer active for pane ${paneId}`);
 				pt.term.refresh(0, pt.term.rows - 1);
 				parttyPerf.mark("webgl.mount.ready");
 				parttyPerf.time("webgl.mount.ms", performance.now() - started);
 				return;
 			} catch (e) {
+				addon?.dispose();
 				state.lastError = e;
 				parttyPerf.mark("webgl.mount.failure");
 			}
