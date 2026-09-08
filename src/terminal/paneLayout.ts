@@ -12,6 +12,8 @@ export type PersistedPaneLayout = {
 	paneCwds?: Record<string, string>;
 	/** Per-pane connection profile ids (local / future WSL·SSH). */
 	paneProfileIds?: Record<string, string>;
+	/** Stable PTY associations, retained across webview destruction. */
+	paneSessionIds?: Record<string, string>;
 };
 
 /** True when the tree contains at least one leaf pane. */
@@ -54,6 +56,7 @@ export function loadPaneLayout(): PersistedPaneLayout | null {
 			paneThemes: parsed.paneThemes,
 			paneCwds: parsed.paneCwds,
 			paneProfileIds: parsed.paneProfileIds,
+			paneSessionIds: parsed.paneSessionIds,
 		};
 	} catch {
 		return null;

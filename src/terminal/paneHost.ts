@@ -381,6 +381,7 @@ export type PaneHostInit = {
 	initialTree?: PaneNode;
 	initialFocusedId?: string;
 	initialFloating?: Record<string, FloatingPaneState>;
+	initialSessionIds?: Record<string, string>;
 	/** Terminals moved from another tab/host — mounted without calling `onPaneCreated`. */
 	preloadedPanes?: Record<string, PaneTerminal>;
 };
@@ -390,6 +391,7 @@ export class PaneHost {
 	private focusedId: string;
 	private rootPaneId: string;
 	private readonly terminals = new Map<string, PaneTerminal>();
+	private readonly initialSessionIds: Map<string, string>;
 	private readonly root: HTMLElement;
 	private readonly floating = new Map<string, FloatingPaneState>();
 	private readonly justFloated = new Set<string>();
@@ -440,6 +442,7 @@ export class PaneHost {
 		private readonly opts: PaneHostOptions,
 		init?: PaneHostInit,
 	) {
+		this.initialSessionIds = new Map(Object.entries(init?.initialSessionIds ?? {}));
 		this.rootPaneId = opts.rootPaneId ?? MAIN_PANE_ID;
 		this.tree = { kind: "leaf", id: this.rootPaneId };
 		this.focusedId = this.rootPaneId;
@@ -2240,13 +2243,25 @@ export class PaneHost {
 					"pane.terminal.create.ms",
 					performance.now() - createStarted,
 				);
+				// Re-hook the persisted PTY association (dismiss→rebuild→summon):
+				// reuse the session id from the previous webview so `pty_ensure`
+				// re-subscribes the live backend session instead of spawning a
+				// fresh shell. When none is recorded (first run, new pane, or a
+				// duplicated/closed slot), allocate a fresh session id.
+				const persistedSessionId = this.initialSessionIds.get(node.id);
+				this.initialSessionIds.delete(node.id);
+				if (persistedSessionId) {
+					console.info(
+						`pane ${node.id}: re-hooking persisted PTY session ${persistedSessionId}`,
+					);
+				}
 				pt = {
 					term,
 					fit,
 					host,
 					row,
 					paneId: node.id,
-					sessionId: createSessionId(),
+					sessionId: persistedSessionId || createSessionId(),
 				};
 				scheduleLigaturesAddon(pt);
 				scheduleImageAddon(pt, this.opts.sideloadOpenconsole);

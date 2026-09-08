@@ -15,14 +15,14 @@
 	},
 	"dependencies": {
 		"@tauri-apps/api": "^2.11.1",
-		"@partty/addon-webgpu": "0.1.1",
+		"@partty/addon-webgpu": "0.1.3",
 		"@xterm/addon-fit": "beta",
 		"@xterm/addon-image": "beta",
 		"@xterm/addon-ligatures": "beta",
 		"@xterm/addon-serialize": "beta",
 		"@xterm/addon-unicode-graphemes": "beta",
 		"@xterm/addon-unicode11": "beta",
-		"@xterm/addon-webgl": "beta",
+		"@partty/addon-webgl": "0.20.0",
 		"@xterm/xterm": "6.1.0-beta.304"
 	},
 	"devDependencies": {

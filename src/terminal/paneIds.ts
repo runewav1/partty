@@ -65,6 +65,7 @@ function mapLayoutRecords(
 		paneThemes: mapRec(layout.paneThemes),
 		paneCwds: mapRec(layout.paneCwds),
 		paneProfileIds: mapRec(layout.paneProfileIds),
+		paneSessionIds: mapRec(layout.paneSessionIds),
 	};
 }
 

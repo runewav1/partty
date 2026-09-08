@@ -1777,7 +1777,7 @@ async function boot(): Promise<void> {
 		for (let i = 0; i < delays.length; i++) {
 			if (delays[i] > 0)
 				await new Promise<void>((r) => setTimeout(r, delays[i]));
-			if (paneWebglStates.get(paneId)?.generation !== generation) return;
+			if (paneWebglStates.get(paneId) !== state) return;
 			const started = performance.now();
 			let addon: TerminalRendererAddon | undefined;
 			try {
@@ -1787,7 +1787,7 @@ async function boot(): Promise<void> {
 				state.attempts++;
 				addon = await createRendererAddon(useWebgpu);
 				if (
-					paneWebglStates.get(paneId)?.generation !== generation ||
+					paneWebglStates.get(paneId) !== state ||
 					paneHost?.getPaneTerminal(paneId) !== pt
 				) {
 					addon.dispose();
@@ -1823,6 +1823,7 @@ async function boot(): Promise<void> {
 				return;
 			} catch (e) {
 				addon?.dispose();
+				if (paneWebglStates.get(paneId) !== state) return;
 				state.lastError = e;
 				console.warn("renderer mount failed for pane", paneId, e);
 				parttyPerf.mark("webgl.mount.failure");
@@ -2782,6 +2783,7 @@ async function boot(): Promise<void> {
 						tree: deferred.init.initialTree,
 						focusedId: deferred.init.initialFocusedId ?? "",
 						floating: deferred.init.initialFloating,
+						paneSessionIds: deferred.init.initialSessionIds,
 					},
 					tabKey,
 					followUsed,
@@ -2789,6 +2791,7 @@ async function boot(): Promise<void> {
 				deferred.init.initialTree = mapped.layout.tree;
 				deferred.init.initialFocusedId = mapped.layout.focusedId;
 				deferred.init.initialFloating = mapped.layout.floating;
+				deferred.init.initialSessionIds = mapped.layout.paneSessionIds;
 				deferred.rootPaneId = resolveTabRootPaneId(mapped.layout);
 				continue;
 			}
@@ -3277,6 +3280,7 @@ async function boot(): Promise<void> {
 				initialTree: layout.tree,
 				initialFocusedId: layout.focusedId,
 				initialFloating: layout.floating,
+				initialSessionIds: layout.paneSessionIds,
 			};
 			const rootId = resolveTabRootPaneId(layout);
 			if (tab.id === activeTabId || layoutNeedsLiveHost(layout)) {
@@ -3324,6 +3328,8 @@ async function boot(): Promise<void> {
 		const rid = host.getRootPaneId();
 		if (!(tree && findPaneLeaf(tree, rid))) return null;
 		const panes = host.getPaneDescriptors();
+		const paneSessionIds: Record<string, string> = {};
+		host.forEachPane((id, pt) => { paneSessionIds[id] = pt.sessionId; });
 		return {
 			v: 1,
 			tree,
@@ -3334,6 +3340,7 @@ async function boot(): Promise<void> {
 				? paneMapSubset(panes, paneCwdHints)
 				: undefined,
 			paneProfileIds: paneMapSubset(panes, paneProfileIds),
+			paneSessionIds,
 		};
 	}
 
@@ -6686,7 +6693,7 @@ async function boot(): Promise<void> {
 					}
 				}
 				if (paneHost && lp.destroy_webview_on_hide) {
-					persistCurrentTabLayout();
+					for (const host of tabPaneHosts.values()) persistHostLayout(host);
 				}
 				await persistTerminalBuffersForHide();
 				if (lp.webgl_shed_on_hide) {

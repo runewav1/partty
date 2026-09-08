@@ -15,7 +15,9 @@ export function duplicateTabLayout(
 	tabKey: string,
 	followSlots: Set<string>,
 ): PersistedPaneLayout {
-	return mapLayoutToTabKey(layout, tabKey, followSlots).layout;
+	return mapLayoutToTabKey(
+		{ ...layout, paneSessionIds: undefined }, tabKey, followSlots,
+	).layout;
 }
 
 export type TabGroup = {
@@ -68,6 +70,7 @@ function migrateLayoutFromLegacyMain(
 		})),
 		paneCwds: remapRecordKeys(layout.paneCwds, mapMain),
 		paneProfileIds: remapRecordKeys(layout.paneProfileIds, mapMain),
+		paneSessionIds: remapRecordKeys(layout.paneSessionIds, mapMain),
 	};
 }
 
@@ -146,6 +149,7 @@ export function loadLayoutForTab(tabId: string): PersistedPaneLayout | null {
 			paneThemes: p.paneThemes,
 			paneCwds: p.paneCwds,
 			paneProfileIds: p.paneProfileIds,
+			paneSessionIds: p.paneSessionIds,
 		};
 	} catch {
 		return null;
@@ -156,12 +160,17 @@ export function initialLayoutForTab(
 	tabId: string,
 	isFirstTab: boolean,
 ): PersistedPaneLayout {
+	// Per-tab layout is authoritative: it is rewritten on every hide/persist and
+	// carries the pane→sessionId map that re-hooks live PTYs after a webview
+	// rebuild. The legacy single-tab layout (partty.pane_layout.v1) is only a
+	// migration fallback and must not shadow the per-tab layout, or a lingering
+	// copy would silently drop paneSessionIds on the first tab.
+	const d = loadLayoutForTab(tabId);
+	if (d) return migrateLayoutFromLegacyMain(d, tabId);
 	if (isFirstTab) {
 		const g = loadPaneLayout();
 		if (g) return migrateLayoutFromLegacyMain(g, tabId);
 	}
-	const d = loadLayoutForTab(tabId);
-	if (d) return migrateLayoutFromLegacyMain(d, tabId);
 	return emptyTabLayout(tabId);
 }
 

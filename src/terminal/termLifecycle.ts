@@ -1,4 +1,4 @@
-import type { WebglAddon } from "@xterm/addon-webgl";
+import type { WebglAddon } from "@partty/addon-webgl";
 import type { WebgpuAddon, WebgpuSession } from "@partty/addon-webgpu";
 import type { Terminal } from "@xterm/xterm";
 
@@ -134,6 +134,8 @@ export function activeRendererKind(term: Terminal): RendererKind {
 }
 
 let webgpuSession: WebgpuSession | undefined;
+let webgpuSessionPending: Promise<WebgpuSession> | undefined;
+let webgpuSessionGeneration = 0;
 let webgpuFailed = false;
 
 /**
@@ -146,6 +148,7 @@ let webgpuFailed = false;
  */
 export async function createRendererAddon(useWebgpu: boolean): Promise<TerminalRendererAddon> {
 	if (useWebgpu) {
+		const generation = webgpuSessionGeneration;
 		if (webgpuFailed) {
 			throw new Error(
 				"WebGPU already failed; refusing a silent WebGL fallback while the option is enabled.",
@@ -153,21 +156,33 @@ export async function createRendererAddon(useWebgpu: boolean): Promise<TerminalR
 		}
 		try {
 			if (!webgpuSession) {
-				const { WebgpuSession } = await import("@partty/addon-webgpu");
-				webgpuSession = await WebgpuSession.create();
-				const failed = (error?: unknown) => {
-					webgpuFailed = true;
-					console.error(
-						"WebGPU session failed; panes fall back to DOM, not WebGL.",
-						error,
-					);
-				};
-				webgpuSession.onError(failed);
-				webgpuSession.onContextLoss(failed);
+				webgpuSessionPending ??= (async () => {
+					const { WebgpuSession } = await import("@partty/addon-webgpu");
+					const session = await WebgpuSession.create();
+					if (generation !== webgpuSessionGeneration) {
+						session.dispose();
+						throw new Error("WebGPU session creation cancelled by teardown.");
+					}
+					const failed = (error?: unknown) => {
+						if (generation !== webgpuSessionGeneration) return;
+						webgpuFailed = true;
+						console.error(
+							"WebGPU session failed; panes fall back to DOM, not WebGL.", error,
+						);
+					};
+					session.onError(failed);
+					session.onContextLoss(failed);
+					webgpuSession = session;
+					return session;
+				})();
 			}
-			return webgpuSession.createAddon();
+			const session = webgpuSession ?? await webgpuSessionPending!;
+			if (generation !== webgpuSessionGeneration) {
+				throw new Error("WebGPU session creation cancelled by teardown.");
+			}
+			return session.createAddon();
 		} catch (error) {
-			webgpuFailed = true;
+			if (generation === webgpuSessionGeneration) webgpuFailed = true;
 			throw new Error(
 				"WebGPU unavailable; no WebGL fallback while the option is enabled. " +
 					(error instanceof Error ? error.message : String(error)),
@@ -175,14 +190,16 @@ export async function createRendererAddon(useWebgpu: boolean): Promise<TerminalR
 		}
 	}
 	const { WebglAddon: WebglAddonConstructor } = await import(
-		"@xterm/addon-webgl"
+		"@partty/addon-webgl"
 	);
 	return new WebglAddonConstructor();
 }
 
 /** Release the shared WebGPU session (e.g. when panes are shed on hide). */
 export function disposeWebgpuSession(): void {
+	webgpuSessionGeneration++;
 	webgpuSession?.dispose();
 	webgpuSession = undefined;
+	webgpuSessionPending = undefined;
 	webgpuFailed = false;
 }
