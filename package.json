@@ -15,7 +15,7 @@
 	},
 	"dependencies": {
 		"@tauri-apps/api": "^2.11.1",
-		"@partty/addon-webgpu": "0.1.0",
+		"@partty/addon-webgpu": "0.1.1",
 		"@xterm/addon-fit": "beta",
 		"@xterm/addon-image": "beta",
 		"@xterm/addon-ligatures": "beta",
