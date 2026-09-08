@@ -109,36 +109,26 @@ export type RendererKind = "webgl" | "webgpu" | "dom";
 
 /**
  * Inspect the renderer actually installed by RenderService, not the addon that
- * created it. The fork renderers use a GpuRenderer with a distinguishable
- * backend object; the official `@xterm/addon-webgl` renderer has no `_backend`
- * split and its class name is minified, so a webgl2 canvas context is the
- * reliable signal for it.
+ * created it. The renderer is identified by the GPU context on its canvas,
+ * which survives minification (the published bundles mangle class names).
  */
 export function activeRendererKind(term: Terminal): RendererKind {
 	const renderer = (term as unknown as {
 		_core?: {
 			_renderService?: {
 				_renderer?: {
-					value?: {
-						_backend?: { constructor?: { name?: string } };
-						_canvas?: HTMLCanvasElement;
-					};
+					value?: { _canvas?: HTMLCanvasElement };
 				};
 			};
 		};
 	})._core?._renderService?._renderer?.value;
-	if (!renderer) return "dom";
-	const backendName = renderer._backend?.constructor?.name;
-	if (backendName === "WebgpuBackend") return "webgpu";
-	if (backendName === "WebglBackend") return "webgl";
-	if (renderer._canvas) {
-		try {
-			if (renderer._canvas.getContext("webgl2") instanceof WebGL2RenderingContext) {
-				return "webgl";
-			}
-		} catch {
-			/* ignore */
-		}
+	const canvas = renderer?._canvas;
+	if (!canvas) return "dom";
+	try {
+		if (canvas.getContext("webgpu")) return "webgpu";
+		if (canvas.getContext("webgl2") instanceof WebGL2RenderingContext) return "webgl";
+	} catch {
+		/* ignore */
 	}
 	return "dom";
 }

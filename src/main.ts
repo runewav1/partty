@@ -1824,6 +1824,7 @@ async function boot(): Promise<void> {
 			} catch (e) {
 				addon?.dispose();
 				state.lastError = e;
+				console.warn("renderer mount failed for pane", paneId, e);
 				parttyPerf.mark("webgl.mount.failure");
 			}
 		}
