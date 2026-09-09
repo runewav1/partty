@@ -14,8 +14,6 @@ commands.allow = [
   "clipboard_read_text",
   "get_persisted_state",
   "get_acrylic_available",
-  "list_extensions",
-  "set_extension_enabled",
   "get_app_session_id",
   "stash_terminal_buffers",
   "take_terminal_buffers",

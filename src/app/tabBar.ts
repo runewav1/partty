@@ -1,5 +1,6 @@
 /**
- * Tab-bar chrome for the default renderer and for extensions.
+ * Tab-bar chrome for the default renderer. Its custom-renderer seams remain
+ * internal for a future native extension system; nothing currently exposes them.
  *
  * The strip (`#term-tabs-strip`) is still host-owned (switch / close / drag /
  * rename). Accessories live in stable leading / trailing / background slots

@@ -67,8 +67,7 @@ https://github.com/user-attachments/assets/50b6efde-94e8-49dc-b8a8-38c7b454d877
 ### Notifications
 
 - Be notified when a process ends *anywhere* and navigate to the terminal where it ended using the notification block.
-- See what pane it's in, what process ended. If using the extensions API surface, craft customized notification systems
-  to notify you based on anything that occurs in any terminal, not just process exits.
+- See what pane it's in and what process ended.
 
 ### Animation, Motion
 
@@ -140,9 +139,10 @@ Partty is *far from done*. Although it achieves very good performance metrics, p
 capabilities we can within the WebView2 runtime is an experimental goal -- reaching native performance under
 constraint is a partial goal of the entire project.
 
-Alongside this, I envision a rich, incredibly feature-full extension system and support for a novel Partty
-Protocol ecosystem, allowing us to render images, videos, simple GUIs (in replacement or augment of TUIs) to
-expand the use case and appeal of the terminal.
+Alongside this, I envision a rich native extension system and support for a novel Partty Protocol ecosystem,
+allowing us to render images, videos, and simple GUIs (in replacement or augment of TUIs) to expand the use
+case and appeal of the terminal. The former TypeScript sandbox has been removed; the future system will run
+on the Rust side rather than executing user JavaScript in the WebView.
 
 Some notable examples could be:
 
@@ -155,9 +155,9 @@ Some notable examples could be:
 - Refactoring the tabbing system with a terminal style bar, packed with system time information, current tab indicators,
   or any other arbitrary variables, etc.
 
-A more realistic (and sensible) goal for Partty is to give the community the *tools* to do this; establish
-a more capable extensions API surface, and allow optional extension of the terminal's ability to do these
-sorts of experiments, rather than build them in as non-negotiable features bundled into the base application.
+A more realistic (and sensible) goal for Partty is to give the community the *tools* to do this: establish
+a capable native extension surface and allow optional extension of the terminal's ability to do these sorts
+of experiments, rather than build them in as non-negotiable features bundled into the base application.
 This respects users who just want the terminal, and respects those who want more.
 
 ## Note on Image Rendering

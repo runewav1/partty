@@ -12,7 +12,6 @@ import type { Terminal } from "@xterm/xterm";
 import type { TerminalRendererAddon } from "./terminal/termLifecycle";
 import "@xterm/xterm/css/xterm.css";
 
-import pkg from "../package.json";
 import {
 	createCommandPalette,
 	type PaletteCommand,
@@ -20,7 +19,6 @@ import {
 import type { DevMetricsOverlayApi } from "./app/devMetricsOverlay";
 import { showAlert } from "./app/dialog";
 import { attachDraggablePanel } from "./app/draggablePanel";
-import type { ExtensionManagerApi } from "./app/extensionManager";
 import {
 	bindMouseCursorForceVisible,
 	createMouseCursorController,
@@ -37,7 +35,6 @@ import type {
 import {
 	createTabCloseIcon,
 	initTabBar,
-	type TabBarItem,
 	type TabRenderModel,
 } from "./app/tabBar";
 import type { ThemeModalApi } from "./app/themeModal";
@@ -80,7 +77,6 @@ import {
 	mergeProcessCommand,
 	NOTIF_COMMAND_MAX,
 	NOTIF_CWD_MAX,
-	NOTIF_DETAIL_MAX,
 	NOTIF_PANE_MAX,
 	processDurationMs,
 	truncateEnd,
@@ -934,108 +930,6 @@ async function boot(): Promise<void> {
 	const pendingShellCommandLine = new Map<string, string>();
 	const paneHostCleanups = new Map<string, Array<() => void>>();
 	const paneLinkProviders = new Map<string, TerminalLinkProviderController>();
-	/** Extension PTY input subscribers — zero-cost when empty. */
-	const extPtyInputSubs: Array<(paneId: string, data: string) => void> = [];
-	/** Extension PTY output subscribers — zero-cost when empty. */
-	const extPtyOutputSubs: Array<(paneId: string, data: string) => void> = [];
-	/** Decodes raw PTY bytes only when extension output subscribers exist. */
-	const ptyOutputDecoder = new TextDecoder("utf-8");
-	/** Extension process lifecyle subscribers — zero-cost when empty. */
-	const extProcStartSubs: Array<
-		(proc: { paneId: string; command: string; cwd: string }) => void
-	> = [];
-	const extProcEndSubs: Array<
-		(proc: {
-			paneId: string;
-			command: string;
-			durationMs: number;
-			exitCode: number | null;
-		}) => void
-	> = [];
-	/** Extension pane lifecycle subscribers. */
-	const extPaneCreatedSubs: Array<(paneId: string) => void> = [];
-	const extPaneClosedSubs: Array<(paneId: string) => void> = [];
-	const extFocusSubs: Array<(paneId: string) => void> = [];
-	/** Extension cwd / rename subscribers (fired on live OSC7 + rename commits). */
-	const extCwdChangeSubs: Array<(paneId: string, cwd: string) => void> = [];
-	/** Extension palette commands. */
-	const extPaletteCommands: Array<{
-		id: string;
-		label: string;
-		keywords?: string;
-		run: () => void;
-	}> = [];
-	/** Extension tab lifecycle subscribers. */
-	const extTabSwitchSubs: Array<(tabId: string) => void> = [];
-	/** Extension window visibility subscribers. */
-	const extWindowShowSubs: Array<() => void> = [];
-	const extWindowHideSubs: Array<() => void> = [];
-
-	// ── Extension cursor subscriptions (per-pane, lazy; zero-cost when unused) ──
-	type ExtCursorSubEntry = {
-		subs: Array<(pos: { x: number; y: number; kind: "move" | "sync" }) => void>;
-		dispose: (() => void) | null;
-	};
-	const extCursorMoveSubs = new Map<string, ExtCursorSubEntry>();
-	/** Panes whose terminal cursor is hidden by an extension overlay. */
-	const extCursorHiddenPanes = new Set<string>();
-	/** Original cursor colors of panes with a hidden cursor, so the extension
-	 *  surface reports the real theme (not the transparent hide hack). */
-	const extCursorHiddenOriginal = new Map<
-		string,
-		{ cursor?: string; cursorAccent?: string }
-	>();
-
-	function ensureExtCursorSubs(paneId: string): ExtCursorSubEntry | null {
-		const pt = getPaneTerminalById(paneId);
-		if (!pt) return null;
-		let entry = extCursorMoveSubs.get(paneId);
-		if (entry) return entry;
-		// xterm reports the event without a payload and only fires it from the
-		// input parser — the cursor's VIEW row also changes on viewport scroll
-		// and terminal resize, so re-emit on those too. Deliver the
-		// view-relative row the drawing surface needs, tagged with the source:
-		// "move" = the cursor actually moved, "sync" = a view-relative
-		// re-emission (scroll/resize) where the cursor teleports.
-		const emit = (kind: "move" | "sync") => (): void => {
-			const buf = pt.term.buffer.active;
-			const viewY = buf.cursorY - buf.viewportY;
-			const cur = extCursorMoveSubs.get(paneId);
-			if (!cur) return;
-			for (const fn of cur.subs) {
-				try {
-					fn({ x: buf.cursorX, y: viewY, kind });
-				} catch {
-					/* ignore */
-				}
-			}
-		};
-		const d1 = pt.term.onCursorMove(emit("move"));
-		const d2 = pt.term.onScroll(emit("sync"));
-		const d3 = pt.term.onResize(emit("sync"));
-		const dispose = (): void => {
-			d1.dispose();
-			d2.dispose();
-			d3.dispose();
-		};
-		entry = { subs: [], dispose };
-		extCursorMoveSubs.set(paneId, entry);
-		return entry;
-	}
-
-	function removeExtCursorSub(
-		paneId: string,
-		fn: (pos: { x: number; y: number; kind: "move" | "sync" }) => void,
-	): void {
-		const entry = extCursorMoveSubs.get(paneId);
-		if (!entry) return;
-		const idx = entry.subs.indexOf(fn);
-		if (idx !== -1) entry.subs.splice(idx, 1);
-		if (entry.subs.length === 0) {
-			entry.dispose?.();
-			extCursorMoveSubs.delete(paneId);
-		}
-	}
 
 	const pendingPtyWriteByPane = new Map<string, StringChunkBuffer>();
 	const pendingPtyOutputByPane = new Map<string, PendingPtyOutput>();
@@ -1195,7 +1089,7 @@ async function boot(): Promise<void> {
 	function finishActiveProcess(
 		paneId: string,
 		endedAt: number,
-		exitCode: number | null = null,
+		_exitCode: number | null = null,
 	): void {
 		const entry = activeProcesses.get(paneId);
 		if (!entry) return;
@@ -1217,16 +1111,6 @@ async function boot(): Promise<void> {
 				paneId,
 				endedAt,
 			);
-		}
-		if (extProcEndSubs.length > 0) {
-			const proc = { paneId, command, durationMs: durMs, exitCode };
-			for (const fn of extProcEndSubs) {
-				try {
-					fn(proc);
-				} catch {
-					/* ignore */
-				}
-			}
 		}
 		activeProcesses.delete(paneId);
 		pendingShellCommandLine.delete(paneId);
@@ -1370,16 +1254,6 @@ async function boot(): Promise<void> {
 	 */
 	function deliverDirectPtyOut(paneId: string, data: Uint8Array): void {
 		queuePtyOutput(paneId, data);
-		if (extPtyOutputSubs.length > 0) {
-			const text = ptyOutputDecoder.decode(data);
-			for (const fn of extPtyOutputSubs) {
-				try {
-					fn(paneId, text);
-				} catch {
-					/* ignore */
-				}
-			}
-		}
 	}
 
 	async function releasePtyHydrationGate(): Promise<void> {
@@ -2355,17 +2229,6 @@ async function boot(): Promise<void> {
 	const terminalContent = document.getElementById("terminal-content");
 	const stage = document.getElementById("terminal-stage");
 
-	/** Force the transparent cursor on panes whose extension overlay hides it.
-	 *  Theme re-applies rebuild `options.theme` and would otherwise clobber
-	 *  the hide (double cursor next to the extension's own rendering). */
-	function applyExtCursorHides(paneId: string, pt: PaneTerminal): void {
-		if (!extCursorHiddenPanes.has(paneId)) return;
-		pt.term.options.theme = {
-			...pt.term.options.theme,
-			cursor: "rgba(0, 0, 0, 0)",
-		};
-	}
-
 	function refreshAllTerminalThemes(): void {
 		// Refresh all tabs so theme changes don't drift on inactive tabs
 		for (const host of tabPaneHosts.values()) {
@@ -2376,7 +2239,6 @@ async function boot(): Promise<void> {
 					...th,
 					cursorAccent: th.background ?? TERM_BG_FALLBACK,
 				};
-				applyExtCursorHides(id, pt);
 				pt.term.refresh(0, pt.term.rows - 1);
 			});
 		}
@@ -2393,7 +2255,6 @@ async function boot(): Promise<void> {
 				...th,
 				cursorAccent: th.background ?? TERM_BG_FALLBACK,
 			};
-			applyExtCursorHides(paneId, pt);
 			pt.term.refresh(0, pt.term.rows - 1);
 		}
 	}
@@ -2805,14 +2666,11 @@ async function boot(): Promise<void> {
 		rekeyKeyed(pendingShellCommandLine, from, to);
 		rekeyKeyed(paneHostCleanups, from, to);
 		rekeyKeyed(paneLinkProviders, from, to);
-		rekeyKeyed(extCursorMoveSubs, from, to);
-		rekeyKeyed(extCursorHiddenOriginal, from, to);
 		rekeyKeyed(pendingPtyWriteByPane, from, to);
 		rekeyKeyed(pendingPtyOutputByPane, from, to);
 		rekeyKeyed(ptyBulkWriteTailByPane, from, to);
 		rekeyKeyed(pendingZoomByPane, from, to);
 		rekeyKeyed(paneWebglStates, from, to);
-		rekeyKeyedSet(extCursorHiddenPanes, from, to);
 		rekeyKeyedSet(ptyBulkActiveByPane, from, to);
 		rekeyKeyedSet(backendReplayRestoredPanes, from, to);
 		rekeyKeyedSet(pendingCreationReflowPanes, from, to);
@@ -3184,16 +3042,6 @@ async function boot(): Promise<void> {
 						/* ignore */
 					}
 					refreshTabLabelForPane(id);
-					// Notify extension subscribers.
-					if (extFocusSubs.length > 0) {
-						for (const fn of extFocusSubs) {
-							try {
-								fn(id);
-							} catch {
-								/* ignore */
-							}
-						}
-					}
 				},
 				onPaneCreated: (id, pt) => {
 					paneBySessionId.set(pt.sessionId, pt);
@@ -3209,16 +3057,6 @@ async function boot(): Promise<void> {
 					pt.term.onData((data) => {
 						parttyPerf.recordInputEvent();
 						queuePtyWrite(pt.paneId, data);
-						// Notify extension PTY input subscribers (zero-cost when empty).
-						if (extPtyInputSubs.length > 0) {
-							for (const fn of extPtyInputSubs) {
-								try {
-									fn(pt.paneId, data);
-								} catch {
-									/* ignore */
-								}
-							}
-						}
 					});
 					const onHostWheel = (ev: WheelEvent) =>
 						handlePaneHostWheel(pt.paneId, ev);
@@ -3287,16 +3125,6 @@ async function boot(): Promise<void> {
 					if (!document.documentElement.classList.contains("partty-booting")) {
 						scheduleCreationReflow(id);
 					}
-					// Notify extension subscribers.
-					if (extPaneCreatedSubs.length > 0) {
-						for (const fn of extPaneCreatedSubs) {
-							try {
-								fn(id);
-							} catch {
-								/* ignore */
-							}
-						}
-					}
 				},
 				onPaneDisposed: (pid, sessionId) => {
 					void ptyKillPane(sessionId).catch(() => {});
@@ -3304,16 +3132,6 @@ async function boot(): Promise<void> {
 					paneThemes.delete(pid);
 					cleanupPaneVisualState(pid);
 					parttyPerf.resetPane(pid);
-					// Notify extension subscribers.
-					if (extPaneClosedSubs.length > 0) {
-						for (const fn of extPaneClosedSubs) {
-							try {
-								fn(pid);
-							} catch {
-								/* ignore */
-							}
-						}
-					}
 				},
 				onPaneLayout: () => scheduleResizeImmediate(),
 				onPaneLayoutDrag: (dragging) => {
@@ -3476,14 +3294,6 @@ async function boot(): Promise<void> {
 		tabsState = { ...tabsState, activeTabId: tabId };
 		saveTabsState(tabsState);
 
-		for (const fn of extTabSwitchSubs) {
-			try {
-				fn(tabId);
-			} catch {
-				/* ignore */
-			}
-		}
-
 		// Only the prev→next pair participates in the crossfade; everything else
 		// is hidden immediately so stacked shells never flash or tear.
 		for (const [id, shell] of tabPaneShells) {
@@ -3559,16 +3369,6 @@ async function boot(): Promise<void> {
 			force: true,
 			delayMs: motionDurationMs("medium"),
 		});
-		// Notify extension subscribers on tab switch (onPaneFocus only fires within a tab).
-		if (extFocusSubs.length > 0 && lastFocusedPaneId) {
-			for (const fn of extFocusSubs) {
-				try {
-					fn(lastFocusedPaneId);
-				} catch {
-					/* ignore */
-				}
-			}
-		}
 		requestAnimationFrame(() => {
 			nextHost.forEachPane((id, pt) => {
 				void ensurePtyForPane(id, pt);
@@ -4929,10 +4729,6 @@ async function boot(): Promise<void> {
 	const settingsPanelEl = document.getElementById("settings-panel");
 	const themeModalRoot = document.getElementById("theme-modal-root");
 
-	const extManagerEl = document.getElementById(
-		"extension-manager",
-	) as HTMLElement | null;
-
 	const themeModalLazy = lazyCell<ThemeModalApi>();
 	let themeTargetPaneId: string | null = null;
 	let paneThemeRestore: { id: string; theme: PaneThemePrefs | null } | null =
@@ -5203,22 +4999,6 @@ async function boot(): Promise<void> {
 						// tab-switch focus approach; settings never changes tabs/panes).
 						focusActiveTerminal,
 					);
-				})
-			: Promise.resolve(null);
-
-	const extManagerLazy = lazyCell<ExtensionManagerApi>();
-
-	const ensureExtensionManager = (): Promise<ExtensionManagerApi | null> =>
-		extManagerEl
-			? extManagerLazy.ensure(async () => {
-					const { createExtensionManager } = await import(
-						"./app/extensionManager"
-					);
-					const api = createExtensionManager(extManagerEl);
-					extManagerEl
-						.querySelector("#ext-close")
-						?.addEventListener("click", () => api.close());
-					return api;
 				})
 			: Promise.resolve(null);
 
@@ -6064,12 +5844,6 @@ async function boot(): Promise<void> {
 			// --- App ---
 			// Settings and the window operations are keybind-driven (help modal).
 			{
-				id: "open-extensions",
-				label: "Extensions",
-				keywords: "plugins addons extensions manager",
-				run: () => runLazy(ensureExtensionManager, (api) => api.open()),
-			},
-			{
 				id: "help-hotkeys",
 				label: "Shortcuts",
 				keywords: "hotkeys bindings reference help",
@@ -6082,12 +5856,6 @@ async function boot(): Promise<void> {
 				keywords: "exit app quit close",
 				run: () => void appWindow.destroy().catch(() => {}),
 			},
-			...extPaletteCommands.map((c) => ({
-				id: `ext-${c.id}`,
-				label: c.label,
-				keywords: c.keywords ? `extension ${c.keywords}` : "extension",
-				run: c.run,
-			})),
 		];
 		return commands;
 	}
@@ -6731,15 +6499,6 @@ async function boot(): Promise<void> {
 			}
 			paneCwdHints.set(paneId, cwd);
 			paneLinkProviders.get(paneId)?.invalidate();
-			if (extCwdChangeSubs.length > 0) {
-				for (const fn of extCwdChangeSubs) {
-					try {
-						fn(paneId, cwd);
-					} catch {
-						/* ignore */
-					}
-				}
-			}
 			refreshTabLabelForPane(paneId);
 			if (paneId !== focusedPaneId()) return;
 			if (normalizeFsPathKey(cwd) === normalizeFsPathKey(liveCwd ?? "")) return;
@@ -6791,20 +6550,6 @@ async function boot(): Promise<void> {
 							paneCwdHints.get(paneId) || "",
 						);
 						activeProcesses.set(paneId, entry);
-						if (extProcStartSubs.length > 0) {
-							const start = {
-								paneId,
-								command: displayProcessCommand(entry.command),
-								cwd: entry.cwd,
-							};
-							for (const fn of extProcStartSubs) {
-								try {
-									fn(start);
-								} catch {
-									/* ignore */
-								}
-							}
-						}
 					}
 					markProcessExecStart(entry);
 					pendingShellCommandLine.delete(paneId);
@@ -6857,13 +6602,6 @@ async function boot(): Promise<void> {
 		}),
 		listen("partty-hide", () => {
 			void (async () => {
-				for (const fn of extWindowHideSubs) {
-					try {
-						fn();
-					} catch {
-						/* ignore */
-					}
-				}
 				if (paneHost && lp.destroy_webview_on_hide) {
 					for (const host of tabPaneHosts.values()) persistHostLayout(host);
 				}
@@ -6883,14 +6621,6 @@ async function boot(): Promise<void> {
 			});
 		}),
 		listen("partty-show", async () => {
-			for (const fn of extWindowShowSubs) {
-				try {
-					fn();
-				} catch {
-					/* ignore */
-				}
-			}
-
 			// Defer-show: prepare already restored/painted — avoid a second pass.
 			if (summonPreparedByDefer) {
 				summonPreparedByDefer = false;
@@ -6998,584 +6728,6 @@ async function boot(): Promise<void> {
 		getFocusedTerm()?.focus();
 	});
 
-	// ── Extensions ──────────────────────────────────────────────
-	const loadExtensions = async (): Promise<void> => {
-		try {
-			const allExts =
-				await invoke<
-					Array<{
-						id: string;
-						name: string;
-						version: string;
-						description: string;
-						code: string;
-						enabled: boolean;
-					}>
-				>("list_extensions");
-			const exts = allExts.filter((e) => e.enabled);
-			if (exts.length === 0) return;
-
-			// Listener registries — zero overhead when no extensions subscribe.
-			const extApi: Record<string, unknown> = {
-				onPtyOutput(fn: (paneId: string, data: string) => void) {
-					extPtyOutputSubs.push(fn);
-					return () => {
-						const idx = extPtyOutputSubs.indexOf(fn);
-						if (idx !== -1) extPtyOutputSubs.splice(idx, 1);
-					};
-				},
-				onPtyInput(fn: (paneId: string, data: string) => void) {
-					extPtyInputSubs.push(fn);
-					return () => {
-						const idx = extPtyInputSubs.indexOf(fn);
-						if (idx !== -1) extPtyInputSubs.splice(idx, 1);
-					};
-				},
-				onProcessStart(
-					fn: (proc: { paneId: string; command: string; cwd: string }) => void,
-				) {
-					extProcStartSubs.push(fn);
-					return () => {
-						const idx = extProcStartSubs.indexOf(fn);
-						if (idx !== -1) extProcStartSubs.splice(idx, 1);
-					};
-				},
-				onProcessEnd(
-					fn: (proc: {
-						paneId: string;
-						command: string;
-						durationMs: number;
-						/** OSC 133 exit code, or null when the shell didn't report one. */
-						exitCode: number | null;
-					}) => void,
-				) {
-					extProcEndSubs.push(fn);
-					return () => {
-						const idx = extProcEndSubs.indexOf(fn);
-						if (idx !== -1) extProcEndSubs.splice(idx, 1);
-					};
-				},
-				getPaneActiveProcess(paneId: string) {
-					const entry = activeProcesses.get(paneId);
-					if (!entry) return null;
-					return {
-						command: displayProcessCommand(entry.command),
-						cwd: entry.cwd,
-						startedAt: entry.startedAt,
-					};
-				},
-				getActiveProcesses() {
-					const result: Array<{
-						paneId: string;
-						command: string;
-						cwd: string;
-						startedAt: number;
-					}> = [];
-					for (const [paneId, entry] of activeProcesses) {
-						result.push({
-							paneId,
-							command: displayProcessCommand(entry.command),
-							cwd: entry.cwd,
-							startedAt: entry.startedAt,
-						});
-					}
-					return result;
-				},
-				writeToPane(paneId: string, text: string) {
-					queuePtyWrite(paneId, text);
-				},
-				showNotification(
-					command: string,
-					detail: string,
-					opts?: string | { paneId?: string; buttons?: NotificationButton[] },
-				) {
-					if (!processNotificationEnabledRef.v) return;
-					if (!processToast) return;
-					const options =
-						typeof opts === "string" ? { paneId: opts } : (opts ?? {});
-					showProcessToast(
-						`<span class="proc-toast-cmd">${escapeHtml(truncateEnd(command, NOTIF_COMMAND_MAX))}</span> ${escapeHtml(truncateEnd(detail, NOTIF_DETAIL_MAX))}`,
-						options.paneId ?? "",
-						options.buttons ?? [],
-					);
-				},
-				getPref<T>(key: string, fallback: T): T {
-					try {
-						const raw = localStorage.getItem(`partty.ext.${key}`);
-						return raw ? JSON.parse(raw) : fallback;
-					} catch {
-						return fallback;
-					}
-				},
-				setPref<T>(key: string, value: T): void {
-					localStorage.setItem(`partty.ext.${key}`, JSON.stringify(value));
-				},
-				getAppTheme() {
-					return {
-						ui: currentUiPrefs,
-						terminal: buildXtermThemeFromPrefs(
-							persisted.prefs as PaneThemePrefs,
-						),
-					};
-				},
-				getPaneTheme(paneId: string) {
-					const pt = getPaneTerminalById(paneId);
-					const theme = pt
-						? { ...pt.term.options.theme }
-						: buildXtermThemeFromPrefs(persisted.prefs as PaneThemePrefs);
-					// Don't leak the hideCursor implementation detail (a transparent
-					// cursor) — report the pane's real cursor color.
-					const original = extCursorHiddenOriginal.get(paneId);
-					if (original) {
-						if (original.cursor !== undefined) theme.cursor = original.cursor;
-						if (original.cursorAccent !== undefined)
-							theme.cursorAccent = original.cursorAccent;
-					}
-					const override = paneThemes.get(paneId);
-					return { theme, override: override ?? null };
-				},
-				getFocusedPaneId: () => focusedPaneId(),
-				getPaneIds: () => {
-					const ids: string[] = [];
-					for (const host of tabPaneHosts.values()) {
-						host.forEachPane((id) => ids.push(id));
-					}
-					return ids;
-				},
-				getPaneInfo(paneId: string) {
-					if (typeof paneId !== "string" || !paneId) return null;
-					const host = getPaneHostByPaneId(paneId);
-					if (!host) return null;
-					const floatState = host.getFloatingState()[paneId];
-					return {
-						id: paneId,
-						name: paneEffectiveName(paneId),
-						programName: paneProgramNames.get(paneId) ?? null,
-						cwd: paneCwdHints.get(paneId) ?? null,
-						tabId: tabIdForPaneHost(host) ?? null,
-						floating: floatState !== undefined,
-						focused: focusedPaneId() === paneId,
-					};
-				},
-				getPaneTerminalDims(paneId: string) {
-					const pt = getPaneTerminalById(paneId);
-					if (!pt) return null;
-					return { cols: pt.term.cols, rows: pt.term.rows };
-				},
-
-				// ── Rendering & cursor (pane overlay surface) ──
-				createOverlay(paneId: string, opts?: { hideCursor?: boolean }) {
-					if (typeof paneId !== "string" || !paneId) return null;
-					const found = getPaneTerminalById(paneId);
-					const element = found?.term.element;
-					if (!(found && element)) return null;
-					// Non-nullable locals so closures keep their types.
-					const term = found.term;
-
-					// Anchor to the screen box (exactly the rendered canvas area;
-					// excludes the scrollbar). Falls back to the terminal root.
-					const screen = element.querySelector(".xterm-screen");
-					const parent = screen instanceof HTMLElement ? screen : element;
-					parent.classList.add("partty-ext-overlay-anchor");
-
-					const layer = document.createElement("div");
-					layer.className = "partty-ext-overlay-layer";
-					const canvas = document.createElement("canvas");
-					canvas.className = "partty-ext-overlay-canvas";
-					layer.appendChild(canvas);
-					parent.appendChild(layer);
-
-					const maybeCtx = canvas.getContext("2d");
-					if (!maybeCtx) {
-						layer.remove();
-						return null;
-					}
-					const ctx = maybeCtx;
-
-					let destroyed = false;
-					let drawFn: ((t: number) => void) | null = null;
-					let raf = 0;
-					let pendingHidden = false;
-					let hiddenObserver: MutationObserver | null = null;
-					let cssW = 0;
-					let cssH = 0;
-
-					const isHidden = (): boolean =>
-						getComputedStyle(element).visibility === "hidden";
-
-					const handle = {
-						canvas,
-						ctx,
-						cellWidth: 0,
-						cellHeight: 0,
-						cols: 0,
-						rows: 0,
-						requestRender(draw: (t: number) => void): void {
-							if (destroyed) return;
-							drawFn = draw;
-							if (raf) return;
-							if (isHidden()) {
-								pendingHidden = true;
-								ensureHiddenObserver();
-								return;
-							}
-							raf = requestAnimationFrame(onFrame);
-						},
-						destroy(): void {
-							if (destroyed) return;
-							destroyed = true;
-							if (raf) cancelAnimationFrame(raf);
-							raf = 0;
-							hiddenObserver?.disconnect();
-							hiddenObserver = null;
-							ro.disconnect();
-							if (savedCursorTheme) {
-								extCursorHiddenPanes.delete(paneId);
-								extCursorHiddenOriginal.delete(paneId);
-								term.options.theme = {
-									...term.options.theme,
-									...savedCursorTheme,
-								};
-							}
-							layer.remove();
-							if (!parent.querySelector(".partty-ext-overlay-layer")) {
-								parent.classList.remove("partty-ext-overlay-anchor");
-							}
-						},
-					};
-
-					function measure(): void {
-						const rect = parent.getBoundingClientRect();
-						cssW = Math.max(1, Math.round(rect.width));
-						cssH = Math.max(1, Math.round(rect.height));
-						const dpr = window.devicePixelRatio || 1;
-						const pw = Math.max(1, Math.round(cssW * dpr));
-						const ph = Math.max(1, Math.round(cssH * dpr));
-						if (canvas.width !== pw) canvas.width = pw;
-						if (canvas.height !== ph) canvas.height = ph;
-						ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-						handle.cellWidth = term.cols > 0 ? cssW / term.cols : 0;
-						handle.cellHeight = term.rows > 0 ? cssH / term.rows : 0;
-						handle.cols = term.cols;
-						handle.rows = term.rows;
-					}
-
-					function ensureHiddenObserver(): void {
-						if (hiddenObserver) return;
-						const host = getPaneHostByPaneId(paneId);
-						const tabId = host ? tabIdForPaneHost(host) : null;
-						const shell = tabId ? (tabPaneShells.get(tabId) ?? null) : null;
-						if (!shell) return;
-						hiddenObserver = new MutationObserver(() => {
-							if (!isHidden() && pendingHidden && !destroyed) {
-								pendingHidden = false;
-								raf = requestAnimationFrame(onFrame);
-							}
-						});
-						hiddenObserver.observe(shell, {
-							attributes: true,
-							attributeFilter: ["class"],
-						});
-					}
-
-					function onFrame(t: number): void {
-						raf = 0;
-						if (destroyed) return;
-						if (isHidden()) {
-							pendingHidden = true;
-							ensureHiddenObserver();
-							return;
-						}
-						measure();
-						const fn = drawFn;
-						if (!fn) return;
-						// The API owns the clear: extensions draw only.
-						ctx.clearRect(0, 0, cssW, cssH);
-						try {
-							fn(t);
-						} catch {
-							/* ignore */
-						}
-					}
-
-					const ro = new ResizeObserver(() => {
-						if (destroyed) return;
-						measure();
-						if (!raf && drawFn) raf = requestAnimationFrame(onFrame);
-					});
-					ro.observe(parent);
-
-					// The WebGL renderer paints the cursor into its canvas, so CSS
-					// cannot hide it; a transparent theme cursor does. The registry
-					// lets theme re-applies (refreshAllTerminalThemes/applyPaneTheme)
-					// keep the hide in force; the immediate value is restored on
-					// destroy.
-					let savedCursorTheme: {
-						cursor?: string;
-						cursorAccent?: string;
-					} | null = null;
-					if (opts?.hideCursor) {
-						const th = { ...term.options.theme };
-						savedCursorTheme = {
-							cursor: th.cursor,
-							cursorAccent: th.cursorAccent,
-						};
-						extCursorHiddenPanes.add(paneId);
-						extCursorHiddenOriginal.set(paneId, savedCursorTheme);
-						term.options.theme = { ...th, cursor: "rgba(0, 0, 0, 0)" };
-					}
-
-					measure();
-					const cleanups = paneHostCleanups.get(paneId) ?? [];
-					cleanups.push(() => handle.destroy());
-					paneHostCleanups.set(paneId, cleanups);
-					return handle;
-				},
-				onCursorMove(
-					paneId: string,
-					fn: (pos: { x: number; y: number; kind: "move" | "sync" }) => void,
-				) {
-					const entry = ensureExtCursorSubs(paneId);
-					if (!entry) return () => {};
-					entry.subs.push(fn);
-					return () => removeExtCursorSub(paneId, fn);
-				},
-				getCursorPos(paneId: string) {
-					const pt = getPaneTerminalById(paneId);
-					if (!pt) return null;
-					const buf = pt.term.buffer.active;
-					return { x: buf.cursorX, y: buf.cursorY - buf.viewportY };
-				},
-				getWindowState() {
-					return {
-						visible: document.visibilityState === "visible",
-						tabsHidden:
-							document.documentElement.classList.contains("tabs-hidden"),
-					};
-				},
-				getPaneCwd: (paneId: string) => paneCwdHints.get(paneId) ?? null,
-				getPaneName: (paneId: string) => paneEffectiveName(paneId),
-
-				// ── Pane & tab control ──
-				focusPane(paneId: string) {
-					if (typeof paneId !== "string" || !paneId) return;
-					navigateToPane(paneId);
-				},
-				closePane(paneId: string) {
-					if (typeof paneId !== "string" || !paneId) return;
-					const host = getPaneHostByPaneId(paneId);
-					if (!host) return;
-					if (host.isPristineRootTab()) {
-						const tabId = tabIdForPaneHost(host);
-						if (tabId) closeTab(tabId);
-						return;
-					}
-					const pt = host.getPaneTerminal(paneId);
-					if (pt) void ptyKillPane(pt.sessionId).catch(() => {});
-					host.removePane(paneId);
-				},
-				splitPane(paneId: string, dir: "h" | "v") {
-					if (typeof paneId !== "string" || !paneId) return null;
-					const host = getPaneHostByPaneId(paneId);
-					if (!host) return null;
-					host.setFocusedPaneId(paneId);
-					return splitFocusedWithCwd(dir) ?? null;
-				},
-				getTabs() {
-					return visibleTabsInOrder().map((t) => tabRenderModel(t));
-				},
-				getTabGroups() {
-					return [...tabsState.groups]
-						.sort((a, b) => a.order - b.order)
-						.map((g) => ({
-							id: g.id,
-							name: g.name,
-							color: g.color,
-							collapsed: g.collapsed,
-							tabIds: tabsState.tabs
-								.filter((t) => t.groupId === g.id)
-								.sort((a, b) => a.order - b.order)
-								.map((t) => t.id),
-						}));
-				},
-				switchTab(tabId: string) {
-					if (typeof tabId !== "string" || !tabId) return;
-					if (tabPaneHosts.has(tabId) || deferredTabInits.has(tabId)) {
-						switchToTab(tabId);
-					}
-				},
-
-				// ── Events ──
-				onPaneCreated(fn: (paneId: string) => void) {
-					extPaneCreatedSubs.push(fn);
-					return () => {
-						const idx = extPaneCreatedSubs.indexOf(fn);
-						if (idx !== -1) extPaneCreatedSubs.splice(idx, 1);
-					};
-				},
-				onPaneClosed(fn: (paneId: string) => void) {
-					extPaneClosedSubs.push(fn);
-					return () => {
-						const idx = extPaneClosedSubs.indexOf(fn);
-						if (idx !== -1) extPaneClosedSubs.splice(idx, 1);
-					};
-				},
-				onFocusChanged(fn: (paneId: string) => void) {
-					extFocusSubs.push(fn);
-					return () => {
-						const idx = extFocusSubs.indexOf(fn);
-						if (idx !== -1) extFocusSubs.splice(idx, 1);
-					};
-				},
-				onCwdChanged(fn: (paneId: string, cwd: string) => void) {
-					extCwdChangeSubs.push(fn);
-					return () => {
-						const idx = extCwdChangeSubs.indexOf(fn);
-						if (idx !== -1) extCwdChangeSubs.splice(idx, 1);
-					};
-				},
-
-				// ── Command palette ──
-				registerCommand(
-					id: string,
-					label: string | { label: string; keywords?: string; run: () => void },
-					run?: () => void,
-				) {
-					const def =
-						typeof label === "string"
-							? { id, label, run: run ?? (() => {}) }
-							: { id, ...label };
-					extPaletteCommands.push({
-						id: def.id,
-						label: def.label,
-						keywords: def.keywords,
-						run: def.run,
-					});
-					return () => {
-						const idx = extPaletteCommands.findIndex((c) => c.id === id);
-						if (idx !== -1) extPaletteCommands.splice(idx, 1);
-					};
-				},
-
-				// ── Tab lifecycle ──
-				onTabSwitch(fn: (tabId: string) => void) {
-					extTabSwitchSubs.push(fn);
-					return () => {
-						const idx = extTabSwitchSubs.indexOf(fn);
-						if (idx !== -1) extTabSwitchSubs.splice(idx, 1);
-					};
-				},
-				onTabsChanged(fn: () => void) {
-					return tabBar.onChange(fn);
-				},
-				getTabBarLayout() {
-					return tabBar.layout();
-				},
-				setTabBarLayout(partial: {
-					tabJustify?: "start" | "center" | "end";
-					showSingleTab?: boolean;
-					omitDefaultClose?: boolean;
-					grow?: boolean;
-					gap?: string;
-					itemGap?: string;
-				}) {
-					const unsub = tabBar.setLayout(partial);
-					renderTabsBar();
-					return () => {
-						unsub();
-						renderTabsBar();
-					};
-				},
-				registerTabRenderer(
-					fn: (tab: TabRenderModel, el: HTMLElement) => void,
-				) {
-					const unsub = tabBar.registerTabRenderer(fn);
-					renderTabsBar();
-					return () => {
-						unsub();
-						renderTabsBar();
-					};
-				},
-				registerGroupRenderer(
-					fn: (
-						group: {
-							id: string;
-							name: string;
-							color: string | null;
-							collapsed: boolean;
-							tabIds: string[];
-						},
-						el: HTMLElement,
-					) => void,
-				) {
-					const unsub = tabBar.registerGroupRenderer(fn);
-					renderTabsBar();
-					return () => {
-						unsub();
-						renderTabsBar();
-					};
-				},
-				registerTabBarItem(item: TabBarItem) {
-					if (!item || typeof item.id !== "string" || !item.id) return () => {};
-					if (
-						item.slot !== "leading" &&
-						item.slot !== "trailing" &&
-						item.slot !== "background"
-					) {
-						return () => {};
-					}
-					if (typeof item.mount !== "function") return () => {};
-					return tabBar.registerItem(item);
-				},
-				requestTabBarRender() {
-					renderTabsBar();
-				},
-				refreshTabBarItems() {
-					tabBar.refreshItems();
-				},
-
-				// ── Window lifecycle ──
-				onWindowShow(fn: () => void) {
-					extWindowShowSubs.push(fn);
-					return () => {
-						const idx = extWindowShowSubs.indexOf(fn);
-						if (idx !== -1) extWindowShowSubs.splice(idx, 1);
-					};
-				},
-				onWindowHide(fn: () => void) {
-					extWindowHideSubs.push(fn);
-					return () => {
-						const idx = extWindowHideSubs.indexOf(fn);
-						if (idx !== -1) extWindowHideSubs.splice(idx, 1);
-					};
-				},
-
-				// ── Metadata ──
-				getAppVersion: () => pkg.version,
-			};
-
-			for (const ext of exts) {
-				try {
-					// Extension code is the body of a function receiving `api`.
-					// e.g.:  api.onPtyOutput((paneId, data) => { ... });
-					//         api.showNotification("Hello", "World");
-					const wrapped = `"use strict";\n${ext.code}\n//# sourceURL=extension:${ext.id}`;
-					const fn = new Function("api", wrapped);
-					fn(extApi);
-				} catch (e) {
-					console.error(`Extension "${ext.name}" activation failed`, e);
-				}
-			}
-		} catch {
-			// Extensions directory doesn't exist or is empty — nothing to load.
-		}
-	};
-
-	if (typeof requestIdleCallback === "function") {
-		requestIdleCallback(() => void loadExtensions(), { timeout: 3000 });
-	} else {
-		window.setTimeout(() => void loadExtensions(), 0);
-	}
 
 	if (import.meta.env.DEV) {
 		const { createDevMetricsOverlay } = await import("./app/devMetricsOverlay");

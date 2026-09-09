@@ -47,20 +47,9 @@
 		},
 		"linter": {
 			"enabled": true
-		},
-		"globals": ["api"]
+		}
 	},
 	"overrides": [
-		{
-			"includes": ["extensions/index.example.js"],
-			"linter": {
-				"rules": {
-					"suspicious": {
-						"noConsole": "off"
-					}
-				}
-			}
-		},
 		{
 			"includes": [
 				"vite.config.ts",

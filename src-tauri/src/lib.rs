@@ -14,7 +14,6 @@ use parking_lot::Mutex;
 use prefs::{PersistedState, load_persisted, save_prefs};
 use pty::PtySession;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
@@ -1135,106 +1134,6 @@ fn toggle_overlay(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-struct ExtensionManifest {
-    name: String,
-    version: String,
-    description: String,
-}
-
-#[derive(Clone, serde::Serialize)]
-struct ExtensionInfo {
-    id: String,
-    name: String,
-    version: String,
-    description: String,
-    code: String,
-    enabled: bool,
-}
-
-fn extension_state_path() -> Option<PathBuf> {
-    prefs::extension_state_path()
-}
-
-fn load_extension_state() -> HashMap<String, bool> {
-    let path = match extension_state_path() {
-        Some(p) => p,
-        None => return HashMap::new(),
-    };
-    std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str::<HashMap<String, bool>>(&s).ok())
-        .unwrap_or_default()
-}
-
-fn save_extension_state(state: &HashMap<String, bool>) {
-    if let Some(path) = extension_state_path() {
-        let _ = std::fs::write(&path, serde_json::to_string(state).unwrap_or_default());
-    }
-}
-
-/// Scan ~/.partty/extensions/ for extension folders containing a manifest.json and index.js.
-#[tauri::command]
-fn list_extensions() -> Vec<ExtensionInfo> {
-    let mut exts = Vec::new();
-    let base = match prefs::extensions_dir() {
-        Some(d) => d,
-        None => return exts,
-    };
-    let dir = match std::fs::read_dir(&base) {
-        Ok(d) => d,
-        Err(_) => return exts,
-    };
-    let state = load_extension_state();
-    for entry in dir.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
-        let id = path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        if id.is_empty() || id.starts_with('.') {
-            continue;
-        }
-
-        let manifest_path = path.join("manifest.json");
-        let manifest: ExtensionManifest = std::fs::read_to_string(&manifest_path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or(ExtensionManifest {
-                name: id.clone(),
-                version: "0.0.0".into(),
-                description: String::new(),
-            });
-
-        let index_path = path.join("index.js");
-        let code = std::fs::read_to_string(&index_path).unwrap_or_default();
-        if code.trim().is_empty() {
-            continue;
-        }
-
-        let enabled = state.get(&id).copied().unwrap_or(true);
-        exts.push(ExtensionInfo {
-            id,
-            name: manifest.name,
-            version: manifest.version,
-            description: manifest.description,
-            code,
-            enabled,
-        });
-    }
-    exts
-}
-
-#[tauri::command]
-fn set_extension_enabled(id: String, enabled: bool) {
-    let mut state = load_extension_state();
-    state.insert(id, enabled);
-    save_extension_state(&state);
-}
-
 /// Raise the Windows timer resolution to 1 ms for the process lifetime.
 /// `recv_timeout`/`sleep` in the PTY emitter and reader threads otherwise wake
 /// on the ~15.6 ms system tick, adding ~10 ms of latency to every PTY echo
@@ -1329,8 +1228,6 @@ pub fn run() {
             workspaces::read_workspace,
             set_prefs,
             toggle_overlay,
-            list_extensions,
-            set_extension_enabled,
             webview_boot_complete,
             commit_show_window,
             request_destroy_webview_for_hide,

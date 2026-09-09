@@ -169,7 +169,6 @@
 	/* ===== Z-Index Layers (single source of truth for overlay stacking) ===== */
 	--layer-palette: 1000;
 	--layer-panel: 1100; /* settings + help panels */
-	--layer-extensions: 1500;
 	--layer-toast: 2000;
 	--layer-dialog: 3000; /* partty alert / prompt / confirm */
 	--layer-dev-overlay: 5000;
@@ -227,7 +226,6 @@ html[data-motion-style="gentle"] {
 .help-panel-card,
 .theme-modal-panel,
 .tab-rename-card,
-.extension-manager-card,
 .partty-dialog-panel,
 .shed-exit-dialog-card,
 .tab-context-menu {
@@ -241,7 +239,6 @@ html[data-motion-style="gentle"] {
 .partty-dialog-backdrop,
 .theme-modal-backdrop,
 .tab-rename-backdrop,
-.extension-manager-backdrop,
 .shed-exit-dialog {
 	animation: overlay-backdrop-in var(--motion-fast) var(--motion-ease-out)
 		backwards;
@@ -1278,27 +1275,6 @@ html.terminal-motion-off *::after {
 	flex: 0 0 auto;
 }
 
-/* Extension overlay layer (rendered above the terminal canvas, below UI chrome).
-   `createOverlay` marks its anchor element with the overlay-anchor class. */
-.partty-ext-overlay-anchor {
-	position: relative;
-}
-
-.partty-ext-overlay-layer {
-	position: absolute;
-	inset: 0;
-	z-index: 3;
-	pointer-events: none;
-	overflow: hidden;
-}
-
-.partty-ext-overlay-canvas {
-	position: absolute;
-	inset: 0;
-	width: 100%;
-	height: 100%;
-}
-
 /* Invisible resize gutters between panes. */
 .pane-gutter {
 	flex-shrink: 0;
@@ -2028,7 +2004,7 @@ html.tabs-hidden #main-workspace {
 	cursor: pointer;
 }
 
-/* ── Pill toggle (used in settings & extension manager) ── */
+/* ── Pill toggle ── */
 .settings-checkbox-label {
 	display: flex;
 	align-items: center;
@@ -2626,124 +2602,6 @@ html.tabs-hidden #main-workspace {
 .proc-toast-btn:hover {
 	background: var(--hover-overlay);
 	border-color: var(--accent-primary);
-}
-
-/* ── Extension Manager ── */
-.extension-manager {
-	position: fixed;
-	inset: 0;
-	z-index: var(--layer-extensions);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-}
-.extension-manager--hidden {
-	display: none !important;
-}
-.extension-manager-backdrop {
-	position: absolute;
-	inset: 0;
-}
-.extension-manager-card {
-	position: relative;
-	width: 480px;
-	max-width: 92vw;
-	max-height: 72vh;
-	border-radius: 10px;
-	background: var(--panel-glass-bg);
-	border: 1px solid var(--panel-border);
-	box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
-	backdrop-filter: blur(16px) saturate(1.08);
-	-webkit-backdrop-filter: blur(16px) saturate(1.08);
-	display: flex;
-	flex-direction: column;
-	overflow: hidden;
-}
-.extension-manager-head {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 12px 16px 10px;
-	cursor: default;
-	user-select: none;
-	border-bottom: 1px solid var(--panel-divider);
-}
-.extension-manager-title {
-	font-size: 13px;
-	font-weight: 600;
-	color: var(--ui-chrome-fg);
-}
-.extension-manager-close {
-	width: 24px;
-	height: 24px;
-	border: none;
-	background: transparent;
-	color: var(--ui-chrome-muted);
-	cursor: pointer;
-	border-radius: 4px;
-	font-size: 16px;
-	line-height: 24px;
-}
-.extension-manager-close:hover {
-	color: var(--ui-chrome-fg);
-}
-.extension-manager-body {
-	flex: 1;
-	min-height: 0;
-	overflow-y: auto;
-	padding: 8px 0;
-}
-.extension-manager-list {
-	padding: 0 8px;
-}
-.extension-manager-empty {
-	text-align: center;
-	padding: 32px 16px;
-	font-size: 13px;
-	color: var(--ui-chrome-muted);
-}
-.extension-manager-empty small {
-	font-size: 11px;
-	display: block;
-	margin-top: 6px;
-}
-.extension-manager-item {
-	display: flex;
-	align-items: flex-start;
-	justify-content: space-between;
-	padding: 10px 8px;
-	border-radius: 6px;
-	gap: 12px;
-}
-.extension-manager-item:hover {
-	background: var(--hover-overlay-light);
-}
-.extension-manager-item-info {
-	flex: 1;
-	min-width: 0;
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-}
-.extension-manager-item-name {
-	font-size: 12px;
-	font-weight: 600;
-	color: var(--ui-chrome-fg);
-}
-.extension-manager-item-version {
-	font-size: 10px;
-	color: var(--ui-chrome-muted);
-	margin-left: 6px;
-}
-.extension-manager-item-desc {
-	font-size: 11px;
-	color: var(--ui-chrome-muted);
-	line-height: 1.35;
-	margin-top: 1px;
-}
-/* Extension toggles reuse the settings-checkbox-input pill style. */
-.extension-manager-item .settings-checkbox-input {
-	margin-top: 1px;
 }
 
 /* ===== Developer Metrics Overlay ===== */
