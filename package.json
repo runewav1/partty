@@ -3,7 +3,7 @@
 	"private": true,
 	"version": "0.4.0",
 	"type": "module",
-	"packageManager": "pnpm@12.1.0",
+	"packageManager": "pnpm@12.3.4",
 	"scripts": {
 		"dev": "vite",
 		"build": "tsc && vite build",
@@ -15,7 +15,7 @@
 	},
 	"dependencies": {
 		"@tauri-apps/api": "^2.11.1",
-		"@partty/addon-webgpu": "0.1.4-rc2",
+		"@partty/addon-webgpu": "0.1.4-rc3",
 		"@xterm/addon-fit": "beta",
 		"@xterm/addon-image": "beta",
 		"@xterm/addon-ligatures": "beta",

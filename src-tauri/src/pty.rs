@@ -78,6 +78,13 @@ pub struct PtyShellEvent {
 // span exceeds `MAX_OSC_LEN` are dropped, not buffered: once the cap is hit
 // the stripper discards until the next BEL/ST, so a runaway unterminated
 // OSC can never grow memory without bound.
+//
+// Chunk handling is incremental: when an OSC is split across chunks, the
+// deferred tail (a lone `ESC`, or `ESC ]` + accumulated payload) is kept in
+// `partial` and only the newly arrived bytes are scanned for a terminator.
+// The already-scanned payload is never re-walked or re-copied, so feeding a
+// long OSC one byte at a time costs linear work instead of rescanning the
+// whole accumulated span on every chunk.
 // ────────────────────────────────────────────────────────────────────────────
 
 const MAX_OSC_LEN: usize = 256 * 1024;
@@ -130,13 +137,24 @@ impl OscProperties {
 }
 
 struct OscStripper {
-    /// Bytes held over from a chunk that ended mid-sequence.
+    /// Bytes held over from a chunk that ended mid-sequence: either a lone
+    /// `ESC` (possibly the introducer of a split `ESC ]`), or `ESC ]` followed
+    /// by the payload of an incomplete OSC accumulated so far. The accumulated
+    /// prefix is never rescanned — only the newly appended bytes are examined
+    /// for a terminator, so splitting a long OSC across many chunks stays
+    /// linear instead of re-walking and re-copying the whole span each chunk.
     partial: Vec<u8>,
     /// Reusable cleaned-output buffer.
     scratch: Vec<u8>,
     properties: OscProperties,
     /// Dropping an oversized OSC until the next BEL/ST.
     discarding: bool,
+    discard_esc: bool,
+    /// Test-only: total bytes copied into `partial`, proving the incremental
+    /// accumulation path is linear in the input rather than quadratic. Never
+    /// read in release builds.
+    #[cfg(test)]
+    partial_copies: usize,
 }
 
 impl OscStripper {
@@ -146,50 +164,45 @@ impl OscStripper {
             scratch: Vec::with_capacity(16 * 1024),
             properties: OscProperties::default(),
             discarding: false,
+            discard_esc: false,
+            #[cfg(test)]
+            partial_copies: 0,
         }
     }
+
+    /// Test-only hook counting bytes copied into the pending buffer.
+    #[cfg(test)]
+    fn note_partial_copy(&mut self, n: usize) {
+        self.partial_copies += n;
+    }
+    #[cfg(not(test))]
+    fn note_partial_copy(&mut self, _n: usize) {}
 
     /// Takes ownership so escape-free chunks pass through untouched.
     fn process(&mut self, input: Vec<u8>) -> (Vec<u8>, Vec<OscSideEvent>) {
         if !self.discarding && self.partial.is_empty() && !input.contains(&0x1b) {
             return (input, Vec::new());
         }
-        if self.partial.is_empty() {
-            self.process_slice(&input)
-        } else {
-            self.partial.extend_from_slice(&input);
-            let combined = std::mem::take(&mut self.partial);
-            self.process_slice(&combined)
-        }
-    }
-
-    fn process_slice(&mut self, buf: &[u8]) -> (Vec<u8>, Vec<OscSideEvent>) {
-        // `partial` is always empty here (folded into `buf` by `process`), so
-        // the cap applies to the whole combined span with a fixed budget.
         let mut events = Vec::new();
         self.scratch.clear();
+        if self.discarding {
+            self.process_discarding(&input, &mut events);
+        } else if self.partial.is_empty() {
+            self.process_plain(&input, &mut events);
+        } else {
+            self.process_pending(&input, &mut events);
+        }
+        (std::mem::take(&mut self.scratch), events)
+    }
+
+    /// Scan a chunk with no suspended sequence. Complete OSCs are resolved
+    /// inline in a single pass (zero extra copies); an OSC that needs more
+    /// data defers its exact tail into `partial` as incremental state.
+    fn process_plain(&mut self, buf: &[u8], events: &mut Vec<OscSideEvent>) {
         let mut run_start = 0; // start of the current plain run
         let mut search_from = 0;
 
         while search_from < buf.len() {
-            if self.discarding {
-                match memchr::memchr2(0x07, 0x1b, &buf[search_from..]) {
-                    Some(off) => {
-                        let pos = search_from + off;
-                        if let Some(seq_len) = osc_terminator_end(buf, pos) {
-                            self.discarding = false;
-                            let seq_end = pos + seq_len;
-                            run_start = seq_end;
-                            search_from = seq_end;
-                        } else {
-                            search_from = pos + 1;
-                        }
-                    }
-                    None => return (std::mem::take(&mut self.scratch), events),
-                }
-                continue;
-            }
-
             let Some(esc) = memchr::memchr(0x1b, &buf[search_from..]) else {
                 break;
             };
@@ -200,7 +213,7 @@ impl OscStripper {
                 match osc_scan(buf, esc + 2, MAX_OSC_LEN) {
                     OscScan::Ended(payload_end, seq_end) => {
                         let payload = &buf[esc + 2..payload_end];
-                        if !self.dispatch_osc(payload, &mut events) {
+                        if !self.dispatch_osc(payload, events) {
                             self.scratch.extend_from_slice(&buf[esc..seq_end]);
                         }
                         run_start = seq_end;
@@ -214,28 +227,186 @@ impl OscStripper {
                             self.discarding = true;
                         } else {
                             self.partial.extend_from_slice(tail);
+                            self.note_partial_copy(tail.len());
                         }
-                        return (std::mem::take(&mut self.scratch), events);
+                        return;
                     }
                     OscScan::Oversized => {
                         self.partial.clear();
                         self.discarding = true;
-                        search_from = esc + 1;
-                        continue;
+                        self.process_discarding(&buf[esc + 1..], events);
+                        return;
                     }
                 }
             }
             if esc + 1 == buf.len() {
                 // Lone ESC at end — maybe `ESC ]` split across chunks.
                 self.partial.push(0x1b);
-                return (std::mem::take(&mut self.scratch), events);
+                self.note_partial_copy(1);
+                return;
             }
             run_start = esc;
             search_from = esc + 1;
         }
 
         self.scratch.extend_from_slice(&buf[run_start..]);
-        (std::mem::take(&mut self.scratch), events)
+    }
+
+    /// Continue a suspended sequence (`partial` is non-empty) with a new chunk.
+    fn process_pending(&mut self, input: &[u8], events: &mut Vec<OscSideEvent>) {
+        if input.is_empty() {
+            return;
+        }
+        if self.partial.len() == 1 {
+            // A lone deferred `ESC`: only an introducer `]` can join it into an
+            // OSC; anything else makes it plain output.
+            if input.first() == Some(&0x5d) {
+                self.partial.clear();
+                self.partial.extend_from_slice(b"\x1b]");
+                self.note_partial_copy(2);
+                self.scan_osc_payload(&input[1..], events);
+            } else {
+                self.scratch.push(0x1b);
+                self.partial.clear();
+                self.process_plain(input, events);
+            }
+            return;
+        }
+        debug_assert!(self.partial.starts_with(b"\x1b]"));
+        self.scan_osc_payload(input, events);
+    }
+
+    /// Scan a chunk while an incomplete OSC (`partial` = `ESC ]` + payload) is
+    /// pending. Only the newly arrived bytes are examined for a terminator; the
+    /// already-scanned payload is never re-walked. The cap is enforced on the
+    /// running span (introducer + payload): while the span stays at or below
+    /// `MAX_OSC_LEN` the sequence is buffered; once it would exceed the cap it
+    /// is discarded, dropping everything up to and including the next terminator
+    /// but preserving any content that follows it.
+    fn scan_osc_payload(&mut self, input: &[u8], events: &mut Vec<OscSideEvent>) {
+        let payload_len = self.partial.len() - 2;
+        debug_assert!(payload_len <= MAX_OSC_LEN - 2);
+
+        // Terminator split across the boundary: the accumulated payload ends
+        // with `ESC` and the chunk begins with `\` → `ESC \`.
+        if self.partial.last() == Some(&0x1b) && input.first() == Some(&0x5c) {
+            // Payload ends one byte early (the trailing ESC is the terminator);
+            // the emitted sequence still includes it, plus the `\` from input.
+            self.finish_osc(
+                input,
+                self.partial.len() - 3,
+                0,
+                self.partial.len(),
+                1,
+                events,
+            );
+            return;
+        }
+
+        // Terminator window: payload positions [0, MAX_OSC_LEN). Only the first
+        // `MAX_OSC_LEN - payload_len` chunk bytes are inside it; the ESC
+        // check-ahead may read one byte past the window.
+        let window = (MAX_OSC_LEN - payload_len).min(input.len());
+        let mut i = 0;
+        while i < window {
+            match memchr::memchr2(0x07, 0x1b, &input[i..window]) {
+                Some(off) => {
+                    let pos = i + off;
+                    if input[pos] == 0x07 {
+                        self.finish_osc(input, payload_len, pos, self.partial.len(), pos + 1, events);
+                        return;
+                    }
+                    match input.get(pos + 1) {
+                        Some(0x5c) => {
+                            self.finish_osc(input, payload_len, pos, self.partial.len(), pos + 2, events);
+                            return;
+                        }
+                        Some(_) => i = pos + 1,
+                        // Trailing `ESC`: the next chunk may complete `ESC \`.
+                        None => i = pos + 1,
+                    }
+                }
+                None => break,
+            }
+        }
+
+        // No terminator in the window. Buffer only while the span stays within
+        // the cap; otherwise discard and scan the rest of the chunk for the
+        // next terminator so content after it is preserved.
+        let remaining = MAX_OSC_LEN - 2 - payload_len;
+        if input.len() > remaining {
+            self.partial.clear();
+            self.discarding = true;
+            self.process_discarding(input, events);
+        } else {
+            self.partial.extend_from_slice(input);
+            self.note_partial_copy(input.len());
+        }
+    }
+
+    /// Complete the suspended OSC. Its payload is `partial[2..2 +
+    /// payload_partial_end]` concatenated with `input[..payload_input_end]`; the
+    /// full sequence to emit on passthrough is `partial[..seq_partial_end]`
+    /// concatenated with `input[..seq_input_end]`. Strip it if recognized,
+    /// otherwise pass it through, then keep scanning the chunk tail.
+    fn finish_osc(
+        &mut self,
+        input: &[u8],
+        payload_partial_end: usize,
+        payload_input_end: usize,
+        seq_partial_end: usize,
+        seq_input_end: usize,
+        events: &mut Vec<OscSideEvent>,
+    ) {
+        let mut payload = Vec::with_capacity(payload_partial_end + payload_input_end);
+        payload.extend_from_slice(&self.partial[2..2 + payload_partial_end]);
+        payload.extend_from_slice(&input[..payload_input_end]);
+        if !self.dispatch_osc(&payload, events) {
+            self.scratch.extend_from_slice(&self.partial[..seq_partial_end]);
+            self.scratch.extend_from_slice(&input[..seq_input_end]);
+        }
+        self.partial.clear();
+        self.process_plain(&input[seq_input_end..], events);
+    }
+
+    /// Drop everything until the next BEL/ST while discarding an oversized OSC.
+    fn process_discarding(&mut self, input: &[u8], events: &mut Vec<OscSideEvent>) {
+        debug_assert!(self.discarding);
+        if input.is_empty() {
+            return;
+        }
+        if std::mem::take(&mut self.discard_esc) && input[0] == b'\\' {
+            self.discarding = false;
+            self.process_plain(&input[1..], events);
+            return;
+        }
+        let mut i = 0;
+        while i < input.len() {
+            match memchr::memchr2(0x07, 0x1b, &input[i..]) {
+                Some(off) => {
+                    let pos = i + off;
+                    if input[pos] == 0x07 {
+                        self.discarding = false;
+                        self.process_plain(&input[pos + 1..], events);
+                        return;
+                    }
+                    match input.get(pos + 1) {
+                        Some(0x5c) => {
+                            self.discarding = false;
+                            self.process_plain(&input[pos + 2..], events);
+                            return;
+                        }
+                        Some(_) => i = pos + 1,
+                        // Remember a possible ST split across chunks.
+                        None => {
+                            self.discard_esc = true;
+                            return;
+                        }
+                    }
+                }
+                None => return,
+            }
+        }
     }
 
     /// Returns `true` if the OSC was recognised and should be stripped.
@@ -909,6 +1080,108 @@ mod stripper_tests {
         assert!(clean.is_empty(), "partial must not leak: {clean:?}");
         let (clean2, _) = run_impl(&[chunks.concat().as_slice()]);
         assert_eq!(clean2, clean);
+    }
+
+    #[test]
+    fn split_esc_backslash_and_bel_boundaries() {
+        // `ESC \` and BEL terminators must survive every byte split, including
+        // splits that put the `ESC` of `ESC \` at the very end of one chunk
+        // and the `\` at the start of the next (the boundary-spanning
+        // terminator) — for both stripped and passthrough OSC numbers.
+        let cases: Vec<&[u8]> = vec![
+            b"a\x1b]0;t1\x1b\\b\x1b]0;t2\x07c",
+            b"\x1b]8;;https://x\x1b\\link",
+            b"\x1b]7;/x\x1b\\\x1b]133;A\x07",
+            b"\x1b]52;0;QUFB\x1b\\\x1b]52;c;?\x07",
+        ];
+        for stream in cases {
+            // Every byte boundary (exhaustive chunking) must agree with the
+            // whole stream.
+            assert_split_invariant(stream);
+            // And the result must match the spec oracle byte-for-byte.
+            let (clean, _) = run_impl(&[stream]);
+            let (expected, _) = oracle_strip(stream);
+            assert_eq!(clean, expected, "stream {stream:?}");
+        }
+    }
+
+    #[test]
+    fn oversize_tiny_chunks_regression_linear_scan() {
+        // Regression for the pathological feeding pattern: an unterminated OSC
+        // far past the cap delivered one byte per chunk. The incremental
+        // scanner must examine/copy bytes only linearly (bytes copied into the
+        // pending buffer stay below the total input size); the old
+        // concatenate-then-rescan design copied ~n²/2 bytes here (≈35 GB),
+        // which is what made this test take over a minute in debug.
+        let mut stream = b"head \x1b]0;".to_vec();
+        stream.extend(std::iter::repeat_n(b'x', MAX_OSC_LEN + 4096));
+        let mut s = OscStripper::new();
+        let mut acc = Vec::new();
+        for &b in &stream {
+            let (clean, events) = s.process(vec![b]);
+            acc.extend_from_slice(&clean);
+            assert!(events.is_empty());
+        }
+        assert_eq!(acc, b"head ".to_vec(), "oversized OSC must be discarded");
+        assert!(
+            s.partial_copies < stream.len(),
+            "pending-OSC accumulation copied {} bytes for a {} byte stream; expected linear, not quadratic",
+            s.partial_copies,
+            stream.len(),
+        );
+    }
+
+    #[test]
+    fn oversized_osc_discard_ends_at_split_st() {
+        let mut s = OscStripper::new();
+        let mut stream = b"\x1b]0;".to_vec();
+        stream.extend(std::iter::repeat_n(b'x', MAX_OSC_LEN + 1));
+        assert!(s.process(stream).0.is_empty());
+        assert!(s.process(b"\x1b".to_vec()).0.is_empty());
+        assert!(s.process(Vec::new()).0.is_empty());
+        let (clean, events) = s.process(b"\\tail\x1b]0;title\x07".to_vec());
+        assert_eq!(clean, b"tail");
+        assert_eq!(events.len(), 1);
+        assert!(!s.discarding);
+    }
+
+    #[test]
+    fn split_osc_interpretations_across_boundaries() {
+        // Every OSC side event (title, cwd, shell integration A–E/P, OSC 52)
+        // must be interpreted identically no matter how its payload is split
+        // across chunks — the incremental accumulation path must dispatch the
+        // exact same payloads as a single-chunk feed.
+        let stream = concat!(
+            "\x1b]0;title\x07\x1b]1;t2\x1b\\\x1b]7;/home/user\x07",
+            "\x1b]133;A\x07\x1b]133;B\x07\x1b]133;C\x07\x1b]133;D;42\x07",
+            "\x1b]633;E;git status\x07\x1b]633;P;IsWindows=true\x07",
+            "\x1b]633;P;Cwd=/home\x07\x1b]52;0;SGVsbG8=\x07\x1b]52;c;?\x1b\\",
+        );
+        let (whole_clean, whole_keys) = run_impl(&[stream.as_bytes()]);
+        assert_eq!(whole_clean, b"", "every sequence must be stripped");
+        assert_eq!(
+            whole_keys,
+            vec![
+                "Title(title)",
+                "Title(t2)",
+                "Cwd(/home/user)",
+                "PromptStart",
+                "PromptEnd",
+                "PreExec",
+                "CommandDone(Some(42))",
+                "CommandLine(git status)",
+                "Cwd(/home)",
+                "Osc52Set(SGVsbG8=)",
+                "Osc52Query(c)",
+            ],
+        );
+        for cuts in [1usize, 3, 9, 31] {
+            let mut g = Gen { seed: 0x7F4A7C15 };
+            let chunks = chunk_random(&mut g, stream.as_bytes(), cuts);
+            let (clean, keys) = run_impl(&chunks);
+            assert_eq!(clean, whole_clean, "clean diverged (cuts={cuts})");
+            assert_eq!(keys, whole_keys, "events diverged (cuts={cuts})");
+        }
     }
 
     #[test]
