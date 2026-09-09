@@ -6092,6 +6092,18 @@ async function boot(): Promise<void> {
 		return commands;
 	}
 
+	/** Modifier prefix of a binding (everything before the final `+`), or "" when bare. */
+	function bindingModifiers(raw: string | undefined): string {
+		const last = raw?.lastIndexOf("+");
+		if (!raw || last == null || last < 0) return "";
+		return raw.slice(0, last);
+	}
+
+	/** Resolve the modifier prefix of a binding, with a fallback. */
+	function helpGroup(modifiers: string, key: string): string {
+		return modifiers ? `${modifiers}+${key}` : key;
+	}
+
 	function renderHelpShortcuts(): void {
 		const list = helpPanelEl?.querySelector(
 			".help-shortcuts",
@@ -6108,6 +6120,14 @@ async function boot(): Promise<void> {
 			seen.add(hotkey);
 			rows.push({ hotkey, label: cmd.label.replace(/…$/, "") });
 		}
+
+		// Grouped bindings (arrows / digit placeholders) derive their modifier
+		// prefix live from the resolved binding so custom rebinds are shown here too.
+		const focusMods = bindingModifiers(k.label("pane_focus_left"));
+		const swapMods = bindingModifiers(k.label("pane_swap_left"));
+		const tabMods = bindingModifiers(k.label("tab_switch"));
+		const moveMods = bindingModifiers(k.label("pane_move_to_tab"));
+
 		// Keyboard + mouse shortcuts that aren't palette commands.
 		// Keybind labels resolve live so custom rebinds show here too.
 		rows.push(
@@ -6139,10 +6159,10 @@ async function boot(): Promise<void> {
 				label: "New floating pane with profile…",
 			},
 			{ hotkey: k.label("pane_float_follow"), label: "Toggle floating follow" },
-			{ hotkey: "Alt+Arrows", label: "Focus adjacent pane" },
-			{ hotkey: "Ctrl+Shift+Arrows", label: "Swap pane with neighbor" },
-			{ hotkey: "Alt+1–9", label: "Switch to tab" },
-			{ hotkey: "Ctrl+Shift+1–9, 0", label: "Move pane to tab" },
+			{ hotkey: helpGroup(focusMods, "Arrows"), label: "Focus adjacent pane" },
+			{ hotkey: helpGroup(swapMods, "Arrows"), label: "Swap pane with neighbor" },
+			{ hotkey: helpGroup(tabMods, "1–9"), label: "Switch to tab" },
+			{ hotkey: helpGroup(moveMods, "1–9, 0"), label: "Move pane to tab" },
 			{ hotkey: k.label("window_maximize"), label: "Maximize window" },
 			{ hotkey: k.label("window_restore"), label: "Restore window" },
 			{
@@ -6155,7 +6175,8 @@ async function boot(): Promise<void> {
 			},
 			{ hotkey: k.label("window_toggle"), label: "Hide / show overlay" },
 			{ hotkey: k.label("settings_open"), label: "Settings" },
-			{ hotkey: "Shift+Enter", label: "Insert newline" },
+			{ hotkey: k.label("notification_focus"), label: "Go to finished process" },
+			{ hotkey: k.label("terminal_newline"), label: "Insert newline" },
 			...[
 				["terminal_zoom_in", "Zoom hovered terminal in"],
 				["terminal_zoom_out", "Zoom hovered terminal out"],
@@ -6167,9 +6188,12 @@ async function boot(): Promise<void> {
 					hotkey: k.label(action),
 					label,
 				})),
-			{ hotkey: "Alt+Drag", label: "Move floating pane or swap tiled panes" },
+			{
+				hotkey: "Ctrl+Alt+Drag",
+				label: "Move floating pane or swap tiled panes",
+			},
 			{ hotkey: "Alt+Shift+Drag", label: "Move window from anywhere" },
-			{ hotkey: "Ctrl+V", label: "Paste from clipboard" },
+			{ hotkey: k.label("terminal_paste"), label: "Paste from clipboard" },
 			{ hotkey: "Right-click", label: "Paste from clipboard" },
 		);
 		list.replaceChildren(
