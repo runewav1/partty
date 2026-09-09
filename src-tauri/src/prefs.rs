@@ -1576,7 +1576,10 @@ mod renderer_config_tests {
 
     #[test]
     fn default_renderer_is_webgpu() {
-        assert!(!Prefs::default().use_webgl, "WebGPU must be the default renderer");
+        assert!(
+            !Prefs::default().use_webgl,
+            "WebGPU must be the default renderer"
+        );
         let config = ConfigToml::default();
         assert!(!config.terminal.use_webgl);
         // Legacy experimental section stays present for the OpenConsole knob.
@@ -1590,7 +1593,10 @@ mod renderer_config_tests {
         // WebGL for existing users — the new WebGPU default wins (intentional
         // default change, no migration of old `false` to WebGL).
         let p = prefs_from("[terminal.experimental]\nwebgpu = false\n");
-        assert!(!p.use_webgl, "legacy webgpu=false must resolve to WebGPU default");
+        assert!(
+            !p.use_webgl,
+            "legacy webgpu=false must resolve to WebGPU default"
+        );
     }
 
     #[test]
@@ -1614,7 +1620,10 @@ mod renderer_config_tests {
 
     #[test]
     fn serializes_use_webgl_as_camel_case_toml_key() {
-        let p = Prefs { use_webgl: true, ..Prefs::default() };
+        let p = Prefs {
+            use_webgl: true,
+            ..Prefs::default()
+        };
         let text = toml::to_string(&ConfigToml::from(&p)).unwrap();
         assert!(text.contains("useWebGL = true"), "got: {text}");
         assert!(!text.contains("use_webgl = true"), "got: {text}");
@@ -1625,7 +1634,10 @@ mod renderer_config_tests {
     #[test]
     fn roundtrip_preserves_use_webgl() {
         for use_webgl in [false, true] {
-            let p = Prefs { use_webgl, ..Prefs::default() };
+            let p = Prefs {
+                use_webgl,
+                ..Prefs::default()
+            };
             let text = toml::to_string(&ConfigToml::from(&p)).unwrap();
             let back = Prefs::from(toml::from_str::<ConfigToml>(&text).unwrap());
             assert_eq!(back.use_webgl, use_webgl);

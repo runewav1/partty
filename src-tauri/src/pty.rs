@@ -313,12 +313,26 @@ impl OscStripper {
                 Some(off) => {
                     let pos = i + off;
                     if input[pos] == 0x07 {
-                        self.finish_osc(input, payload_len, pos, self.partial.len(), pos + 1, events);
+                        self.finish_osc(
+                            input,
+                            payload_len,
+                            pos,
+                            self.partial.len(),
+                            pos + 1,
+                            events,
+                        );
                         return;
                     }
                     match input.get(pos + 1) {
                         Some(0x5c) => {
-                            self.finish_osc(input, payload_len, pos, self.partial.len(), pos + 2, events);
+                            self.finish_osc(
+                                input,
+                                payload_len,
+                                pos,
+                                self.partial.len(),
+                                pos + 2,
+                                events,
+                            );
                             return;
                         }
                         Some(_) => i = pos + 1,
@@ -362,7 +376,8 @@ impl OscStripper {
         payload.extend_from_slice(&self.partial[2..2 + payload_partial_end]);
         payload.extend_from_slice(&input[..payload_input_end]);
         if !self.dispatch_osc(&payload, events) {
-            self.scratch.extend_from_slice(&self.partial[..seq_partial_end]);
+            self.scratch
+                .extend_from_slice(&self.partial[..seq_partial_end]);
             self.scratch.extend_from_slice(&input[..seq_input_end]);
         }
         self.partial.clear();
