@@ -139,11 +139,12 @@ let webgpuSessionGeneration = 0;
 let webgpuFailed = false;
 
 /**
- * Renderer factory for the "enable WebGPU renderer" experimental option. When
- * enabled, one shared WebGPU session (device + pipelines + glyph atlases) is
- * created lazily per webview and a session addon is returned for each pane;
- * WebGL is never constructed while enabled. When disabled, a plain WebGL addon
- * is returned. The caller verifies the installed backend via
+ * Renderer factory. WebGPU is the default renderer: when `useWebgpu` is true
+ * (the default — `use_webgl` pref is false), one shared WebGPU session (device
+ * + pipelines + glyph atlases) is created lazily per webview and a session
+ * addon is returned for each pane; WebGL is never constructed while enabled.
+ * When `useWebgpu` is false (the `use_webgl` compatibility pref), a plain
+ * WebGL addon is returned. The caller verifies the installed backend via
  * activeRendererKind() after loadAddon.
  */
 export async function createRendererAddon(useWebgpu: boolean): Promise<TerminalRendererAddon> {

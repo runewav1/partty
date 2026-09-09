@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
 
-const root = fileURLToPath(new URL("../src/", import.meta.url));
+const root = fileURLToPath(new URL("../../src/", import.meta.url));
 const noop = () => {};
 class Element {
 	dataset = {};

@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
-const config = defineConfig(({ mode }) => {
+const config = defineConfig(({ command }) => {
 	const aliases: Record<string, string> = {
 		// @xterm/addon-ligatures bundles `lru-cache`, whose node-ESM build
 		// performs a top-level `import { channel, tracingChannel } from
@@ -24,13 +24,6 @@ const config = defineConfig(({ mode }) => {
 		),
 	};
 
-	if (mode === "production") {
-		aliases[path.resolve(__dirname, "src/pty/perf.ts")] = path.resolve(
-			__dirname,
-			"src/pty/perf.stub.ts",
-		);
-	}
-
 	let hmr: { protocol: "ws"; host: string; port: number } | undefined;
 	if (host) {
 		hmr = {
@@ -42,7 +35,13 @@ const config = defineConfig(({ mode }) => {
 
 	return {
 		resolve: {
-			alias: aliases,
+			alias: [
+				...(command === "build" ? [{
+					find: /^(?:.*\/)pty\/perf(?:\.ts)?$/,
+					replacement: path.resolve(__dirname, "src/pty/perf.stub.ts"),
+				}] : []),
+				...Object.entries(aliases).map(([find, replacement]) => ({ find, replacement })),
+			],
 		},
 
 		optimizeDeps: {

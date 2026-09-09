@@ -7,6 +7,8 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "tsc && vite build",
+		"test:metrics": "node --experimental-vm-modules --test src/tests/metricsCore.test.mjs src/tests/perf.test.mjs && node --experimental-strip-types --test src/tests/devMetricsOverlay.test.mjs",
+		"test:metrics:production": "pnpm run build && node scripts/check-production-metrics.mjs",
 		"build:ext": "vite build --config extensions/vite.config.js",
 		"preview": "vite preview",
 		"tauri": "node scripts/tauri.js",

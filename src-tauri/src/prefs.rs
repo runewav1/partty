@@ -237,10 +237,10 @@ pub struct Prefs {
     pub terminal_animation_style: String,
     #[serde(default)]
     pub terminal_sideload_openconsole: bool,
-    /// Use the experimental WebGPU renderer (shared single-device context).
-    /// Defaults to WebGL; WebGPU is used exclusively when enabled.
+    /// Use the WebGL compatibility renderer instead of WebGPU. WebGPU is the
+    /// default renderer; WebGL is used only when this is enabled.
     #[serde(default)]
-    pub terminal_webgpu: bool,
+    pub use_webgl: bool,
     #[serde(default = "default_true")]
     pub terminal_window_motion: bool,
     #[serde(default = "default_split_layout_style")]
@@ -397,7 +397,7 @@ impl Default for Prefs {
             terminal_animation_style: default_terminal_animation_style(),
             terminal_window_motion: true,
             terminal_sideload_openconsole: false,
-            terminal_webgpu: false,
+            use_webgl: false,
             split_layout_style: default_split_layout_style(),
             quiet_pane_deferral: false,
             default_profile_id: default_default_profile_id(),
@@ -1045,6 +1045,10 @@ pub struct FontFamilySection {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TerminalSection {
+    /// Use the WebGL compatibility renderer instead of WebGPU. Exposed in the
+    /// TOML as `useWebGL` (camelCase). WebGPU is the default renderer.
+    #[serde(default, rename = "useWebGL")]
+    pub use_webgl: bool,
     #[serde(default)]
     pub experimental: TerminalExperimentalSection,
 }
@@ -1059,10 +1063,6 @@ pub struct TerminalExperimentalSection {
     /// first spawn). Falls back to the inbox host when the DLLs are absent.
     #[serde(default)]
     pub sideload_openconsole: bool,
-    /// Use the experimental WebGPU renderer with a single shared device across
-    /// all terminal panes. When enabled, WebGL is never used.
-    #[serde(default)]
-    pub webgpu: bool,
 }
 
 /// Ctrl+Alt+click on a path in a terminal pane opens a new split pane with
@@ -1171,7 +1171,7 @@ impl From<ConfigToml> for Prefs {
             terminal_animation_style: c.animation.easing,
             terminal_window_motion: c.animation.window_motion,
             terminal_sideload_openconsole: c.terminal.experimental.sideload_openconsole,
-            terminal_webgpu: c.terminal.experimental.webgpu,
+            use_webgl: c.terminal.use_webgl,
             split_layout_style: c.split.layout,
             quiet_pane_deferral: c.split.quiet_defer,
             default_profile_id: c.profiles.default,
@@ -1234,9 +1234,9 @@ impl From<&Prefs> for ConfigToml {
     fn from(p: &Prefs) -> Self {
         Self {
             terminal: TerminalSection {
+                use_webgl: p.use_webgl,
                 experimental: TerminalExperimentalSection {
                     sideload_openconsole: p.terminal_sideload_openconsole,
-                    webgpu: p.terminal_webgpu,
                 },
             },
             cursor: CursorSection {
@@ -1563,5 +1563,86 @@ b = "ok"
         let map = resolve_selection_alias_pairs(&pairs);
         assert!(!map.contains_key("a"));
         assert_eq!(map.get("b").map(String::as_str), Some("ok"));
+    }
+}
+
+#[cfg(test)]
+mod renderer_config_tests {
+    use super::*;
+
+    fn prefs_from(text: &str) -> Prefs {
+        Prefs::from(toml::from_str::<ConfigToml>(text).unwrap())
+    }
+
+    #[test]
+    fn default_renderer_is_webgpu() {
+        assert!(!Prefs::default().use_webgl, "WebGPU must be the default renderer");
+        let config = ConfigToml::default();
+        assert!(!config.terminal.use_webgl);
+        // Legacy experimental section stays present for the OpenConsole knob.
+        assert!(!config.terminal.experimental.sideload_openconsole);
+    }
+
+    #[test]
+    fn legacy_experimental_webgpu_false_maps_to_webgpu_default() {
+        // Legacy config: `experimental.webgpu = false` was the old default and
+        // meant WebGL. The knob is removed, and its absence must NOT force
+        // WebGL for existing users — the new WebGPU default wins (intentional
+        // default change, no migration of old `false` to WebGL).
+        let p = prefs_from("[terminal.experimental]\nwebgpu = false\n");
+        assert!(!p.use_webgl, "legacy webgpu=false must resolve to WebGPU default");
+    }
+
+    #[test]
+    fn legacy_experimental_webgpu_true_maps_to_webgpu() {
+        // Legacy opt-in already used WebGPU; the new default keeps WebGPU.
+        let p = prefs_from("[terminal.experimental]\nwebgpu = true\n");
+        assert!(!p.use_webgl);
+    }
+
+    #[test]
+    fn new_explicit_use_webgl_true_overrides_to_webgl() {
+        let p = prefs_from("[terminal]\nuseWebGL = true\n");
+        assert!(p.use_webgl);
+    }
+
+    #[test]
+    fn new_explicit_use_webgl_false_keeps_webgpu() {
+        let p = prefs_from("[terminal]\nuseWebGL = false\n");
+        assert!(!p.use_webgl);
+    }
+
+    #[test]
+    fn serializes_use_webgl_as_camel_case_toml_key() {
+        let p = Prefs { use_webgl: true, ..Prefs::default() };
+        let text = toml::to_string(&ConfigToml::from(&p)).unwrap();
+        assert!(text.contains("useWebGL = true"), "got: {text}");
+        assert!(!text.contains("use_webgl = true"), "got: {text}");
+        // The removed knob must not be re-emitted.
+        assert!(!text.contains("webgpu"), "got: {text}");
+    }
+
+    #[test]
+    fn roundtrip_preserves_use_webgl() {
+        for use_webgl in [false, true] {
+            let p = Prefs { use_webgl, ..Prefs::default() };
+            let text = toml::to_string(&ConfigToml::from(&p)).unwrap();
+            let back = Prefs::from(toml::from_str::<ConfigToml>(&text).unwrap());
+            assert_eq!(back.use_webgl, use_webgl);
+        }
+    }
+
+    #[test]
+    fn openconsole_sideload_kept_and_roundtrips() {
+        let p = Prefs {
+            use_webgl: true,
+            terminal_sideload_openconsole: true,
+            ..Prefs::default()
+        };
+        let text = toml::to_string(&ConfigToml::from(&p)).unwrap();
+        assert!(text.contains("sideload_openconsole = true"), "got: {text}");
+        let back = Prefs::from(toml::from_str::<ConfigToml>(&text).unwrap());
+        assert!(back.use_webgl);
+        assert!(back.terminal_sideload_openconsole);
     }
 }

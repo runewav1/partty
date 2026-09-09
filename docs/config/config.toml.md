@@ -68,6 +68,32 @@ s = "ssh-prod"
 | `bright_bold` | bool | `true` |
 | `backspace_deletes_selection` | bool | `true` | Backspace deletes a single-line selection on the cursor line (sends arrow keys + DEL to the shell; no-op for multi-line / scrollback) |
 
+## `[terminal]`
+
+Renderer selection for terminal panes. WebGPU is the default renderer; the
+`useWebGL` key opts into the WebGL compatibility renderer instead.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `useWebGL` | bool | `false` | Use the WebGL compatibility renderer instead of WebGPU. Enable only when the WebGPU renderer fails or misrenders on your hardware. Takes effect after a restart. |
+
+```toml
+[terminal]
+useWebGL = true
+```
+
+The old `[terminal.experimental] webgpu` knob was removed. WebGPU is now the
+default, so legacy `webgpu = false` configs (the previous default, which meant
+WebGL) are **not** migrated to WebGL — they get the new WebGPU default, and
+legacy `webgpu = true` already used WebGPU. The key is ignored if still present
+in old config files.
+
+### `[terminal.experimental]`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `sideload_openconsole` | bool | `false` | Use a sideloaded `conpty.dll` / `OpenConsole.exe` next to the binary as the ConPTY host (Windows Terminal's approach), enabling image protocols (sixel / kitty / iTerm) that the inbox host filters out. Takes effect for PTYs spawned after the first one; falls back to the inbox host when the DLLs are absent. |
+
 ## `[pane]`
 
 | Key | Type | Default | Range |

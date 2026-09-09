@@ -1136,14 +1136,7 @@ async function boot(): Promise<void> {
 		return next;
 	}
 
-	let lastKeydownTs = 0;
-	document.addEventListener(
-		"keydown",
-		() => {
-			lastKeydownTs = performance.now();
-		},
-		true,
-	);
+	const perfInputEncoder = import.meta.env.DEV ? new TextEncoder() : null;
 
 	const queuePtyWrite = (
 		paneId: string,
@@ -1151,16 +1144,8 @@ async function boot(): Promise<void> {
 		immediate = false,
 	): void => {
 		if (!data) return;
-		parttyPerf.recordPtyInputBytes(paneId, data.length);
-		const keydownTs = lastKeydownTs;
-		if (keydownTs) {
-			lastKeydownTs = 0;
-			if (parttyPerf.enabled) {
-				parttyPerf.time(
-					"input.keydown.to.onData.ms",
-					performance.now() - keydownTs,
-				);
-			}
+		if (parttyPerf.enabled && perfInputEncoder) {
+			parttyPerf.recordPtyInputBytes(paneId, perfInputEncoder.encode(data).byteLength);
 		}
 		// Pastes / large bursts: don't RAF-coalesce into one oversized ConPTY write.
 		if (isBulkPtyInput(data)) {
@@ -1179,7 +1164,6 @@ async function boot(): Promise<void> {
 			flushPendingPtyWriteForPane(paneId);
 			parttyPerf.mark("pty.input.immediate.calls");
 			parttyPerf.mark("pty.input.immediate.chars", data.length);
-			parttyPerf.beginPtyRoundtrip(paneId, keydownTs);
 			void writePtyPayload(paneId, data);
 			parttyPerf.mark("pty.input.immediate");
 			return;
@@ -1247,19 +1231,22 @@ async function boot(): Promise<void> {
 			parttyPerf.mark("pty.output.chars", data.length);
 			parttyPerf.time("pty.output.queue.ms", performance.now() - queuedAt);
 		}
-		const writeStarted = timing ? performance.now() : 0;
+		const writeToken = timing ? parttyPerf.beginTermWrite(paneId, data.byteLength) : null;
 		// OSC 7 / 133 / 633 are stripped and forwarded as structured `pty-cwd` /
 		// `pty-shell-event` side-channel events by the Rust emitter.  Write the
 		// pre-cleaned bytes directly — no character-by-character JS parsing needed.
 		try {
-			if (timing) parttyPerf.beginTermWrite(paneId);
-			pt.term.write(data);
-			if (timing) {
+			if (writeToken) {
+				const writeStarted = performance.now();
+				pt.term.write(data, () => parttyPerf.finishTermWrite(writeToken));
 				const elapsed = performance.now() - writeStarted;
-				parttyPerf.time("xterm.write.ms", elapsed);
-				parttyPerf.paneTime(paneId, "xterm.render.ms", elapsed);
+				parttyPerf.time("xterm.write.call.ms", elapsed);
+				parttyPerf.paneTime(paneId, "xterm.write.call.ms", elapsed);
+			} else {
+				pt.term.write(data);
 			}
 		} catch (e) {
+			if (writeToken) parttyPerf.cancelTermWrite(writeToken);
 			console.warn("xterm.write", e);
 		}
 	}
@@ -1364,7 +1351,6 @@ async function boot(): Promise<void> {
 	 */
 	function deliverDirectPtyOut(paneId: string, data: Uint8Array): void {
 		queuePtyOutput(paneId, data);
-		parttyPerf.completePtyRoundtrip(paneId);
 		if (extPtyOutputSubs.length > 0) {
 			const text = ptyOutputDecoder.decode(data);
 			for (const fn of extPtyOutputSubs) {
@@ -1781,8 +1767,8 @@ async function boot(): Promise<void> {
 			const started = performance.now();
 			let addon: TerminalRendererAddon | undefined;
 			try {
-				const useWebgpu = Boolean(
-					(persisted.prefs as Partial<ParttyPrefs>).terminal_webgpu,
+				const useWebgpu = !Boolean(
+					(persisted.prefs as Partial<ParttyPrefs>).use_webgl,
 				);
 				state.attempts++;
 				addon = await createRendererAddon(useWebgpu);
@@ -3122,9 +3108,6 @@ async function boot(): Promise<void> {
 							handleTerminalLinkActivation(pt.paneId, event, match),
 					});
 					paneLinkProviders.set(id, linkProvider);
-					pt.term.onRender(() => {
-						parttyPerf.finishTermRender(id);
-					});
 					pt.term.onData((data) => {
 						parttyPerf.recordInputEvent();
 						queuePtyWrite(pt.paneId, data);
