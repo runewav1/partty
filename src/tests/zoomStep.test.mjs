@@ -88,3 +88,28 @@ test("normalizeZoomStep keeps a valid in-range step (incl. 2 decimals)", () => {
 	assert.equal(normalizeZoomStep(1), 1);
 	assert.equal(normalizeZoomStep(2), 2);
 });
+
+test("multi-notch accumulation equals notches × step (all-visible flush delta)", () => {
+	assertFontSize(nextZoomFontSize(12, 3 * 0.25), 12.75);
+	assertFontSize(nextZoomFontSize(12, -3 * 0.25), 11.25);
+	assertFontSize(nextZoomFontSize(12, 2 * 0.1), 12.2);
+});
+
+test("same delta applied to differing starts preserves each pane's difference", () => {
+	// Zoom-all-visible must scale every pane by the same notch, never reset
+	// them to a common size. Unclamped panes move by exactly the same amount.
+	const starts = [10, 11.25, 12.5, 20];
+	const delta = 2 * 0.25;
+	const next = starts.map((s) => nextZoomFontSize(s, delta));
+	for (let i = 0; i < starts.length; i++) {
+		assertFontSize(next[i], starts[i] + delta);
+	}
+});
+
+test("clamps apply per pane, not as a shared cap", () => {
+	// At the ceiling a pane stops, while a lower pane keeps scaling.
+	assertFontSize(nextZoomFontSize(ZOOM_FONT_MAX - 0.2, 0.5), ZOOM_FONT_MAX);
+	assertFontSize(nextZoomFontSize(10, 0.5), 10.5);
+	assertFontSize(nextZoomFontSize(ZOOM_FONT_MIN + 0.2, -0.5), ZOOM_FONT_MIN);
+	assertFontSize(nextZoomFontSize(30, -0.5), 29.5);
+});

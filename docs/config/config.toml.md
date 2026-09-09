@@ -46,7 +46,7 @@ s = "ssh-prod"
 | Key | Type | Default | Range |
 |-----|------|---------|-------|
 | `size` | float px | `12.0` | `8`–`48` |
-| `zoom_step` | float px | `0.25` | `0.05`–`2` (Ctrl+wheel terminal font-size step) |
+| `zoom_step` | float px | `0.25` | `0.05`–`2` (per-notch wheel zoom step; used by both `terminal_zoom_*` hovered and all-visible keybinds, see [`keybinds.toml`](keybinds.toml.md)) |
 | `weight` | string | `"normal"` | CSS `font-weight` |
 | `weight_bold` | string | `"bold"` | CSS `font-weight` |
 | `line_height` | float | `1.0` | `0.5`–`4.0` (multiplier) |

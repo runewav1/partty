@@ -57,6 +57,12 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("terminal_newline", "Shift+Enter"),
     ("terminal_copy", "Ctrl+C"),
     ("terminal_paste", "Ctrl+V"),
+    // Split wheel font zoom: Ctrl+wheel scales the hovered terminal while
+    // Ctrl+Shift+wheel scales every visible terminal synchronously.
+    ("terminal_zoom_in", "Ctrl+WheelUp"),
+    ("terminal_zoom_out", "Ctrl+WheelDown"),
+    ("terminal_zoom_all_in", "Ctrl+Shift+WheelUp"),
+    ("terminal_zoom_all_out", "Ctrl+Shift+WheelDown"),
     ("dev_toggle", "Ctrl+Shift+D"),
 ];
 
@@ -73,14 +79,19 @@ pub fn load_keybinds() -> KeybindsFile {
         return KeybindsFile::default();
     };
     let mut kb: KeybindsFile = toml::from_str::<KeybindsFile>(&s).unwrap_or_default();
-    let defaults = default_binds_map();
-    for (action, binding) in defaults {
+    merge_defaults(&mut kb);
+    kb
+}
+
+/// Apply default bindings for any action the file omits, then drop unbound
+/// actions. Pure (no fs) so the load/serde path is unit-testable.
+fn merge_defaults(kb: &mut KeybindsFile) {
+    for (action, binding) in default_binds_map() {
         kb.bind.entry(action).or_insert(binding);
     }
     for action in &kb.unbind {
         kb.bind.remove(action);
     }
-    kb
 }
 
 pub fn save_keybinds(kb: &KeybindsFile) {
@@ -366,4 +377,87 @@ pub fn reset_keybinds() -> Result<(), String> {
         let _ = fs::remove_file(&path);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod keybinds_tests {
+    use super::*;
+
+    #[test]
+    fn defaults_include_split_wheel_zoom_bindings() {
+        let defaults = default_binds_map();
+        assert_eq!(
+            defaults.get("terminal_zoom_in").map(String::as_str),
+            Some("Ctrl+WheelUp")
+        );
+        assert_eq!(
+            defaults.get("terminal_zoom_out").map(String::as_str),
+            Some("Ctrl+WheelDown")
+        );
+        assert_eq!(
+            defaults.get("terminal_zoom_all_in").map(String::as_str),
+            Some("Ctrl+Shift+WheelUp")
+        );
+        assert_eq!(
+            defaults.get("terminal_zoom_all_out").map(String::as_str),
+            Some("Ctrl+Shift+WheelDown")
+        );
+    }
+
+    #[test]
+    fn default_file_contains_wheel_zoom_actions() {
+        let kb = KeybindsFile::default();
+        assert_eq!(
+            kb.bind.get("terminal_zoom_all_in").map(String::as_str),
+            Some("Ctrl+Shift+WheelUp")
+        );
+        assert_eq!(
+            kb.bind.get("terminal_zoom_all_out").map(String::as_str),
+            Some("Ctrl+Shift+WheelDown")
+        );
+    }
+
+    #[test]
+    fn partial_toml_merges_defaults_and_honors_unbind() {
+        let mut kb: KeybindsFile = toml::from_str(
+            "unbind = [\"dev_toggle\"]\n\n[bind]\nterminal_zoom_in = \"Ctrl+WheelDown\"\n",
+        )
+        .unwrap();
+        merge_defaults(&mut kb);
+        // Custom override wins…
+        assert_eq!(
+            kb.bind.get("terminal_zoom_in").map(String::as_str),
+            Some("Ctrl+WheelDown")
+        );
+        // …while untouched defaults (including the other zoom actions) fill in.
+        assert_eq!(
+            kb.bind.get("terminal_zoom_out").map(String::as_str),
+            Some("Ctrl+WheelDown")
+        );
+        assert_eq!(
+            kb.bind.get("terminal_zoom_all_in").map(String::as_str),
+            Some("Ctrl+Shift+WheelUp")
+        );
+        assert_eq!(
+            kb.bind.get("terminal_zoom_all_out").map(String::as_str),
+            Some("Ctrl+Shift+WheelDown")
+        );
+        assert!(!kb.bind.contains_key("dev_toggle"));
+    }
+
+    #[test]
+    fn snapshot_exposes_merged_wheel_zoom_bindings() {
+        let mut kb: KeybindsFile =
+            toml::from_str("[bind]\nterminal_zoom_all_in = \"Ctrl+Alt+WheelUp\"\n").unwrap();
+        merge_defaults(&mut kb);
+        let snap = KeybindsSnapshot::from(&kb);
+        assert_eq!(
+            snap.bind.get("terminal_zoom_all_in").map(String::as_str),
+            Some("Ctrl+Alt+WheelUp")
+        );
+        assert_eq!(
+            snap.bind.get("terminal_zoom_all_out").map(String::as_str),
+            Some("Ctrl+Shift+WheelDown")
+        );
+    }
 }

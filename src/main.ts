@@ -134,6 +134,11 @@ import {
 	readWorkspace,
 	type Workspace,
 } from "./tabs/workspaces";
+import {
+	WHEEL_ZOOM_ACTIONS,
+	zoomAppliesToAllVisible,
+	zoomDirectionForAction,
+} from "./terminal/keybindCore";
 import { createKeybinds } from "./terminal/keybinds";
 import {
 	registerTerminalLinkProvider,
@@ -189,6 +194,10 @@ import {
 	uiPrefsChanged,
 } from "./terminal/uiTheme";
 import { nextZoomFontSize, normalizeZoomStep } from "./terminal/zoomStep";
+import {
+	selectVisibleZoomPaneIds,
+	type ZoomPaneDescriptor,
+} from "./terminal/zoomTargets";
 import { escapeHtml } from "./util/html";
 import { lazyCell, runLazy } from "./util/lazyOnce";
 import { filterAndRankLexical, normalizeQuery } from "./util/lexicalSearch";
@@ -1988,16 +1997,48 @@ async function boot(): Promise<void> {
 		);
 	}
 
+	/** The host that owns `paneId` (a follow float may live on another tab's host). */
+	function hostForPaneId(paneId: string): PaneHost | null {
+		for (const host of tabPaneHosts.values()) {
+			if (host.getPaneTerminal(paneId)) return host;
+		}
+		return null;
+	}
+
 	function zoomPaneTerminal(paneId: string, deltaPx: number): void {
-		const pt = paneHost?.getPaneTerminal(paneId);
-		if (!(pt && paneHost)) return;
 		if (!Number.isFinite(deltaPx) || deltaPx === 0) return;
+		const host = hostForPaneId(paneId);
+		const pt = host?.getPaneTerminal(paneId);
+		if (!(pt && host)) return;
 		const current = Number(pt.term.options.fontSize ?? 12);
 		const next = nextZoomFontSize(current, deltaPx);
 		if (next === current) return;
-		paneHost.setPaneFontSize(paneId, next);
+		host.setPaneFontSize(paneId, next);
 		lastPtyDims.delete(paneId);
 		scheduleResizeImmediate(true);
+	}
+
+	/**
+	 * Panes currently on screen for "zoom all visible": every leaf of the
+	 * active tab host (tiled or floating over it) plus follow floats, which
+	 * stay mounted in the global follow layer across tab switches. Inactive
+	 * tab shells are `visibility: hidden`, so their non-follow leaves are
+	 * excluded; deferred (not yet live) hosts have no terminals to zoom.
+	 */
+	function collectVisibleZoomPaneIds(): string[] {
+		const panes: ZoomPaneDescriptor[] = [];
+		for (const host of tabPaneHosts.values()) {
+			const hostActive = host === paneHost;
+			for (const id of host.getLeafIdsInOrder()) {
+				panes.push({
+					id,
+					hostActive,
+					following: host.isPaneFollowing(id),
+					live: !!host.getPaneTerminal(id),
+				});
+			}
+		}
+		return selectVisibleZoomPaneIds(panes);
 	}
 
 	const pendingZoomByPane = new Map<string, number>();
@@ -2007,21 +2048,43 @@ async function boot(): Promise<void> {
 		zoomRaf = 0;
 		const entries = [...pendingZoomByPane.entries()];
 		pendingZoomByPane.clear();
-		for (const [paneId, delta] of entries) {
-			zoomPaneTerminal(paneId, Math.sign(delta) * zoomStepRef.v);
+		const step = zoomStepRef.v;
+		for (const [paneId, notches] of entries) {
+			if (notches === 0) continue;
+			zoomPaneTerminal(paneId, notches * step);
 		}
 	}
 
-	function handlePaneZoomWheel(paneId: string, ev: WheelEvent): void {
-		if (!ev.ctrlKey) return;
+	function queuePaneZoomDirection(paneId: string, dir: 1 | -1): void {
+		pendingZoomByPane.set(paneId, (pendingZoomByPane.get(paneId) ?? 0) + dir);
+		if (!zoomRaf) zoomRaf = requestAnimationFrame(flushPendingPaneZoom);
+	}
+
+	function queueVisibleZoomDirection(dir: 1 | -1): void {
+		for (const id of collectVisibleZoomPaneIds()) {
+			queuePaneZoomDirection(id, dir);
+		}
+	}
+
+	/**
+	 * Route a pane wheel event to the configured wheel zoom bindings. The
+	 * binding (not a hardcoded modifier check) decides scope and direction and
+	 * is consulted first. When no binding matches, Ctrl+wheel is still fully
+	 * consumed so it never scrolls the terminal buffer or native viewport; only
+	 * unmatched non-Ctrl events fall through to normal wheel handling.
+	 */
+	function handlePaneWheelZoom(paneId: string, ev: WheelEvent): boolean {
+		const action = k.matchWheel(ev, ...WHEEL_ZOOM_ACTIONS);
+		const consumed = Boolean(action) || ev.ctrlKey;
+		if (!consumed) return false;
 		ev.preventDefault();
 		ev.stopPropagation();
-		const direction = ev.deltaY < 0 ? 1 : -1;
-		pendingZoomByPane.set(
-			paneId,
-			(pendingZoomByPane.get(paneId) ?? 0) + direction,
-		);
-		if (!zoomRaf) zoomRaf = requestAnimationFrame(flushPendingPaneZoom);
+		if (action) {
+			const dir = zoomDirectionForAction(action);
+			if (zoomAppliesToAllVisible(action)) queueVisibleZoomDirection(dir);
+			else queuePaneZoomDirection(paneId, dir);
+		}
+		return true;
 	}
 
 	/** Map wheel deltas to xterm scrollLines (Alt = fast). */
@@ -2052,10 +2115,7 @@ async function boot(): Promise<void> {
 		getPaneId: () => string,
 	): void {
 		term.attachCustomWheelEventHandler((ev) => {
-			if (ev.ctrlKey) {
-				handlePaneZoomWheel(getPaneId(), ev);
-				return false;
-			}
+			if (handlePaneWheelZoom(getPaneId(), ev)) return false;
 			const forceScrollback =
 				ev.shiftKey ||
 				(term.modes.mouseTrackingMode !== "none" &&
@@ -2070,10 +2130,7 @@ async function boot(): Promise<void> {
 
 	/** Forward wheel from host padding (misses xterm's scrollable element). */
 	function handlePaneHostWheel(paneId: string, ev: WheelEvent): void {
-		if (ev.ctrlKey) {
-			handlePaneZoomWheel(paneId, ev);
-			return;
-		}
+		if (handlePaneWheelZoom(paneId, ev)) return;
 		const target = ev.target as HTMLElement | null;
 		if (
 			target?.closest(".xterm-scrollable-element") ||
@@ -2131,6 +2188,10 @@ async function boot(): Promise<void> {
 				"pane_swap_up",
 				"pane_swap_down",
 				"pane_close",
+				"terminal_zoom_in",
+				"terminal_zoom_out",
+				"terminal_zoom_all_in",
+				"terminal_zoom_all_out",
 			);
 
 			if (m) {
@@ -2211,6 +2272,16 @@ async function boot(): Promise<void> {
 					case "pane_close":
 						e.preventDefault();
 						void closeFocusedPane(getPaneId());
+						return false;
+					case "terminal_zoom_in":
+					case "terminal_zoom_out":
+						e.preventDefault();
+						queuePaneZoomDirection(getPaneId(), zoomDirectionForAction(m));
+						return false;
+					case "terminal_zoom_all_in":
+					case "terminal_zoom_all_out":
+						e.preventDefault();
+						queueVisibleZoomDirection(zoomDirectionForAction(m));
 						return false;
 				}
 				return true;
@@ -3138,6 +3209,15 @@ async function boot(): Promise<void> {
 					});
 					const onHostWheel = (ev: WheelEvent) =>
 						handlePaneHostWheel(pt.paneId, ev);
+					// xterm's inner scrollable element handles wheel before the
+					// terminal's custom wheel hook and our host bubble listener.
+					// Consume zoom/Ctrl gestures in capture, before scrolling starts.
+					const onHostWheelCapture = (ev: WheelEvent) =>
+						handlePaneWheelZoom(pt.paneId, ev);
+					pt.host.addEventListener("wheel", onHostWheelCapture, {
+						capture: true,
+						passive: false,
+					});
 					pt.host.addEventListener("wheel", onHostWheel, { passive: false });
 					const onSelDispose = pt.term.onSelectionChange(() => {
 						if (!(autoCopySelectionRef.v && pt.term.hasSelection())) return;
@@ -3146,6 +3226,8 @@ async function boot(): Promise<void> {
 
 					// Register cleanup for pane teardown.
 					paneHostCleanups.set(id, [
+						() =>
+							pt.host.removeEventListener("wheel", onHostWheelCapture, true),
 						() => pt.host.removeEventListener("wheel", onHostWheel),
 						() => onSelDispose.dispose(),
 					]);
@@ -5967,7 +6049,7 @@ async function boot(): Promise<void> {
 				id: "help-hotkeys",
 				label: "Shortcuts",
 				keywords: "hotkeys bindings reference help",
-				hotkey: "Ctrl+Shift+/",
+				hotkey: k.label("help_toggle"),
 				run: () => openHelpPanel(),
 			},
 			{
@@ -5991,9 +6073,10 @@ async function boot(): Promise<void> {
 			".help-shortcuts",
 		) as HTMLElement | null;
 		if (!list) return;
+		const kb = k.all();
 		const seen = new Set<string>();
 		const rows: { hotkey: string; label: string }[] = [
-			{ hotkey: "Ctrl+Shift+P", label: "Command palette" },
+			{ hotkey: k.label("palette_open"), label: "Command palette" },
 		];
 		for (const cmd of getMergedPaletteCommands("")) {
 			const hotkey = cmd.hotkey?.trim();
@@ -6005,7 +6088,10 @@ async function boot(): Promise<void> {
 		// Keybind labels resolve live so custom rebinds show here too.
 		rows.push(
 			{ hotkey: "Tab", label: "New tab / Split → pick profile" },
-			{ hotkey: "@profile", label: "New tab or split with a profile" },
+			{
+				hotkey: "@profile",
+				label: "New tab or split with a profile",
+			},
 			{
 				hotkey: "a / A",
 				label:
@@ -6046,7 +6132,17 @@ async function boot(): Promise<void> {
 			{ hotkey: k.label("window_toggle"), label: "Hide / show overlay" },
 			{ hotkey: k.label("settings_open"), label: "Settings" },
 			{ hotkey: "Shift+Enter", label: "Insert newline" },
-			{ hotkey: "Ctrl+Wheel", label: "Zoom focused pane" },
+			...[
+				["terminal_zoom_in", "Zoom hovered terminal in"],
+				["terminal_zoom_out", "Zoom hovered terminal out"],
+				["terminal_zoom_all_in", "Zoom all visible terminals in"],
+				["terminal_zoom_all_out", "Zoom all visible terminals out"],
+			]
+				.filter(([action]) => kb[action])
+				.map(([action, label]) => ({
+					hotkey: k.label(action),
+					label,
+				})),
 			{ hotkey: "Alt+Drag", label: "Move floating pane or swap tiled panes" },
 			{ hotkey: "Alt+Shift+Drag", label: "Move window from anywhere" },
 			{ hotkey: "Ctrl+V", label: "Paste from clipboard" },
