@@ -170,8 +170,8 @@ importers:
         specifier: 0.20.0
         version: 0.20.0
       '@partty/addon-webgpu':
-        specifier: 0.1.4-rc5
-        version: 0.1.4-rc5
+        specifier: 0.1.4-rc7
+        version: 0.1.4-rc7
       '@tauri-apps/api':
         specifier: ^2.11.1
         version: 2.11.1
@@ -215,8 +215,8 @@ packages:
   '@partty/addon-webgl@0.20.0':
     resolution: {integrity: sha512-mdk6vTsz8f+2dlGiUv6+P2ZDXleX9/irduIHRcg1M44ZhZEdqSyrzMUtJDgnFcLWm8/lzcLpECAjR7HggXnKNg==}
 
-  '@partty/addon-webgpu@0.1.4-rc5':
-    resolution: {integrity: sha512-W4mlRQpQDN0/sI4Qu8bVDnbmhiDuSxgqa/g7St5EXTYuETdNtntydR5olIg8kOC1LX68qDmXudUc5CYL779Ilw==}
+  '@partty/addon-webgpu@0.1.4-rc7':
+    resolution: {integrity: sha512-/MbYz1g5IDfBw2jrz9ekYaiWJdNinfXxj2CeXJORKxk1LgjreM5VrIflNBO87zox0frucEUdH8Ha3T3jVZjNbQ==}
 
   '@rolldown/binding-android-arm-eabi@1.2.7':
     resolution: {integrity: sha512-EypzgnYCwyVY4NDHKzGmNJT5b+XaQEBniHxsMdeIQLB/tcCzZnhqrzHpZFbX9iaxx+5RiB8caATBtfvZP7zVxQ==}
@@ -733,7 +733,7 @@ snapshots:
 
   '@partty/addon-webgl@0.20.0': {}
 
-  '@partty/addon-webgpu@0.1.4-rc5': {}
+  '@partty/addon-webgpu@0.1.4-rc7': {}
 
   '@rolldown/binding-android-arm-eabi@1.2.7':
     optional: true
