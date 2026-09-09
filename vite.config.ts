@@ -8,6 +8,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // Vite exposes its development host through the process environment.
 const host = process.env.TAURI_DEV_HOST;
 
+// Production builds swap the dev metrics collector for a no-op stub. The regex
+// matches the extensionless relative imports used by the app sources so every
+// import resolves to the stub, keeping the real collector out of dist.
+const PARTTY_PERF_STUB_ALIAS = /^(?:.*\/)pty\/perf(?:\.ts)?$/;
+
 // https://vite.dev/config/
 const config = defineConfig(({ command }) => {
 	const aliases: Record<string, string> = {
@@ -39,7 +44,7 @@ const config = defineConfig(({ command }) => {
 				...(command === "build"
 					? [
 							{
-								find: /^(?:.*\/)pty\/perf(?:\.ts)?$/,
+								find: PARTTY_PERF_STUB_ALIAS,
 								replacement: path.resolve(__dirname, "src/pty/perf.stub.ts"),
 							},
 						]

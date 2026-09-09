@@ -62,11 +62,17 @@
 			}
 		},
 		{
-			"includes": ["vite.config.ts", "scripts/tauri.js"],
+			"includes": [
+				"vite.config.ts",
+				"scripts/tauri.js",
+				"scripts/*.mjs",
+				"src/tests/*.test.mjs"
+			],
 			"linter": {
 				"rules": {
 					"correctness": {
-						"noNodejsModules": "off"
+						"noNodejsModules": "off",
+						"useQwikValidLexicalScope": "off"
 					}
 				}
 			}

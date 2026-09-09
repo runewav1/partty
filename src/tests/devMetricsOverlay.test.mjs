@@ -9,15 +9,10 @@
  * Run: node --experimental-strip-types --test src/tests/devMetricsOverlay.test.mjs
  */
 
-// biome-ignore lint/correctness/noNodejsModules: Node-only test harness.
 import assert from "node:assert/strict";
-// biome-ignore lint/correctness/noNodejsModules: Node-only test harness.
 import { register } from "node:module";
-// biome-ignore lint/correctness/noNodejsModules: Node-only test harness.
 import { resolve } from "node:path";
-// biome-ignore lint/correctness/noNodejsModules: Node-only test harness.
 import { test } from "node:test";
-// biome-ignore lint/correctness/noNodejsModules: Node-only test harness.
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 // The real sources use extensionless relative imports; teach Node's resolver to

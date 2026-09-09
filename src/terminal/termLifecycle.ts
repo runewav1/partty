@@ -169,13 +169,9 @@ export async function createRendererAddon(
 						session.dispose();
 						throw new Error("WebGPU session creation cancelled by teardown.");
 					}
-					const failed = (error?: unknown) => {
+					const failed = (): void => {
 						if (generation !== webgpuSessionGeneration) return;
 						webgpuFailed = true;
-						console.error(
-							"WebGPU session failed; panes fall back to DOM, not WebGL.",
-							error,
-						);
 					};
 					session.onError(failed);
 					session.onContextLoss(failed);

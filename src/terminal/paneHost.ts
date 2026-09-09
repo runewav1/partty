@@ -2252,11 +2252,6 @@ export class PaneHost {
 				// duplicated/closed slot), allocate a fresh session id.
 				const persistedSessionId = this.initialSessionIds.get(node.id);
 				this.initialSessionIds.delete(node.id);
-				if (persistedSessionId) {
-					console.info(
-						`pane ${node.id}: re-hooking persisted PTY session ${persistedSessionId}`,
-					);
-				}
 				pt = {
 					term,
 					fit,
