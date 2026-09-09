@@ -113,20 +113,23 @@ export type RendererKind = "webgl" | "webgpu" | "dom";
  * which survives minification (the published bundles mangle class names).
  */
 export function activeRendererKind(term: Terminal): RendererKind {
-	const renderer = (term as unknown as {
-		_core?: {
-			_renderService?: {
-				_renderer?: {
-					value?: { _canvas?: HTMLCanvasElement };
+	const renderer = (
+		term as unknown as {
+			_core?: {
+				_renderService?: {
+					_renderer?: {
+						value?: { _canvas?: HTMLCanvasElement };
+					};
 				};
 			};
-		};
-	})._core?._renderService?._renderer?.value;
+		}
+	)._core?._renderService?._renderer?.value;
 	const canvas = renderer?._canvas;
 	if (!canvas) return "dom";
 	try {
 		if (canvas.getContext("webgpu")) return "webgpu";
-		if (canvas.getContext("webgl2") instanceof WebGL2RenderingContext) return "webgl";
+		if (canvas.getContext("webgl2") instanceof WebGL2RenderingContext)
+			return "webgl";
 	} catch {
 		/* ignore */
 	}
@@ -147,7 +150,9 @@ let webgpuFailed = false;
  * WebGL addon is returned. The caller verifies the installed backend via
  * activeRendererKind() after loadAddon.
  */
-export async function createRendererAddon(useWebgpu: boolean): Promise<TerminalRendererAddon> {
+export async function createRendererAddon(
+	useWebgpu: boolean,
+): Promise<TerminalRendererAddon> {
 	if (useWebgpu) {
 		const generation = webgpuSessionGeneration;
 		if (webgpuFailed) {
@@ -168,7 +173,8 @@ export async function createRendererAddon(useWebgpu: boolean): Promise<TerminalR
 						if (generation !== webgpuSessionGeneration) return;
 						webgpuFailed = true;
 						console.error(
-							"WebGPU session failed; panes fall back to DOM, not WebGL.", error,
+							"WebGPU session failed; panes fall back to DOM, not WebGL.",
+							error,
 						);
 					};
 					session.onError(failed);
@@ -177,7 +183,7 @@ export async function createRendererAddon(useWebgpu: boolean): Promise<TerminalR
 					return session;
 				})();
 			}
-			const session = webgpuSession ?? await webgpuSessionPending!;
+			const session = webgpuSession ?? (await webgpuSessionPending!);
 			if (generation !== webgpuSessionGeneration) {
 				throw new Error("WebGPU session creation cancelled by teardown.");
 			}

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { stripTypeScriptTypes } from "node:module";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
 
 const root = fileURLToPath(new URL("../../src/", import.meta.url));
@@ -27,14 +27,17 @@ class Terminal {
 async function modules(extraMocks = {}) {
 	const storage = new Map();
 	const context = createContext({
-		console, performance,
+		console,
+		performance,
 		localStorage: {
-			getItem: key => storage.get(key) ?? null,
+			getItem: (key) => storage.get(key) ?? null,
 			setItem: (key, value) => storage.set(key, value),
-			removeItem: key => storage.delete(key),
+			removeItem: (key) => storage.delete(key),
 		},
 		document: { createElement: () => new Element() },
-		ResizeObserver: class { observe = noop; },
+		ResizeObserver: class {
+			observe = noop;
+		},
 		requestIdleCallback: noop,
 	});
 	const mocks = {
@@ -44,39 +47,53 @@ async function modules(extraMocks = {}) {
 		"@xterm/addon-unicode-graphemes": { UnicodeGraphemesAddon: class {} },
 		[resolve(root, "pty/perf.ts")]: { parttyPerf: { mark: noop, time: noop } },
 		[resolve(root, "util/motion.ts")]: {
-			afterAnimationFrames: noop, animateClass: noop, motionDisabled: () => true,
+			afterAnimationFrames: noop,
+			animateClass: noop,
+			motionDisabled: () => true,
 		},
 		...extraMocks,
 	};
 	const cache = new Map();
 	async function load(specifier, parent = resolve(root, "entry.ts")) {
 		const key = specifier.startsWith(".")
-			? resolve(dirname(parent), specifier.endsWith(".ts") ? specifier : `${specifier}.ts`)
+			? resolve(
+					dirname(parent),
+					specifier.endsWith(".ts") ? specifier : `${specifier}.ts`,
+				)
 			: specifier;
 		if (cache.has(key)) return cache.get(key);
 		let mod;
 		if (mocks[key]) {
-			mod = new SyntheticModule(Object.keys(mocks[key]), function () {
-				for (const [name, value] of Object.entries(mocks[key])) this.setExport(name, value);
-			}, { context, identifier: key });
-		} else {
-			mod = new SourceTextModule(stripTypeScriptTypes(await readFile(key, "utf8"), {
-				mode: "transform",
-			}), {
-				context, identifier: key,
-				importModuleDynamically: async (name, ref) => {
-					const child = await load(name, ref.identifier);
-					if (child.status === "unlinked") await child.link(link);
-					if (child.status === "linked") await child.evaluate();
-					return child;
+			mod = new SyntheticModule(
+				Object.keys(mocks[key]),
+				function () {
+					for (const [name, value] of Object.entries(mocks[key]))
+						this.setExport(name, value);
 				},
-			});
+				{ context, identifier: key },
+			);
+		} else {
+			mod = new SourceTextModule(
+				stripTypeScriptTypes(await readFile(key, "utf8"), {
+					mode: "transform",
+				}),
+				{
+					context,
+					identifier: key,
+					importModuleDynamically: async (name, ref) => {
+						const child = await load(name, ref.identifier);
+						if (child.status === "unlinked") await child.link(link);
+						if (child.status === "linked") await child.evaluate();
+						return child;
+					},
+				},
+			);
 		}
 		cache.set(key, mod);
 		return mod;
 	}
 	const link = (name, ref) => load(name, ref.identifier);
-	const api = async path => {
+	const api = async (path) => {
 		const mod = await load(resolve(root, path));
 		if (mod.status === "unlinked") await mod.link(link);
 		if (mod.status === "linked") await mod.evaluate();
@@ -97,21 +114,35 @@ test("dismiss/rebuild preserves each PTY through storage, tab rekey and hydratio
 		collectLeafIds(this.getTree(), ids);
 		for (const id of ids) this.renderNode({ kind: "leaf", id });
 	};
-	const createHost = (tree, sessions) => new PaneHost(new Element(), {
-		rootPaneId: tree.kind === "leaf" ? tree.id : tree.a.id,
-		getTheme: () => ({}), onPaneCreated: noop,
-		suppressEnterAnimation: () => true,
-	}, { initialTree: tree, initialSessionIds: sessions });
+	const createHost = (tree, sessions) =>
+		new PaneHost(
+			new Element(),
+			{
+				rootPaneId: tree.kind === "leaf" ? tree.id : tree.a.id,
+				getTheme: () => ({}),
+				onPaneCreated: noop,
+				suppressEnterAnimation: () => true,
+			},
+			{ initialTree: tree, initialSessionIds: sessions },
+		);
 	const tree = {
-		kind: "split", dir: "h", ratio: 0.5,
-		a: { kind: "leaf", id: "1a" }, b: { kind: "leaf", id: "1b" },
+		kind: "split",
+		dir: "h",
+		ratio: 0.5,
+		a: { kind: "leaf", id: "1a" },
+		b: { kind: "leaf", id: "1b" },
 	};
 	const original = createHost(tree);
 	const sessions = {};
-	original.forEachPane((id, pt) => { sessions[id] = pt.sessionId; });
+	original.forEachPane((id, pt) => {
+		sessions[id] = pt.sessionId;
+	});
 	assert.notEqual(sessions["1a"], sessions["1b"]);
 	tabs.persistLayoutForTab("tab-1", {
-		v: 1, tree, focusedId: "1b", paneSessionIds: sessions,
+		v: 1,
+		tree,
+		focusedId: "1b",
+		paneSessionIds: sessions,
 	});
 	const saved = tabs.initialLayoutForTab("tab-1", false);
 	const restored = mapLayoutToTabKey(saved, "2", new Set()).layout;
@@ -130,7 +161,10 @@ test("dismiss/rebuild preserves each PTY through storage, tab rekey and hydratio
 
 function deferred() {
 	let resolve, reject;
-	const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+	const promise = new Promise((yes, no) => {
+		resolve = yes;
+		reject = no;
+	});
 	return { promise, resolve, reject };
 }
 
@@ -144,26 +178,40 @@ test("dismiss→rebuild re-hooks the same PTY session (regression: session must 
 		collectLeafIds(this.getTree(), ids);
 		for (const id of ids) this.renderNode({ kind: "leaf", id });
 	};
-	const createHost = (tree, sessions) => new PaneHost(new Element(), {
-		rootPaneId: tree.kind === "leaf" ? tree.id : tree.a.id,
-		getTheme: () => ({}), onPaneCreated: noop,
-		suppressEnterAnimation: () => true,
-	}, { initialTree: tree, initialSessionIds: sessions });
+	const createHost = (tree, sessions) =>
+		new PaneHost(
+			new Element(),
+			{
+				rootPaneId: tree.kind === "leaf" ? tree.id : tree.a.id,
+				getTheme: () => ({}),
+				onPaneCreated: noop,
+				suppressEnterAnimation: () => true,
+			},
+			{ initialTree: tree, initialSessionIds: sessions },
+		);
 
 	// Round trip mirrors the real flow: webview A lives → hide persists the
 	// layout (including per-pane session ids) → webview A is destroyed →
 	// webview B boots from the persisted layout and must re-hook the SAME
 	// backend session ids (the PTY processes kept alive in Rust).
 	const tree = {
-		kind: "split", dir: "h", ratio: 0.5,
-		a: { kind: "leaf", id: "1a" }, b: { kind: "leaf", id: "1b" },
+		kind: "split",
+		dir: "h",
+		ratio: 0.5,
+		a: { kind: "leaf", id: "1a" },
+		b: { kind: "leaf", id: "1b" },
 	};
 	const webviewA = createHost(tree);
 	const sessions = {};
-	webviewA.forEachPane((id, pt) => { sessions[id] = pt.sessionId; });
+	webviewA.forEachPane((id, pt) => {
+		sessions[id] = pt.sessionId;
+	});
 	// Simulate the `partty-hide` persist-all-hosts path.
 	tabs.persistLayoutForTab("tab-1", {
-		v: 1, tree, focusedId: "1b", paneSessionIds: sessions,
+		v: 1,
+		tree,
+		focusedId: "1b",
+		paneSessionIds: sessions,
 	});
 	const layoutOnDisk = tabs.initialLayoutForTab("tab-1", false);
 	const restored = mapLayoutToTabKey(layoutOnDisk, "1", new Set()).layout;
@@ -188,18 +236,24 @@ test("first tab rehydrates the per-tab layout (with session ids) even when a leg
 	tabs.persistLayoutForTab("tab-1", {
 		v: 1,
 		tree: {
-			kind: "split", dir: "h", ratio: 0.5,
-			a: { kind: "leaf", id: "1a" }, b: { kind: "leaf", id: "1b" },
+			kind: "split",
+			dir: "h",
+			ratio: 0.5,
+			a: { kind: "leaf", id: "1a" },
+			b: { kind: "leaf", id: "1b" },
 		},
 		focusedId: "1b",
 		paneSessionIds: sessions,
 	});
 	// A stale legacy single-tab layout must not shadow the per-tab layout.
-	load.storage.set(PANE_LAYOUT_KEY, JSON.stringify({
-		v: 1,
-		tree: { kind: "leaf", id: "main" },
-		focusedId: "main",
-	}));
+	load.storage.set(
+		PANE_LAYOUT_KEY,
+		JSON.stringify({
+			v: 1,
+			tree: { kind: "leaf", id: "main" },
+			focusedId: "main",
+		}),
+	);
 	const first = tabs.initialLayoutForTab("tab-1", true);
 	assert.equal(first.paneSessionIds?.["1a"], "sid-a");
 	assert.equal(first.paneSessionIds?.["1b"], "sid-b");
@@ -208,14 +262,21 @@ test("first tab rehydrates the per-tab layout (with session ids) even when a leg
 	const freshTabs = await fresh("tabs/tabsSession.ts");
 	const freshIds = await fresh("terminal/paneIds.ts");
 	const { PANE_LAYOUT_KEY: LegacyKey } = await fresh("util/storageKeys.ts");
-	fresh.storage.set(LegacyKey, JSON.stringify({
-		v: 1,
-		tree: { kind: "leaf", id: "main" },
-		focusedId: "main",
-	}));
+	fresh.storage.set(
+		LegacyKey,
+		JSON.stringify({
+			v: 1,
+			tree: { kind: "leaf", id: "main" },
+			focusedId: "main",
+		}),
+	);
 	const migrated = freshTabs.initialLayoutForTab("tab-1", true);
 	// Boot reconciles the legacy `main` root through mapLayoutToTabKey.
-	const reconciled = freshIds.mapLayoutToTabKey(migrated, "1", new Set()).layout;
+	const reconciled = freshIds.mapLayoutToTabKey(
+		migrated,
+		"1",
+		new Set(),
+	).layout;
 	assert.equal(reconciled.tree.id, "1a");
 	assert.equal(reconciled.focusedId, "1a");
 });
@@ -223,13 +284,15 @@ test("first tab rehydrates the per-tab layout (with session ids) even when a leg
 test("renderer creation is shared and a late completion cannot survive hide", async () => {
 	const creations = [];
 	const load = await modules({
-		"@partty/addon-webgpu": { WebgpuSession: {
-			create: () => {
-				const creation = deferred();
-				creations.push(creation);
-				return creation.promise;
+		"@partty/addon-webgpu": {
+			WebgpuSession: {
+				create: () => {
+					const creation = deferred();
+					creations.push(creation);
+					return creation.promise;
+				},
 			},
-		} },
+		},
 	});
 	const lifecycle = await load("terminal/termLifecycle.ts");
 	const first = lifecycle.createRendererAddon(true);
@@ -242,10 +305,20 @@ test("renderer creation is shared and a late completion cannot survive hide", as
 	await new Promise(setImmediate);
 	assert.equal(creations.length, 2);
 	let oldDisposed = 0;
-	creations[0].resolve({ dispose: () => oldDisposed++, createAddon: () => "stale", onError: noop, onContextLoss: noop });
-	assert.ok((await oldResults).every(result => result.status === "rejected"));
+	creations[0].resolve({
+		dispose: () => oldDisposed++,
+		createAddon: () => "stale",
+		onError: noop,
+		onContextLoss: noop,
+	});
+	assert.ok((await oldResults).every((result) => result.status === "rejected"));
 	assert.equal(oldDisposed, 1);
-	creations[1].resolve({ dispose: noop, createAddon: () => "current", onError: noop, onContextLoss: noop });
+	creations[1].resolve({
+		dispose: noop,
+		createAddon: () => "current",
+		onError: noop,
+		onContextLoss: noop,
+	});
 	assert.equal(await next, "current");
 	assert.equal(await lifecycle.createRendererAddon(true), "current");
 	lifecycle.disposeWebgpuSession();

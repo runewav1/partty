@@ -223,11 +223,7 @@ export function createDevMetricsOverlay(
 	// Buttons must never start a panel drag, even if the header shape changes.
 	controls.addEventListener("pointerdown", (e) => e.stopPropagation());
 
-	const freezeBtn = makeButton(
-		"Freeze",
-		"Freeze display",
-		toggleFreeze,
-	);
+	const freezeBtn = makeButton("Freeze", "Freeze display", toggleFreeze);
 	const exportBtn = makeButton(
 		"Export",
 		"Export metrics snapshot as JSON",
@@ -386,9 +382,7 @@ export function createDevMetricsOverlay(
 
 		const lsCount: number | undefined = snap.counters["layout.shift.count"];
 		const lsLast: number | undefined = snap.gauges["layout.shift.last"];
-		const lsStatus = observerStatus(
-			snap.gauges["observer.layout-shift"],
-		);
+		const lsStatus = observerStatus(snap.gauges["observer.layout-shift"]);
 		const lsStats: string[] = [];
 		if (lsStatus === "supported") {
 			if (lsCount !== undefined) lsStats.push(`count ${lsCount}`);
@@ -497,14 +491,22 @@ export function createDevMetricsOverlay(
 		const snap = parttyPerf.snapshot();
 		body.replaceChildren();
 		body.appendChild(buildReadabilitySection(snap));
-		body.appendChild(metricRow("Session", [
-			`epoch ${snap.meta.epoch}`,
-			snap.meta.sessionStartedAt === null ? "not started" : `${((snap.meta.capturedAt - snap.meta.sessionStartedAt) / 1000).toFixed(1)}s since reset`,
-			"latency window 10s / rates 1s",
-		]));
-		body.appendChild(metricRow("Terminal input events", [
-			`${parttyPerf.getInputRate()} events in trailing 1s`,
-		], "Terminal onData events, not physical keypresses or bytes."));
+		body.appendChild(
+			metricRow("Session", [
+				`epoch ${snap.meta.epoch}`,
+				snap.meta.sessionStartedAt === null
+					? "not started"
+					: `${((snap.meta.capturedAt - snap.meta.sessionStartedAt) / 1000).toFixed(1)}s since reset`,
+				"latency window 10s / rates 1s",
+			]),
+		);
+		body.appendChild(
+			metricRow(
+				"Terminal input events",
+				[`${parttyPerf.getInputRate()} events in trailing 1s`],
+				"Terminal onData events, not physical keypresses or bytes.",
+			),
+		);
 		body.appendChild(buildWritePathSection(snap));
 		body.appendChild(buildBytesSection(snap));
 		body.appendChild(buildFrameCadenceSection(snap));

@@ -8,9 +8,8 @@ import {
 	PhysicalPosition,
 } from "@tauri-apps/api/window";
 import type { FitAddon } from "@xterm/addon-fit";
-
-import type { TerminalRendererAddon } from "./terminal/termLifecycle";
 import type { Terminal } from "@xterm/xterm";
+import type { TerminalRendererAddon } from "./terminal/termLifecycle";
 import "@xterm/xterm/css/xterm.css";
 
 import pkg from "../package.json";
@@ -1145,7 +1144,10 @@ async function boot(): Promise<void> {
 	): void => {
 		if (!data) return;
 		if (parttyPerf.enabled && perfInputEncoder) {
-			parttyPerf.recordPtyInputBytes(paneId, perfInputEncoder.encode(data).byteLength);
+			parttyPerf.recordPtyInputBytes(
+				paneId,
+				perfInputEncoder.encode(data).byteLength,
+			);
 		}
 		// Pastes / large bursts: don't RAF-coalesce into one oversized ConPTY write.
 		if (isBulkPtyInput(data)) {
@@ -1231,7 +1233,9 @@ async function boot(): Promise<void> {
 			parttyPerf.mark("pty.output.chars", data.length);
 			parttyPerf.time("pty.output.queue.ms", performance.now() - queuedAt);
 		}
-		const writeToken = timing ? parttyPerf.beginTermWrite(paneId, data.byteLength) : null;
+		const writeToken = timing
+			? parttyPerf.beginTermWrite(paneId, data.byteLength)
+			: null;
 		// OSC 7 / 133 / 633 are stripped and forwarded as structured `pty-cwd` /
 		// `pty-shell-event` side-channel events by the Rust emitter.  Write the
 		// pre-cleaned bytes directly — no character-by-character JS parsing needed.
@@ -1767,9 +1771,7 @@ async function boot(): Promise<void> {
 			const started = performance.now();
 			let addon: TerminalRendererAddon | undefined;
 			try {
-				const useWebgpu = !Boolean(
-					(persisted.prefs as Partial<ParttyPrefs>).use_webgl,
-				);
+				const useWebgpu = !(persisted.prefs as Partial<ParttyPrefs>).use_webgl;
 				state.attempts++;
 				addon = await createRendererAddon(useWebgpu);
 				if (
@@ -1797,7 +1799,12 @@ async function boot(): Promise<void> {
 				};
 				const loss = addon.onContextLoss(failed);
 				const error = "onError" in addon ? addon.onError(failed) : undefined;
-				state.contextLossDispose = { dispose() { loss.dispose(); error?.dispose(); } };
+				state.contextLossDispose = {
+					dispose() {
+						loss.dispose();
+						error?.dispose();
+					},
+				};
 				state.addon = addon;
 				state.status = "ready";
 				paneWebglStates.set(paneId, state);
@@ -3312,7 +3319,9 @@ async function boot(): Promise<void> {
 		if (!(tree && findPaneLeaf(tree, rid))) return null;
 		const panes = host.getPaneDescriptors();
 		const paneSessionIds: Record<string, string> = {};
-		host.forEachPane((id, pt) => { paneSessionIds[id] = pt.sessionId; });
+		host.forEachPane((id, pt) => {
+			paneSessionIds[id] = pt.sessionId;
+		});
 		return {
 			v: 1,
 			tree,

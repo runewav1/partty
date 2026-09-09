@@ -16,7 +16,9 @@ export function duplicateTabLayout(
 	followSlots: Set<string>,
 ): PersistedPaneLayout {
 	return mapLayoutToTabKey(
-		{ ...layout, paneSessionIds: undefined }, tabKey, followSlots,
+		{ ...layout, paneSessionIds: undefined },
+		tabKey,
+		followSlots,
 	).layout;
 }
 

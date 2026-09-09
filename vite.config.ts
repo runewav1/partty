@@ -36,11 +36,18 @@ const config = defineConfig(({ command }) => {
 	return {
 		resolve: {
 			alias: [
-				...(command === "build" ? [{
-					find: /^(?:.*\/)pty\/perf(?:\.ts)?$/,
-					replacement: path.resolve(__dirname, "src/pty/perf.stub.ts"),
-				}] : []),
-				...Object.entries(aliases).map(([find, replacement]) => ({ find, replacement })),
+				...(command === "build"
+					? [
+							{
+								find: /^(?:.*\/)pty\/perf(?:\.ts)?$/,
+								replacement: path.resolve(__dirname, "src/pty/perf.stub.ts"),
+							},
+						]
+					: []),
+				...Object.entries(aliases).map(([find, replacement]) => ({
+					find,
+					replacement,
+				})),
 			],
 		},
 

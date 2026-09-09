@@ -442,7 +442,9 @@ export class PaneHost {
 		private readonly opts: PaneHostOptions,
 		init?: PaneHostInit,
 	) {
-		this.initialSessionIds = new Map(Object.entries(init?.initialSessionIds ?? {}));
+		this.initialSessionIds = new Map(
+			Object.entries(init?.initialSessionIds ?? {}),
+		);
 		this.rootPaneId = opts.rootPaneId ?? MAIN_PANE_ID;
 		this.tree = { kind: "leaf", id: this.rootPaneId };
 		this.focusedId = this.rootPaneId;

@@ -160,7 +160,9 @@ function installGlobals() {
 	globalThis.PerformanceObserver = class {
 		observe() {}
 		disconnect() {}
-		takeRecords() { return []; }
+		takeRecords() {
+			return [];
+		}
 	};
 	// Keep the rAF probe inert so its cadence values are fully deterministic.
 	globalThis.requestAnimationFrame = () => 0;
