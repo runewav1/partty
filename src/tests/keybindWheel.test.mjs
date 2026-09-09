@@ -29,6 +29,7 @@ const {
 	WHEEL_ZOOM_ACTIONS,
 	bindingMatchesWheel,
 	firstMatchingWheelAction,
+	keyMatches,
 	parseBinding,
 	wheelDirectionForDelta,
 	zoomAppliesToAllVisible,
@@ -239,6 +240,29 @@ test("bindingMatchesWheel is case-insensitive and rejects non-wheel bindings", (
 		bindingMatchesWheel(undefined, { ctrlKey: true, deltaY: -1 }),
 		false,
 	);
+});
+
+test("shifted symbols fold to their base key (Ctrl+Shift+/ reports '?')", () => {
+	// Ctrl+Shift+/ produces `?` as `KeyboardEvent.key` on US layouts; it must
+	// still match the `help_toggle` binding whose key is `/`.
+	assert.equal(keyMatches("?", "/"), true);
+	assert.equal(keyMatches("/", "?"), true);
+	assert.equal(keyMatches("?", "?"), true);
+	const help = parseBinding(DEFAULT_BINDS.help_toggle);
+	assert.equal(help.key, "/");
+	assert.equal(keyMatches("?", help.key), true);
+	// Unrelated shifted characters don't collapse.
+	assert.equal(keyMatches("?", ","), false);
+});
+
+test("notification_focus binds to a plain Ctrl+N key chord", () => {
+	const p = parseBinding(DEFAULT_BINDS.notification_focus);
+	assert.equal(p.kind, "key");
+	assert.equal(p.ctrl, true);
+	assert.equal(p.alt, false);
+	assert.equal(p.shift, false);
+	assert.equal(p.meta, false);
+	assert.equal(keyMatches("n", p.key), true);
 });
 
 test("action helpers map names to direction and scope", () => {

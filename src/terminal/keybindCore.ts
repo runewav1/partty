@@ -74,6 +74,9 @@ export function normalizeKey(key: string): string {
 	if (l === "delete") return "delete";
 	if (l === "f2") return "f2";
 	if (l === "/" || l === "slash") return "/";
+	// Ctrl+Shift+/ reports `?` as `KeyboardEvent.key` on US layouts; fold the
+	// shifted symbols back to their base key so the binding matches.
+	if (l === "?") return "/";
 	if (l === "," || l === "comma") return ",";
 	if (l === "\\" || l === "backslash") return "\\";
 	if (l === "." || l === "period") return ".";
@@ -195,7 +198,10 @@ export const DEFAULT_BINDS: Record<string, string> = {
 	palette_open: "Ctrl+Shift+P",
 	// biome-ignore lint/security/noSecrets: keybind literal, not a secret
 	palette_chord: "Ctrl+Shift+P",
+	// biome-ignore lint/security/noSecrets: keybind literal, not a secret
 	help_toggle: "Ctrl+Shift+/",
+	// biome-ignore lint/security/noSecrets: keybind literal, not a secret
+	notification_focus: "Ctrl+N",
 
 	terminal_newline: "Shift+Enter",
 	terminal_copy: "Ctrl+C",

@@ -1208,7 +1208,7 @@ async function boot(): Promise<void> {
 				activeProcesses.delete(paneId);
 				return;
 			}
-			const paneName = paneEffectiveName(paneId);
+			const paneName = paneNotificationName(paneId, command);
 			showProcessNotification(
 				command,
 				paneName,
@@ -1563,6 +1563,19 @@ async function boot(): Promise<void> {
 
 	function paneEffectiveName(paneId: string): string {
 		return paneHeadline(paneNameParts(paneId));
+	}
+
+	/**
+	 * Pane label for the completion toast. The finished command and the working
+	 * directory are already rendered in the toast body, so both are omitted here
+	 * (and an OSC title that merely restates the command is dropped too) — the
+	 * command must not appear twice in the notification box.
+	 */
+	function paneNotificationName(paneId: string, command: string): string {
+		const parts = paneNameParts(paneId);
+		const oscTitle =
+			parts.oscTitle && parts.oscTitle !== command ? parts.oscTitle : null;
+		return paneHeadline({ ...parts, processLabel: null, cwd: null, oscTitle });
 	}
 
 	function tabDisplayName(tabId: string): string {
@@ -5534,6 +5547,17 @@ async function boot(): Promise<void> {
 		}
 	}
 
+	/** Jump to the pane of the currently visible completion toast. */
+	function focusNotificationPane(): boolean {
+		if (!processToast) return false;
+		if (processToast.classList.contains("proc-toast--hidden")) return false;
+		const paneId = processToast.dataset.paneId;
+		if (!paneId) return false;
+		navigateToPane(paneId);
+		processToast.classList.add("proc-toast--hidden");
+		return true;
+	}
+
 	function showProcessToast(
 		bodyHtml: string,
 		paneId: string,
@@ -6382,6 +6406,32 @@ async function boot(): Promise<void> {
 			e.preventDefault();
 			e.stopPropagation();
 			toggleHelp();
+		},
+		true,
+	);
+
+	window.addEventListener(
+		"keydown",
+		(e) => {
+			if (!k.match(e, "notification_focus")) return;
+			const t = e.target as HTMLElement | null;
+			if (
+				t?.closest("#command-palette") &&
+				(t.tagName === "INPUT" || t.tagName === "TEXTAREA")
+			)
+				return;
+			if (
+				t?.closest("#settings-panel") &&
+				(t.tagName === "INPUT" ||
+					t.tagName === "TEXTAREA" ||
+					t.tagName === "SELECT")
+			)
+				return;
+			// Only consume the chord while a navigable toast is actually visible;
+			// otherwise let the terminal receive Ctrl+N (e.g. next-history in readline).
+			if (!focusNotificationPane()) return;
+			e.preventDefault();
+			e.stopPropagation();
 		},
 		true,
 	);
