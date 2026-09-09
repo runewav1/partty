@@ -118,6 +118,18 @@ fn default_cursor_width() -> f64 {
 fn default_font_size() -> f64 {
     12.0
 }
+const FONT_ZOOM_STEP_MIN: f64 = 0.05;
+const FONT_ZOOM_STEP_MAX: f64 = 2.0;
+fn default_font_zoom_step() -> f64 {
+    0.25
+}
+/// Clamp a Ctrl+wheel font-size zoom step (CSS px) into its valid range.
+fn normalize_font_zoom_step(v: f64) -> f64 {
+    if !v.is_finite() {
+        return default_font_zoom_step();
+    }
+    v.clamp(FONT_ZOOM_STEP_MIN, FONT_ZOOM_STEP_MAX)
+}
 fn default_font_weight() -> String {
     "normal".to_string()
 }
@@ -288,6 +300,9 @@ pub struct Prefs {
     pub terminal_alt_click_moves_cursor: bool,
     #[serde(default = "default_font_size")]
     pub terminal_font_size: f64,
+    /// Ctrl+wheel terminal font-size zoom step in CSS px (default 0.25).
+    #[serde(default = "default_font_zoom_step")]
+    pub terminal_zoom_step: f64,
     #[serde(default = "default_font_weight")]
     pub terminal_font_weight: String,
     #[serde(default = "default_font_weight_bold")]
@@ -419,6 +434,7 @@ impl Default for Prefs {
             terminal_cursor_width: default_cursor_width(),
             terminal_alt_click_moves_cursor: true,
             terminal_font_size: default_font_size(),
+            terminal_zoom_step: default_font_zoom_step(),
             terminal_font_weight: default_font_weight(),
             terminal_font_weight_bold: default_font_weight_bold(),
             terminal_line_height: default_line_height(),
@@ -550,6 +566,9 @@ impl Default for CursorSection {
 pub struct FontSection {
     #[serde(default = "default_font_size")]
     pub size: f64,
+    /// Ctrl+wheel terminal font-size zoom step in CSS px (default 0.25).
+    #[serde(default = "default_font_zoom_step")]
+    pub zoom_step: f64,
     #[serde(default = "default_font_weight")]
     pub weight: String,
     #[serde(default = "default_font_weight_bold")]
@@ -564,6 +583,7 @@ impl Default for FontSection {
     fn default() -> Self {
         Self {
             size: default_font_size(),
+            zoom_step: default_font_zoom_step(),
             weight: default_font_weight(),
             weight_bold: default_font_weight_bold(),
             line_height: default_line_height(),
@@ -1142,6 +1162,7 @@ impl From<ConfigToml> for Prefs {
             terminal_cursor_inactive_style: c.cursor.inactive_style,
             terminal_alt_click_moves_cursor: c.cursor.alt_click_moves,
             terminal_font_size: c.font.size,
+            terminal_zoom_step: normalize_font_zoom_step(c.font.zoom_step),
             terminal_font_weight: c.font.weight,
             terminal_font_weight_bold: c.font.weight_bold,
             terminal_line_height: c.font.line_height,
@@ -1248,6 +1269,7 @@ impl From<&Prefs> for ConfigToml {
             },
             font: FontSection {
                 size: p.terminal_font_size,
+                zoom_step: normalize_font_zoom_step(p.terminal_zoom_step),
                 weight: p.terminal_font_weight.clone(),
                 weight_bold: p.terminal_font_weight_bold.clone(),
                 line_height: p.terminal_line_height,
@@ -1656,5 +1678,41 @@ mod renderer_config_tests {
         let back = Prefs::from(toml::from_str::<ConfigToml>(&text).unwrap());
         assert!(back.use_webgl);
         assert!(back.terminal_sideload_openconsole);
+    }
+
+    #[test]
+    fn default_zoom_step_is_quarter_px() {
+        assert_eq!(Prefs::default().terminal_zoom_step, 0.25);
+        assert_eq!(ConfigToml::default().font.zoom_step, 0.25);
+    }
+
+    #[test]
+    fn missing_zoom_step_uses_default() {
+        let p = prefs_from("");
+        assert_eq!(p.terminal_zoom_step, 0.25);
+    }
+
+    #[test]
+    fn zoom_step_fraction_roundtrips_without_truncation() {
+        for step in [0.05_f64, 0.1, 0.25, 1.5, 2.0] {
+            let p = Prefs {
+                terminal_zoom_step: step,
+                ..Prefs::default()
+            };
+            let text = toml::to_string(&ConfigToml::from(&p)).unwrap();
+            let back = Prefs::from(toml::from_str::<ConfigToml>(&text).unwrap());
+            assert!(
+                (back.terminal_zoom_step - step).abs() < 1e-9,
+                "zoom step {step} lost over roundtrip: {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn out_of_range_zoom_step_clamped_on_load() {
+        let p = prefs_from("[font]\nzoom_step = 8.0\n");
+        assert_eq!(p.terminal_zoom_step, 2.0);
+        let p = prefs_from("[font]\nzoom_step = 0.0\n");
+        assert_eq!(p.terminal_zoom_step, 0.05);
     }
 }

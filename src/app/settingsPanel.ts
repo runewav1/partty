@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { normalizeZoomStep, ZOOM_STEP_DEFAULT } from "../terminal/zoomStep";
 import { hideSurface, showSurface } from "./../util/motion";
 import { mouseCursorForceVisible } from "./mouseCursor";
 import { type OverlayHandle, pushOverlay } from "./overlayStack";
@@ -106,6 +107,8 @@ export type ParttyPrefs = {
 	terminal_alt_click_moves_cursor?: boolean;
 	/** Terminal font size in px. */
 	terminal_font_size?: number;
+	/** Ctrl+wheel terminal font-size zoom step in px (default 0.25). */
+	terminal_zoom_step?: number;
 	/** Font weight for non‑bold text (CSS value). */
 	terminal_font_weight?: string;
 	/** Font weight for bold text (CSS value). */
@@ -410,6 +413,9 @@ export function createSettingsPanel(
 			terminal_cursor_inactive_style: gs("terminal_cursor_inactive_style"),
 			terminal_cursor_width: clamp1p(g("terminal_cursor_width"), 1),
 			terminal_font_size: clampf(g("terminal_font_size"), 12, 8, 48),
+			terminal_zoom_step: normalizeZoomStep(
+				Number.parseFloat(g("terminal_zoom_step")),
+			),
 			terminal_font_weight: g("terminal_font_weight") || "normal",
 			terminal_font_weight_bold: g("terminal_font_weight_bold") || "bold",
 			terminal_line_height: clampf(g("terminal_line_height"), 1, 0.5, 4),
@@ -789,6 +795,10 @@ export function createSettingsPanel(
 			pr.terminal_alt_click_moves_cursor ?? true,
 		);
 		setVal("terminal_font_size", String(pr.terminal_font_size ?? 12));
+		setVal(
+			"terminal_zoom_step",
+			String(pr.terminal_zoom_step ?? ZOOM_STEP_DEFAULT),
+		);
 		setVal("terminal_font_weight", pr.terminal_font_weight ?? "normal");
 		setVal("terminal_font_weight_bold", pr.terminal_font_weight_bold ?? "bold");
 		setVal("terminal_line_height", String(pr.terminal_line_height ?? 1));

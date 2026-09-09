@@ -7,7 +7,7 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "tsc && vite build",
-		"test:metrics": "node --experimental-vm-modules --test src/tests/metricsCore.test.mjs src/tests/perf.test.mjs && node --experimental-strip-types --test src/tests/devMetricsOverlay.test.mjs",
+		"test:metrics": "node --experimental-vm-modules --test src/tests/metricsCore.test.mjs src/tests/perf.test.mjs && node --experimental-strip-types --test src/tests/devMetricsOverlay.test.mjs src/tests/zoomStep.test.mjs",
 		"test:metrics:production": "pnpm run build && node scripts/check-production-metrics.mjs",
 		"build:ext": "vite build --config extensions/vite.config.js",
 		"preview": "vite preview",
@@ -17,7 +17,7 @@
 	},
 	"dependencies": {
 		"@tauri-apps/api": "^2.11.1",
-		"@partty/addon-webgpu": "0.1.4-rc4",
+		"@partty/addon-webgpu": "0.1.4-rc5",
 		"@xterm/addon-fit": "beta",
 		"@xterm/addon-image": "beta",
 		"@xterm/addon-ligatures": "beta",

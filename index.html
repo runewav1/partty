@@ -127,6 +127,11 @@
                   <input name="terminal_font_size" type="number" min="8" max="48" step="1" class="settings-input settings-input--narrow" />
                 </div>
                 <div class="settings-row settings-row--compact">
+                  <span class="settings-row-label" title="Ctrl+wheel (or Ctrl+Shift+wheel) zoom increment for the pane font, in CSS px. Default 0.25.">Zoom increment</span>
+                  <input name="terminal_zoom_step" type="number" min="0.05" max="2" step="0.05" value="0.25" class="settings-input settings-input--narrow" />
+                  <span class="settings-hint" style="margin-left:2px">px</span>
+                </div>
+                <div class="settings-row settings-row--compact">
                   <span class="settings-row-label">Font weight</span>
                   <select name="terminal_font_weight" class="settings-input settings-input--narrow">
                     <option value="normal">normal</option><option value="bold">bold</option><option value="100">100</option><option value="200">200</option><option value="300">300</option><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option><option value="800">800</option><option value="900">900</option>

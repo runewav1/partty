@@ -188,6 +188,7 @@ import {
 	type UiThemePrefs,
 	uiPrefsChanged,
 } from "./terminal/uiTheme";
+import { nextZoomFontSize, normalizeZoomStep } from "./terminal/zoomStep";
 import { escapeHtml } from "./util/html";
 import { lazyCell, runLazy } from "./util/lazyOnce";
 import { filterAndRankLexical, normalizeQuery } from "./util/lexicalSearch";
@@ -764,6 +765,11 @@ async function boot(): Promise<void> {
 	};
 	const fontSizeRef = {
 		v: (persisted.prefs as Partial<ParttyPrefs>).terminal_font_size ?? 12,
+	};
+	const zoomStepRef = {
+		v: normalizeZoomStep(
+			Number((persisted.prefs as Partial<ParttyPrefs>).terminal_zoom_step),
+		),
 	};
 	const fontWeightRef = {
 		v:
@@ -1982,11 +1988,12 @@ async function boot(): Promise<void> {
 		);
 	}
 
-	function zoomPaneTerminal(paneId: string, direction: number): void {
+	function zoomPaneTerminal(paneId: string, deltaPx: number): void {
 		const pt = paneHost?.getPaneTerminal(paneId);
 		if (!(pt && paneHost)) return;
+		if (!Number.isFinite(deltaPx) || deltaPx === 0) return;
 		const current = Number(pt.term.options.fontSize ?? 12);
-		const next = Math.max(6, Math.min(32, current + direction));
+		const next = nextZoomFontSize(current, deltaPx);
 		if (next === current) return;
 		paneHost.setPaneFontSize(paneId, next);
 		lastPtyDims.delete(paneId);
@@ -2001,7 +2008,7 @@ async function boot(): Promise<void> {
 		const entries = [...pendingZoomByPane.entries()];
 		pendingZoomByPane.clear();
 		for (const [paneId, delta] of entries) {
-			zoomPaneTerminal(paneId, Math.sign(delta));
+			zoomPaneTerminal(paneId, Math.sign(delta) * zoomStepRef.v);
 		}
 	}
 
@@ -4966,6 +4973,9 @@ async function boot(): Promise<void> {
 								(saved as Partial<ParttyPrefs>).terminal_cursor_width ?? 1;
 							fontSizeRef.v =
 								(saved as Partial<ParttyPrefs>).terminal_font_size ?? 12;
+							zoomStepRef.v = normalizeZoomStep(
+								Number((saved as Partial<ParttyPrefs>).terminal_zoom_step),
+							);
 							fontWeightRef.v =
 								(saved as Partial<ParttyPrefs>).terminal_font_weight ??
 								"normal";

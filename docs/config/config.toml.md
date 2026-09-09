@@ -46,6 +46,7 @@ s = "ssh-prod"
 | Key | Type | Default | Range |
 |-----|------|---------|-------|
 | `size` | float px | `12.0` | `8`–`48` |
+| `zoom_step` | float px | `0.25` | `0.05`–`2` (Ctrl+wheel terminal font-size step) |
 | `weight` | string | `"normal"` | CSS `font-weight` |
 | `weight_bold` | string | `"bold"` | CSS `font-weight` |
 | `line_height` | float | `1.0` | `0.5`–`4.0` (multiplier) |
