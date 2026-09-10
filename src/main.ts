@@ -13,12 +13,16 @@ import type { TerminalRendererAddon } from "./terminal/termLifecycle";
 import "@xterm/xterm/css/xterm.css";
 
 import {
+	type CommandIslandApi,
+	createCommandIsland,
+} from "./app/commandIsland";
+import {
 	createCommandPalette,
 	type PaletteCommand,
 } from "./app/commandPalette";
 import type { DevMetricsOverlayApi } from "./app/devMetricsOverlay";
 import { showAlert } from "./app/dialog";
-import { attachDraggablePanel } from "./app/draggablePanel";
+import { createFindBar, type FindBarApi } from "./app/findBar";
 import {
 	bindMouseCursorForceVisible,
 	createMouseCursorController,
@@ -222,10 +226,7 @@ import {
 	translatePathFromSource,
 } from "./util/paths";
 import {
-	COMMAND_PALETTE_POS_KEY,
 	DEFER_PTY_REINIT_KEY,
-	HELP_PANEL_POS_KEY,
-	SETTINGS_PANEL_POS_KEY,
 	TABS_HIDDEN_KEY,
 	tabLayoutKey,
 } from "./util/storageKeys";
@@ -4728,6 +4729,10 @@ async function boot(): Promise<void> {
 
 	const settingsPanelEl = document.getElementById("settings-panel");
 	const themeModalRoot = document.getElementById("theme-modal-root");
+	const commandIslandEl = document.getElementById("command-island");
+	const commandIsland: CommandIslandApi | undefined = commandIslandEl
+		? createCommandIsland(commandIslandEl)
+		: undefined;
 
 	const themeModalLazy = lazyCell<ThemeModalApi>();
 	let themeTargetPaneId: string | null = null;
@@ -4768,6 +4773,7 @@ async function boot(): Promise<void> {
 							refreshAllTerminalThemes();
 						},
 						resetThemeModalTarget,
+						commandIsland,
 					);
 				})
 			: Promise.resolve(null);
@@ -4806,12 +4812,6 @@ async function boot(): Promise<void> {
 		settingsPanelEl
 			? settingsLazy.ensure(async () => {
 					const { createSettingsPanel } = await import("./app/settingsPanel");
-					const card = settingsPanelEl.querySelector(".settings-panel-card");
-					const head = settingsPanelEl.querySelector(".settings-panel-head");
-					if (card instanceof HTMLElement && head instanceof HTMLElement) {
-						card.style.position = "fixed";
-						attachDraggablePanel(card, head, SETTINGS_PANEL_POS_KEY);
-					}
 					return createSettingsPanel(
 						settingsPanelEl,
 						async (saved: ParttyPrefs, previous: ParttyPrefs) => {
@@ -4998,6 +4998,7 @@ async function boot(): Promise<void> {
 						// Restore pane focus when the settings modal closes (mirrors the
 						// tab-switch focus approach; settings never changes tabs/panes).
 						focusActiveTerminal,
+						commandIsland,
 					);
 				})
 			: Promise.resolve(null);
@@ -5144,25 +5145,30 @@ async function boot(): Promise<void> {
 		scheduleResizeImmediate(true);
 	};
 
-	const cpPanel = document.querySelector(".command-palette-panel");
-	const cpToolbar = document.querySelector(".command-palette-toolbar");
-	if (cpPanel instanceof HTMLElement && cpToolbar instanceof HTMLElement) {
-		cpPanel.style.position = "fixed";
-		attachDraggablePanel(cpPanel, cpToolbar, COMMAND_PALETTE_POS_KEY);
-	}
-
-	if (helpPanelEl) {
-		const hcard = helpPanelEl.querySelector(".help-panel-card");
-		const hhead = helpPanelEl.querySelector(".help-panel-head");
-		if (hcard instanceof HTMLElement && hhead instanceof HTMLElement) {
-			hcard.style.position = "fixed";
-			attachDraggablePanel(hcard, hhead, HELP_PANEL_POS_KEY);
-		}
-	}
+	const findRoot = document.getElementById("terminal-find");
+	const findBar: FindBarApi | null = findRoot
+		? createFindBar({
+				root: findRoot,
+				getTerminal: getFocusedTerm,
+				island: commandIsland,
+				onClosed: focusActiveTerminal,
+			})
+		: null;
 
 	let openHelpPanel: () => void = () => {};
 	let closeHelpPanel: () => void = () => {};
 	let toggleHelp: () => void = () => {};
+
+	if (helpPanelEl && commandIsland) {
+		const panelEl: HTMLElement = helpPanelEl;
+		commandIsland.adopt({
+			id: "help",
+			element: panelEl,
+			hiddenClass: "help-panel--hidden",
+			isOpen: () => !panelEl.classList.contains("help-panel--hidden"),
+			close: () => closeHelpPanel(),
+		});
+	}
 
 	function getTabPaletteCommands(): PaletteCommand[] {
 		return visibleTabsInOrder().map((tab, index) => {
@@ -5829,6 +5835,20 @@ async function boot(): Promise<void> {
 				},
 			},
 			{
+				id: "find-in-terminal",
+				label: "Find in terminal",
+				keywords: "search locate text scrollback query find",
+				hotkey: k.label("terminal_find"),
+				run: () => findBar?.open(),
+			},
+			{
+				id: "open-settings",
+				label: "Settings",
+				keywords: "preferences config options settings",
+				hotkey: k.label("settings_open"),
+				run: () => runLazy(ensureSettingsPanel, (api) => api.open()),
+			},
+			{
 				id: "paste",
 				label: "Paste",
 				keywords: "clipboard context edit",
@@ -5928,7 +5948,10 @@ async function boot(): Promise<void> {
 			},
 			{ hotkey: k.label("pane_float_follow"), label: "Toggle floating follow" },
 			{ hotkey: helpGroup(focusMods, "Arrows"), label: "Focus adjacent pane" },
-			{ hotkey: helpGroup(swapMods, "Arrows"), label: "Swap pane with neighbor" },
+			{
+				hotkey: helpGroup(swapMods, "Arrows"),
+				label: "Swap pane with neighbor",
+			},
 			{ hotkey: helpGroup(tabMods, "1–9"), label: "Switch to tab" },
 			{ hotkey: helpGroup(moveMods, "1–9, 0"), label: "Move pane to tab" },
 			{ hotkey: k.label("window_maximize"), label: "Maximize window" },
@@ -5942,8 +5965,10 @@ async function boot(): Promise<void> {
 				label: "Window to previous monitor",
 			},
 			{ hotkey: k.label("window_toggle"), label: "Hide / show overlay" },
-			{ hotkey: k.label("settings_open"), label: "Settings" },
-			{ hotkey: k.label("notification_focus"), label: "Go to finished process" },
+			{
+				hotkey: k.label("notification_focus"),
+				label: "Go to finished process",
+			},
 			{ hotkey: k.label("terminal_newline"), label: "Insert newline" },
 			...[
 				["terminal_zoom_in", "Zoom hovered terminal in"],
@@ -6001,7 +6026,7 @@ async function boot(): Promise<void> {
 						workspacePickerOpen = false;
 						workspacePickerIds = [];
 						getFocusedTerm()?.focus();
-						if (cpInput) cpInput.placeholder = "Command or > …";
+						if (cpInput) cpInput.placeholder = "Command";
 					},
 					onTabComplete: (currentInput: string, selected) => {
 						if (
@@ -6032,12 +6057,14 @@ async function boot(): Promise<void> {
 					onQuickSelectKey: (key, currentInput) =>
 						quickSelectProfileByAlias(key, currentInput),
 					refreshMs: 500,
+					island: commandIsland,
 				})
 			: null;
 
 	let helpOverlay: OverlayHandle | null = null;
 	openHelpPanel = () => {
 		if (!helpPanelEl) return;
+		commandIsland?.present("help");
 		commandPalette?.close();
 		settingsLazy.get()?.close();
 		renderHelpShortcuts();
@@ -6052,6 +6079,7 @@ async function boot(): Promise<void> {
 			return;
 		helpOverlay?.release();
 		helpOverlay = null;
+		commandIsland?.dismiss("help");
 		helpPanelEl.setAttribute("aria-hidden", "true");
 		mouseCursorForceVisible(false);
 		getFocusedTerm()?.focus();
@@ -6066,6 +6094,9 @@ async function boot(): Promise<void> {
 	helpPanelEl
 		?.querySelector("[data-close-help]")
 		?.addEventListener("click", () => closeHelpPanel());
+	helpPanelEl?.addEventListener("pointerdown", (e) => {
+		if (e.target === helpPanelEl) closeHelpPanel();
+	});
 
 	// Tab rename modal (used when the tab bar is hidden)
 	const tabRenameModal = document.getElementById("tab-rename-modal");
@@ -6224,6 +6255,21 @@ async function boot(): Promise<void> {
 			if (!focusNotificationPane()) return;
 			e.preventDefault();
 			e.stopPropagation();
+		},
+		true,
+	);
+
+	window.addEventListener(
+		"keydown",
+		(e) => {
+			if (!k.match(e, "terminal_find")) return;
+			e.preventDefault();
+			e.stopPropagation();
+			if (findBar?.isOpen()) {
+				findBar.close();
+				return;
+			}
+			findBar?.open();
 		},
 		true,
 	);
@@ -6728,7 +6774,6 @@ async function boot(): Promise<void> {
 		getFocusedTerm()?.focus();
 	});
 
-
 	if (import.meta.env.DEV) {
 		const { createDevMetricsOverlay } = await import("./app/devMetricsOverlay");
 		let devMetricsOverlay: DevMetricsOverlayApi | null = null;
@@ -6777,7 +6822,9 @@ async function boot(): Promise<void> {
 		}
 		mouseCursorController?.dispose();
 		paneHost = null;
+		findBar?.dispose();
 		commandPalette?.dispose();
+		commandIsland?.dispose();
 	});
 }
 

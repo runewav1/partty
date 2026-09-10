@@ -8,6 +8,7 @@ import {
 	normalizeQuery,
 } from "./../util/lexicalSearch";
 import { hideSurface, showSurface } from "./../util/motion";
+import type { CommandIslandApi } from "./commandIsland";
 import { mouseCursorForceVisible } from "./mouseCursor";
 import { type OverlayHandle, pushOverlay } from "./overlayStack";
 
@@ -50,6 +51,8 @@ export type CommandPaletteMount = {
 	) => PaletteCommand | null;
 	/** If set, re‑renders the list every N ms while open (for live-updating labels). */
 	refreshMs?: number;
+	/** Shared command island; the palette is presented as one of its views. */
+	island?: CommandIslandApi;
 };
 
 export type CommandPaletteOpenOptions = {
@@ -82,6 +85,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 		onTabComplete,
 		onQuickSelectKey,
 		refreshMs,
+		island,
 	} = mount;
 	let open = false;
 	let opening = false;
@@ -202,6 +206,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 				if (open) return;
 				open = true;
 				overlay = pushOverlay(() => closePalette(false));
+				island?.present("palette");
 				mouseCursorForceVisible(true);
 				showSurface(root, "command-palette--hidden");
 				root.setAttribute("aria-hidden", "false");
@@ -231,6 +236,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 		open = false;
 		overlay?.release();
 		overlay = null;
+		island?.dismiss("palette");
 		mouseCursorForceVisible(false);
 		root.setAttribute("aria-hidden", "true");
 		input.placeholder = defaultPlaceholder;
@@ -320,6 +326,14 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 	input.addEventListener("keydown", onKeyDown);
 	root.addEventListener("pointerdown", onRootPointerDown);
 	list.addEventListener("click", onListClick);
+
+	island?.adopt({
+		id: "palette",
+		element: root,
+		hiddenClass: "command-palette--hidden",
+		isOpen: () => open,
+		close: () => closePalette(false),
+	});
 
 	return {
 		open: openPalette,

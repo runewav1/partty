@@ -1,0 +1,303 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+let mediaChanged;
+const media = {
+	matches: false,
+	addEventListener: (_, callback) => {
+		mediaChanged = callback;
+	},
+};
+globalThis.window = { matchMedia: () => media };
+const translation = /translateY\(([-\d.]+)px\)/;
+class Element {
+	classes = new Set();
+	children = [];
+	animations = [];
+	style = {
+		setProperty(name, value) {
+			this[name] = value;
+		},
+	};
+	dataset = {};
+	offsetWidth = 600;
+	offsetHeight = 400;
+	classList = {
+		contains: (name) => this.classes.has(name),
+		add: (name) => this.classes.add(name),
+		remove: (name) => this.classes.delete(name),
+		toggle: (name, value) =>
+			value ? this.classes.add(name) : this.classes.delete(name),
+	};
+	append(...children) {
+		for (const child of children) {
+			child.parentElement = this;
+			this.children.push(child);
+		}
+	}
+	setAttribute() {}
+	remove() {
+		this.removed = true;
+		if (this.parentElement)
+			this.parentElement.children = this.parentElement.children.filter(
+				(el) => el !== this,
+			);
+	}
+	querySelector() {
+		return this.panel;
+	}
+	getBoundingClientRect() {
+		if (this.visual)
+			return { width: this.visual.width, bottom: this.visual.height, top: 0 };
+		const height = Number.parseFloat(this.style.height) || 0;
+		const y = Number(translation.exec(this.style.transform)?.[1] || 0);
+		return {
+			width:
+				Number.parseFloat(this.parentElement?.style.width) || this.offsetWidth,
+			bottom: height + y,
+			top: 0,
+		};
+	}
+	animate(frames, options) {
+		const animation = {
+			frames,
+			options,
+			cancel() {
+				this.cancelled = true;
+			},
+		};
+		this.animations.push(animation);
+		return animation;
+	}
+}
+globalThis.ResizeObserver = class {
+	constructor(callback) {
+		this.callback = callback;
+	}
+	observe(element) {
+		element.observer = this;
+	}
+	disconnect() {
+		this.disconnected = true;
+	}
+};
+const root = new Element();
+globalThis.document = {
+	documentElement: root,
+	createElement: () => new Element(),
+	timeline: { currentTime: 42 },
+};
+globalThis.getComputedStyle = () => ({
+	opacity: "1",
+	getPropertyValue: () =>
+		root.dataset.motionStyle === "gentle"
+			? "cubic-bezier(0.33, 1, 0.68, 1)"
+			: "cubic-bezier(0.22, 1, 0.36, 1)",
+});
+const { showSurface, hideSurface, applyMotionPreferences } = await import(
+	"../util/motion.ts"
+);
+const { disposeIslandMotion, prepareIslandView } = await import(
+	"../util/islandMotion.ts"
+);
+
+function surface(host = new Element()) {
+	const el = new Element();
+	el.classList.add("command-island-view");
+	el.classList.add("hidden");
+	el.panel = new Element();
+	host.append(el);
+	return el;
+}
+function shell(el) {
+	return el.parentElement.children.find(
+		(child) => child.className === "island-shell",
+	);
+}
+function complete(el) {
+	shell(el).children[0].animations.at(-1).onfinish();
+}
+
+test("entrance stays full-width and closing cleans up the observer and shell", () => {
+	const el = surface();
+	showSurface(el, "hidden");
+	const frame = shell(el);
+	const [body] = frame.children;
+	assert.deepEqual(body.animations[0].frames, [
+		{ transform: "translateY(-400px) scaleX(1)" },
+		{ transform: "translateY(0px) scaleX(1)" },
+	]);
+	assert.equal(body.animations[0].startTime, 42);
+	complete(el);
+	hideSurface(el, "hidden");
+	assert.ok(
+		body.animations[1].options.duration < body.animations[0].options.duration,
+	);
+	complete(el);
+	assert.equal(el.classList.contains("hidden"), true);
+	assert.equal(frame.removed, true);
+	assert.equal(el.panel.observer.disconnected, true);
+});
+
+test("growth and interrupted shrink morph from the visible size, not the target", () => {
+	const el = surface();
+	showSurface(el, "hidden");
+	complete(el);
+	const [body] = shell(el).children;
+	el.panel.offsetHeight = 520;
+	el.panel.observer.callback();
+	assert.equal(
+		body.animations.at(-1).frames[0].transform,
+		"translateY(-120px) scaleX(1)",
+	);
+	body.visual = { width: 600, height: 460 };
+	el.panel.offsetHeight = 240;
+	el.panel.observer.callback();
+	assert.equal(
+		body.animations.at(-1).frames[0].transform,
+		"translateY(0px) scaleX(1)",
+	);
+	assert.equal(
+		body.animations.at(-1).frames[1].transform,
+		"translateY(-220px) scaleX(1)",
+	);
+	assert.equal(
+		el.panel.animations.at(-1).frames[0].clipPath,
+		"inset(0px 0px 0px round 0px 0px 18px 18px)",
+	);
+	disposeIslandMotion(el);
+});
+
+test("view switching reuses the shell and morphs both dimensions without reopening", () => {
+	const first = surface();
+	showSurface(first, "hidden");
+	complete(first);
+	const original = shell(first);
+	const next = surface(first.parentElement);
+	next.panel.offsetWidth = 440;
+	next.panel.offsetHeight = 280;
+	prepareIslandView(first.parentElement, next);
+	hideSurface(first, "hidden");
+	assert.equal(first.classList.contains("hidden"), true);
+	assert.equal(
+		original.removed,
+		undefined,
+		"keep the shell during async preparation",
+	);
+	showSurface(next, "hidden");
+	assert.equal(shell(next), original);
+	const animation = original.children[0].animations.at(-1);
+	assert.equal(
+		animation.frames[0].transform,
+		`translateY(0px) scaleX(${600 / 440})`,
+	);
+	assert.equal(animation.frames[1].transform, "translateY(-120px) scaleX(1)");
+	assert.equal(next.panel.animations.at(-1).frames[0].opacity, 0);
+	disposeIslandMotion(first);
+	assert.equal(
+		original.removed,
+		undefined,
+		"outgoing cleanup cannot dispose the incoming view",
+	);
+	disposeIslandMotion(next);
+});
+
+test("cancelling an async incoming view removes the held shell", () => {
+	const first = surface();
+	showSurface(first, "hidden");
+	complete(first);
+	const next = surface(first.parentElement);
+	prepareIslandView(first.parentElement, next);
+	hideSurface(first, "hidden");
+	hideSurface(next, "hidden");
+	assert.equal(shell(first), undefined);
+});
+
+test("reopening discards stale close completion and resumes visible geometry", () => {
+	const el = surface();
+	showSurface(el, "hidden");
+	hideSurface(el, "hidden");
+	const body = shell(el).children[0];
+	const exit = body.animations.at(-1);
+	body.visual = { width: 600, height: 160 };
+	showSurface(el, "hidden");
+	assert.equal(
+		body.animations.at(-1).frames[0].transform,
+		"translateY(-240px) scaleX(1)",
+	);
+	exit.onfinish();
+	assert.equal(el.classList.contains("hidden"), false);
+	disposeIslandMotion(el);
+});
+
+test("returning to the outgoing view cancels a pending handoff without losing the shell", () => {
+	const first = surface();
+	showSurface(first, "hidden");
+	complete(first);
+	const original = shell(first);
+	const next = surface(first.parentElement);
+	prepareIslandView(first.parentElement, next);
+	hideSurface(first, "hidden");
+	prepareIslandView(first.parentElement, first);
+	hideSurface(next, "hidden");
+	showSurface(first, "hidden");
+	assert.equal(shell(first), original);
+	complete(first);
+	hideSurface(first, "hidden");
+	complete(first);
+	assert.equal(shell(first), undefined);
+});
+
+test("opening, live retiming, morphing, and closing share speed and feel preferences", () => {
+	applyMotionPreferences("fast", "snappy");
+	const el = surface();
+	showSurface(el, "hidden");
+	const body = shell(el).children[0];
+	assert.equal(body.animations.at(-1).options.duration, 280 * (0.55 * 0.72));
+	body.visual = { width: 600, height: 200 };
+	applyMotionPreferences("slow", "gentle");
+	assert.equal(body.animations.at(-1).options.duration, 280 * (1.65 * 1.28));
+	assert.equal(
+		body.animations.at(-1).options.easing,
+		"cubic-bezier(0.33, 1, 0.68, 1)",
+	);
+	assert.equal(
+		body.animations.at(-1).frames[0].transform,
+		"translateY(-200px) scaleX(1)",
+	);
+	const retimed = body.animations.at(-1);
+	applyMotionPreferences("slow", "gentle");
+	assert.equal(
+		body.animations.at(-1),
+		retimed,
+		"unchanged prefs must not restart motion",
+	);
+	complete(el);
+	el.panel.offsetHeight = 520;
+	el.panel.observer.callback();
+	assert.equal(body.animations.at(-1).options.duration, 200 * (1.65 * 1.28));
+	hideSurface(el, "hidden");
+	assert.equal(body.animations.at(-1).options.duration, 200 * (1.65 * 1.28));
+	applyMotionPreferences("off", "smooth");
+	assert.equal(shell(el), undefined);
+	applyMotionPreferences("normal", "smooth");
+});
+
+test("OS reduced motion completes pending morphs and skips future transitions", () => {
+	const el = surface();
+	showSurface(el, "hidden");
+	el.panel.offsetHeight = 520;
+	el.panel.observer.callback();
+	media.matches = true;
+	try {
+		mediaChanged();
+		const count = el.panel.animations.length;
+		el.panel.offsetHeight = 240;
+		el.panel.observer.callback();
+		assert.equal(el.panel.animations.length, count);
+		hideSurface(el, "hidden");
+		assert.equal(shell(el), undefined);
+	} finally {
+		media.matches = false;
+	}
+});

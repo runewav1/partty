@@ -221,10 +221,6 @@ html[data-motion-style="gentle"] {
 	}
 }
 
-.command-palette-panel,
-.settings-panel-card,
-.help-panel-card,
-.theme-modal-panel,
 .tab-rename-card,
 .partty-dialog-panel,
 .shed-exit-dialog-card,
@@ -233,15 +229,199 @@ html[data-motion-style="gentle"] {
 		backwards;
 }
 
-.command-palette,
-.help-panel-backdrop,
-.settings-panel-backdrop,
 .partty-dialog-backdrop,
-.theme-modal-backdrop,
 .tab-rename-backdrop,
 .shed-exit-dialog {
 	animation: overlay-backdrop-in var(--motion-fast) var(--motion-ease-out)
 		backwards;
+}
+
+/* ===== Command island =====
+   A single positioned host inside #terminal-stage. It stems from the top of the
+   terminal viewport (below the tab area), never affects pane layout, and only
+   ever shows one adopted surface at a time. */
+.command-island {
+	position: absolute;
+	inset: 0;
+	z-index: 40;
+	pointer-events: none;
+	overflow: clip;
+}
+
+.command-island-view {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: flex-start;
+	padding: 0 24px 12px;
+	pointer-events: none;
+}
+
+.command-island-view .command-island-panel {
+	position: relative;
+	pointer-events: auto;
+	transform-origin: 50% 0;
+	border: none;
+	border-radius: 0 0 18px 18px;
+	background: var(--panel-bg);
+	box-shadow: 0 8px 18px -12px var(--panel-shadow);
+	animation: none;
+	overflow: visible;
+}
+
+.command-island-view.island-rendered .command-island-panel {
+	z-index: 1;
+	background: transparent;
+	box-shadow: none;
+	overflow: hidden;
+	transition-property: none;
+}
+
+.command-island-panel > :last-child {
+	border-radius: 0 0 18px 18px;
+}
+
+.command-island-panel > :first-child {
+	background-color: var(--panel-bg);
+}
+
+/* Concave shoulders join the panel to the terminal's top edge. They are
+   cut out, not rounded top corners on a detached modal. */
+.island-shell {
+	position: absolute;
+	top: 0;
+	left: 50%;
+	translate: -50% 0;
+	pointer-events: none;
+}
+
+/* Geometry belongs to the compositor, including when global reduced-motion
+   rules assign a tiny transition duration to every element. */
+.island-shell,
+.island-shell-body,
+.island-shell-neck {
+	transition-property: none;
+}
+
+.island-shell-body {
+	position: absolute;
+	inset: 0;
+	transform-origin: 50% 0;
+	border-radius: 0 0 18px 18px;
+	background: var(--panel-bg);
+	box-shadow: 0 8px 18px -12px var(--panel-shadow);
+}
+
+.island-shell-neck {
+	position: absolute;
+	top: 0;
+	width: 100%;
+	height: 18px;
+	transform-origin: 50% 0;
+}
+
+.island-shell-neck::before,
+.island-shell-neck::after {
+	content: "";
+	position: absolute;
+	top: 0;
+	width: 18px;
+	height: 18px;
+	background: var(--panel-bg);
+	pointer-events: none;
+}
+
+.island-shell-neck::before {
+	left: -18px;
+	mask-image: radial-gradient(circle at 0 100%, transparent 17.5px, #000 18px);
+}
+
+.island-shell-neck::after {
+	right: -18px;
+	mask-image: radial-gradient(circle at 100% 100%, transparent 17.5px, #000 18px);
+}
+
+.command-island-view.island-retracting,
+.command-island-view.island-retracting .command-island-panel {
+	pointer-events: none !important;
+}
+
+/* Terminal find — compact island bar */
+.terminal-find {
+	background: transparent;
+	pointer-events: auto;
+}
+
+.terminal-find--hidden {
+	display: none !important;
+}
+
+.terminal-find-panel {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: min(520px, 100%);
+	padding: 6px 8px;
+	background: var(--panel-glass-bg);
+	border: 1px solid var(--panel-border);
+	border-radius: var(--panel-radius);
+	box-shadow: var(--panel-elevated-shadow);
+}
+
+.terminal-find-input {
+	flex: 1;
+	min-width: 0;
+	padding: 4px;
+	border: none;
+	background: transparent;
+	color: var(--input-text);
+	font: inherit;
+	font-size: 13px;
+	outline: none;
+}
+
+.terminal-find-input::placeholder {
+	color: var(--ui-chrome-fainter);
+}
+
+.terminal-find-count {
+	flex: 0 0 auto;
+	min-width: 3.5em;
+	text-align: right;
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	color: var(--ui-chrome-fainter);
+}
+
+.terminal-find-btn {
+	flex: 0 0 auto;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 26px;
+	height: 26px;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--ui-chrome-muted);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+	transition:
+		background var(--motion-fast) var(--motion-ease-out),
+		color var(--motion-fast) var(--motion-ease-out);
+}
+
+.terminal-find-btn:hover {
+	background: var(--hover-overlay-light);
+	color: var(--ui-chrome-fg);
+}
+
+.terminal-find-close:hover {
+	background: rgba(239, 68, 68, 0.12);
+	color: #fca5a5;
 }
 
 @keyframes motion-surface-out {
@@ -1406,18 +1586,8 @@ html.tabs-hidden #main-workspace {
 }
 
 .command-palette {
-	position: fixed;
-	top: 0;
-	right: 0;
-	bottom: 0;
-	left: 0;
-	z-index: var(--layer-palette);
-	display: flex;
-	align-items: flex-start;
-	justify-content: center;
-	padding-top: 12vh;
-	background: var(--backdrop-darkest);
-	backdrop-filter: blur(0.5px);
+	background: transparent;
+	pointer-events: auto;
 }
 
 .command-palette--hidden {
@@ -1426,33 +1596,15 @@ html.tabs-hidden #main-workspace {
 }
 
 .command-palette-panel {
-	left: 50%;
-	top: 12vh;
-	transform: translateX(-50%);
-	width: min(560px, calc(100vw - 32px));
-	max-height: min(520px, 78vh);
+	width: min(560px, 100%);
+	max-height: min(440px, 68vh);
 	display: flex;
 	flex-direction: column;
 	background: var(--panel-glass-bg);
 	border: 1px solid var(--panel-border);
 	border-radius: var(--panel-radius);
 	box-shadow: var(--panel-elevated-shadow);
-	backdrop-filter: blur(16px) saturate(1.08);
-	-webkit-backdrop-filter: blur(16px) saturate(1.08);
 	overflow: hidden;
-	z-index: calc(var(--layer-palette) + 1);
-}
-
-.command-palette-toolbar {
-	flex-shrink: 0;
-	height: 6px;
-	background: var(--panel-header-bg);
-	border-bottom: 1px solid var(--panel-divider);
-	cursor: grab;
-}
-
-.command-palette-toolbar:active {
-	cursor: grabbing;
 }
 
 .command-palette-list-view {
@@ -1465,12 +1617,12 @@ html.tabs-hidden #main-workspace {
 .command-palette-input {
 	width: 100%;
 	margin: 0;
-	padding: 12px 14px;
+	padding: 10px 12px;
 	border: none;
 	border-bottom: 1px solid var(--panel-divider);
 	background: color-mix(in srgb, var(--input-bg) 90%, transparent);
 	color: var(--input-text);
-	font-size: 14px;
+	font-size: 13px;
 	font-family: inherit;
 	outline: none;
 }
@@ -1482,7 +1634,7 @@ html.tabs-hidden #main-workspace {
 .command-palette-list {
 	list-style: none;
 	margin: 0;
-	padding: 6px 0;
+	padding: 5px 0;
 	overflow-y: auto;
 	flex: 1;
 	min-height: 0;
@@ -1494,7 +1646,7 @@ html.tabs-hidden #main-workspace {
 }
 
 .command-palette-item {
-	padding: 8px 14px;
+	padding: 0;
 	font-size: 13px;
 	color: var(--ui-chrome-fg);
 	cursor: pointer;
@@ -1506,18 +1658,14 @@ html.tabs-hidden #main-workspace {
 	background: var(--hover-overlay);
 }
 
-.command-palette-item {
-	padding: 0;
-}
-
 .command-palette-item-row {
 	display: flex;
 	flex-direction: row;
 	align-items: center;
 	justify-content: space-between;
 	gap: 12px;
-	padding: 8px 14px;
-	min-height: 36px;
+	padding: 6px 12px;
+	min-height: 30px;
 }
 
 .command-palette-item-label {
@@ -1570,7 +1718,7 @@ html.tabs-hidden #main-workspace {
 .command-palette-item-hk {
 	flex: 0 0 auto;
 	font: inherit;
-	font-size: 13px;
+	font-size: 12px;
 	font-weight: 500;
 	letter-spacing: 0.04em;
 	color: var(--ui-chrome-fainter);
@@ -1587,8 +1735,8 @@ html.tabs-hidden #main-workspace {
 
 .command-palette-item-remove {
 	flex: 0 0 auto;
-	width: 26px;
-	height: 26px;
+	width: 24px;
+	height: 24px;
 	margin-left: 8px;
 	border: none;
 	border-radius: 6px;
@@ -1651,34 +1799,15 @@ html.tabs-hidden #main-workspace {
 }
 
 .help-panel {
-	position: fixed;
-	inset: 0;
-	z-index: var(--layer-panel);
-	display: flex;
-	align-items: flex-start;
-	justify-content: center;
-	padding-top: 14vh;
-	pointer-events: none;
+	background: transparent;
+	pointer-events: auto;
 }
 .help-panel--hidden {
 	display: none !important;
 }
-.help-panel-backdrop {
-	position: absolute;
-	inset: 0;
-	background: var(--backdrop-darker);
-	backdrop-filter: blur(3px);
-	pointer-events: auto;
-}
 .help-panel-card {
-	position: relative;
-	left: 50%;
-	top: 8vh;
-	transform: translateX(-50%);
-	z-index: 1;
-	pointer-events: auto;
-	width: min(440px, calc(100vw - 28px));
-	max-height: min(64vh, 520px);
+	width: min(460px, 100%);
+	max-height: min(560px, 70vh);
 	display: flex;
 	flex-direction: column;
 	padding: 0;
@@ -1687,21 +1816,51 @@ html.tabs-hidden #main-workspace {
 	border: 1px solid var(--panel-border);
 	border-radius: var(--panel-radius);
 	box-shadow: var(--panel-elevated-shadow);
-	backdrop-filter: blur(16px) saturate(1.08);
-	-webkit-backdrop-filter: blur(16px) saturate(1.08);
 	overflow: hidden;
 }
 .help-panel-head {
 	display: flex;
-	height: 6px;
-	padding: 0;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 6px 6px 6px 12px;
 	background: var(--panel-header-bg);
 	border-bottom: 1px solid var(--panel-divider);
-	cursor: grab;
 	user-select: none;
 }
-.help-panel-head:active {
-	cursor: grabbing;
+.help-panel-title {
+	font-size: 12px;
+	font-weight: 600;
+	letter-spacing: 0.01em;
+	color: var(--ui-chrome-fg);
+}
+.help-panel-close,
+.settings-panel-close {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--ui-chrome-muted);
+	font: inherit;
+	font-size: 13px;
+	line-height: 1;
+	cursor: pointer;
+	transition:
+		color var(--motion-fast) var(--motion-ease-out),
+		background var(--motion-fast) var(--motion-ease-out);
+}
+.help-panel-close::before,
+.settings-panel-close::before {
+	content: "✕";
+}
+.help-panel-close:hover,
+.settings-panel-close:hover {
+	color: var(--ui-chrome-fg);
+	background: var(--hover-overlay-light);
 }
 .help-panel-body {
 	margin: 0;
@@ -1721,8 +1880,8 @@ html.tabs-hidden #main-workspace {
 	flex-direction: row;
 	align-items: center;
 	gap: 6px 8px;
-	padding: 6px 14px;
-	min-height: 30px;
+	padding: 5px 12px;
+	min-height: 28px;
 }
 .help-shortcut:hover {
 	background: var(--hover-overlay-light);
@@ -1748,34 +1907,16 @@ html.tabs-hidden #main-workspace {
 }
 
 .settings-panel {
-	position: fixed;
-	inset: 0;
-	z-index: var(--layer-panel);
-	display: flex;
-	align-items: flex-start;
-	justify-content: center;
-	padding-top: 8vh;
-	pointer-events: none;
+	background: transparent;
+	pointer-events: auto;
 }
 .settings-panel--hidden {
 	display: none !important;
 }
-.settings-panel-backdrop {
-	position: absolute;
-	inset: 0;
-	background: var(--backdrop-darker);
-	backdrop-filter: blur(3px);
-	pointer-events: auto;
-}
 .settings-panel-card {
-	position: relative;
-	left: 50%;
-	top: 6vh;
-	transform: translateX(-50%);
-	z-index: 1;
-	pointer-events: auto;
-	width: min(560px, calc(100vw - 28px));
-	max-height: min(82vh, 680px);
+	width: min(720px, 100%);
+	height: auto;
+	max-height: min(600px, 74vh);
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
@@ -1783,22 +1924,17 @@ html.tabs-hidden #main-workspace {
 	color: var(--ui-chrome-fg);
 	border: 1px solid var(--panel-border);
 	border-radius: var(--panel-radius);
-	box-shadow: 0 20px 60px var(--panel-shadow);
-	backdrop-filter: blur(16px) saturate(1.08);
-	-webkit-backdrop-filter: blur(16px) saturate(1.08);
+	box-shadow: var(--panel-elevated-shadow);
 }
 .settings-panel-head {
 	display: flex;
 	flex-direction: row;
 	align-items: center;
 	justify-content: space-between;
-	padding: 0;
+	padding: 8px 8px 8px 14px;
 	background: var(--panel-header-bg);
 	border-bottom: 1px solid var(--panel-divider);
 	user-select: none;
-}
-.settings-panel-head:active {
-	cursor: grabbing;
 }
 .settings-panel-title {
 	margin: 0;
@@ -1807,29 +1943,34 @@ html.tabs-hidden #main-workspace {
 	color: var(--ui-chrome-fg);
 	letter-spacing: -0.01em;
 }
-.settings-panel-x,
-.settings-panel-close {
-	border: none;
-	background: transparent;
-	color: var(--ui-chrome-muted);
-	font-size: 18px;
-	line-height: 1;
-	cursor: pointer;
-	padding: 2px 6px;
-	border-radius: 5px;
-	transition:
-		color var(--motion-fast) var(--motion-ease-out),
-		background var(--motion-fast) var(--motion-ease-out);
+.settings-panel-main {
+	display: grid;
+	grid-template-columns: 150px minmax(0, 1fr);
+	flex: 1;
+	min-height: 0;
 }
-.settings-panel-x:hover,
-.settings-panel-close:hover {
-	color: var(--ui-chrome-fg);
-	background: var(--hover-overlay-light);
+.settings-panel-nav {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	padding: 6px;
+	border-right: 1px solid var(--panel-divider);
+	overflow-y: auto;
+	scrollbar-width: none;
+}
+.settings-panel-nav::-webkit-scrollbar {
+	display: none;
+}
+.settings-panel-content {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
 }
 .settings-panel-body {
 	flex: 1;
 	min-height: 0;
-	padding: 4px 0;
+	padding: 4px 0 10px;
 	overflow-y: auto;
 	scrollbar-width: none;
 }
@@ -1837,20 +1978,13 @@ html.tabs-hidden #main-workspace {
 	display: none;
 }
 
-/* ── Tab bar ── */
-.settings-panel-tabs {
-	display: flex;
-	flex-direction: row;
-	gap: 0;
-	flex: 1;
-	overflow-x: auto;
-}
-
+/* ── Section nav ── */
 .settings-tab {
 	flex: 0 0 auto;
-	padding: 9px 14px 7px;
+	text-align: left;
+	padding: 7px 10px;
 	border: none;
-	border-bottom: 2px solid transparent;
+	border-radius: 7px;
 	background: transparent;
 	color: var(--ui-chrome-muted);
 	font: inherit;
@@ -1860,21 +1994,40 @@ html.tabs-hidden #main-workspace {
 	cursor: pointer;
 	transition:
 		color var(--motion-fast) var(--motion-ease-out),
-		border-color var(--motion-fast) var(--motion-ease-out);
+		background var(--motion-fast) var(--motion-ease-out);
 	white-space: nowrap;
 }
 
 .settings-tab:hover {
 	color: var(--ui-chrome-fg);
+	background: var(--hover-overlay-light);
 }
 
 .settings-tab--active {
 	color: var(--ui-chrome-fg);
-	border-bottom-color: var(--accent-primary);
+	background: var(--hover-overlay);
 }
 
 .settings-tab--dim {
 	opacity: 0.4;
+}
+
+/* Narrow windows: stack the nav above the content. */
+@media (max-width: 660px) {
+	.settings-panel-main {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: auto minmax(0, 1fr);
+	}
+	.settings-panel-nav {
+		flex-direction: row;
+		border-right: none;
+		border-bottom: 1px solid var(--panel-divider);
+		overflow-x: auto;
+		overflow-y: hidden;
+	}
+	.settings-tab {
+		text-align: center;
+	}
 }
 
 /* ── Section blocks ── */
@@ -2331,11 +2484,9 @@ html.tabs-hidden #main-workspace {
 	color: var(--ui-chrome-fg);
 }
 
-/* Theme picker (command palette → Themes): no backdrop blur; draggable panel */
+/* Theme picker (command island view) */
 .theme-modal {
-	position: fixed;
-	inset: 0;
-	z-index: var(--layer-theme-modal);
+	background: transparent;
 	pointer-events: none;
 }
 
@@ -2347,53 +2498,24 @@ html.tabs-hidden #main-workspace {
 	pointer-events: auto;
 }
 
-.theme-modal-backdrop {
-	position: absolute;
-	inset: 0;
-	background: var(--backdrop-darker);
-	backdrop-filter: blur(3px);
-}
-
 .theme-modal-panel {
-	position: absolute;
-	left: 50%;
-	top: 18%;
-	transform: translateX(-50%);
-	width: min(420px, 92vw);
-	max-height: min(72vh, 560px);
+	width: min(440px, 100%);
+	max-height: min(560px, 68vh);
 	display: flex;
 	flex-direction: column;
 	background: var(--panel-glass-bg);
 	border: 1px solid var(--panel-border);
 	border-radius: var(--panel-radius);
-	box-shadow: 0 12px 40px var(--panel-shadow);
-	backdrop-filter: blur(16px) saturate(1.08);
-	-webkit-backdrop-filter: blur(16px) saturate(1.08);
+	box-shadow: var(--panel-elevated-shadow);
 	overflow: hidden;
 }
 
 .theme-modal-head {
-	display: flex;
-	align-items: center;
-	justify-content: flex-end;
-	height: 6px;
-	padding: 0;
-	cursor: grab;
-	background: var(--panel-header-bg);
-	border-bottom: 1px solid var(--panel-divider);
-	user-select: none;
-}
-
-.theme-modal-head:active {
-	cursor: grabbing;
-}
-
-.theme-modal-close {
 	display: none;
 }
 
 .theme-modal-search {
-	margin: 10px 12px 0;
+	margin: 8px 10px 0;
 	padding: 8px 10px;
 	border: 1px solid var(--input-border);
 	border-radius: 6px;
@@ -2431,7 +2553,7 @@ html.tabs-hidden #main-workspace {
 	align-items: center;
 	justify-content: space-between;
 	gap: 10px;
-	padding: 8px 10px;
+	padding: 7px 9px;
 	border-radius: 6px;
 	cursor: pointer;
 	font-size: 12px;

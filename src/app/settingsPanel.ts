@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { normalizeZoomStep, ZOOM_STEP_DEFAULT } from "../terminal/zoomStep";
 import { hideSurface, showSurface } from "./../util/motion";
+import type { CommandIslandApi } from "./commandIsland";
 import { mouseCursorForceVisible } from "./mouseCursor";
 import { type OverlayHandle, pushOverlay } from "./overlayStack";
 
@@ -239,6 +240,7 @@ export function createSettingsPanel(
 	root: HTMLElement,
 	onSaved?: (next: ParttyPrefs, previous: ParttyPrefs) => void | Promise<void>,
 	onClosed?: () => void,
+	island?: CommandIslandApi,
 ): SettingsPanelApi {
 	let open = false;
 	let saving = false;
@@ -916,6 +918,7 @@ export function createSettingsPanel(
 		open = false;
 		overlay?.release();
 		overlay = null;
+		island?.dismiss("settings");
 		mouseCursorForceVisible(false);
 		root.setAttribute("aria-hidden", "true");
 		if (save) void doSave();
@@ -957,13 +960,13 @@ export function createSettingsPanel(
 		backdropModeSelect?.addEventListener("change", () => applySettingsTree());
 
 		root
-			.querySelector(".settings-panel-backdrop")
-			?.addEventListener("click", (e) => {
-				if (e.target === e.currentTarget) close();
-			});
-		root
 			.querySelector("#settings-close")
 			?.addEventListener("click", () => close());
+		// Click the empty island area outside the card to dismiss (mirrors the
+		// old backdrop behavior; the view root fills the terminal stage).
+		root.addEventListener("pointerdown", (e) => {
+			if (e.target === root) close();
+		});
 		root
 			.querySelector("#settings-search")
 			?.addEventListener("input", () => applySettingsSearch());
@@ -979,11 +982,20 @@ export function createSettingsPanel(
 	}
 	ensureListeners();
 
+	island?.adopt({
+		id: "settings",
+		element: root,
+		hiddenClass: "settings-panel--hidden",
+		isOpen: () => open,
+		close: () => close(),
+	});
+
 	return {
 		open: () => {
 			if (open) return;
 			open = true;
 			overlay = pushOverlay(() => close());
+			island?.present("settings");
 			mouseCursorForceVisible(true);
 			ensureListeners();
 			showSurface(root, "settings-panel--hidden");

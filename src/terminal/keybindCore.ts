@@ -198,9 +198,9 @@ export const DEFAULT_BINDS: Record<string, string> = {
 	palette_open: "Ctrl+Shift+P",
 	// biome-ignore lint/security/noSecrets: keybind literal, not a secret
 	palette_chord: "Ctrl+Shift+P",
-	// biome-ignore lint/security/noSecrets: keybind literal, not a secret
 	help_toggle: "Ctrl+Shift+/",
 	// biome-ignore lint/security/noSecrets: keybind literal, not a secret
+	terminal_find: "Ctrl+Shift+F",
 	notification_focus: "Ctrl+N",
 
 	terminal_newline: "Shift+Enter",

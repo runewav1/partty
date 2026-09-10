@@ -1,15 +1,24 @@
 /**
  * Small animation helpers shared by chrome surfaces and pane/tab motion.
  *
- * All app motion is CSS-class driven; these helpers centralize the
- * reduced-motion checks and the run-class-until-animationend pattern that
- * was previously duplicated inline.
+ * Chrome uses CSS classes; the island uses a separate DOM shell compositor.
+ * Both share reduced-motion checks and persisted speed preferences.
  */
+
+import {
+	animateIslandSurface,
+	finishIslandMotion,
+	type IslandMotionPhase,
+	refreshIslandMotionPreferences,
+} from "./islandMotion.ts";
 
 const reducedMotionQuery = window.matchMedia(
 	"(prefers-reduced-motion: reduce)",
 );
 const activeClassAnimations = new WeakMap<HTMLElement, () => void>();
+reducedMotionQuery.addEventListener("change", () => {
+	if (motionDisabled()) finishIslandMotion();
+});
 let durationScale = 1;
 
 function animationScaleForPreference(value: unknown): number {
@@ -38,6 +47,9 @@ export function applyMotionPreferences(speed: unknown, style: unknown): void {
 	const root = document.documentElement;
 	const scale = animationScaleForPreference(speed);
 	const normalizedStyle = motionStyleForPreference(style);
+	const changed =
+		durationScale !== scale * motionFeelScale(normalizedStyle) ||
+		root.dataset.motionStyle !== normalizedStyle;
 	durationScale = scale * motionFeelScale(normalizedStyle);
 	root.classList.toggle("terminal-motion-off", scale === 0);
 	root.style.setProperty("--partty-animation-scale", String(scale));
@@ -46,6 +58,8 @@ export function applyMotionPreferences(speed: unknown, style: unknown): void {
 		String(motionFeelScale(normalizedStyle)),
 	);
 	root.dataset.motionStyle = normalizedStyle;
+	if (motionDisabled()) finishIslandMotion();
+	else if (changed) refreshIslandMotionPreferences();
 }
 
 /** True when animations should be skipped (OS setting or app motion=off). */
@@ -61,6 +75,19 @@ export function motionDurationMs(duration: "fast" | "medium" | "slow"): number {
 	if (motionDisabled()) return 0;
 	const baseMs = duration === "fast" ? 130 : duration === "slow" ? 280 : 200;
 	return baseMs * durationScale;
+}
+
+/** Read live shared tokens so the island follows the same feel as other chrome. */
+function islandMotionOptions(phase: IslandMotionPhase) {
+	const token =
+		phase === "close" ? "--motion-ease-standard" : "--motion-ease-out";
+	return {
+		duration: motionDurationMs(phase === "open" ? "slow" : "medium"),
+		easing:
+			getComputedStyle(document.documentElement)
+				.getPropertyValue(token)
+				.trim() || "cubic-bezier(0.22, 1, 0.36, 1)",
+	};
 }
 
 /** Cancel in-flight CSS animations/transitions on an element (and optionally descendants). */
@@ -144,6 +171,17 @@ export function hideSurface(
 	hiddenClass: string,
 	onHidden?: () => void,
 ): void {
+	if (el.classList.contains("command-island-view")) {
+		el.classList.add("island-retracting");
+		if (
+			animateIslandSurface(el, false, islandMotionOptions, () => {
+				el.classList.add(hiddenClass);
+				el.classList.remove("island-retracting");
+				onHidden?.();
+			})
+		)
+			return;
+	}
 	animateClass(el, "motion-surface--leaving", () => {
 		el.classList.add(hiddenClass);
 		onHidden?.();
@@ -151,9 +189,13 @@ export function hideSurface(
 }
 
 export function showSurface(el: HTMLElement, hiddenClass: string): void {
-	cancelElementAnimations(el);
+	// The island renderer samples in-flight positions before cancellation.
+	if (!el.classList.contains("command-island-view"))
+		cancelElementAnimations(el);
+	el.classList.remove("island-retracting");
 	el.classList.remove("motion-surface--leaving");
 	el.classList.remove(hiddenClass);
+	animateIslandSurface(el, true, islandMotionOptions);
 }
 
 /** Run a callback after a paint boundary without creating a Promise. */

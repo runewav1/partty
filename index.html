@@ -38,8 +38,7 @@
         aria-label="Command palette"
         aria-hidden="true"
       >
-        <div class="command-palette-panel">
-          <div class="command-palette-toolbar" aria-hidden="true"></div>
+        <div class="command-palette-panel command-island-panel">
           <div id="command-palette-list-view" class="command-palette-list-view">
             <input
               id="command-palette-input"
@@ -63,9 +62,11 @@
 
       <!-- Help Panel -->
       <div id="help-panel" class="help-panel help-panel--hidden" aria-hidden="true">
-        <div class="help-panel-backdrop" data-close-help></div>
-          <div class="help-panel-card">
-            <div class="help-panel-head"></div>
+        <div class="help-panel-card command-island-panel">
+          <div class="help-panel-head">
+            <span class="help-panel-title">Shortcuts</span>
+            <button type="button" class="help-panel-close" data-close-help aria-label="Close"></button>
+          </div>
           <div class="help-panel-body">
             <div class="help-shortcuts"></div>
           </div>
@@ -77,23 +78,25 @@
 
       <!-- Settings Panel -->
       <div id="settings-panel" class="settings-panel settings-panel--hidden" aria-hidden="true">
-        <div class="settings-panel-backdrop"></div>
-        <div class="settings-panel-card">
+        <div class="settings-panel-card command-island-panel">
           <div class="settings-panel-head">
-            <div class="settings-panel-tabs" role="tablist">
+            <span class="settings-panel-title">Settings</span>
+            <button id="settings-close" type="button" class="settings-panel-close" aria-label="Close"></button>
+          </div>
+          <div class="settings-panel-main">
+            <div class="settings-panel-nav" role="tablist" aria-label="Settings sections">
               <button class="settings-tab settings-tab--active" data-section="shell" type="button" role="tab" aria-selected="true">Profiles</button>
               <button class="settings-tab" data-section="terminal" type="button" role="tab">Terminal</button>
-              <button class="settings-tab" data-section="ui" type="button" role="tab">UI</button>
+              <button class="settings-tab" data-section="ui" type="button" role="tab">Appearance</button>
               <button class="settings-tab" data-section="window" type="button" role="tab">Window</button>
               <button class="settings-tab" data-section="session" type="button" role="tab">Session</button>
               <button class="settings-tab" data-section="dev" type="button" role="tab" data-dev-only>Dev</button>
             </div>
-            <button id="settings-close" type="button" class="settings-panel-close" aria-label="Close"></button>
-          </div>
-          <div class="settings-panel-search-row">
-            <input id="settings-search" type="search" class="settings-input settings-search" placeholder="Search settings" spellcheck="false" autocomplete="off" />
-          </div>
-          <form id="settings-form" class="settings-panel-body partty-scroll-fade">
+            <div class="settings-panel-content">
+              <div class="settings-panel-search-row">
+                <input id="settings-search" type="search" class="settings-input settings-search" placeholder="Search settings" spellcheck="false" autocomplete="off" />
+              </div>
+              <form id="settings-form" class="settings-panel-body partty-scroll-fade">
 
             <div class="settings-section" data-section="shell">
               <div class="settings-section-hd">Profiles</div>
@@ -110,7 +113,9 @@
                   <label class="settings-checkbox-label" title="Splits copy the parent pane's connection profile"><span>Inherit profile on split</span><input class="settings-checkbox-input" type="checkbox" name="inherit_profile_on_split" /></label>
                   <label class="settings-checkbox-label" title="Splits copy the parent pane's working directory"><span>Inherit cwd on split</span><input class="settings-checkbox-input" type="checkbox" name="inherit_cwd_on_split" /></label>
                   <label class="settings-checkbox-label" title="Tab on New tab / Split opens a profile list"><span>Palette Tab → profiles</span><input class="settings-checkbox-input" type="checkbox" name="palette_tab_profile_picker" /></label>
+                  <div class="settings-toggle-desc">In the palette, Tab on “New tab” or a split row opens the profile picker.</div>
                   <label class="settings-checkbox-label" title="New tabs use the default profile instead of the focused pane's profile"><span>New tab uses default profile</span><input class="settings-checkbox-input" type="checkbox" name="new_tab_uses_default_profile" /></label>
+                  <div class="settings-toggle-desc">Off means new tabs inherit the focused pane's profile.</div>
                 </div>
               </div>
             </div>
@@ -309,6 +314,7 @@
                     <option value="off">off</option><option value="transparent">transparent</option><option value="acrylic">acrylic</option>
                   </select>
                 </div>
+                <div class="settings-toggle-desc">Window translucency. “Acrylic” adds OS blur behind the window.</div>
                 <div class="settings-row settings-row--compact" data-backdrop-opt="transparent">
                   <span class="settings-row-label">Backdrop α</span>
                   <input id="setting-window-effect-opacity" name="window_effect_opacity" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
@@ -407,6 +413,8 @@
 
 
           </form>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -453,6 +461,12 @@
                 <div class="terminal-main">
                   <div id="terminal-pane-root" class="terminal-pane-root"></div>
                 </div>
+              </div>
+              <!-- Shared command island: every command-driven surface is adopted
+                   here at boot. Positioned inside the stage so it stems from the
+                   top of the terminal viewport without affecting pane layout. -->
+              <div id="command-island" class="command-island" aria-hidden="true">
+                <div id="terminal-find" class="terminal-find terminal-find--hidden" aria-hidden="true"></div>
               </div>
             </div>
           </div>

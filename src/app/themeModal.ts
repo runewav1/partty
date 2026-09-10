@@ -14,8 +14,7 @@ import {
 	normalizeQuery,
 } from "./../util/lexicalSearch";
 import { hideSurface, showSurface } from "./../util/motion";
-import { THEME_MODAL_POS_KEY } from "./../util/storageKeys";
-import { attachDraggablePanel } from "./draggablePanel";
+import type { CommandIslandApi } from "./commandIsland";
 import { mouseCursorForceVisible } from "./mouseCursor";
 import { type OverlayHandle, pushOverlay } from "./overlayStack";
 import type { ParttyPrefs } from "./settingsPanel";
@@ -44,6 +43,7 @@ export function createThemeModal(
 	root: HTMLElement,
 	onPreview: (prefs: UiThemePrefs, committedPrefs?: ParttyPrefs) => void,
 	onClosed?: () => void,
+	island?: CommandIslandApi,
 ): ThemeModalApi {
 	let open = false;
 	let overlay: OverlayHandle | null = null;
@@ -145,11 +145,8 @@ export function createThemeModal(
 		applyFilter();
 	}
 
-	const backdrop = document.createElement("div");
-	backdrop.className = "theme-modal-backdrop";
-
 	const panel = document.createElement("div");
-	panel.className = "theme-modal-panel";
+	panel.className = "theme-modal-panel command-island-panel";
 	panel.tabIndex = -1;
 	panel.setAttribute("role", "dialog");
 	panel.setAttribute("aria-label", "Choose theme");
@@ -178,10 +175,11 @@ export function createThemeModal(
 	panel.appendChild(searchInput);
 	panel.appendChild(list);
 
-	root.appendChild(backdrop);
 	root.appendChild(panel);
 
-	attachDraggablePanel(panel, head, THEME_MODAL_POS_KEY);
+	root.addEventListener("pointerdown", (e) => {
+		if (e.target === root) close();
+	});
 
 	function indexForPrefs(p: UiThemePrefs): number {
 		const n = normalizePaneThemePrefs(p);
@@ -288,7 +286,6 @@ export function createThemeModal(
 	};
 
 	closeBtn.addEventListener("click", () => close());
-	backdrop.addEventListener("click", () => close());
 	searchInput.addEventListener("input", () => {
 		selectedFlat = 0;
 		applyFilter();
@@ -300,6 +297,7 @@ export function createThemeModal(
 		open = false;
 		overlay?.release();
 		overlay = null;
+		island?.dismiss("theme");
 		mouseCursorForceVisible(false);
 		root.setAttribute("aria-hidden", "true");
 		document.documentElement.classList.remove("theme-modal-open");
@@ -314,11 +312,20 @@ export function createThemeModal(
 		hideSurface(root, "theme-modal--hidden");
 	}
 
+	island?.adopt({
+		id: "theme",
+		element: root,
+		hiddenClass: "theme-modal--hidden",
+		isOpen: () => open,
+		close,
+	});
+
 	return {
 		open: (options?: ThemeModalOpenOptions) => {
 			if (open) return;
 			open = true;
 			overlay = pushOverlay(close);
+			island?.present("theme");
 			mouseCursorForceVisible(true);
 			commitOverride = options?.onCommit ?? null;
 			window.addEventListener("keydown", onKey, true);
