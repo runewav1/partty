@@ -70,6 +70,16 @@ pub struct PtyShellEvent {
     pub event: ShellEventKind,
 }
 
+/// Alternate-screen toggle extracted from DECSET/DECRST 1049 (plus the legacy
+/// 1047 / 47 aliases). Passive observation for later foreground-process
+/// probing and per-program tweaks; xterm remains the authoritative emulator.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PtyAltScreenEvent {
+    pub session_id: String,
+    pub active: bool,
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Rust-side OSC stripper: strips OSC 7 (cwd), 133/633 (shell integration),
 // and dead/legacy numbers (50, 1337-1339) from the PTY stream, emitting
@@ -527,6 +537,173 @@ impl OscStripper {
             events.push(OscSideEvent::Osc52Set(payload.to_string()));
         }
     }
+}
+
+/// Passive observer for alternate-screen toggles (`CSI ? 1049 h/l`, plus the
+/// legacy 1047 / 47 aliases) in the cleaned output stream.
+///
+/// It reports only transitions and never holds back or rewrites the CSI bytes,
+/// so xterm stays the authoritative emulator: a misparse here can at worst
+/// mislabel the signal, never change what is rendered. The detector gives the
+/// backend a hook at which a foreground-process probe — and later, per-program
+/// tweaks or an extension surface — can run without a webview round-trip.
+///
+/// State is retained across output batches so a sequence split between its
+/// parameter bytes and its final byte is still recognised. Complete OSCs are
+/// always delivered whole by the stripper, so they are skipped inline; the CSI
+/// parameter run is the only cross-batch state.
+struct AltScreenDetector {
+    state: AltScreenState,
+    params: Vec<u8>,
+    active: bool,
+}
+
+#[derive(PartialEq, Eq)]
+enum AltScreenState {
+    Ground,
+    Esc,
+    /// Saw `ESC [` but not yet its first byte — distinguishes a private-mode
+    /// introducer (`?` immediately after `[`) from a normal parameter CSI.
+    CsiStart,
+    /// A normal (non-private) CSI: consume until the final byte and ignore.
+    Csi,
+    /// A `?`-private CSI: accumulate parameter bytes for DECSET/DECRST.
+    CsiPrivate,
+}
+
+impl AltScreenDetector {
+    fn new() -> Self {
+        Self {
+            state: AltScreenState::Ground,
+            params: Vec::with_capacity(8),
+            active: false,
+        }
+    }
+
+    /// Observe one cleaned output batch, appending each alt-screen transition
+    /// (`true` = entered the alternate screen, `false` = returned to normal) to
+    /// `out` in stream order.
+    fn observe(&mut self, bytes: &[u8], out: &mut Vec<bool>) {
+        // Fast path: nothing in flight and no ESC means nothing to detect.
+        if self.state == AltScreenState::Ground && !bytes.contains(&0x1b) {
+            return;
+        }
+        let mut i = 0;
+        while i < bytes.len() {
+            let b = bytes[i];
+            match self.state {
+                AltScreenState::Ground => {
+                    if b == 0x1b {
+                        self.state = AltScreenState::Esc;
+                    }
+                    i += 1;
+                }
+                AltScreenState::Esc => {
+                    match b {
+                        0x5b => self.state = AltScreenState::CsiStart, // '['
+                        0x5d => {
+                            // OSC: always complete in cleaned output, skip it so
+                            // an embedded CSI in its payload is never observed.
+                            i = osc_end(bytes, i + 1);
+                            self.state = AltScreenState::Ground;
+                            continue;
+                        }
+                        0x1b => {} // ESC ESC — stay in Esc
+                        0x63 => {
+                            // RIS (ESC c) returns to the normal screen.
+                            self.set(false, out);
+                            self.state = AltScreenState::Ground;
+                        }
+                        _ => self.state = AltScreenState::Ground,
+                    }
+                    i += 1;
+                }
+                AltScreenState::CsiStart => {
+                    if b == 0x3f {
+                        self.params.clear();
+                        self.state = AltScreenState::CsiPrivate;
+                    } else if b == 0x1b {
+                        self.state = AltScreenState::Esc;
+                    } else if csi_is_final(b) {
+                        self.state = AltScreenState::Ground;
+                    } else {
+                        self.state = AltScreenState::Csi;
+                    }
+                    i += 1;
+                }
+                AltScreenState::Csi => {
+                    if b == 0x1b {
+                        self.state = AltScreenState::Esc;
+                    } else if csi_is_final(b) {
+                        self.state = AltScreenState::Ground;
+                    }
+                    i += 1;
+                }
+                AltScreenState::CsiPrivate => {
+                    if b == 0x1b {
+                        self.params.clear();
+                        self.state = AltScreenState::Esc;
+                    } else if b.is_ascii_digit() || b == b';' {
+                        // Bound the parameter run; DECSET numbers are short, so
+                        // anything longer is noise we can safely ignore.
+                        if self.params.len() < 64 {
+                            self.params.push(b);
+                        }
+                    } else if b == 0x3f || (0x20..=0x2f).contains(&b) {
+                        // Redundant private marker / intermediate byte: ignore.
+                    } else if csi_is_final(b) {
+                        if b == b'h' || b == b'l' {
+                            let on = b == b'h';
+                            if params_include_alt_screen(&self.params) {
+                                self.set(on, out);
+                            }
+                        }
+                        self.params.clear();
+                        self.state = AltScreenState::Ground;
+                    } else {
+                        // Unexpected byte: abandon the sequence.
+                        self.params.clear();
+                        self.state = AltScreenState::Ground;
+                    }
+                    i += 1;
+                }
+            }
+        }
+    }
+
+    fn set(&mut self, on: bool, out: &mut Vec<bool>) {
+        if self.active != on {
+            self.active = on;
+            out.push(on);
+        }
+    }
+}
+
+/// CSI final byte: `0x40`–`0x7E`.
+fn csi_is_final(b: u8) -> bool {
+    (0x40..=0x7e).contains(&b)
+}
+
+/// True when a `?`-private parameter list contains the alternate-screen mode
+/// number (`1049`, or the legacy `1047` / `47` aliases).
+fn params_include_alt_screen(params: &[u8]) -> bool {
+    std::str::from_utf8(params)
+        .map(|s| s.split(';').any(|p| matches!(p, "1049" | "1047" | "47")))
+        .unwrap_or(false)
+}
+
+/// Index just past an OSC terminator (BEL or `ESC \`) starting at `from`, or
+/// the end of the buffer when no terminator is present.
+fn osc_end(bytes: &[u8], from: usize) -> usize {
+    let mut i = from;
+    while i < bytes.len() {
+        match bytes[i] {
+            0x07 => return i + 1,
+            0x1b if bytes.get(i + 1) == Some(&0x5c) => return i + 2,
+            _ => i += 1,
+        }
+    }
+    bytes.len()
 }
 
 /// Length of the OSC terminator at `pos` (1 for BEL, 2 for `ESC \`), else None.
@@ -1313,6 +1490,114 @@ mod stripper_tests {
     }
 }
 
+#[cfg(test)]
+mod alt_screen_tests {
+    use super::*;
+
+    /// Run chunks through a fresh detector, returning `1`/`0` per transition.
+    fn run(chunks: &[&[u8]]) -> Vec<u8> {
+        let mut d = AltScreenDetector::new();
+        let mut out = Vec::new();
+        for c in chunks {
+            d.observe(c, &mut out);
+        }
+        out.iter().map(|&b| u8::from(b)).collect()
+    }
+
+    #[test]
+    fn basic_enter_leave() {
+        assert_eq!(run(&[b"\x1b[?1049h".as_slice()]), vec![1]);
+        assert_eq!(run(&[b"\x1b[?1049l".as_slice()]), Vec::<u8>::new());
+        assert_eq!(
+            run(&[b"\x1b[?1049h".as_slice(), b"\x1b[?1049l".as_slice()]),
+            vec![1, 0]
+        );
+    }
+
+    #[test]
+    fn legacy_aliases() {
+        assert_eq!(run(&[b"\x1b[?1047h".as_slice()]), vec![1]);
+        assert_eq!(run(&[b"\x1b[?47h".as_slice()]), vec![1]);
+        assert_eq!(run(&[b"\x1b[?47l".as_slice()]), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn split_across_chunks() {
+        let stream = b"pre\x1b[?1049hpost\x1b[?1049ltail";
+        for cuts in [1usize, 2, 3, 5, 6, 7] {
+            let mut d = AltScreenDetector::new();
+            let mut out = Vec::new();
+            let mut i = 0;
+            while i < stream.len() {
+                let end = (i + cuts).min(stream.len());
+                d.observe(&stream[i..end], &mut out);
+                i = end;
+            }
+            let got: Vec<u8> = out.iter().map(|&b| u8::from(b)).collect();
+            assert_eq!(got, vec![1, 0], "cuts={cuts}");
+        }
+    }
+
+    #[test]
+    fn ignores_unrelated_sequences() {
+        // Cursor show, wrong final byte, non-private, wrong number, mouse modes.
+        for stream in [
+            b"\x1b[?25h".as_slice(),
+            b"\x1b[?1049m".as_slice(),
+            b"\x1b[1049h".as_slice(),
+            b"\x1b[?10490h".as_slice(),
+            b"\x1b[?1000;1006h".as_slice(),
+            b"\x1b[?1;2c".as_slice(),
+            b"\x1b[31m\x1b[0m".as_slice(),
+        ] {
+            assert!(run(&[stream]).is_empty(), "stream={stream:?}");
+        }
+    }
+
+    #[test]
+    fn multi_param_lists() {
+        assert_eq!(run(&[b"\x1b[?1000;1049h".as_slice()]), vec![1]);
+        assert_eq!(run(&[b"\x1b[?1049;1049h".as_slice()]), vec![1]);
+        assert_eq!(run(&[b"\x1b[?1047;1049l".as_slice()]), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn ris_resets_to_normal() {
+        assert_eq!(
+            run(&[b"\x1b[?1049h".as_slice(), b"\x1bc".as_slice()]),
+            vec![1, 0]
+        );
+    }
+
+    #[test]
+    fn only_reports_transitions() {
+        assert_eq!(
+            run(&[
+                b"\x1b[?1049h".as_slice(),
+                b"\x1b[?1049h".as_slice(),
+                b"text".as_slice(),
+            ]),
+            vec![1]
+        );
+    }
+
+    #[test]
+    fn ignores_csi_inside_passthrough_osc() {
+        // An unknown OSC the stripper passes through whose payload embeds an
+        // alt-screen sequence must not be observed.
+        let mut s = OscStripper::new();
+        let (clean, _) = s.process(b"\x1b]8;;\x1b[?1049h\x07sync".to_vec());
+        assert!(
+            clean.windows(7).any(|w| w == b"\x1b[?1049"),
+            "payload preserved"
+        );
+        let mut d = AltScreenDetector::new();
+        let mut out = Vec::new();
+        d.observe(&clean, &mut out);
+        assert!(out.is_empty(), "cleaned={clean:?}");
+    }
+}
+
 /// Decode `\xHH` and `\\` escapes used in OSC payloads.
 fn osc_unescape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -1605,6 +1890,8 @@ impl PtySession {
             let batch_window = Duration::from_millis(PTY_OUTPUT_BATCH_MS);
             let mut pending = Vec::<u8>::with_capacity(16 * 1024);
             let mut stripper = OscStripper::new();
+            let mut alt_detector = AltScreenDetector::new();
+            let mut alt_transitions = Vec::new();
             // Batch that was stripped but could not be delivered (webview down
             // or channel not subscribed yet); retried on the next iteration.
             let mut held: Option<HeldBatch> = None;
@@ -1769,6 +2056,21 @@ impl PtySession {
                                 }
                             }
                         }
+                    }
+
+                    // Observe alternate-screen toggles on the cleaned stream.
+                    // Passive: the CSI bytes are passed through untouched, so
+                    // xterm still performs the actual buffer switch.
+                    alt_transitions.clear();
+                    alt_detector.observe(&cleaned_bytes, &mut alt_transitions);
+                    for &active in &alt_transitions {
+                        let _ = app_emit.emit(
+                            "pty-alt-screen",
+                            PtyAltScreenEvent {
+                                session_id: sid.clone(),
+                                active,
+                            },
+                        );
                     }
 
                     // Deliver raw bytes over the live output channel.  When no
