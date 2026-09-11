@@ -34,6 +34,10 @@ Common keys:
 | `--term-fg` | Terminal foreground |
 | `--term-cursor` | Cursor color |
 | `--term-selection-bg` | Selection background |
+| `--term-find-match-bg` | Find-in-terminal match tint (defaults to a `--term-bg`→`--accent-primary` blend) |
+| `--term-find-match-fg` | Match text color (defaults to a legible contrast color) |
+| `--term-find-match-active-bg` | Active find-in-terminal match tint (defaults to a stronger blend) |
+| `--term-find-match-active-fg` | Active match text color (defaults to a legible contrast color) |
 | `--accent-primary` | Accent (borders, highlights) |
 | `--accent-primary-light` | Accent lighter shade |
 | `--ui-gray-50`–`--ui-gray-900` | Grayscale ramp |

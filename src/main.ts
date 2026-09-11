@@ -189,6 +189,7 @@ import {
 	parseProfileThemeRef,
 	pickUiPrefs,
 	prefsNeedCustomThemes,
+	terminalFindColors,
 	themeCssVarsForPrefs,
 	type UiThemePrefs,
 	uiPrefsChanged,
@@ -5150,6 +5151,10 @@ async function boot(): Promise<void> {
 		? createFindBar({
 				root: findRoot,
 				getTerminal: getFocusedTerm,
+				getHighlightColors: () => {
+					const pane = focusedPaneId();
+					return terminalFindColors(pane ? resolvePaneThemePrefs(pane) : null);
+				},
 				island: commandIsland,
 				onClosed: focusActiveTerminal,
 			})

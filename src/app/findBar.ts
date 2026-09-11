@@ -6,6 +6,10 @@
  */
 
 import type { IDecoration, IDisposable, IMarker, Terminal } from "@xterm/xterm";
+import {
+	type FindHighlightColors,
+	terminalFindColors,
+} from "../terminal/uiTheme";
 import { hideSurface, showSurface } from "../util/motion";
 import type { CommandIslandApi } from "./commandIsland";
 import { type ScanMatch, type ScanSegment, scanBuffer } from "./findScan";
@@ -23,10 +27,6 @@ type Match = ScanMatch;
 
 /** Cap work on pathological scrollbacks; the count still reports the real total. */
 const MAX_DECORATIONS = 400;
-/** Inactive match tint (kept translucent-looking by mixing with the terminal bg). */
-const MATCH_BG = "#5b4a1f";
-/** Active match tint. */
-const ACTIVE_BG = "#f59e0b";
 
 function scanTerminal(term: Terminal, query: string): Match[] {
 	return scanBuffer(term.buffer.active, query, term.cols);
@@ -35,10 +35,14 @@ function scanTerminal(term: Terminal, query: string): Match[] {
 export function createFindBar(options: {
 	root: HTMLElement;
 	getTerminal: () => Terminal | null;
+	/** Highlight tints for the focused pane's theme; defaults to the document theme. */
+	getHighlightColors?: () => FindHighlightColors;
 	island?: CommandIslandApi;
 	onClosed?: () => void;
 }): FindBarApi {
 	const { root, getTerminal, island, onClosed } = options;
+	const getHighlightColors =
+		options.getHighlightColors ?? (() => terminalFindColors(null));
 
 	root.classList.add("terminal-find");
 
@@ -48,7 +52,6 @@ export function createFindBar(options: {
 	const input = document.createElement("input");
 	input.type = "text";
 	input.className = "terminal-find-input";
-	input.placeholder = "Find in terminal";
 	input.spellcheck = false;
 	input.autocomplete = "off";
 	input.setAttribute("aria-label", "Find in terminal");
@@ -70,12 +73,6 @@ export function createFindBar(options: {
 		return b;
 	};
 
-	const prevBtn = button("Previous match", "terminal-find-btn", (b) => {
-		b.textContent = "↑";
-	});
-	const nextBtn = button("Next match", "terminal-find-btn", (b) => {
-		b.textContent = "↓";
-	});
 	const closeBtn = button(
 		"Close find",
 		"terminal-find-btn terminal-find-close",
@@ -84,7 +81,7 @@ export function createFindBar(options: {
 		},
 	);
 
-	panel.append(input, count, prevBtn, nextBtn, closeBtn);
+	panel.append(input, count, closeBtn);
 	root.appendChild(panel);
 
 	let open = false;
@@ -116,11 +113,13 @@ export function createFindBar(options: {
 		const term = getTerminal();
 		disposeHighlights();
 		if (!term || matches.length === 0) return;
+		// Re-read each pass so a per-pane or custom theme's tints are honored.
+		const { match: matchTint, active: activeTint } = getHighlightColors();
 		const buf = term.buffer.active;
 		const cursorAbsolute = buf.baseY + buf.cursorY;
 		const add = (
 			segment: ScanSegment,
-			backgroundColor: string,
+			highlight: { background: string; foreground: string },
 			layer: "bottom" | "top",
 		): void => {
 			const marker = term.registerMarker(segment.line - cursorAbsolute);
@@ -130,7 +129,10 @@ export function createFindBar(options: {
 				marker,
 				x: segment.start,
 				width: segment.length,
-				backgroundColor,
+				backgroundColor: highlight.background,
+				// Forcing the foreground keeps matched glyphs legible even when
+				// their own color would blend into the tint.
+				foregroundColor: highlight.foreground,
 				layer,
 			});
 			if (decoration) decorations.push(decoration);
@@ -141,14 +143,14 @@ export function createFindBar(options: {
 		for (const match of matches) {
 			for (const segment of match.segments) {
 				if (budget <= 0) break;
-				add(segment, MATCH_BG, "bottom");
+				add(segment, matchTint, "bottom");
 				budget--;
 			}
 			if (budget <= 0) break;
 		}
-		const active = matches[activeIndex];
-		if (active) {
-			for (const segment of active.segments) add(segment, ACTIVE_BG, "top");
+		const current = matches[activeIndex];
+		if (current) {
+			for (const segment of current.segments) add(segment, activeTint, "top");
 		}
 	}
 
@@ -216,16 +218,20 @@ export function createFindBar(options: {
 	}
 
 	function onKeyDown(e: KeyboardEvent): void {
-		if (e.key === "Enter") {
+		// Enter / F3 cycle forward (Shift reverses); arrow keys do the same so
+		// no dedicated prev/next buttons are needed.
+		if (
+			e.key === "ArrowDown" ||
+			e.key === "Enter" ||
+			e.key === "F3" ||
+			e.key === "ArrowUp"
+		) {
 			e.preventDefault();
 			e.stopPropagation();
-			step(e.shiftKey ? -1 : 1);
-			return;
-		}
-		if (e.key === "F3") {
-			e.preventDefault();
-			e.stopPropagation();
-			step(e.shiftKey ? -1 : 1);
+			const previous =
+				e.key === "ArrowUp" ||
+				((e.key === "Enter" || e.key === "F3") && e.shiftKey);
+			step(previous ? -1 : 1);
 			return;
 		}
 		e.stopPropagation();
@@ -233,8 +239,6 @@ export function createFindBar(options: {
 
 	input.addEventListener("input", onInput);
 	input.addEventListener("keydown", onKeyDown);
-	prevBtn.addEventListener("click", () => step(-1));
-	nextBtn.addEventListener("click", () => step(1));
 	closeBtn.addEventListener("click", () => close());
 
 	root.addEventListener("pointerdown", (e) => {

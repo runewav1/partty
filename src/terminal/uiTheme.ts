@@ -1565,6 +1565,150 @@ export function themeCssVarsForPrefs(prefs: PaneThemePrefs): ThemeCssVars {
 	return resolvePreset(prefs.ui_theme, prefs.ui_theme_variant);
 }
 
+/** One find highlight: the cell background plus a legible foreground. */
+export type FindHighlight = { background: string; foreground: string };
+export type FindHighlightColors = {
+	match: FindHighlight;
+	active: FindHighlight;
+};
+
+export type FindHighlightOverrides = {
+	matchBg?: string;
+	matchFg?: string;
+	activeBg?: string;
+	activeFg?: string;
+};
+
+/** How far each find highlight blends from the theme background toward the accent. */
+const FIND_MATCH_MIX = 0.32;
+const FIND_ACTIVE_MIX = 0.7;
+/** Last-resort pair when a theme exposes neither a background nor an accent. */
+const FIND_FALLBACK: FindHighlightColors = {
+	match: { background: "#5b4a1f", foreground: "#fde68a" },
+	active: { background: "#f59e0b", foreground: "#1a1206" },
+};
+
+function mixRgb(
+	a: [number, number, number],
+	b: [number, number, number],
+	t: number,
+): [number, number, number] {
+	return [
+		Math.round(a[0] + (b[0] - a[0]) * t),
+		Math.round(a[1] + (b[1] - a[1]) * t),
+		Math.round(a[2] + (b[2] - a[2]) * t),
+	];
+}
+
+/** Accept a concrete color only; `color-mix()` etc. cannot feed xterm. */
+function asColor(value: string | undefined): string | undefined {
+	const trimmed = value?.trim();
+	return trimmed && parseCssColorToRgb(trimmed) ? trimmed : undefined;
+}
+
+/**
+ * Pick a foreground that stays legible on `bgRgb`. Preferred (theme) colors are
+ * used when they clear WCAG body-text contrast (4.5:1); otherwise the better of
+ * pure black/white wins. This is what keeps a highlight readable when the
+ * matched text's own color would otherwise blend into the tint.
+ */
+function readableOn(
+	bgRgb: [number, number, number],
+	preferred: (string | undefined)[],
+): string {
+	for (const candidate of preferred) {
+		const rgb = candidate ? parseCssColorToRgb(candidate) : null;
+		if (rgb && luminanceContrast(bgRgb, rgb) >= 4.5) return candidate as string;
+	}
+	const white = luminanceContrast(bgRgb, [255, 255, 255]);
+	const black = luminanceContrast(bgRgb, [0, 0, 0]);
+	return white >= black ? "#ffffff" : "#000000";
+}
+
+/**
+ * Theme-aware find highlights, painted as cell backgrounds with a foreground
+ * chosen for contrast so glyphs always stay legible. Backgrounds blend the
+ * theme background toward the accent; explicit
+ * `--term-find-match-bg` / `--term-find-match-active-bg` (and their `-fg`
+ * companions) override any of the four colors, letting custom themes tune
+ * find highlights independently. Null when there is no background/accent.
+ */
+export function deriveFindHighlightColors(
+	bg: string | undefined,
+	fg: string | undefined,
+	accent: string | undefined,
+	overrides: FindHighlightOverrides = {},
+): FindHighlightColors | null {
+	const bgRgb = bg ? parseCssColorToRgb(bg) : null;
+	const accentRgb = accent ? parseCssColorToRgb(accent) : null;
+	const matchBg =
+		asColor(overrides.matchBg) ??
+		(bgRgb && accentRgb
+			? toHex(mixRgb(bgRgb, accentRgb, FIND_MATCH_MIX))
+			: undefined);
+	const activeBg =
+		asColor(overrides.activeBg) ??
+		(bgRgb && accentRgb
+			? toHex(mixRgb(bgRgb, accentRgb, FIND_ACTIVE_MIX))
+			: undefined);
+	if (!matchBg || !activeBg) return null;
+	const matchRgb = parseCssColorToRgb(matchBg);
+	const activeRgb = parseCssColorToRgb(activeBg);
+	if (!matchRgb || !activeRgb) return null;
+	return {
+		match: {
+			background: matchBg,
+			// Prefer the theme foreground so ordinary text is unchanged by the tint.
+			foreground: asColor(overrides.matchFg) ?? readableOn(matchRgb, [fg, bg]),
+		},
+		active: {
+			background: activeBg,
+			// The active tint is stronger, so prefer the theme background on top.
+			foreground:
+				asColor(overrides.activeFg) ?? readableOn(activeRgb, [bg, fg]),
+		},
+	};
+}
+
+/**
+ * Resolve the find highlight pair for a pane's theme (or the document theme
+ * when `prefs` is null/system). Reads the theme vars directly so per-pane
+ * themes and custom `--term-find-*` overrides are honored.
+ */
+export function terminalFindColors(
+	prefs?: PaneThemePrefs | null,
+): FindHighlightColors {
+	if (prefs?.ui_theme && prefs.ui_theme !== "system") {
+		const vars = resolvePreset(prefs.ui_theme, prefs.ui_theme_variant);
+		const derived = deriveFindHighlightColors(
+			vars["--term-bg"],
+			vars["--term-fg"],
+			vars["--accent-primary"] ?? vars["--accent-primary-light"],
+			{
+				matchBg: vars["--term-find-match-bg"],
+				matchFg: vars["--term-find-match-fg"],
+				activeBg: vars["--term-find-match-active-bg"],
+				activeFg: vars["--term-find-match-active-fg"],
+			},
+		);
+		if (derived) return derived;
+	}
+	const cs = getComputedStyle(document.documentElement);
+	const derived = deriveFindHighlightColors(
+		cs.getPropertyValue("--term-bg"),
+		cs.getPropertyValue("--term-fg"),
+		cs.getPropertyValue("--accent-primary") ||
+			cs.getPropertyValue("--accent-primary-light"),
+		{
+			matchBg: cs.getPropertyValue("--term-find-match-bg"),
+			matchFg: cs.getPropertyValue("--term-find-match-fg"),
+			activeBg: cs.getPropertyValue("--term-find-match-active-bg"),
+			activeFg: cs.getPropertyValue("--term-find-match-active-fg"),
+		},
+	);
+	return derived ?? FIND_FALLBACK;
+}
+
 /** Remap neutral grays + hover overlays for light vs dark chrome. */
 function syncUiGrayScale(): void {
 	const root = document.documentElement;

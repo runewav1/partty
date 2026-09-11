@@ -27,9 +27,12 @@ const HERE = fileURLToPath(new URL(".", import.meta.url));
 const REPO = resolve(HERE, "..", "..");
 
 const MODULE_URL = pathToFileURL(resolve(REPO, "src/terminal/uiTheme.ts")).href;
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 const {
 	buildXtermThemeFromPrefs,
+	deriveFindHighlightColors,
+	terminalFindColors,
 	themeCssVarsForPrefs,
 	themeUsesCanonicalTerminalColors,
 } = await import(MODULE_URL);
@@ -228,6 +231,88 @@ test("normalizePaneThemePrefs keeps deprecated ids resolving to canonical varian
 		{ ...vars("vscode-light", "default") },
 		{ ...vars("vscode", "light") },
 	);
+});
+
+function contrastRatio(a, b) {
+	const lum = (hex) => {
+		const n = Number.parseInt(hex.slice(1), 16);
+		const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
+			const x = v / 255;
+			return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+		});
+		return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+	};
+	const la = lum(a) + 0.05;
+	const lb = lum(b) + 0.05;
+	return la > lb ? la / lb : lb / la;
+}
+
+test("find highlights derive from bg + accent and honor explicit overrides", () => {
+	const derived = deriveFindHighlightColors("#1a1b26", "#c0caf5", "#7aa2f7");
+	assert.ok(derived, "bg + accent must derive a pair");
+	for (const highlight of [derived.match, derived.active]) {
+		assert.ok(HEX_COLOR.test(highlight.background), "concrete hex background");
+		assert.ok(HEX_COLOR.test(highlight.foreground), "concrete hex foreground");
+		assert.ok(
+			contrastRatio(highlight.background, highlight.foreground) >= 4.5,
+			`text must stay legible on the highlight, got ${JSON.stringify(highlight)}`,
+		);
+	}
+	// Plain text keeps the theme foreground, so the tint does not recolor it.
+	assert.equal(derived.match.foreground, "#c0caf5");
+	assert.notEqual(derived.match.background, derived.active.background);
+
+	// Explicit per-theme values win, so custom colors can be set independently.
+	assert.deepEqual(
+		deriveFindHighlightColors("#1a1b26", "#c0caf5", "#7aa2f7", {
+			matchBg: "#123456",
+			matchFg: "#abcdef",
+			activeBg: "#654321",
+			activeFg: "#fedcba",
+		}),
+		{
+			match: { background: "#123456", foreground: "#abcdef" },
+			active: { background: "#654321", foreground: "#fedcba" },
+		},
+	);
+
+	// Non-concrete colors (color-mix, var) cannot feed xterm; fall back.
+	const bad = deriveFindHighlightColors("#1a1b26", "#c0caf5", "#7aa2f7", {
+		matchBg: "color-mix(in srgb, red, blue)",
+	});
+	assert.notEqual(bad.match.background, "color-mix(in srgb, red, blue)");
+
+	// No background/accent means nothing to blend toward.
+	assert.equal(
+		deriveFindHighlightColors("#1a1b26", "#c0caf5", undefined),
+		null,
+	);
+});
+
+test("terminal find colors are theme-aware per pane", () => {
+	const tokyo = terminalFindColors({
+		ui_theme: "tokyonight",
+		ui_theme_variant: "default",
+	});
+	const latte = terminalFindColors({
+		ui_theme: "catppuccin",
+		ui_theme_variant: "latte",
+	});
+	assert.notDeepEqual(
+		tokyo,
+		latte,
+		"different themes must yield different tints",
+	);
+	for (const colors of [tokyo, latte]) {
+		for (const highlight of [colors.match, colors.active]) {
+			assert.ok(HEX_COLOR.test(highlight.background));
+			assert.ok(HEX_COLOR.test(highlight.foreground));
+			assert.ok(
+				contrastRatio(highlight.background, highlight.foreground) >= 4.5,
+				"every theme must yield a legible highlight pair",
+			);
+		}
+	}
 });
 
 test("named themes keep canonical terminal colors; system/custom get contrast fallback", () => {
