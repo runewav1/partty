@@ -1834,8 +1834,7 @@ html.tabs-hidden #main-workspace {
 	letter-spacing: 0.01em;
 	color: var(--ui-chrome-fg);
 }
-.help-panel-close,
-.settings-panel-close {
+.help-panel-close {
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -1853,12 +1852,10 @@ html.tabs-hidden #main-workspace {
 		color var(--motion-fast) var(--motion-ease-out),
 		background var(--motion-fast) var(--motion-ease-out);
 }
-.help-panel-close::before,
-.settings-panel-close::before {
+.help-panel-close::before {
 	content: "✕";
 }
-.help-panel-close:hover,
-.settings-panel-close:hover {
+.help-panel-close:hover {
 	color: var(--ui-chrome-fg);
 	background: var(--hover-overlay-light);
 }
@@ -1950,6 +1947,7 @@ html.tabs-hidden #main-workspace {
 	min-height: 0;
 }
 .settings-panel-nav {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	gap: 1px;
@@ -1957,6 +1955,25 @@ html.tabs-hidden #main-workspace {
 	border-right: 1px solid var(--panel-divider);
 	overflow-y: auto;
 	scrollbar-width: none;
+}
+/* Single selection pill that slides between tabs instead of snapping. */
+.settings-tab-indicator {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 0;
+	height: 0;
+	border-radius: 7px;
+	background: var(--hover-overlay);
+	pointer-events: none;
+	z-index: 0;
+	transition:
+		transform var(--motion-medium) var(--motion-ease-out),
+		width var(--motion-medium) var(--motion-ease-out),
+		height var(--motion-medium) var(--motion-ease-out);
+}
+.settings-tab-indicator--instant {
+	transition: none;
 }
 .settings-panel-nav::-webkit-scrollbar {
 	display: none;
@@ -1980,6 +1997,8 @@ html.tabs-hidden #main-workspace {
 
 /* ── Section nav ── */
 .settings-tab {
+	position: relative;
+	z-index: 1;
 	flex: 0 0 auto;
 	text-align: left;
 	padding: 7px 10px;
@@ -1994,7 +2013,7 @@ html.tabs-hidden #main-workspace {
 	cursor: pointer;
 	transition:
 		color var(--motion-fast) var(--motion-ease-out),
-		background var(--motion-fast) var(--motion-ease-out);
+		opacity var(--motion-medium) var(--motion-ease-out);
 	white-space: nowrap;
 }
 
@@ -2005,9 +2024,9 @@ html.tabs-hidden #main-workspace {
 
 .settings-tab--active {
 	color: var(--ui-chrome-fg);
-	background: var(--hover-overlay);
 }
 
+/* No-match tabs dim their text; the selection pill follows the matches. */
 .settings-tab--dim {
 	opacity: 0.4;
 }
@@ -2062,28 +2081,56 @@ html.tabs-hidden #main-workspace {
 	color: color-mix(in srgb, var(--ui-chrome-fg) 58%, transparent);
 }
 
-/* ── Rows (label left, control right) ── */
-.settings-row {
-	display: flex;
-	flex-direction: row;
+/* ── Preference items (label column + control column) ── */
+.settings-item {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
 	align-items: center;
-	gap: 10px;
-	padding: 4px 0;
-	min-height: 28px;
-}
-.settings-row--compact {
+	column-gap: 10px;
+	row-gap: 2px;
 	padding: 2px 0;
 	min-height: 24px;
 }
-.settings-row-label {
-	flex: 0 0 auto;
-	min-width: 72px;
+/* `display: grid` above would otherwise beat the `[hidden]` UA rule, so search
+   filtering would set `hidden` without visually hiding the item. */
+.settings-item[hidden],
+.settings-subsection-hd[hidden],
+.settings-search-count[hidden] {
+	display: none;
+}
+.settings-item-label {
+	grid-column: 1;
+	min-width: 0;
 	font-size: 12px;
 	font-weight: 500;
 	color: var(--ui-chrome-fg);
 	line-height: 1.3;
 }
-.settings-row .settings-input {
+.settings-item > :not(.settings-item-label):not(.settings-item-desc) {
+	grid-column: 2;
+	justify-self: end;
+}
+.settings-item-control {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+.settings-item-desc {
+	grid-column: 1 / -1;
+	font-size: 10px;
+	font-weight: 400;
+	color: var(--ui-chrome-muted);
+	line-height: 1.4;
+	margin: 1px 0 2px;
+}
+/* Toggles keep the label flexing and the switch right-aligned. */
+.settings-item--toggle {
+	padding: 5px 0;
+	min-height: 28px;
+	cursor: pointer;
+	user-select: none;
+}
+.settings-item .settings-input {
 	flex: 0 1 auto;
 	/* Size every control to its own content; `--narrow`/`--font` stay as
      generous caps and inline widths still win. */
@@ -2102,13 +2149,13 @@ html.tabs-hidden #main-workspace {
 	-moz-appearance: textfield;
 }
 
-.settings-row .settings-input::-webkit-inner-spin-button,
-.settings-row .settings-input::-webkit-outer-spin-button {
+.settings-item .settings-input::-webkit-inner-spin-button,
+.settings-item .settings-input::-webkit-outer-spin-button {
 	-webkit-appearance: none;
 	margin: 0;
 }
 
-.settings-row .settings-input:focus {
+.settings-item .settings-input:focus {
 	border-color: color-mix(
 		in srgb,
 		var(--accent-primary) 45%,
@@ -2117,12 +2164,12 @@ html.tabs-hidden #main-workspace {
 	box-shadow: 0 0 0 2px
 		color-mix(in srgb, var(--accent-primary) 18%, transparent);
 }
-.settings-row textarea.settings-input {
+.settings-item textarea.settings-input {
 	resize: vertical;
 	min-height: 52px;
 	font-family: var(--font-terminal);
 }
-/* Standalone inputs (not in a settings-row) — e.g. whitelist textarea */
+/* Standalone inputs (not in a settings-item) — e.g. whitelist textarea */
 .settings-section-bd > .settings-input {
 	width: 100%;
 	box-sizing: border-box;
@@ -2147,7 +2194,7 @@ html.tabs-hidden #main-workspace {
 .settings-input--font {
 	max-width: 220px;
 }
-.settings-row select.settings-input {
+.settings-item select.settings-input {
 	appearance: none;
 	-webkit-appearance: none;
 	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' fill='none'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%23a1a1aa' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
@@ -2157,37 +2204,7 @@ html.tabs-hidden #main-workspace {
 	cursor: pointer;
 }
 
-/* ── Pill toggle ── */
-.settings-checkbox-label {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 12px;
-	padding: 5px 0;
-	cursor: pointer;
-	user-select: none;
-	color: var(--ui-chrome-fg);
-	font-size: 12px;
-	font-weight: 500;
-	line-height: 1.4;
-	min-height: 28px;
-}
-.settings-checkbox-label > span:first-child {
-	flex: 1;
-	min-width: 0;
-}
-
-.settings-toggle-desc {
-	font-size: 10px;
-	font-weight: 400;
-	color: var(--ui-chrome-muted);
-	line-height: 1.4;
-	margin: 3px 0 8px 0;
-	padding: 0;
-	/* Keep the text out of the toggle column (toggle + gap ≈ 46px). */
-	padding-right: 48px;
-}
-
+/* ── Pill toggle (row layout lives in .settings-item--toggle) ── */
 .settings-checkbox-input {
 	appearance: none;
 	-webkit-appearance: none;
@@ -2237,11 +2254,6 @@ html.tabs-hidden #main-workspace {
 	outline-offset: 2px;
 }
 
-/* ── Toggle group wrappers (layout-neutral; each toggle is its own row) ── */
-.settings-toggles {
-	display: contents;
-}
-
 /* ── Tree visibility ── */
 .settings-tree-hidden {
 	opacity: 0.32;
@@ -2256,10 +2268,19 @@ html.tabs-hidden #main-workspace {
 
 /* ── Search row ── */
 .settings-panel-search-row {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
 	padding: 8px 12px;
 	border-bottom: 1px solid var(--panel-divider);
 }
+.settings-panel-search-field {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
 .settings-search {
+	flex: 1 1 auto;
 	width: 100%;
 	margin: 0;
 	padding: 7px 9px;
@@ -2271,6 +2292,14 @@ html.tabs-hidden #main-workspace {
 	font-size: 12px;
 	outline: none;
 }
+.settings-search-count {
+	flex: 0 0 auto;
+	min-width: 1.1em;
+	text-align: right;
+	font-size: 11px;
+	color: var(--ui-chrome-muted);
+	font-variant-numeric: tabular-nums;
+}
 .settings-search:focus {
 	background: var(--input-bg);
 	box-shadow: 0 0 0 2px
@@ -2278,6 +2307,12 @@ html.tabs-hidden #main-workspace {
 }
 .settings-search::placeholder {
 	color: var(--ui-chrome-fainter);
+}
+/* Hide the WebView's default search affordances; Escape clears the query. */
+.settings-search::-webkit-search-cancel-button,
+.settings-search::-webkit-search-decoration {
+	-webkit-appearance: none;
+	appearance: none;
 }
 
 /* ── Theme palette swatches ── */

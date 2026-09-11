@@ -81,10 +81,10 @@
         <div class="settings-panel-card command-island-panel">
           <div class="settings-panel-head">
             <span class="settings-panel-title">Settings</span>
-            <button id="settings-close" type="button" class="settings-panel-close" aria-label="Close"></button>
           </div>
           <div class="settings-panel-main">
             <div class="settings-panel-nav" role="tablist" aria-label="Settings sections">
+              <span class="settings-tab-indicator" aria-hidden="true"></span>
               <button class="settings-tab settings-tab--active" data-section="shell" type="button" role="tab" aria-selected="true">Profiles</button>
               <button class="settings-tab" data-section="terminal" type="button" role="tab">Terminal</button>
               <button class="settings-tab" data-section="ui" type="button" role="tab">Appearance</button>
@@ -94,169 +94,224 @@
             </div>
             <div class="settings-panel-content">
               <div class="settings-panel-search-row">
-                <input id="settings-search" type="search" class="settings-input settings-search" placeholder="Search settings" spellcheck="false" autocomplete="off" />
+                <div class="settings-panel-search-field">
+                  <input id="settings-search" type="search" class="settings-input settings-search" placeholder="Search settings" spellcheck="false" autocomplete="off" />
+                  <span id="settings-search-count" class="settings-search-count" hidden></span>
+                </div>
               </div>
               <form id="settings-form" class="settings-panel-body partty-scroll-fade">
 
             <div class="settings-section" data-section="shell">
               <div class="settings-section-hd">Profiles</div>
               <div class="settings-section-bd">
-                <div class="settings-row">
-                  <span class="settings-row-label" title="Used for new tabs (when enabled) and panes without an inherited profile">Default profile</span>
+                <div class="settings-item" data-pref="default_profile_id" data-keywords="profile shell connection default">
+                  <span class="settings-item-label" title="Used for new tabs (when enabled) and panes without an inherited profile">Default profile</span>
                   <select id="setting-default-profile-id" name="default_profile_id" class="settings-input settings-select"></select>
                 </div>
-                <div class="settings-row">
-                  <span class="settings-row-label">Start in</span>
+                <div class="settings-item" data-pref="initial_cwd" data-keywords="start directory working path cwd">
+                  <span class="settings-item-label">Start in</span>
                   <input id="setting-initial-cwd" name="initial_cwd" type="text" class="settings-input" placeholder="default" />
                 </div>
-                <div class="settings-toggles">
-                  <label class="settings-checkbox-label" title="Splits copy the parent pane's connection profile"><span>Inherit profile on split</span><input class="settings-checkbox-input" type="checkbox" name="inherit_profile_on_split" /></label>
-                  <label class="settings-checkbox-label" title="Splits copy the parent pane's working directory"><span>Inherit cwd on split</span><input class="settings-checkbox-input" type="checkbox" name="inherit_cwd_on_split" /></label>
-                  <label class="settings-checkbox-label" title="Tab on New tab / Split opens a profile list"><span>Palette Tab → profiles</span><input class="settings-checkbox-input" type="checkbox" name="palette_tab_profile_picker" /></label>
-                  <div class="settings-toggle-desc">In the palette, Tab on “New tab” or a split row opens the profile picker.</div>
-                  <label class="settings-checkbox-label" title="New tabs use the default profile instead of the focused pane's profile"><span>New tab uses default profile</span><input class="settings-checkbox-input" type="checkbox" name="new_tab_uses_default_profile" /></label>
-                  <div class="settings-toggle-desc">Off means new tabs inherit the focused pane's profile.</div>
-                </div>
+                <label class="settings-item settings-item--toggle" data-pref="inherit_profile_on_split" data-keywords="split inherit profile connection">
+                  <span class="settings-item-label" title="Splits copy the parent pane's connection profile">Inherit profile on split</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="inherit_profile_on_split" />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="inherit_cwd_on_split" data-keywords="split inherit cwd directory">
+                  <span class="settings-item-label" title="Splits copy the parent pane's working directory">Inherit cwd on split</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="inherit_cwd_on_split" />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="palette_tab_profile_picker" data-keywords="palette tab profile picker">
+                  <span class="settings-item-label" title="Tab on New tab / Split opens a profile list">Palette Tab → profiles</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="palette_tab_profile_picker" />
+                  <span class="settings-item-desc">In the palette, Tab on “New tab” or a split row opens the profile picker.</span>
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="new_tab_uses_default_profile" data-keywords="new tab default profile inherit">
+                  <span class="settings-item-label" title="New tabs use the default profile instead of the focused pane's profile">New tab uses default profile</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="new_tab_uses_default_profile" />
+                  <span class="settings-item-desc">Off means new tabs inherit the focused pane's profile.</span>
+                </label>
               </div>
             </div>
 
             <div class="settings-section" data-section="terminal">
               <div class="settings-section-hd">Terminal</div>
               <div class="settings-section-bd">
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Font</span>
+                <div class="settings-item" data-pref="font_terminal" data-keywords="terminal font typeface family">
+                  <span class="settings-item-label">Font</span>
                   <select id="setting-font-terminal" name="font_terminal" class="settings-input settings-input--font"></select>
                 </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Font size</span>
+                <div class="settings-item" data-pref="terminal_font_size" data-keywords="font text size px">
+                  <span class="settings-item-label">Font size</span>
                   <input name="terminal_font_size" type="number" min="8" max="48" step="1" class="settings-input settings-input--narrow" />
                 </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label" title="Per-notch font zoom increment in CSS px. Applies to both wheel zoom modes (hovered terminal and all visible terminals), whose bindings are configurable in ~/.partty/keybinds.toml. Default 0.25.">Zoom increment</span>
-                  <input name="terminal_zoom_step" type="number" min="0.05" max="2" step="0.05" value="0.25" class="settings-input settings-input--narrow" />
-                  <span class="settings-hint" style="margin-left:2px">px</span>
+                <div class="settings-item" data-pref="terminal_zoom_step" data-keywords="zoom font increment wheel ctrl">
+                  <span class="settings-item-label" title="Per-notch font zoom increment in CSS px. Applies to both wheel zoom modes (hovered terminal and all visible terminals), whose bindings are configurable in ~/.partty/keybinds.toml. Default 0.25.">Zoom increment</span>
+                  <span class="settings-item-control">
+                    <input name="terminal_zoom_step" type="number" min="0.05" max="2" step="0.05" value="0.25" class="settings-input settings-input--narrow" />
+                    <span class="settings-hint">px</span>
+                  </span>
                 </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Font weight</span>
+                <div class="settings-item" data-pref="terminal_font_weight" data-keywords="font weight">
+                  <span class="settings-item-label">Font weight</span>
                   <select name="terminal_font_weight" class="settings-input settings-input--narrow">
                     <option value="normal">normal</option><option value="bold">bold</option><option value="100">100</option><option value="200">200</option><option value="300">300</option><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option><option value="800">800</option><option value="900">900</option>
                   </select>
                 </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Bold weight</span>
+                <div class="settings-item" data-pref="terminal_font_weight_bold" data-keywords="bold font weight">
+                  <span class="settings-item-label">Bold weight</span>
                   <select name="terminal_font_weight_bold" class="settings-input settings-input--narrow">
                     <option value="normal">normal</option><option value="bold">bold</option><option value="100">100</option><option value="200">200</option><option value="300">300</option><option value="400">400</option><option value="500">500</option><option value="600">600</option><option value="700">700</option><option value="800">800</option><option value="900">900</option>
                   </select>
                 </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Line height</span>
+                <div class="settings-item" data-pref="terminal_line_height" data-keywords="line height leading">
+                  <span class="settings-item-label">Line height</span>
                   <input name="terminal_line_height" type="number" min="0.5" max="4" step="0.1" class="settings-input settings-input--narrow" />
                 </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Letter spacing</span>
+                <div class="settings-item" data-pref="terminal_letter_spacing" data-keywords="letter spacing tracking">
+                  <span class="settings-item-label">Letter spacing</span>
                   <input name="terminal_letter_spacing" type="number" min="-2" max="10" step="0.5" class="settings-input settings-input--narrow" />
                 </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Scrollback</span>
+                <div class="settings-item" data-pref="scrollback_lines" data-keywords="scrollback history buffer lines">
+                  <span class="settings-item-label">Scrollback</span>
                   <input id="setting-scrollback" name="scrollback_lines" type="number" min="0" max="50000" step="1" class="settings-input settings-input--narrow" />
                 </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Motion</span>
+                <div class="settings-item" data-pref="terminal_animation_speed" data-keywords="motion animation speed">
+                  <span class="settings-item-label">Motion</span>
                   <select id="setting-animation-speed" name="terminal_animation_speed" class="settings-input settings-input--narrow">
                     <option value="off">off</option><option value="fast">fast</option><option value="normal">normal</option><option value="slow">slow</option>
                   </select>
                 </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Feel</span>
+                <div class="settings-item" data-pref="terminal_animation_style" data-keywords="feel animation style easing">
+                  <span class="settings-item-label">Feel</span>
                   <select id="setting-animation-style" name="terminal_animation_style" class="settings-input settings-input--narrow">
                     <option value="smooth">Smooth</option><option value="snappy">Snappy</option><option value="gentle">Gentle</option><option value="bouncy">Bouncy</option>
                   </select>
                 </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Pane gap</span>
+                <div class="settings-item" data-pref="terminal_pane_gap" data-keywords="pane gap spacing">
+                  <span class="settings-item-label">Pane gap</span>
                   <input id="setting-terminal-pane-gap" name="terminal_pane_gap" type="number" min="0" max="32" step="1" class="settings-input settings-input--narrow" />
                 </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Edge padding</span>
+                <div class="settings-item" data-pref="terminal_sandbox_padding" data-keywords="edge padding sandbox">
+                  <span class="settings-item-label">Edge padding</span>
                   <input id="setting-terminal-sandbox-padding" name="terminal_sandbox_padding" type="number" min="0" max="32" step="1" class="settings-input settings-input--narrow" />
                 </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label" title="Balanced: fixed split direction. Dwindle: pick direction from pane shape. Master: root stays left; new panes stack right.">Split style</span>
+                <div class="settings-item" data-pref="split_layout_style" data-keywords="split layout style balanced dwindle master">
+                  <span class="settings-item-label" title="Balanced: fixed split direction. Dwindle: pick direction from pane shape. Master: root stays left; new panes stack right.">Split style</span>
                   <select id="setting-split-layout-style" name="split_layout_style" class="settings-input settings-input--narrow" title="Balanced: fixed split direction. Dwindle: pick direction from pane shape. Master: root stays left; new panes stack right.">
                     <option value="balanced">Balanced</option><option value="dwindle">Dwindle</option><option value="master">Master</option>
                   </select>
                 </div>
-                <div class="settings-toggles">
-                  <label class="settings-checkbox-label" title="Move pane to tab without switching tabs (Ctrl+Shift+number)"><span>Quiet pane deferral</span><input class="settings-checkbox-input" type="checkbox" name="quiet_pane_deferral" /></label>
-                </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Snapshot</span>
+                <label class="settings-item settings-item--toggle" data-pref="quiet_pane_deferral" data-keywords="quiet pane deferral move tab">
+                  <span class="settings-item-label" title="Move pane to tab without switching tabs (Ctrl+Shift+number)">Quiet pane deferral</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="quiet_pane_deferral" />
+                </label>
+                <div class="settings-item" data-pref="snapshot_max_lines" data-keywords="snapshot max lines">
+                  <span class="settings-item-label">Snapshot</span>
                   <input id="setting-snapshot-max" name="snapshot_max_lines" type="number" min="50" max="50000" step="50" class="settings-input settings-input--narrow" />
                 </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Radius</span>
+                <div class="settings-item" data-pref="pane_corner_radius" data-keywords="radius corner round pane">
+                  <span class="settings-item-label">Radius</span>
                   <input id="setting-pane-corner-radius" name="pane_corner_radius" type="number" min="0" max="32" step="1" class="settings-input settings-input--narrow" />
                 </div>
-                <div class="settings-toggles">
-                  <div class="settings-row settings-row--compact">
-                    <span class="settings-row-label">Cursor</span>
-                    <select id="setting-cursor-style" name="terminal_cursor_style" class="settings-input settings-input--narrow">
-                      <option value="block">Block</option><option value="underline">Underline</option><option value="bar">Bar</option>
-                    </select>
-                  </div>
-                  <div class="settings-row settings-row--compact">
-                    <span class="settings-row-label">Cursor inactive</span>
-                    <select id="setting-cursor-inactive-style" name="terminal_cursor_inactive_style" class="settings-input settings-input--narrow">
-                      <option value="outline">Outline</option><option value="block">Block</option><option value="bar">Bar</option><option value="underline">Underline</option><option value="none">None</option>
-                    </select>
-                  </div>
-                  <label class="settings-checkbox-label"><span>Blinking cursor</span><input class="settings-checkbox-input" type="checkbox" name="terminal_cursor_blink" checked /></label>
-                  <label class="settings-checkbox-label"><span>Alt+click cursor</span><input class="settings-checkbox-input" type="checkbox" name="terminal_alt_click_moves_cursor" checked /></label>
-                  <label class="settings-checkbox-label"><span>Bold = bright colors</span><input class="settings-checkbox-input" type="checkbox" name="terminal_draw_bold_bright" checked /></label>
-                  <label class="settings-checkbox-label"><span>Square panes</span><input class="settings-checkbox-input" type="checkbox" name="terminal_no_round" /></label>
-                  <label class="settings-checkbox-label"><span>Hide borders</span><input class="settings-checkbox-input" type="checkbox" name="terminal_no_pane_border" /></label>
-                  <label class="settings-checkbox-label"><span>No focus accent</span><input class="settings-checkbox-input" type="checkbox" name="terminal_no_focus_border" /></label>
-                  <label class="settings-checkbox-label"><span>Pointer focus</span><input class="settings-checkbox-input" type="checkbox" name="focus_follows_cursor" /></label>
-                   <label class="settings-checkbox-label"><span>Blur inactive</span><input class="settings-checkbox-input" type="checkbox" name="blur_unfocused_panes" /></label>
-                  <div class="settings-row settings-row--compact">
-                    <span class="settings-row-label">Blur radius</span>
-                    <input name="pane_blur_radius" type="number" min="0" max="10" step="0.1" class="settings-input settings-input--narrow" />
-                    <span class="settings-hint" style="margin-left:2px">px</span>
-                  </div>
-                  <label class="settings-checkbox-label"><span>Variable opacity</span><input class="settings-checkbox-input" type="checkbox" name="pane_variable_opacity" /></label>
-                  <div class="settings-row settings-row--compact" data-child-of="pane_variable_opacity">
-                    <span class="settings-row-label">Focused α</span>
-                    <input name="pane_opacity_focused" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
-                  </div>
-                  <div class="settings-row settings-row--compact" data-child-of="pane_variable_opacity">
-                    <span class="settings-row-label">Unfocused α</span>
-                    <input name="pane_opacity_unfocused" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
-                  </div>
-                  <label class="settings-checkbox-label"><span>Focus scale</span><input class="settings-checkbox-input" type="checkbox" name="focus_pane_scale" checked /></label>
-                  <div class="settings-row settings-row--compact">
-                    <span class="settings-row-label">Scale intensity</span>
-                    <input name="pane_focus_scale_intensity" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
-                  </div>
-                  <label class="settings-checkbox-label" title="Backspace deletes a single-line selection on the input line"><span>Backspace selection</span><input class="settings-checkbox-input" type="checkbox" name="terminal_backspace_delete_selection" checked /></label>
-                  <label class="settings-checkbox-label" title="Allow remote programs (e.g. over SSH) to read and write the local clipboard via OSC 52"><span>OSC 52 clipboard</span><input class="settings-checkbox-input" type="checkbox" name="osc52" checked /></label>
+                <div class="settings-item" data-pref="terminal_cursor_style" data-keywords="cursor style block underline bar">
+                  <span class="settings-item-label">Cursor</span>
+                  <select id="setting-cursor-style" name="terminal_cursor_style" class="settings-input settings-input--narrow">
+                    <option value="block">Block</option><option value="underline">Underline</option><option value="bar">Bar</option>
+                  </select>
                 </div>
+                <div class="settings-item" data-pref="terminal_cursor_inactive_style" data-keywords="cursor inactive unfocused style outline block bar underline none">
+                  <span class="settings-item-label">Cursor inactive</span>
+                  <select id="setting-cursor-inactive-style" name="terminal_cursor_inactive_style" class="settings-input settings-input--narrow">
+                    <option value="outline">Outline</option><option value="block">Block</option><option value="bar">Bar</option><option value="underline">Underline</option><option value="none">None</option>
+                  </select>
+                </div>
+                <label class="settings-item settings-item--toggle" data-pref="terminal_cursor_blink" data-keywords="cursor blink blinking">
+                  <span class="settings-item-label">Blinking cursor</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="terminal_cursor_blink" checked />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="terminal_alt_click_moves_cursor" data-keywords="alt click cursor mouse">
+                  <span class="settings-item-label">Alt+click cursor</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="terminal_alt_click_moves_cursor" checked />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="terminal_draw_bold_bright" data-keywords="bold bright colors ansi">
+                  <span class="settings-item-label">Bold = bright colors</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="terminal_draw_bold_bright" checked />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="terminal_no_round" data-keywords="square panes corners round">
+                  <span class="settings-item-label">Square panes</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="terminal_no_round" />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="terminal_no_pane_border" data-keywords="hide borders pane border">
+                  <span class="settings-item-label">Hide borders</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="terminal_no_pane_border" />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="terminal_no_focus_border" data-keywords="focus accent border">
+                  <span class="settings-item-label">No focus accent</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="terminal_no_focus_border" />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="focus_follows_cursor" data-keywords="pointer focus follows cursor mouse">
+                  <span class="settings-item-label">Pointer focus</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="focus_follows_cursor" />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="blur_unfocused_panes" data-keywords="blur inactive unfocused panes">
+                  <span class="settings-item-label">Blur inactive</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="blur_unfocused_panes" />
+                </label>
+                <div class="settings-item" data-pref="pane_blur_radius" data-keywords="blur radius panes">
+                  <span class="settings-item-label">Blur radius</span>
+                  <span class="settings-item-control">
+                    <input name="pane_blur_radius" type="number" min="0" max="10" step="0.1" class="settings-input settings-input--narrow" />
+                    <span class="settings-hint">px</span>
+                  </span>
+                </div>
+                <label class="settings-item settings-item--toggle" data-pref="pane_variable_opacity" data-keywords="variable opacity transparent panes">
+                  <span class="settings-item-label">Variable opacity</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="pane_variable_opacity" />
+                </label>
+                <div class="settings-item" data-pref="pane_opacity_focused" data-keywords="focused opacity alpha" data-child-of="pane_variable_opacity">
+                  <span class="settings-item-label">Focused α</span>
+                  <input name="pane_opacity_focused" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
+                </div>
+                <div class="settings-item" data-pref="pane_opacity_unfocused" data-keywords="unfocused opacity alpha" data-child-of="pane_variable_opacity">
+                  <span class="settings-item-label">Unfocused α</span>
+                  <input name="pane_opacity_unfocused" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
+                </div>
+                <label class="settings-item settings-item--toggle" data-pref="focus_pane_scale" data-keywords="focus scale pane">
+                  <span class="settings-item-label">Focus scale</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="focus_pane_scale" checked />
+                </label>
+                <div class="settings-item" data-pref="pane_focus_scale_intensity" data-keywords="focus scale intensity pane">
+                  <span class="settings-item-label">Scale intensity</span>
+                  <input name="pane_focus_scale_intensity" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
+                </div>
+                <label class="settings-item settings-item--toggle" data-pref="terminal_backspace_delete_selection" data-keywords="backspace delete selection input">
+                  <span class="settings-item-label" title="Backspace deletes a single-line selection on the input line">Backspace selection</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="terminal_backspace_delete_selection" checked />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="osc52" data-keywords="clipboard remote copy paste osc 52">
+                  <span class="settings-item-label" title="Allow remote programs (e.g. over SSH) to read and write the local clipboard via OSC 52">OSC 52 clipboard</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="osc52" checked />
+                  <span class="settings-item-desc">Allow remote programs to read/write the local clipboard.</span>
+                </label>
               </div>
             </div>
 
             <div class="settings-section" data-section="terminal">
               <div class="settings-section-hd">Scroll</div>
               <div class="settings-section-bd">
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Smooth duration</span>
-                  <input name="terminal_smooth_scroll_duration" type="number" min="0" max="1000" step="50" class="settings-input settings-input--narrow" />
-                  <span class="settings-hint" style="margin-left:2px">ms</span>
+                <div class="settings-item" data-pref="terminal_smooth_scroll_duration" data-keywords="smooth scroll duration">
+                  <span class="settings-item-label">Smooth duration</span>
+                  <span class="settings-item-control">
+                    <input name="terminal_smooth_scroll_duration" type="number" min="0" max="1000" step="50" class="settings-input settings-input--narrow" />
+                    <span class="settings-hint">ms</span>
+                  </span>
                 </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Sensitivity</span>
+                <div class="settings-item" data-pref="terminal_scroll_sensitivity" data-keywords="scroll sensitivity speed">
+                  <span class="settings-item-label">Sensitivity</span>
                   <input name="terminal_scroll_sensitivity" type="number" min="0.1" max="10" step="0.1" class="settings-input settings-input--narrow" />
                 </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Fast sensitivity</span>
+                <div class="settings-item" data-pref="terminal_fast_scroll_sensitivity" data-keywords="fast scroll sensitivity speed">
+                  <span class="settings-item-label">Fast sensitivity</span>
                   <input name="terminal_fast_scroll_sensitivity" type="number" min="1" max="50" step="1" class="settings-input settings-input--narrow" />
                 </div>
               </div>
@@ -265,66 +320,81 @@
             <div class="settings-section" data-section="terminal">
               <div class="settings-section-hd">Processes</div>
               <div class="settings-section-bd">
-                <label class="settings-checkbox-label"><span>Enable notifications</span><input class="settings-checkbox-input" type="checkbox" name="process_notification_enabled" /></label>
-                <div class="settings-row settings-row--compact" data-child-of="process_notification_enabled">
-                  <span class="settings-row-label">Notify after</span>
-                  <input name="process_notification_threshold" class="settings-input settings-input--narrow" type="number" value="5.0" min="0.1" max="3600" step="0.1" style="width:4.8em" />
-                  <span class="settings-hint" style="margin-left:2px">s</span>
+                <label class="settings-item settings-item--toggle" data-pref="process_notification_enabled" data-keywords="notifications process completion">
+                  <span class="settings-item-label">Enable notifications</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="process_notification_enabled" />
+                </label>
+                <div class="settings-item" data-pref="process_notification_threshold" data-keywords="notify after threshold seconds" data-child-of="process_notification_enabled">
+                  <span class="settings-item-label">Notify after</span>
+                  <span class="settings-item-control">
+                    <input name="process_notification_threshold" class="settings-input settings-input--narrow" type="number" value="5.0" min="0.1" max="3600" step="0.1" style="width:4.8em" />
+                    <span class="settings-hint">s</span>
+                  </span>
                 </div>
-                <div class="settings-row settings-row--compact" data-child-of="process_notification_enabled">
-                  <span class="settings-row-label">Show for</span>
-                  <input name="process_notification_show_for" class="settings-input settings-input--narrow" type="number" value="5000" min="1000" max="30000" step="500" style="width:4.8em" />
-                   <span class="settings-hint" style="margin-left:2px">ms</span>
+                <div class="settings-item" data-pref="process_notification_show_for" data-keywords="show for toast duration" data-child-of="process_notification_enabled">
+                  <span class="settings-item-label">Show for</span>
+                  <span class="settings-item-control">
+                    <input name="process_notification_show_for" class="settings-input settings-input--narrow" type="number" value="5000" min="1000" max="30000" step="500" style="width:4.8em" />
+                    <span class="settings-hint">ms</span>
+                  </span>
                 </div>
-                <label class="settings-checkbox-label" data-child-of="process_notification_enabled"><span>Show milliseconds</span><input class="settings-checkbox-input" type="checkbox" name="process_notification_show_ms" /></label>
-                <label class="settings-checkbox-label" data-child-of="process_notification_enabled"><span>Transparent toast</span><input class="settings-checkbox-input" type="checkbox" name="process_notification_transparent" /></label>
+                <label class="settings-item settings-item--toggle" data-pref="process_notification_show_ms" data-keywords="show milliseconds toast" data-child-of="process_notification_enabled">
+                  <span class="settings-item-label">Show milliseconds</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="process_notification_show_ms" />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="process_notification_transparent" data-keywords="transparent toast notifications" data-child-of="process_notification_enabled">
+                  <span class="settings-item-label">Transparent toast</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="process_notification_transparent" />
+                </label>
               </div>
             </div>
 
             <div class="settings-section" data-section="terminal">
               <div class="settings-section-hd">Renderer</div>
               <div class="settings-section-bd">
-                <div class="settings-toggles">
-                  <label class="settings-checkbox-label" title="Use WebGL"><span>Use WebGL</span><input class="settings-checkbox-input" type="checkbox" name="use_webgl" /></label>
-                  <div class="settings-toggle-desc"> Utilize the older WebGL renderer; must restart or re-create the window to take effect. </div>
-                </div>
+                <label class="settings-item settings-item--toggle" data-pref="use_webgl" data-keywords="webgl renderer gpu legacy">
+                  <span class="settings-item-label" title="Use WebGL">Use WebGL</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="use_webgl" />
+                  <span class="settings-item-desc">Utilize the older WebGL renderer; must restart or re-create the window to take effect.</span>
+                </label>
               </div>
             </div>
 
             <div class="settings-section" data-section="terminal">
               <div class="settings-section-hd settings-section-hd--experimental">Experimental</div>
               <div class="settings-section-bd">
-                <div class="settings-toggles">
-                  <label class="settings-checkbox-label" title="Use a sideloaded conpty.dll / OpenConsole.exe deployed next to the binary as the ConPTY host (Windows Terminal's approach), enabling image protocols (sixel / kitty / iTerm) that the inbox host filters out"><span>Sideload OpenConsole host</span><input class="settings-checkbox-input" type="checkbox" name="terminal_sideload_openconsole" /></label>
-                  <div class="settings-toggle-desc">Unstable. Requires conpty.dll + OpenConsole.exe next to partty.exe and a restart; without them the inbox host is used.</div>
-                </div>
+                <label class="settings-item settings-item--toggle" data-pref="terminal_sideload_openconsole" data-keywords="sideload openconsole conpty host images sixel kitty iterm">
+                  <span class="settings-item-label" title="Use a sideloaded conpty.dll / OpenConsole.exe deployed next to the binary as the ConPTY host (Windows Terminal's approach), enabling image protocols (sixel / kitty / iTerm) that the inbox host filters out">Sideload OpenConsole host</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="terminal_sideload_openconsole" />
+                  <span class="settings-item-desc">Unstable. Requires conpty.dll + OpenConsole.exe next to partty.exe and a restart; without them the inbox host is used.</span>
+                </label>
               </div>
             </div>
 
             <div class="settings-section" data-section="ui">
               <div class="settings-section-hd">Appearance</div>
               <div class="settings-section-bd">
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">UI font</span>
+                <div class="settings-item" data-pref="font_ui" data-keywords="ui font interface typeface">
+                  <span class="settings-item-label">UI font</span>
                   <select id="setting-font-ui" name="font_ui" class="settings-input settings-input--font"></select>
                 </div>
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Backdrop</span>
+                <div class="settings-item" data-pref="window_effect_mode" data-keywords="backdrop window translucency acrylic transparent blur">
+                  <span class="settings-item-label">Backdrop</span>
                   <select id="setting-window-effect-mode" name="window_effect_mode" class="settings-input settings-input--narrow">
                     <option value="off">off</option><option value="transparent">transparent</option><option value="acrylic">acrylic</option>
                   </select>
+                  <span class="settings-item-desc">Window translucency. “Acrylic” adds OS blur behind the window.</span>
                 </div>
-                <div class="settings-toggle-desc">Window translucency. “Acrylic” adds OS blur behind the window.</div>
-                <div class="settings-row settings-row--compact" data-backdrop-opt="transparent">
-                  <span class="settings-row-label">Backdrop α</span>
+                <div class="settings-item" data-pref="window_effect_opacity" data-keywords="backdrop alpha opacity transparent" data-backdrop-opt="transparent">
+                  <span class="settings-item-label">Backdrop α</span>
                   <input id="setting-window-effect-opacity" name="window_effect_opacity" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
                 </div>
-                <div class="settings-row settings-row--compact" data-backdrop-opt="acrylic">
-                  <span class="settings-row-label">Acrylic tint</span>
+                <div class="settings-item" data-pref="window_effect_acrylic_tint" data-keywords="acrylic tint color" data-backdrop-opt="acrylic">
+                  <span class="settings-item-label">Acrylic tint</span>
                   <input id="setting-window-effect-acrylic-tint" name="window_effect_acrylic_tint" type="text" class="settings-input settings-input--font" placeholder="#1e1e1e" spellcheck="false" autocomplete="off" />
                 </div>
-                <div class="settings-row settings-row--compact" data-backdrop-opt="acrylic">
-                  <span class="settings-row-label">Acrylic tint α</span>
+                <div class="settings-item" data-pref="window_effect_acrylic_tint_alpha" data-keywords="acrylic tint alpha opacity" data-backdrop-opt="acrylic">
+                  <span class="settings-item-label">Acrylic tint α</span>
                   <input id="setting-window-effect-acrylic-tint-alpha" name="window_effect_acrylic_tint_alpha" type="number" min="0" max="1" step="0.05" class="settings-input settings-input--narrow" />
                 </div>
               </div>
@@ -333,80 +403,138 @@
             <div class="settings-section" data-section="window">
               <div class="settings-section-hd">Window</div>
               <div class="settings-section-bd">
-                <div class="settings-row settings-row--compact">
-                  <span class="settings-row-label">Exit action</span>
+                <div class="settings-item" data-pref="session_shed_on_exit" data-keywords="exit action ask keep shed session">
+                  <span class="settings-item-label">Exit action</span>
                   <select id="setting-shed-exit" name="session_shed_on_exit" class="settings-input settings-input--narrow">
                     <option value="ask">ask</option><option value="keep">keep</option><option value="shed">shed</option>
                   </select>
                 </div>
-                <div class="settings-toggles">
-                  <label class="settings-checkbox-label"><span>Always on top</span><input class="settings-checkbox-input" type="checkbox" name="always_on_top" /></label>
-                </div>
-                <div class="settings-toggles">
-                  <label class="settings-checkbox-label" title="Show the window immediately on launch; disable to require summon keybind"><span>Start visible</span><input class="settings-checkbox-input" type="checkbox" name="window_startup_visible" checked /></label>
-                </div>
+                <label class="settings-item settings-item--toggle" data-pref="always_on_top" data-keywords="always on top floating">
+                  <span class="settings-item-label">Always on top</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="always_on_top" />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="window_startup_visible" data-keywords="start visible launch show">
+                  <span class="settings-item-label" title="Show the window immediately on launch; disable to require summon keybind">Start visible</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="window_startup_visible" checked />
+                </label>
                 <div class="settings-subsection-hd">Cursor</div>
-                <div class="settings-toggles">
-                  <label class="settings-checkbox-label" title="Always hide the OS mouse cursor over the window"><span>Hide mouse</span><input class="settings-checkbox-input" type="checkbox" name="mouse_hidden" /></label>
-                  <label class="settings-checkbox-label" title="Hide the OS mouse cursor after it stops moving" data-child-of="mouse_hidden"><span>Hide on idle</span><input class="settings-checkbox-input" type="checkbox" name="mouse_hide_on_idle" /></label>
-                  <div class="settings-row settings-row--compact" data-child-of="mouse_hide_on_idle">
-                    <span class="settings-row-label">Idle delay</span>
+                <label class="settings-item settings-item--toggle" data-pref="mouse_hidden" data-keywords="hide mouse cursor">
+                  <span class="settings-item-label" title="Always hide the OS mouse cursor over the window">Hide mouse</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="mouse_hidden" />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="mouse_hide_on_idle" data-keywords="hide idle mouse cursor" data-child-of="mouse_hidden">
+                  <span class="settings-item-label" title="Hide the OS mouse cursor after it stops moving">Hide on idle</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="mouse_hide_on_idle" />
+                </label>
+                <div class="settings-item" data-pref="mouse_idle_seconds" data-keywords="idle delay seconds mouse" data-child-of="mouse_hide_on_idle">
+                  <span class="settings-item-label">Idle delay</span>
+                  <span class="settings-item-control">
                     <input name="mouse_idle_seconds" type="number" min="0.5" max="300" step="0.5" value="3" class="settings-input settings-input--narrow" style="width:4.8em" />
-                    <span class="settings-hint" style="margin-left:2px">s</span>
-                  </div>
-                  <label class="settings-checkbox-label" title="Move the OS cursor to the focused pane when you change panes, tabs, or swap layout"><span>Follow focused pane</span><input class="settings-checkbox-input" type="checkbox" name="cursor_follow_pane_focus" checked /></label>
-                  <label class="settings-checkbox-label" title="When moving the window to another monitor, warp the cursor onto the focused pane"><span>Follow monitor move</span><input class="settings-checkbox-input" type="checkbox" name="cursor_follow_window_move" /></label>
-                  <label class="settings-checkbox-label" title="Place the window at the OS cursor when summoning"><span>Summon at cursor</span><input class="settings-checkbox-input" type="checkbox" name="summon_spawn_at_cursor" /></label>
+                    <span class="settings-hint">s</span>
+                  </span>
                 </div>
-                <div class="settings-toggles">
-                  <label class="settings-checkbox-label"><span>Window motion</span><input class="settings-checkbox-input" type="checkbox" name="terminal_window_motion" checked /></label>
-                  <label class="settings-checkbox-label"><span>Hide taskbar</span><input class="settings-checkbox-input" type="checkbox" name="hidden_from_taskbar" /></label>
-                  <label class="settings-checkbox-label"><span>No tooltips</span><input class="settings-checkbox-input" type="checkbox" name="ui_disable_tooltips" /></label>
-                  <label class="settings-checkbox-label"><span>Auto-copy</span><input class="settings-checkbox-input" type="checkbox" name="auto_copy_selection" /></label>
-                  <label class="settings-checkbox-label" title="Right-click in a terminal pane pastes from the clipboard"><span>Right-click paste</span><input class="settings-checkbox-input" type="checkbox" name="right_click_paste" checked /></label>
-                </div>
+                <label class="settings-item settings-item--toggle" data-pref="cursor_follow_pane_focus" data-keywords="cursor follow focused pane focus">
+                  <span class="settings-item-label" title="Move the OS cursor to the focused pane when you change panes, tabs, or swap layout">Follow focused pane</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="cursor_follow_pane_focus" checked />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="cursor_follow_window_move" data-keywords="cursor follow monitor move window">
+                  <span class="settings-item-label" title="When moving the window to another monitor, warp the cursor onto the focused pane">Follow monitor move</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="cursor_follow_window_move" />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="summon_spawn_at_cursor" data-keywords="summon spawn cursor position">
+                  <span class="settings-item-label" title="Place the window at the OS cursor when summoning">Summon at cursor</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="summon_spawn_at_cursor" />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="terminal_window_motion" data-keywords="window motion animation">
+                  <span class="settings-item-label">Window motion</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="terminal_window_motion" checked />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="hidden_from_taskbar" data-keywords="hide taskbar window">
+                  <span class="settings-item-label">Hide taskbar</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="hidden_from_taskbar" />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="ui_disable_tooltips" data-keywords="no tooltips disable">
+                  <span class="settings-item-label">No tooltips</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="ui_disable_tooltips" />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="auto_copy_selection" data-keywords="auto copy selection clipboard">
+                  <span class="settings-item-label">Auto-copy</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="auto_copy_selection" />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="right_click_paste" data-keywords="right click paste clipboard">
+                  <span class="settings-item-label" title="Right-click in a terminal pane pastes from the clipboard">Right-click paste</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="right_click_paste" checked />
+                </label>
               </div>
             </div>
 
             <div class="settings-section" data-section="session">
               <div class="settings-section-hd">Session</div>
               <div class="settings-section-bd">
-                <div class="settings-toggles">
-                  <label class="settings-checkbox-label" title="Save pane layouts and working directories to restore on next launch"><span>Keep session</span><input class="settings-checkbox-input" type="checkbox" name="retain_session_state" checked /></label>
-                  <div class="settings-toggle-desc">Remember pane layouts, directories, and tabs across restarts.</div>
-                  <label class="settings-checkbox-label"><span>Preload PTY</span><input class="settings-checkbox-input" type="checkbox" name="preload_pty_on_startup" checked /></label>
-                  <div class="settings-toggle-desc">Start a shell early so new panes open faster.</div>
-                  <label class="settings-checkbox-label"><span>Preload WebGL</span><input class="settings-checkbox-input" type="checkbox" name="preload_webgl_on_startup" checked /></label>
-                  <div class="settings-toggle-desc">Warm up the GPU renderer before first paint.</div>
-                  <label class="settings-checkbox-label"><span>Defer show</span><input class="settings-checkbox-input" type="checkbox" name="defer_window_show_until_prepared" checked /></label>
-                  <div class="settings-toggle-desc">Wait until the terminal is ready before showing the window.</div>
-                  <label class="settings-checkbox-label"><span>Destroy on hide</span><input class="settings-checkbox-input" type="checkbox" name="destroy_webview_on_hide" checked /></label>
-                  <div class="settings-toggle-desc">Tear down the webview when hidden to free memory. With Drop buffers off, scrollback is restored on summon.</div>
-                  <label class="settings-checkbox-label"><span>Shed PTYs</span><input class="settings-checkbox-input" type="checkbox" name="shed_on_hide" /></label>
-                  <div class="settings-toggle-desc">Stop shells when the window is hidden.</div>
-                  <label class="settings-checkbox-label"><span>Shed WebGL</span><input class="settings-checkbox-input" type="checkbox" name="webgl_shed_on_hide" checked /></label>
-                  <div class="settings-toggle-desc">Release the GPU renderer when the window is hidden.</div>
-                  <label class="settings-checkbox-label"><span>Drop buffers</span><input class="settings-checkbox-input" type="checkbox" name="discard_buffer_on_hide" /></label>
-                  <div class="settings-toggle-desc">Discard scrollback when hiding. Off = keep history across hide/summon.</div>
-                </div>
+                <label class="settings-item settings-item--toggle" data-pref="retain_session_state" data-keywords="keep session retain state restore">
+                  <span class="settings-item-label" title="Save pane layouts and working directories to restore on next launch">Keep session</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="retain_session_state" checked />
+                  <span class="settings-item-desc">Remember pane layouts, directories, and tabs across restarts.</span>
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="preload_pty_on_startup" data-keywords="preload pty shell startup">
+                  <span class="settings-item-label">Preload PTY</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="preload_pty_on_startup" checked />
+                  <span class="settings-item-desc">Start a shell early so new panes open faster.</span>
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="preload_webgl_on_startup" data-keywords="preload webgl gpu startup">
+                  <span class="settings-item-label">Preload WebGL</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="preload_webgl_on_startup" checked />
+                  <span class="settings-item-desc">Warm up the GPU renderer before first paint.</span>
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="defer_window_show_until_prepared" data-keywords="defer show window startup ready">
+                  <span class="settings-item-label">Defer show</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="defer_window_show_until_prepared" checked />
+                  <span class="settings-item-desc">Wait until the terminal is ready before showing the window.</span>
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="destroy_webview_on_hide" data-keywords="destroy webview hide memory">
+                  <span class="settings-item-label">Destroy on hide</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="destroy_webview_on_hide" checked />
+                  <span class="settings-item-desc">Tear down the webview when hidden to free memory. With Drop buffers off, scrollback is restored on summon.</span>
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="shed_on_hide" data-keywords="shed pty shells hide">
+                  <span class="settings-item-label">Shed PTYs</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="shed_on_hide" />
+                  <span class="settings-item-desc">Stop shells when the window is hidden.</span>
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="webgl_shed_on_hide" data-keywords="shed webgl gpu hide">
+                  <span class="settings-item-label">Shed WebGL</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="webgl_shed_on_hide" checked />
+                  <span class="settings-item-desc">Release the GPU renderer when the window is hidden.</span>
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="discard_buffer_on_hide" data-keywords="drop buffers discard scrollback hide">
+                  <span class="settings-item-label">Drop buffers</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="discard_buffer_on_hide" />
+                  <span class="settings-item-desc">Discard scrollback when hiding. Off = keep history across hide/summon.</span>
+                </label>
               </div>
             </div>
 
             <div class="settings-section" data-section="dev" data-dev-only>
               <div class="settings-section-hd">Dev</div>
               <div class="settings-section-bd">
-                <div class="settings-toggles">
-                  <label class="settings-checkbox-label"><span>Metrics</span><input class="settings-checkbox-input" type="checkbox" name="dev_perf_enabled" /></label>
-                  <label class="settings-checkbox-label" data-child-of="dev_perf_enabled"><span>Console snapshots</span><input class="settings-checkbox-input" type="checkbox" name="dev_perf_console" /></label>
-                  <div class="settings-row settings-row--compact" data-child-of="dev_perf_enabled">
-                    <span class="settings-row-label">Snapshot interval</span>
+                <label class="settings-item settings-item--toggle" data-pref="dev_perf_enabled" data-keywords="metrics performance dev">
+                  <span class="settings-item-label">Metrics</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="dev_perf_enabled" />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="dev_perf_console" data-keywords="console snapshots metrics dev" data-child-of="dev_perf_enabled">
+                  <span class="settings-item-label">Console snapshots</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="dev_perf_console" />
+                </label>
+                <div class="settings-item" data-pref="dev_perf_console_interval_ms" data-keywords="snapshot interval metrics dev" data-child-of="dev_perf_enabled">
+                  <span class="settings-item-label">Snapshot interval</span>
+                  <span class="settings-item-control">
                     <input name="dev_perf_console_interval_ms" type="number" min="1000" max="60000" step="500" value="5000" class="settings-input settings-input--narrow" />
-                    <span class="settings-hint" style="margin-left:2px">ms</span>
-                  </div>
-                  <div class="settings-row settings-row--compact">
-                    <span class="settings-row-label">Toggle shortcut override</span>
-                    <input name="dev_window_toggle_override" type="text" class="settings-input settings-input--narrow" placeholder="e.g. Ctrl+Alt+T" spellcheck="false" autocomplete="off" />
-                  </div>
+                    <span class="settings-hint">ms</span>
+                  </span>
+                </div>
+                <div class="settings-item" data-pref="dev_window_toggle_override" data-keywords="toggle shortcut override dev keybind">
+                  <span class="settings-item-label">Toggle shortcut override</span>
+                  <input name="dev_window_toggle_override" type="text" class="settings-input settings-input--narrow" placeholder="e.g. Ctrl+Alt+T" spellcheck="false" autocomplete="off" />
                 </div>
               </div>
             </div>

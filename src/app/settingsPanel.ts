@@ -4,6 +4,7 @@ import { hideSurface, showSurface } from "./../util/motion";
 import type { CommandIslandApi } from "./commandIsland";
 import { mouseCursorForceVisible } from "./mouseCursor";
 import { type OverlayHandle, pushOverlay } from "./overlayStack";
+import { filterSettingsItems, type SettingsItemMeta } from "./settingsSearch";
 
 /** Where a workspace opens when loaded: `new-tab` (default) | `replace` current tab. */
 export type WorkspaceOpenMode = "new-tab" | "replace";
@@ -244,6 +245,8 @@ export function createSettingsPanel(
 ): SettingsPanelApi {
 	let open = false;
 	let saving = false;
+	/** User-chosen section, independent of the transient search-active tab. */
+	let selectedTab = "shell";
 	let overlay: OverlayHandle | null = null;
 
 	const form = root.querySelector("#settings-form") as HTMLFormElement | null;
@@ -575,80 +578,191 @@ export function createSettingsPanel(
 		}
 	}
 
+	/** Slide the selection pill behind the active tab; `instant` skips motion. */
+	function positionTabIndicator(instant = false): void {
+		const nav = root.querySelector<HTMLElement>(".settings-panel-nav");
+		const indicator = root.querySelector<HTMLElement>(
+			".settings-tab-indicator",
+		);
+		if (!nav || !indicator) return;
+		const active = nav.querySelector<HTMLElement>(".settings-tab--active");
+		if (!active?.offsetParent) {
+			indicator.style.opacity = "0";
+			return;
+		}
+		if (instant) indicator.classList.add("settings-tab-indicator--instant");
+		indicator.style.opacity = "";
+		indicator.style.width = `${active.offsetWidth}px`;
+		indicator.style.height = `${active.offsetHeight}px`;
+		indicator.style.transform = `translate(${active.offsetLeft}px, ${active.offsetTop}px)`;
+		if (instant) {
+			// Flush the jump so the class removal does not animate it.
+			void indicator.offsetWidth;
+			indicator.classList.remove("settings-tab-indicator--instant");
+		}
+	}
+
+	/** Visual-only active tab; never changes section visibility or `selectedTab`. */
+	function setActiveTab(tab: string): void {
+		root.querySelectorAll(".settings-tab").forEach((t) => {
+			const el = t as HTMLElement;
+			const match = el.dataset.section === tab;
+			el.classList.toggle("settings-tab--active", match);
+			el.setAttribute("aria-selected", match ? "true" : "false");
+		});
+		positionTabIndicator();
+	}
+
 	function switchSettingsTab(tab: string): void {
+		selectedTab = tab;
 		const sections = root.querySelectorAll<HTMLElement>(".settings-section");
 		for (const section of sections) {
 			section.hidden = (section.dataset.section ?? "") !== tab;
 		}
-		root.querySelectorAll(".settings-tab").forEach((t) => {
-			t.classList.toggle(
-				"settings-tab--active",
-				(t as HTMLElement).dataset.section === tab,
-			);
-			t.setAttribute(
-				"aria-selected",
-				(t as HTMLElement).dataset.section === tab ? "true" : "false",
-			);
-		});
+		setActiveTab(tab);
+	}
+
+	/**
+	 * Fold one `.settings-item` into the plain metadata the pure matcher reads.
+	 * Covers the label/description, control name/id/placeholder, every option
+	 * value, and any tooltip so search can land on an individual preference.
+	 */
+	function readSettingsItemMeta(item: HTMLElement): SettingsItemMeta {
+		const label =
+			item.querySelector(".settings-item-label")?.textContent?.trim() ?? "";
+		const desc =
+			item.querySelector(".settings-item-desc")?.textContent?.trim() ?? "";
+		const controls = [
+			...item.querySelectorAll<
+				HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+			>("input, select, textarea"),
+		];
+		const controlText = controls
+			.map((el) => {
+				const placeholder =
+					el instanceof HTMLInputElement ? el.placeholder : "";
+				return `${el.name ?? ""} ${el.id ?? ""} ${placeholder}`;
+			})
+			.join(" ");
+		const optionText = [...item.querySelectorAll("option")]
+			.map((option) => option.textContent?.trim() ?? "")
+			.join(" ");
+		const title =
+			item.getAttribute("title") ??
+			item.querySelector("[title]")?.getAttribute("title") ??
+			"";
+		return {
+			label,
+			pref: item.dataset.pref ?? controls[0]?.name,
+			keywords: item.dataset.keywords,
+			desc,
+			controlText: [controlText, optionText, title].filter(Boolean).join(" "),
+		};
 	}
 
 	function applySettingsSearch(): void {
 		const input = root.querySelector(
 			"#settings-search",
 		) as HTMLInputElement | null;
-		const q = input?.value.trim().toLowerCase() ?? "";
-		const sections = root.querySelectorAll<HTMLElement>(".settings-section");
+		const raw = input?.value ?? "";
+		const items = [...root.querySelectorAll<HTMLElement>(".settings-item")];
+		const sections = [
+			...root.querySelectorAll<HTMLElement>(".settings-section"),
+		];
+		const subsectionHeaders = [
+			...root.querySelectorAll<HTMLElement>(".settings-subsection-hd"),
+		];
+		const tabs = [...root.querySelectorAll<HTMLElement>(".settings-tab")];
+		const countEl = root.querySelector<HTMLElement>("#settings-search-count");
 
-		if (q.length === 0) {
-			// Restore tab view
-			for (const section of sections) section.hidden = true;
-			const activeTab = root.querySelector(
-				".settings-tab--active",
-			) as HTMLElement | null;
-			switchSettingsTab(activeTab?.dataset.section ?? "shell");
+		if (raw.trim().length === 0) {
+			// Restore the normal tab view and clear every hidden flag a prior
+			// search may have left behind (items, headers, backdrop options).
+			for (const item of items) item.hidden = false;
+			for (const header of subsectionHeaders) header.hidden = false;
+			switchSettingsTab(selectedTab);
+			for (const tab of tabs) tab.classList.remove("settings-tab--dim");
+			if (countEl) {
+				countEl.hidden = true;
+				countEl.textContent = "";
+			}
 			return;
 		}
 
-		// Search mode: show matching rows across all sections
+		// Search mode: match across every section at once.
+		const entries = items.map((item) => ({
+			item,
+			meta: readSettingsItemMeta(item),
+		}));
+		const matched = new Set(
+			filterSettingsItems(
+				entries.map((entry) => entry.meta),
+				raw,
+			),
+		);
+
+		let visibleCount = 0;
+		for (const { item, meta } of entries) {
+			// A match nested in a dimmed dependency tree stays hidden.
+			const inHiddenTree = item.closest(".settings-tree-hidden") !== null;
+			const visible = matched.has(meta) && !inHiddenTree;
+			item.hidden = !visible;
+			if (visible) visibleCount++;
+		}
+		for (const header of subsectionHeaders) header.hidden = true;
+
 		for (const section of sections) {
-			let anyVisible = false;
-			const rows = section.querySelectorAll<HTMLElement>(
-				".settings-row, .settings-checkbox-label, .settings-toggle-desc, .settings-subsection-hd",
-			);
-			for (const row of rows) {
-				if (row.closest(".settings-tree-hidden")) {
-					(row as HTMLElement).hidden = true;
-					continue;
-				}
-				const controls = [
-					...row.querySelectorAll<
-						HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-					>("input, textarea, select"),
-				]
-					.map(
-						(el) =>
-							`${el.name ?? ""} ${el.id ?? ""} ${"placeholder" in el ? (el as HTMLInputElement).placeholder : ""}`,
-					)
-					.join(" ");
-				const text = `${row.textContent ?? ""} ${controls}`
-					.toLowerCase()
-					.replace(/[_-]/g, " ");
-				const visible = text.includes(q);
-				(row as HTMLElement).hidden = !visible;
-				if (visible) anyVisible = true;
-			}
+			const anyVisible = [
+				...section.querySelectorAll<HTMLElement>(".settings-item"),
+			].some((item) => !item.hidden);
 			section.hidden = !anyVisible;
 		}
 
-		// Highlight tabs with matches
-		root.querySelectorAll(".settings-tab").forEach((tab) => {
-			const t = tab as HTMLElement;
-			const sec = t.dataset.section ?? "";
-			const hasMatches = root.querySelector(
-				`.settings-section[data-section="${sec}"]:not([hidden])`,
-			);
-			t.classList.toggle("settings-tab--dim", !hasMatches);
-		});
+		for (const tab of tabs) {
+			const sectionName = tab.dataset.section ?? "";
+			const hasMatches = [
+				...root.querySelectorAll<HTMLElement>(
+					`.settings-section[data-section="${sectionName}"]`,
+				),
+			].some((section) => !section.hidden);
+			tab.classList.toggle("settings-tab--dim", !hasMatches);
+		}
+
+		// Move the selection pill to match the lit (non-dimmed) tabs, sliding
+		// from wherever it currently rests. Keep it put if it still matches.
+		const matchingTabs = tabs.filter(
+			(tab) => !tab.classList.contains("settings-tab--dim"),
+		);
+		const activeSection = root.querySelector<HTMLElement>(
+			".settings-tab--active",
+		)?.dataset.section;
+		const activeStillMatches = matchingTabs.some(
+			(tab) => tab.dataset.section === activeSection,
+		);
+		if (!activeStillMatches && matchingTabs.length > 0) {
+			setActiveTab(matchingTabs[0].dataset.section ?? selectedTab);
+		}
+
+		if (countEl) {
+			countEl.hidden = visibleCount === 0;
+			countEl.textContent = visibleCount > 0 ? String(visibleCount) : "";
+		}
+	}
+
+	/**
+	 * Escape is routed through the overlay stack. When the focused search field
+	 * has text, clear it and keep the panel open; otherwise close the panel.
+	 */
+	function handleOverlayEscape(): void {
+		const input = root.querySelector(
+			"#settings-search",
+		) as HTMLInputElement | null;
+		if (input && document.activeElement === input && input.value.length > 0) {
+			input.value = "";
+			applySettingsSearch();
+			return;
+		}
+		close();
 	}
 
 	async function loadAndRender(): Promise<void> {
@@ -959,9 +1073,6 @@ export function createSettingsPanel(
 		) as HTMLSelectElement | null;
 		backdropModeSelect?.addEventListener("change", () => applySettingsTree());
 
-		root
-			.querySelector("#settings-close")
-			?.addEventListener("click", () => close());
 		// Click the empty island area outside the card to dismiss (mirrors the
 		// old backdrop behavior; the view root fills the terminal stage).
 		root.addEventListener("pointerdown", (e) => {
@@ -970,14 +1081,22 @@ export function createSettingsPanel(
 		root
 			.querySelector("#settings-search")
 			?.addEventListener("input", () => applySettingsSearch());
-		// Tab switching
+		// Tab switching clears any active query so the tab's normal view shows.
 		root.querySelectorAll(".settings-tab").forEach((tab) => {
 			tab.addEventListener("click", () => {
 				const section = (tab as HTMLElement).dataset.section ?? "";
+				const searchInput = root.querySelector(
+					"#settings-search",
+				) as HTMLInputElement | null;
+				if (searchInput && searchInput.value.length > 0) {
+					searchInput.value = "";
+				}
 				switchSettingsTab(section);
 				applySettingsSearch();
 			});
 		});
+		// Keep the pill aligned when the nav reflows (e.g. narrow layout).
+		window.addEventListener("resize", () => positionTabIndicator(true));
 		// Escape is handled by the shared overlay stack.
 	}
 	ensureListeners();
@@ -994,7 +1113,7 @@ export function createSettingsPanel(
 		open: () => {
 			if (open) return;
 			open = true;
-			overlay = pushOverlay(() => close());
+			overlay = pushOverlay(() => handleOverlayEscape());
 			island?.present("settings");
 			mouseCursorForceVisible(true);
 			ensureListeners();
@@ -1004,6 +1123,8 @@ export function createSettingsPanel(
 				"#settings-search",
 			) as HTMLInputElement | null;
 			if (search) search.value = "";
+			applySettingsSearch();
+			positionTabIndicator(true);
 			loadAndRender();
 			requestAnimationFrame(() => {
 				(
