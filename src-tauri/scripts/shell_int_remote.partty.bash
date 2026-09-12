@@ -187,7 +187,7 @@ fi
 
 export PARTTY_SHELL_INTEGRATION=1
 export TERM_PROGRAM="${TERM_PROGRAM:-Partty}"
-export TERM_PROGRAM_VERSION="${TERM_PROGRAM_VERSION:-0.4.0}"
+export TERM_PROGRAM_VERSION="${TERM_PROGRAM_VERSION:-0.5.0}"
 
 # Arm the DEBUG trap only after the script body has fully sourced, so loading
 # does not capture the script's own commands as spurious command lines.
