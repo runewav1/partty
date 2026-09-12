@@ -7,8 +7,10 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "tsc && vite build",
-		"test:metrics": "node --experimental-vm-modules --test src/tests/metricsCore.test.mjs src/tests/perf.test.mjs && node --experimental-strip-types --test src/tests/devMetricsOverlay.test.mjs src/tests/zoomStep.test.mjs src/tests/keybindWheel.test.mjs src/tests/zoomTargets.test.mjs src/tests/themePalettes.test.mjs src/tests/findScan.test.mjs src/tests/commandIsland.test.mjs src/tests/islandMotion.test.mjs src/tests/settingsSearch.test.mjs",
-		"test:metrics:production": "pnpm run build && node scripts/check-production-metrics.mjs",
+		"test": "pnpm run test:front && pnpm run test:rust",
+		"test:front": "node --experimental-vm-modules --experimental-strip-types --test \"src/tests/**/*.test.mjs\"",
+		"test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+		"test:prod": "pnpm run build && node scripts/check-production-metrics.mjs",
 		"preview": "vite preview",
 		"tauri": "node scripts/tauri.js",
 		"tauri:dev": "tauri dev",

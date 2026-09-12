@@ -133,6 +133,26 @@ To build the release binary, you can run:
 
 This will build and produce the partty.exe binary under `./src-tauri/target/release/`, alongside specific installer bundles.
 
+To test, you can do a few different things depending on what you're working on:
+
+Changes that relate to the front-end: 
+
+```shell
+> pnpm test:front
+```
+
+For changes that relate to the back-end:
+
+```shell
+> pnpm test:rust
+```
+
+For changes that span across both the back and front-end:
+
+```shell
+> pnpm test
+```
+
 ## Roadmap
 
 Partty is *far from done*. Although it achieves very good performance metrics, pushing it to the very maximum
