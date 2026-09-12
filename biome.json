@@ -1,5 +1,5 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.5.12/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.5.13/schema.json",
 	"vcs": {
 		"enabled": true,
 		"clientKind": "git",
@@ -24,19 +24,19 @@
 			"preset": "recommended",
 			"a11y": "warn",
 			"complexity": {
-				"recommended": true,
+				"preset": "recommended",
 				"noExcessiveLinesPerFunction": "off",
 				"noImportantStyles": "off"
 			},
 			"correctness": "error",
 			"performance": "warn",
 			"security": {
-				"recommended": true,
+				"preset": "recommended",
 				"noSecrets": "warn"
 			},
 			"style": "off",
 			"suspicious": {
-				"recommended": true,
+				"preset": "recommended",
 				"noConsole": "warn"
 			}
 		}
