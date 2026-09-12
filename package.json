@@ -16,7 +16,7 @@
 	},
 	"dependencies": {
 		"@partty/addon-webgl": "0.20.0",
-		"@partty/addon-webgpu": "0.1.4-rc7",
+		"@partty/addon-webgpu": "0.1.4",
 		"@tauri-apps/api": "^2.11.1",
 		"@xterm/addon-fit": "beta",
 		"@xterm/addon-image": "beta",
