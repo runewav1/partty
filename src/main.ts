@@ -199,11 +199,12 @@ import {
 	selectVisibleZoomPaneIds,
 	type ZoomPaneDescriptor,
 } from "./terminal/zoomTargets";
+import { registerWebLinksProvider } from "./terminal/webLinks";
 import { escapeHtml } from "./util/html";
 import { lazyCell, runLazy } from "./util/lazyOnce";
 import { filterAndRankLexical, normalizeQuery } from "./util/lexicalSearch";
 import {
-	normalizeExternalUrl,
+	normalizeExactExternalUrl,
 	type TerminalLinkMatch,
 } from "./util/linkExtraction";
 import {
@@ -932,6 +933,7 @@ async function boot(): Promise<void> {
 	const pendingShellCommandLine = new Map<string, string>();
 	const paneHostCleanups = new Map<string, Array<() => void>>();
 	const paneLinkProviders = new Map<string, TerminalLinkProviderController>();
+	const paneWebLinks = new Map<string, { dispose: () => void }>();
 
 	const pendingPtyWriteByPane = new Map<string, StringChunkBuffer>();
 	const pendingPtyOutputByPane = new Map<string, PendingPtyOutput>();
@@ -1266,6 +1268,12 @@ async function boot(): Promise<void> {
 		}
 	}
 
+	const openExternalUrl = (url: string): void => {
+		void invoke("open_external_url", { url }).catch(
+			(e) => void showAlert(String(e), "Open link"),
+		);
+	};
+
 	const handleTerminalLinkActivation = (
 		paneId: string,
 		ev: MouseEvent,
@@ -1281,13 +1289,24 @@ async function boot(): Promise<void> {
 		ev.preventDefault();
 		ev.stopPropagation();
 		if (match.kind === "url") {
-			void invoke("open_external_url", { url: match.value }).catch(
-				(e) => void showAlert(String(e), "Open link"),
-			);
+			openExternalUrl(match.value);
 			return;
 		}
 		rememberClipboardPath(paneId, match.value);
 		copyToClipboard(match.value);
+	};
+
+	/**
+	 * WebLinksAddon activation: same Ctrl/Meta policy as custom links (Ctrl+Alt
+	 * stays reserved for the editor path action), validating the exact URL.
+	 */
+	const handleWebLinkActivation = (ev: MouseEvent, uri: string): void => {
+		if (!(ev.ctrlKey || ev.metaKey) || ev.button !== 0 || ev.altKey) return;
+		const url = normalizeExactExternalUrl(uri);
+		if (!url) return;
+		ev.preventDefault();
+		ev.stopPropagation();
+		openExternalUrl(url);
 	};
 
 	/**
@@ -1317,7 +1336,7 @@ async function boot(): Promise<void> {
 		if (!newId) return true;
 		const targetStyle = pathStyleForPaneId(newId);
 		const target = quotePath(
-			translatePathFromSource(raw, targetStyle, cwd),
+			translatePathFromSource(raw, targetStyle, cwd, pathStyleForPaneId(paneId)),
 			targetStyle,
 		);
 		// Run at shell startup (spawn-time startup command) instead of typing it
@@ -1347,6 +1366,8 @@ async function boot(): Promise<void> {
 		}
 		paneLinkProviders.get(paneId)?.dispose();
 		paneLinkProviders.delete(paneId);
+		paneWebLinks.get(paneId)?.dispose();
+		paneWebLinks.delete(paneId);
 		disposeWebglForPane(paneId);
 		paneShellState.delete(paneId);
 		paneCwdHints.delete(paneId);
@@ -2668,6 +2689,7 @@ async function boot(): Promise<void> {
 		rekeyKeyed(pendingShellCommandLine, from, to);
 		rekeyKeyed(paneHostCleanups, from, to);
 		rekeyKeyed(paneLinkProviders, from, to);
+		rekeyKeyed(paneWebLinks, from, to);
 		rekeyKeyed(pendingPtyWriteByPane, from, to);
 		rekeyKeyed(pendingPtyOutputByPane, from, to);
 		rekeyKeyed(ptyBulkWriteTailByPane, from, to);
@@ -2999,12 +3021,9 @@ async function boot(): Promise<void> {
 				),
 				linkHandler: {
 					activate: (_event, uri) => {
-						const url = normalizeExternalUrl(uri);
-						if (url) {
-							void invoke("open_external_url", { url }).catch(
-								(e) => void showAlert(String(e), "Open link"),
-							);
-						}
+						// OSC 8 URIs are exact: preserve balanced punctuation.
+						const url = normalizeExactExternalUrl(uri);
+						if (url) openExternalUrl(url);
 					},
 				},
 				getTheme: (paneId) => xtermThemeForPane(paneId),
@@ -3049,8 +3068,16 @@ async function boot(): Promise<void> {
 					paneBySessionId.set(pt.sessionId, pt);
 					attachTermKeyHandler(pt.term, () => pt.paneId);
 					attachTermWheelHandler(pt.term, () => pt.paneId);
+					// Schemed http(s) URLs first: the addon provider takes
+					// priority over the custom path/scheme-less provider.
+					const webLinks = registerWebLinksProvider(
+						pt.term,
+						handleWebLinkActivation,
+					);
+					paneWebLinks.set(id, webLinks);
 					const linkProvider = registerTerminalLinkProvider(pt.term, {
 						getCwd: () => paneEffectiveCwd(pt.paneId),
+						getPathStyle: () => pathStyleForPaneId(pt.paneId),
 						isFocused: () => focusedPaneId() === pt.paneId,
 						activate: (event, match) =>
 							handleTerminalLinkActivation(pt.paneId, event, match),

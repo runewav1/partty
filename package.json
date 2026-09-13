@@ -26,6 +26,7 @@
 		"@xterm/addon-serialize": "beta",
 		"@xterm/addon-unicode-graphemes": "beta",
 		"@xterm/addon-unicode11": "beta",
+		"@xterm/addon-web-links": "beta",
 		"@xterm/xterm": "6.1.0-beta.304"
 	},
 	"devDependencies": {

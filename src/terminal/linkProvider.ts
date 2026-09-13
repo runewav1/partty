@@ -9,26 +9,67 @@ import type {
 import {
 	findTerminalLinkMatches,
 	type TerminalLinkMatch,
-} from "../util/linkExtraction";
+} from "../util/linkExtraction.ts";
+import type { PathStyle } from "../util/paths.ts";
 
 const LINK_SCAN_DEBOUNCE_MS = 75;
 const MAX_LINK_WINDOW_CELLS = 2048;
 let activationModifier = false;
 let hoveredDecorations: ILinkDecorations | null = null;
 
-function setActivationModifier(active: boolean): void {
+export function setActivationModifier(active: boolean): void {
 	activationModifier = active;
 	if (hoveredDecorations) hoveredDecorations.pointerCursor = active;
 }
 
-for (const type of ["keydown", "keyup"] as const) {
-	window.addEventListener(
-		type,
-		(event) => setActivationModifier(event.ctrlKey || event.metaKey),
-		true,
-	);
+if (typeof window !== "undefined") {
+	for (const type of ["keydown", "keyup"] as const) {
+		window.addEventListener(
+			type,
+			(event) => setActivationModifier(event.ctrlKey || event.metaKey),
+			true,
+		);
+	}
+	window.addEventListener("blur", () => setActivationModifier(false));
 }
-window.addEventListener("blur", () => setActivationModifier(false));
+
+function clearHover(decorations: ILinkDecorations): void {
+	if (hoveredDecorations === decorations) hoveredDecorations = null;
+}
+
+/** Apply the shared Ctrl/Meta-dependent hover decoration to a link. */
+function decorateLink(link: ILink): ILink {
+	const decorations: ILinkDecorations = {
+		underline: true,
+		pointerCursor: activationModifier,
+	};
+	link.decorations = decorations;
+	const { hover, leave, dispose } = link;
+	link.hover = (event, text) => {
+		hoveredDecorations = decorations;
+		setActivationModifier(event.ctrlKey || event.metaKey);
+		hover?.call(link, event, text);
+	};
+	link.leave = (event, text) => {
+		leave?.call(link, event, text);
+		clearHover(decorations);
+	};
+	link.dispose = () => {
+		dispose?.call(link);
+		clearHover(decorations);
+	};
+	return link;
+}
+
+/** Wrap a provider (e.g. WebLinksAddon's) so its links match the custom ones. */
+export function decorateLinkProvider(provider: ILinkProvider): ILinkProvider {
+	return {
+		provideLinks: (line, callback) =>
+			provider.provideLinks(line, (links) =>
+				callback(links?.map(decorateLink)),
+			),
+	};
+}
 
 export type TerminalLinkProviderController = {
 	invalidate: () => void;
@@ -38,6 +79,7 @@ export type TerminalLinkProviderController = {
 
 export type TerminalLinkProviderOptions = {
 	getCwd: () => string | null;
+	getPathStyle?: () => PathStyle;
 	isFocused: () => boolean;
 	activate: (event: MouseEvent, match: TerminalLinkMatch) => void;
 };
@@ -79,7 +121,11 @@ export function registerTerminalLinkProvider(
 		}
 
 		const linksByRow = new Map<number, CachedLink[]>();
-		const matches = findTerminalLinkMatches(logical.text, options.getCwd());
+		const matches = findTerminalLinkMatches(
+			logical.text,
+			options.getCwd(),
+			options.getPathStyle?.(),
+		);
 		for (const match of matches) {
 			const start = logical.positions[match.start];
 			const end = logical.positions[match.end - 1];
@@ -163,28 +209,13 @@ export function registerTerminalLinkProvider(
 			}
 			const cached = rowCache.get(bufferLineNumber);
 			callback(
-				cached?.map((cachedLink) => {
-					const clearHover = () => {
-						if (hoveredDecorations === link.decorations)
-							hoveredDecorations = null;
-					};
-					const link: ILink = {
+				cached?.map((cachedLink) =>
+					decorateLink({
 						range: cachedLink.range,
 						text: cachedLink.match.text,
-						decorations: {
-							underline: true,
-							pointerCursor: activationModifier,
-						},
 						activate: (event) => options.activate(event, cachedLink.match),
-						hover: (event) => {
-							hoveredDecorations = link.decorations ?? null;
-							setActivationModifier(event.ctrlKey || event.metaKey);
-						},
-						leave: clearHover,
-						dispose: clearHover,
-					};
-					return link;
-				}),
+					}),
+				),
 			);
 		},
 	};
