@@ -40,7 +40,10 @@ test("scheme-less www hosts are detected and normalized", () => {
 });
 
 test("scheme-less localhost and loopback hosts are detected", () => {
-	assert.equal(urls("open localhost:3000 please")[0]?.value, "https://localhost:3000/");
+	assert.equal(
+		urls("open localhost:3000 please")[0]?.value,
+		"https://localhost:3000/",
+	);
 	assert.equal(
 		urls("try 127.0.0.1:8080/health")[0]?.value,
 		"https://127.0.0.1:8080/health",
@@ -80,7 +83,10 @@ test("absolute, quoted and relative paths survive", () => {
 });
 
 test("a scheme-less URL does not also produce an overlapping path", () => {
-	const matches = findTerminalLinkMatches("see www.example.com/foo", "C:\\proj");
+	const matches = findTerminalLinkMatches(
+		"see www.example.com/foo",
+		"C:\\proj",
+	);
 	assert.equal(matches.length, 1);
 	assert.equal(matches[0].kind, "url");
 });
@@ -113,7 +119,20 @@ test("non-web schemes are rejected by exact normalization", () => {
 });
 
 test("path heuristics reject prose, MIME types, dates, flags and URL fragments", () => {
-	for (const text of ["yes/no", "and/or", "2026/09/12", "1/2", "text/plain", "application/json", "--output=src/main.ts", "/nologo", "feature/new-ui", "user@example.com/path", "https://host/srv/file", "//comment"]) {
+	for (const text of [
+		"yes/no",
+		"and/or",
+		"2026/09/12",
+		"1/2",
+		"text/plain",
+		"application/json",
+		"--output=src/main.ts",
+		"/nologo",
+		"feature/new-ui",
+		"user@example.com/path",
+		"https://host/srv/file",
+		"//comment",
+	]) {
 		assert.deepEqual(paths(text, "/work"), [], text);
 	}
 });
@@ -132,13 +151,24 @@ test("quoted filenames stay exact and relative filenames resolve with spaces", (
 });
 
 test("diagnostic locations and prose wrappers are excluded from copied paths", () => {
-	for (const text of ["(src/main.ts:12:3)", "src/main.ts(12,3)", "src/main.ts:12:", "[src/main.ts]"]) {
+	for (const text of [
+		"(src/main.ts:12:3)",
+		"src/main.ts(12,3)",
+		"src/main.ts:12:",
+		"[src/main.ts]",
+	]) {
 		const [match] = paths(text, "/work");
 		assert.equal(match?.value, "/work/src/main.ts", text);
 		assert.equal(text.slice(match.start, match.end), "src/main.ts");
 	}
-	assert.equal(paths("/tmp/file(foo)[1].txt")[0]?.value, "/tmp/file(foo)[1].txt");
-	assert.equal(paths("/custom-root/nested/file")[0]?.value, "/custom-root/nested/file");
+	assert.equal(
+		paths("/tmp/file(foo)[1].txt")[0]?.value,
+		"/tmp/file(foo)[1].txt",
+	);
+	assert.equal(
+		paths("/custom-root/nested/file")[0]?.value,
+		"/custom-root/nested/file",
+	);
 	assert.equal(paths("/srv/www.example.com")[0]?.value, "/srv/www.example.com");
 	assert.deepEqual(paths("src/main.ts", null), []);
 });

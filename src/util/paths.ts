@@ -20,7 +20,8 @@ const POSIX_PATH_REGEX = /^\/(?!\/)/;
 const WINDOWS_SOURCE_PATH_REGEX = /^[a-zA-Z]:[\\/]/;
 const UNC_SOURCE_PATH_REGEX = /^(\\\\|\/\/)/;
 const TRAILING_SEPARATOR_REGEX = /\/+$/;
-const WSL_NETWORK_PATH_REGEX = /^\/\/(?:wsl\$|wsl\.localhost)\/([^/]+)(?:\/(.*))?$/i;
+const WSL_NETWORK_PATH_REGEX =
+	/^\/\/(?:wsl\$|wsl\.localhost)\/([^/]+)(?:\/(.*))?$/i;
 const DRIVE_PATH_REGEX = /^([a-zA-Z]):\/(.*)$/;
 const WINDOWS_QUOTED_PATH_REGEX = /[\s"&|<>^%]/;
 const POSIX_QUOTED_PATH_REGEX = /[^a-zA-Z0-9_@%+=:,./-]/;
@@ -28,6 +29,9 @@ const NEWLINE_REGEX = /[\r\n]/;
 const ABSOLUTE_WINDOWS_PATH_REGEX = /^[a-zA-Z]:[\\/]/;
 const UNC_OR_ROOT_PATH_REGEX = /^(\\\\|\/\/)/;
 const ROOTED_PATH_REGEX = /^[\\/]/;
+const POSIX_SEPARATOR_RUN_REGEX = /\/+/;
+const PATH_SEPARATOR_RUN_REGEX = /[\\/]+/;
+const DRIVE_LETTER_ONLY_REGEX = /^[A-Za-z]:$/;
 const WSL_DISTRO_PATH_REGEX = /^\/\/wsl(?:\$|\.localhost)\/([^/]+)(?:\/|$)/i;
 const MNT_DRIVE_PATH_REGEX = /^\/mnt\/([a-z])(?:\/(.*))?$/;
 const MSYS_DRIVE_PATH_REGEX = /^\/([a-zA-Z])(?:\/(.*))?$/;
@@ -192,10 +196,13 @@ export function expandRelativePath(
 	style?: PathStyle,
 ): string {
 	cwd = cwd.replace(UNC_PREFIX_REGEX, "\\\\").replace(DEVICE_PREFIX_REGEX, "");
-	const isUnc = /^(\\\\|\/\/)/.test(cwd);
+	const isUnc = UNC_OR_ROOT_PATH_REGEX.test(cwd);
 	const isPosix = !isUnc && cwd.startsWith("/");
 	const sep = isPosix ? "/" : "\\";
-	const split = isPosix && style !== "msys" ? /\/+/ : /[\\/]+/;
+	const split =
+		isPosix && style !== "msys"
+			? POSIX_SEPARATOR_RUN_REGEX
+			: PATH_SEPARATOR_RUN_REGEX;
 	const parts = cwd.split(split).filter(Boolean);
 	const rootDepth = isUnc ? 2 : isPosix ? 0 : 1;
 	for (const seg of rel.split(split)) {
@@ -209,7 +216,9 @@ export function expandRelativePath(
 	const joined = parts.join(sep);
 	if (isUnc) return `\\\\${joined}`;
 	if (isPosix) return `/${joined}`;
-	return parts.length === 1 && /^[A-Za-z]:$/.test(joined) ? `${joined}\\` : joined;
+	return parts.length === 1 && DRIVE_LETTER_ONLY_REGEX.test(joined)
+		? `${joined}\\`
+		: joined;
 }
 
 /**
@@ -239,7 +248,8 @@ export function translatePathFromSource(
 		sourceStyle === style &&
 		!WINDOWS_SOURCE_PATH_REGEX.test(raw) &&
 		!UNC_SOURCE_PATH_REGEX.test(raw)
-	) return raw;
+	)
+		return raw;
 	const fwd = raw.replace(/\\/g, "/");
 	const posixAbs = POSIX_PATH_REGEX.test(fwd) && !WINDOWS_PATH_REGEX.test(fwd);
 	const sourceIsPosix = sourceCwd?.replace(/\\/g, "/").startsWith("/");

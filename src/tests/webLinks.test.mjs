@@ -56,6 +56,7 @@ function makeFakeTerminal(text) {
 
 test("registerWebLinksProvider registers a decorated addon provider", () => {
 	setActivationModifier(false);
+	// biome-ignore lint/security/noSecrets: Test fixture URL, not a secret.
 	const url = "https://example.com/a/b?c=1&d=2#frag";
 	const { term, registrations, disposed } = makeFakeTerminal(`see ${url} end`);
 	const activated = [];

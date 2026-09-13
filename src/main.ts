@@ -194,12 +194,12 @@ import {
 	type UiThemePrefs,
 	uiPrefsChanged,
 } from "./terminal/uiTheme";
+import { registerWebLinksProvider } from "./terminal/webLinks";
 import { nextZoomFontSize, normalizeZoomStep } from "./terminal/zoomStep";
 import {
 	selectVisibleZoomPaneIds,
 	type ZoomPaneDescriptor,
 } from "./terminal/zoomTargets";
-import { registerWebLinksProvider } from "./terminal/webLinks";
 import { escapeHtml } from "./util/html";
 import { lazyCell, runLazy } from "./util/lazyOnce";
 import { filterAndRankLexical, normalizeQuery } from "./util/lexicalSearch";
@@ -1336,7 +1336,12 @@ async function boot(): Promise<void> {
 		if (!newId) return true;
 		const targetStyle = pathStyleForPaneId(newId);
 		const target = quotePath(
-			translatePathFromSource(raw, targetStyle, cwd, pathStyleForPaneId(paneId)),
+			translatePathFromSource(
+				raw,
+				targetStyle,
+				cwd,
+				pathStyleForPaneId(paneId),
+			),
 			targetStyle,
 		);
 		// Run at shell startup (spawn-time startup command) instead of typing it

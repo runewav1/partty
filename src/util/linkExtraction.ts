@@ -32,6 +32,25 @@ const UNC_PATH_RE = /^\\\\|^\/\//;
 const POSIX_ROOT_PATH_RE =
 	/^\/(?:home|Users|usr|etc|var|tmp|opt|mnt|root|dev|proc|sys|bin|lib|sbin|boot|media|run|snap|srv|Volumes|workspace)(?:\/|$)/;
 const WHITESPACE_RE = /\s/;
+const WORD_URL_BOUNDARY_RE = /[\w@./\\-]/;
+const LEADING_WRAPPER_RE = /^[([{]+/;
+const TRAILING_PATH_PUNCTUATION_RE = /[.,;:!?]+$/;
+const DIAGNOSTIC_SUFFIX_RE = /(?::\d+(?::\d+)?|\(\d+(?:,\s*\d+)?\))$/;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: Reject control characters in relative path candidates.
+const REJECTED_RELATIVE_CHAR_RE = /^[~-]|[\x00-\x1f<>|=*?]|^[^\\/]*[:@]/;
+const EXPLICIT_RELATIVE_PATH_RE = /^\.{1,2}[\\/]/;
+const PATH_SEPARATOR_RE = /[\\/]/;
+const DIGITS_ONLY_RE = /^\d+$/;
+const MIME_TYPE_RE =
+	/^(?:application|audio|font|image|message|model|multipart|text|video)\//i;
+const SOURCE_DIR_PATH_RE =
+	/^(?:src|lib|bin|test|tests|spec|docs|build|dist|packages|node_modules|\.git)[\\/]/;
+const FILE_EXTENSION_RE = /\.[\p{L}\d_+-]+$/u;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: Reject control characters in absolute paths.
+const INVALID_PATH_CHAR_RE = /[\x00-\x1f<>|]/;
+const UNC_SHARE_PATH_RE = /^(?:\\\\|\/\/)[^\\/\s]+[\\/][^\\/\s]+/;
+const POSIX_SINGLE_ROOT_RE = /^\/(?!\/)/;
+const TRAILING_EXTENSION_RE = /\.[\p{L}\d]+$/u;
 
 /**
  * Validate an exact URL without prose punctuation stripping. Used for the
@@ -81,7 +100,7 @@ export function findTerminalLinkMatches(
 	// Narrow scheme-less fallback, before paths so `addPathMatch` dedupes any
 	// path fragments that overlap one of these hosts (e.g. `www.x.com/foo`).
 	for (const m of line.matchAll(SCHEMELESS_URL_RE)) {
-		if (m.index > 0 && /[\w@./\\-]/.test(line[m.index - 1])) continue;
+		if (m.index > 0 && WORD_URL_BOUNDARY_RE.test(line[m.index - 1])) continue;
 		if (isInsideSchemedUrl(line, m.index)) continue;
 		// Scheme-less prose: trim trailing sentence punctuation before validating.
 		const text = m[0].replace(URL_TRAILING_PUNCTUATION_RE, "");
@@ -98,12 +117,19 @@ export function findTerminalLinkMatches(
 
 	for (const m of line.matchAll(PATH_TOKEN_RE)) {
 		const quoted = m[1] ?? m[2];
-		const leading = quoted === undefined ? m[0].match(/^[([{]+/)?.[0].length ?? 0 : 1;
+		const leading =
+			quoted === undefined
+				? (m[0].match(LEADING_WRAPPER_RE)?.[0].length ?? 0)
+				: 1;
 		const start = m.index + leading;
 		const raw = quoted ?? trimPathToken(m[0].slice(leading));
 		if (!raw || isInsideSchemedUrl(line, start)) continue;
 		const absolute = isAbsolutePath(raw, quoted !== undefined);
-		if (!absolute && !(cwd && isRelativePathCandidate(raw, quoted !== undefined))) continue;
+		if (
+			!absolute &&
+			!(cwd && isRelativePathCandidate(raw, quoted !== undefined))
+		)
+			continue;
 		addPathMatch(matches, {
 			kind: "path",
 			start,
@@ -116,41 +142,59 @@ export function findTerminalLinkMatches(
 }
 
 function trimPathToken(token: string): string {
-	let raw = token.replace(/[.,;:!?]+$/, "");
+	let raw = token.replace(TRAILING_PATH_PUNCTUATION_RE, "");
 	// Remove prose wrappers only when unmatched; brackets can be part of a filename.
-	for (const [open, close] of [["(", ")"], ["[", "]"], ["{", "}"]]) {
-		while (raw.endsWith(close) && raw.split(close).length > raw.split(open).length) {
+	for (const [open, close] of [
+		["(", ")"],
+		["[", "]"],
+		["{", "}"],
+	]) {
+		while (
+			raw.endsWith(close) &&
+			raw.split(close).length > raw.split(open).length
+		) {
 			raw = raw.slice(0, -1);
 		}
 	}
 	// Diagnostic positions are not part of the filesystem path.
-	return raw.replace(/(?::\d+(?::\d+)?|\(\d+(?:,\s*\d+)?\))$/, "");
+	return raw.replace(DIAGNOSTIC_SUFFIX_RE, "");
 }
 
 function isRelativePathCandidate(tok: string, quoted: boolean): boolean {
 	if (ROOTED_PATH_RE.test(tok)) return false; // absolute / UNC — handled elsewhere
 	if (DRIVE_PATH_RE.test(tok)) return false; // drive absolute
 	if (SCHEME_PATH_RE.test(tok)) return false; // URL
-	if (/^[~\-]|[\x00-\x1f<>|=*?]|^[^\\/]*[:@]/.test(tok)) return false;
-	if (/^\.{1,2}[\\/]/.test(tok)) return true;
-	const parts = tok.split(/[\\/]/);
-	if (parts.length < 2 || parts.some((part, i) => !part && i < parts.length - 1)) return false;
+	if (REJECTED_RELATIVE_CHAR_RE.test(tok)) return false;
+	if (EXPLICIT_RELATIVE_PATH_RE.test(tok)) return true;
+	const parts = tok.split(PATH_SEPARATOR_RE);
+	if (
+		parts.length < 2 ||
+		parts.some((part, i) => !part && i < parts.length - 1)
+	)
+		return false;
 	// Dates, fractions, MIME types and ordinary alternatives are common output.
-	if (parts.every((part) => /^\d+$/.test(part))) return false;
-	if (/^(?:application|audio|font|image|message|model|multipart|text|video)\//i.test(tok)) return false;
-	return quoted || tok.endsWith("/") || tok.endsWith("\\") ||
-		/^(?:src|lib|bin|test|tests|spec|docs|build|dist|packages|node_modules|\.git)[\\/]/.test(tok) ||
-		/\.[\p{L}\d_+-]+$/u.test(parts.at(-1)!);
+	if (parts.every((part) => DIGITS_ONLY_RE.test(part))) return false;
+	if (MIME_TYPE_RE.test(tok)) return false;
+	return (
+		quoted ||
+		tok.endsWith("/") ||
+		tok.endsWith("\\") ||
+		SOURCE_DIR_PATH_RE.test(tok) ||
+		FILE_EXTENSION_RE.test(parts.at(-1)!)
+	);
 }
 
 function isAbsolutePath(path: string, quoted: boolean): boolean {
-	if (/[\x00-\x1f<>|]/.test(path)) return false;
+	if (INVALID_PATH_CHAR_RE.test(path)) return false;
 	return (
 		DRIVE_PATH_RE.test(path) ||
-		(UNC_PATH_RE.test(path) && /^(?:\\\\|\/\/)[^\\/\s]+[\\/][^\\/\s]+/.test(path)) ||
+		(UNC_PATH_RE.test(path) && UNC_SHARE_PATH_RE.test(path)) ||
 		path.startsWith("~/") ||
 		POSIX_ROOT_PATH_RE.test(path) ||
-		(/^\/(?!\/)/.test(path) && (quoted || path.slice(1).includes("/") || /\.[\p{L}\d]+$/u.test(path)))
+		(POSIX_SINGLE_ROOT_RE.test(path) &&
+			(quoted ||
+				path.slice(1).includes("/") ||
+				TRAILING_EXTENSION_RE.test(path)))
 	);
 }
 
