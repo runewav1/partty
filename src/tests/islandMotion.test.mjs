@@ -10,6 +10,8 @@ const media = {
 };
 globalThis.window = { matchMedia: () => media };
 const translation = /translateY\(([-\d.]+)px\)/;
+// Ordered style-read/class log for the panel-measurement regression test.
+let motionOps = [];
 class Element {
 	classes = new Set();
 	children = [];
@@ -20,11 +22,28 @@ class Element {
 		},
 	};
 	dataset = {};
-	offsetWidth = 600;
-	offsetHeight = 400;
+	_offsetWidth = 600;
+	_offsetHeight = 400;
+	get offsetWidth() {
+		motionOps.push(`read:${this.tag ?? "?"}:w`);
+		return this._offsetWidth;
+	}
+	set offsetWidth(value) {
+		this._offsetWidth = value;
+	}
+	get offsetHeight() {
+		motionOps.push(`read:${this.tag ?? "?"}:h`);
+		return this._offsetHeight;
+	}
+	set offsetHeight(value) {
+		this._offsetHeight = value;
+	}
 	classList = {
 		contains: (name) => this.classes.has(name),
-		add: (name) => this.classes.add(name),
+		add: (name) => {
+			this.classes.add(name);
+			if (name === "island-rendered") motionOps.push("tag:island-rendered");
+		},
 		remove: (name) => this.classes.delete(name),
 		toggle: (name, value) =>
 			value ? this.classes.add(name) : this.classes.delete(name),
@@ -300,4 +319,30 @@ test("OS reduced motion completes pending morphs and skips future transitions", 
 	} finally {
 		media.matches = false;
 	}
+});
+
+test("first island open reads the panel once pre-tag and keeps the post-tag size", () => {
+	const el = surface();
+	el.panel.tag = "panel";
+	const addClass = el.classList.add;
+	el.classList.add = (name) => {
+		addClass(name);
+		if (name === "island-rendered") el.panel.offsetWidth = 620;
+	};
+	motionOps = [];
+	showSurface(el, "hidden");
+	assert.deepEqual(
+		motionOps,
+		[
+			"read:panel:w",
+			"read:panel:h",
+			"tag:island-rendered",
+			"read:panel:w",
+			"read:panel:h",
+		],
+		"one pre-tag measure, then the post-tag size",
+	);
+	// The post-tag measurement still drives the shell/target geometry.
+	assert.equal(shell(el).style.width, "620px");
+	disposeIslandMotion(el);
 });

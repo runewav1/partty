@@ -323,3 +323,205 @@ test("renderer creation is shared and a late completion cannot survive hide", as
 	assert.equal(await lifecycle.createRendererAddon(true), "current");
 	lifecycle.disposeWebgpuSession();
 });
+
+/**
+ * Pane motion FLIP regression (P1).
+ *
+ * `playPaneMotion` must finish every geometry read before it writes any custom
+ * property, keep the movement thresholds/values and preserve animation order.
+ * The real `swapPanes` controller path runs; only `leafEl`/`mountTree` are
+ * stubbed so the capture -> mount -> play ordering is exercised unchanged.
+ */
+function motionMock(events) {
+	return {
+		afterAnimationFrames: noop,
+		animateClass: (el, _className, onFinish) => {
+			events.animates.push(el.id);
+			onFinish?.();
+		},
+		motionDisabled: () => false,
+	};
+}
+
+function createMotionPaneHost(PaneHost, events) {
+	const log = [];
+	const leaves = new Map();
+	const makeLeaf = (id) => {
+		const leaf = {
+			id,
+			rect: { left: 0, top: 0, width: 100, height: 100 },
+			nextRect: null,
+			style: {
+				setProperty(name, value) {
+					log.push({ type: "write", id, name, value });
+				},
+				removeProperty(name) {
+					log.push({ type: "remove", id, name });
+				},
+			},
+			classList: { add: noop, remove: noop, toggle: noop },
+			getBoundingClientRect() {
+				log.push({ type: "read", id });
+				return { ...this.rect };
+			},
+		};
+		leaves.set(id, leaf);
+		return leaf;
+	};
+	makeLeaf("1a");
+	makeLeaf("1b");
+	PaneHost.prototype.leafEl = (id) => leaves.get(id) ?? null;
+	PaneHost.prototype.mountTree = () => {
+		for (const leaf of leaves.values()) {
+			if (leaf.nextRect) {
+				leaf.rect = leaf.nextRect;
+				leaf.nextRect = null;
+			}
+		}
+		log.length = 0;
+	};
+	const host = new PaneHost(
+		new Element(),
+		{
+			rootPaneId: "1a",
+			getTheme: () => ({}),
+			onPaneCreated: noop,
+			onPaneFocus: noop,
+			onPaneDisposed: noop,
+			suppressEnterAnimation: () => true,
+		},
+		{
+			initialTree: {
+				kind: "split",
+				dir: "h",
+				ratio: 0.5,
+				a: { kind: "leaf", id: "1a" },
+				b: { kind: "leaf", id: "1b" },
+			},
+		},
+	);
+	return { host, leaves, log, events };
+}
+
+test("pane motion batches every geometry read before writing custom properties", async () => {
+	const events = { animates: [] };
+	const load = await modules({
+		[resolve(root, "util/motion.ts")]: motionMock(events),
+	});
+	const { PaneHost } = await load("terminal/paneHost.ts");
+	const { host, leaves, log } = createMotionPaneHost(PaneHost, events);
+	leaves.get("1a").rect = { left: 0, top: 0, width: 100, height: 100 };
+	leaves.get("1a").nextRect = { left: 100, top: 0, width: 100, height: 100 };
+	leaves.get("1b").rect = { left: 100, top: 0, width: 100, height: 100 };
+	leaves.get("1b").nextRect = { left: 0, top: 0, width: 100, height: 100 };
+
+	assert.equal(host.swapPanes("1a", "1b"), true);
+	const reads = log.filter((e) => e.type === "read");
+	assert.deepEqual(
+		reads.map((e) => e.id),
+		["1a", "1b"],
+		"one measure per moving pane",
+	);
+	const firstWrite = log.findIndex((e) => e.type === "write");
+	assert.equal(firstWrite, reads.length, "all reads precede the first write");
+	assert.ok(
+		log.slice(0, firstWrite).every((e) => e.type === "read"),
+		"no writes during the measure pass",
+	);
+	assert.deepEqual(
+		log
+			.filter((e) => e.type === "write" && e.id === "1a")
+			.map((e) => [e.name, e.value]),
+		[
+			["--pane-motion-dx", "-100px"],
+			["--pane-motion-dy", "0px"],
+			["--pane-motion-sx", "1"],
+			["--pane-motion-sy", "1"],
+		],
+	);
+	assert.deepEqual(events.animates, ["1a", "1b"], "animation order preserved");
+	assert.deepEqual(
+		log.filter((e) => e.type === "remove" && e.id === "1a").map((e) => e.name),
+		[
+			"--pane-motion-dx",
+			"--pane-motion-dy",
+			"--pane-motion-sx",
+			"--pane-motion-sy",
+		],
+		"completion cleanup removes all four custom properties",
+	);
+});
+
+test("pane motion skips panes inside the no-op thresholds", async () => {
+	const events = { animates: [] };
+	const load = await modules({
+		[resolve(root, "util/motion.ts")]: motionMock(events),
+	});
+	const { PaneHost } = await load("terminal/paneHost.ts");
+	const { host, leaves, log } = createMotionPaneHost(PaneHost, events);
+	leaves.get("1a").rect = { left: 0, top: 0, width: 100, height: 100 };
+	leaves.get("1a").nextRect = { left: 100, top: 0, width: 100, height: 100 };
+	leaves.get("1b").rect = { left: 50, top: 50, width: 100, height: 100 };
+	leaves.get("1b").nextRect = { left: 50.2, top: 50, width: 100, height: 100 };
+
+	assert.equal(host.swapPanes("1a", "1b"), true);
+	assert.deepEqual(events.animates, ["1a"]);
+	assert.equal(
+		log.some((e) => e.type === "write" && e.id === "1b"),
+		false,
+		"a no-op pane is never written",
+	);
+});
+
+test("pane motion skips a pane whose element vanished after capture", async () => {
+	const events = { animates: [] };
+	const load = await modules({
+		[resolve(root, "util/motion.ts")]: motionMock(events),
+	});
+	const { PaneHost } = await load("terminal/paneHost.ts");
+	const { host, leaves, log } = createMotionPaneHost(PaneHost, events);
+	leaves.get("1a").rect = { left: 0, top: 0, width: 100, height: 100 };
+	leaves.get("1a").nextRect = { left: 100, top: 0, width: 100, height: 100 };
+	leaves.get("1b").rect = { left: 100, top: 0, width: 100, height: 100 };
+	leaves.get("1b").nextRect = { left: 0, top: 0, width: 100, height: 100 };
+	// Drop 1b's element between capture and play, like a disposed leaf.
+	PaneHost.prototype.mountTree = () => {
+		const a = leaves.get("1a");
+		if (a?.nextRect) {
+			a.rect = a.nextRect;
+			a.nextRect = null;
+		}
+		leaves.delete("1b");
+		log.length = 0;
+	};
+
+	assert.equal(host.swapPanes("1a", "1b"), true);
+	assert.deepEqual(events.animates, ["1a"]);
+	assert.equal(
+		log.some((e) => e.id === "1b"),
+		false,
+		"the missing pane produces no motion work",
+	);
+});
+
+test("pane motion is fully skipped under reduced motion", async () => {
+	const events = { animates: [] };
+	const load = await modules({
+		[resolve(root, "util/motion.ts")]: {
+			afterAnimationFrames: noop,
+			animateClass: (el, _className, onFinish) => {
+				events.animates.push(el.id);
+				onFinish?.();
+			},
+			motionDisabled: () => true,
+		},
+	});
+	const { PaneHost } = await load("terminal/paneHost.ts");
+	const { host, leaves, log } = createMotionPaneHost(PaneHost, events);
+	leaves.get("1a").rect = { left: 0, top: 0, width: 100, height: 100 };
+	leaves.get("1a").nextRect = { left: 100, top: 0, width: 100, height: 100 };
+
+	assert.equal(host.swapPanes("1a", "1b"), true);
+	assert.deepEqual(events.animates, []);
+	assert.deepEqual(log, [], "no reads or writes when motion is disabled");
+});

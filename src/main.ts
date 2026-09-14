@@ -5498,13 +5498,7 @@ async function boot(): Promise<void> {
 					` <span style="color:var(--ui-chrome-muted);margin-left:0.4em">${dur}s</span>`,
 				keywords: `@proc proc ${paneQueryHaystack(p)} ${displayCmd}`,
 				run: () => {
-					for (const [tid, host] of tabPaneHosts) {
-						if (host.getPaneTerminal(leafId)) {
-							if (tid !== activeTabId) switchToTab(tid);
-							host.getPaneTerminal(leafId)?.term.focus();
-							return;
-						}
-					}
+					navigateToPane(leafId);
 				},
 			});
 		}
@@ -5530,13 +5524,7 @@ async function boot(): Promise<void> {
 		const command = spaceIdx === -1 ? "" : query.slice(spaceIdx + 1).trim();
 		if (!command) {
 			// No command — switch to the pane's tab and focus it.
-			for (const [tabId, host] of tabPaneHosts) {
-				if (host.getPaneTerminal(targetPaneId)) {
-					if (tabId !== activeTabId) switchToTab(tabId);
-					host.getPaneTerminal(targetPaneId)?.term.focus();
-					return;
-				}
-			}
+			navigateToPane(targetPaneId);
 			return;
 		}
 		const targetSessionId = getPaneTerminalById(targetPaneId)?.sessionId;

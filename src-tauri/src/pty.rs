@@ -2689,7 +2689,7 @@ fn windows_path_to_wsl_mnt(path: &Path) -> Result<String, String> {
     let raw = path.to_string_lossy();
     let normalized = raw
         .strip_prefix(r"\\?\")
-        .unwrap_or(raw.as_ref())
+        .unwrap_or_else(|| raw.as_ref())
         .replace('\\', "/");
     if normalized.len() >= 2 && normalized.as_bytes()[1] == b':' {
         let drive = normalized.chars().next().unwrap().to_ascii_lowercase();

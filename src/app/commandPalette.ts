@@ -6,11 +6,11 @@ import {
 	filterAndRankLexical,
 	type LexicalSearchItem,
 	normalizeQuery,
-} from "./../util/lexicalSearch";
-import { hideSurface, showSurface } from "./../util/motion";
+} from "./../util/lexicalSearch.ts";
+import { hideSurface, showSurface } from "./../util/motion.ts";
 import type { CommandIslandApi } from "./commandIsland";
-import { mouseCursorForceVisible } from "./mouseCursor";
-import { type OverlayHandle, pushOverlay } from "./overlayStack";
+import { mouseCursorForceVisible } from "./mouseCursor.ts";
+import { type OverlayHandle, pushOverlay } from "./overlayStack.ts";
 
 export type PaletteCommand = {
 	id: string;
@@ -95,14 +95,47 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 	let refreshTimer = 0;
 	let pendingOpen: CommandPaletteOpenOptions | null = null;
 	let overlay: OverlayHandle | null = null;
+	let lastRenderSignature: string | null = null;
 	const defaultPlaceholder = input.placeholder || "Command or > …";
 
-	function applyFilter(): void {
+	/** Ordered, collision-free fingerprint of the rows the DOM should show. */
+	function commandRowSignature(rows: readonly PaletteCommand[]): string {
+		return JSON.stringify(
+			rows.map((cmd) => [
+				cmd.id,
+				cmd.label,
+				cmd.labelHtml ?? null,
+				cmd.hotkey ?? null,
+				cmd.remove ? 1 : 0,
+				cmd.removeLabel ?? null,
+			]),
+		);
+	}
+
+	/** Point the listbox at the selected row without touching any row nodes. */
+	function syncActiveDescendant(): void {
+		const cur = filtered[selected];
+		if (cur)
+			list.setAttribute("aria-activedescendant", `palette-opt-${cur.id}`);
+		else list.removeAttribute("aria-activedescendant");
+	}
+
+	function applyFilter(skipUnchanged = false): void {
 		const parts = normalizeQuery(input.value);
 		const all = getCommands();
 		filtered = filterAndRankCommands(all, parts);
 		selected = Math.min(selected, Math.max(0, filtered.length - 1));
+		const signature = commandRowSignature(filtered);
+		if (skipUnchanged && signature === lastRenderSignature) {
+			// Rows already match, so skip node reconstruction (which would drop
+			// hover state and could swallow a click mid-press). Re-derive the
+			// active class + aria because an input may have reset `selected` and
+			// its filter frame may not have run yet.
+			updateSelectionClassesOnly();
+			return;
+		}
 		renderList();
+		lastRenderSignature = signature;
 	}
 
 	function scheduleFilter(): void {
@@ -134,6 +167,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 			}
 			row.appendChild(lab);
 			if (cmd.remove) {
+				const index = i;
 				const del = document.createElement("button");
 				del.type = "button";
 				del.className = "command-palette-item-remove";
@@ -143,7 +177,10 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 				del.addEventListener("click", (e) => {
 					e.preventDefault();
 					e.stopPropagation();
-					Promise.resolve(cmd.remove?.()).then(() => {
+					// Rows can be reused across interval refreshes, so resolve the
+					// command from the current filtered list at click time instead
+					// of the snapshot this node was originally built from.
+					Promise.resolve(filtered[index]?.remove?.()).then(() => {
 						applyFilter();
 					});
 				});
@@ -159,10 +196,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 			frag.appendChild(li);
 		}
 		list.replaceChildren(frag);
-		const cur = filtered[selected];
-		if (cur)
-			list.setAttribute("aria-activedescendant", `palette-opt-${cur.id}`);
-		else list.removeAttribute("aria-activedescendant");
+		syncActiveDescendant();
 	}
 
 	function updateSelectionClassesOnly(): void {
@@ -170,10 +204,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 		items.forEach((el, i) => {
 			el.classList.toggle("command-palette-item--active", i === selected);
 		});
-		const cur = filtered[selected];
-		if (cur)
-			list.setAttribute("aria-activedescendant", `palette-opt-${cur.id}`);
-		else list.removeAttribute("aria-activedescendant");
+		syncActiveDescendant();
 	}
 
 	function scrollSelectedIntoView(): void {
@@ -218,7 +249,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 				selected = 0;
 				applyFilter();
 				if (refreshMs) {
-					refreshTimer = window.setInterval(() => applyFilter(), refreshMs);
+					refreshTimer = window.setInterval(() => applyFilter(true), refreshMs);
 				}
 				requestAnimationFrame(() => {
 					input.focus();
@@ -245,7 +276,10 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 			refreshTimer = 0;
 		}
 		if (!skipFocus) onClosed?.();
-		hideSurface(root, "command-palette--hidden", () => list.replaceChildren());
+		hideSurface(root, "command-palette--hidden", () => {
+			list.replaceChildren();
+			lastRenderSignature = null;
+		});
 	}
 
 	function onInput(): void {

@@ -1337,7 +1337,15 @@ export class PaneHost {
 	}
 
 	private playPaneMotion(snapshot: PaneMotionSnapshot): void {
-		const moving: HTMLElement[] = [];
+		// Measure all panes before writing styles to avoid invalidating layout
+		// between geometry reads. Start animations only after all writes finish.
+		const moves: Array<{
+			leaf: HTMLElement;
+			dx: number;
+			dy: number;
+			sx: number;
+			sy: number;
+		}> = [];
 		for (const [id, rect] of snapshot) {
 			const leaf = this.leafEl(id);
 			if (!leaf) continue;
@@ -1354,14 +1362,17 @@ export class PaneHost {
 			) {
 				continue;
 			}
+			moves.push({ leaf, dx, dy, sx, sy });
+		}
+
+		for (const { leaf, dx, dy, sx, sy } of moves) {
 			leaf.style.setProperty("--pane-motion-dx", `${dx}px`);
 			leaf.style.setProperty("--pane-motion-dy", `${dy}px`);
 			leaf.style.setProperty("--pane-motion-sx", String(sx));
 			leaf.style.setProperty("--pane-motion-sy", String(sy));
-			moving.push(leaf);
 		}
 
-		for (const leaf of moving) {
+		for (const { leaf } of moves) {
 			animateClass(leaf, "pane-leaf--moving", () => {
 				leaf.style.removeProperty("--pane-motion-dx");
 				leaf.style.removeProperty("--pane-motion-dy");

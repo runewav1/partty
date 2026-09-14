@@ -228,6 +228,10 @@ export function animateIslandSurface(
 			shell.setAttribute("aria-hidden", "true");
 			shell.append(body, neck);
 			host.append(shell);
+			// Reuse the initial width; keep the measurement after tagging below
+			// because `island-rendered` can change the panel's layout.
+			const width = panel.offsetWidth;
+			const height = panel.offsetHeight;
 			state = {
 				el,
 				host,
@@ -236,11 +240,11 @@ export function animateIslandSurface(
 				body,
 				neck,
 				options,
-				size: { width: panel.offsetWidth, height: panel.offsetHeight },
+				size: { width, height },
 				phase: "open",
 				animations: [],
 			};
-			from = { width: panel.offsetWidth, height: 0 };
+			from = { width, height: 0 };
 		}
 		surfaces.set(el, state);
 		hosts.set(host, state);
