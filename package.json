@@ -17,8 +17,8 @@
 		"tauri:build": "tauri build"
 	},
 	"dependencies": {
-		"@partty/addon-webgl": "0.20.0",
-		"@partty/addon-webgpu": "0.1.4",
+		"@partty/addon-webgl": "0.20.1",
+		"@partty/addon-webgpu": "0.1.5",
 		"@tauri-apps/api": "^2.11.1",
 		"@xterm/addon-fit": "beta",
 		"@xterm/addon-image": "beta",
