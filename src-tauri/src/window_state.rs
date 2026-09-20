@@ -203,7 +203,13 @@ mod tests {
             ..WindowState::default()
         };
         sanitize_window_state(&mut ws);
-        assert!(ws.x > original_x, "x must be pulled toward the virtual screen");
-        assert!(ws.y > original_y, "y must be pulled toward the virtual screen");
+        assert!(
+            ws.x > original_x,
+            "x must be pulled toward the virtual screen"
+        );
+        assert!(
+            ws.y > original_y,
+            "y must be pulled toward the virtual screen"
+        );
     }
 }
