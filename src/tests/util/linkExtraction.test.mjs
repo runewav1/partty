@@ -24,6 +24,18 @@ function paths(line, cwd = null) {
 	return findTerminalLinkMatches(line, cwd).filter((m) => m.kind === "path");
 }
 
+test("TUI borders, padded quotes and oversized tokens are not paths", () => {
+	for (const text of [
+		"/",
+		"│/tmp/file.txt│",
+		'"/tmp/file  panel text"',
+		'"/tmp/file "',
+		`/tmp/${"a".repeat(2048)}`,
+	])
+		assert.deepEqual(paths(text, "/project"), [], text);
+	assert.equal(paths('"/tmp/my file.txt"')[0]?.text, "/tmp/my file.txt");
+});
+
 test("scheme-less www hosts are detected and normalized", () => {
 	const [match] = urls("see www.example.com now");
 	assert.ok(match);

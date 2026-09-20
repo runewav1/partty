@@ -51,6 +51,9 @@ const INVALID_PATH_CHAR_RE = /[\x00-\x1f<>|]/;
 const UNC_SHARE_PATH_RE = /^(?:\\\\|\/\/)[^\\/\s]+[\\/][^\\/\s]+/;
 const POSIX_SINGLE_ROOT_RE = /^\/(?!\/)/;
 const TRAILING_EXTENSION_RE = /\.[\p{L}\d]+$/u;
+// Box drawing/block elements delimit TUI panels, not filesystem tokens.
+const TUI_OR_PADDING_RE = /[\u2500-\u259f]|\s{2,}/u;
+const MAX_PATH_LENGTH = 2048;
 
 /**
  * Validate an exact URL without prose punctuation stripping. Used for the
@@ -123,7 +126,14 @@ export function findTerminalLinkMatches(
 				: 1;
 		const start = m.index + leading;
 		const raw = quoted ?? trimPathToken(m[0].slice(leading));
-		if (!raw || isInsideSchemedUrl(line, start)) continue;
+		if (
+			!raw ||
+			raw.length > MAX_PATH_LENGTH ||
+			raw.trim() !== raw ||
+			TUI_OR_PADDING_RE.test(raw) ||
+			isInsideSchemedUrl(line, start)
+		)
+			continue;
 		const absolute = isAbsolutePath(raw, quoted !== undefined);
 		if (
 			!absolute &&

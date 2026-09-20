@@ -14,6 +14,8 @@ import type { PathStyle } from "../util/paths.ts";
 
 const LINK_SCAN_DEBOUNCE_MS = 75;
 const MAX_LINK_WINDOW_CELLS = 2048;
+const LEADING_WHITESPACE_RE = /^\s/;
+const WHITESPACE_RE = /\s/;
 let activationModifier = false;
 let hoveredDecorations: ILinkDecorations | null = null;
 
@@ -144,9 +146,9 @@ export function registerTerminalLinkProvider(
 			}
 		}
 
-		for (let row = logical.top; row <= logical.bottom; row++) {
-			rowCache.set(row + 1, linksByRow.get(row));
-		}
+		// A window is centred on the requested row; neighbouring rows may need
+		// more context than this window includes.
+		rowCache.set(bufferRow + 1, linksByRow.get(bufferRow));
 	};
 
 	const scanViewport = (): void => {
@@ -164,7 +166,7 @@ export function registerTerminalLinkProvider(
 				continue;
 			}
 			cacheLogicalLine(row, logical);
-			row = Math.max(row + 1, logical.bottom + 1);
+			row++;
 		}
 	};
 
@@ -250,26 +252,31 @@ function readLogicalLineWindow(
 	const buffer = term.buffer.active;
 	if (requestedRow < 0 || requestedRow >= buffer.length) return null;
 
-	const maxRowsPerDirection = Math.max(
-		1,
-		Math.ceil(MAX_LINK_WINDOW_CELLS / term.cols) + 1,
-	);
+	// Like WebLinksAddon, stop expanding at whitespace as well as a size
+	// budget. TUIs can leave isWrapped set across otherwise unrelated rows.
 	let top = requestedRow;
 	let traversed = 0;
-	while (top > 0 && traversed < maxRowsPerDirection) {
+	while (top > 0 && traversed < MAX_LINK_WINDOW_CELLS) {
 		const line = buffer.getLine(top);
-		if (!line?.isWrapped) break;
+		if (
+			!line?.isWrapped ||
+			LEADING_WHITESPACE_RE.test(line.translateToString(true))
+		)
+			break;
 		top--;
-		traversed++;
+		const content = buffer.getLine(top)?.translateToString(true) ?? "";
+		traversed += Math.max(1, term.cols);
+		if (WHITESPACE_RE.test(content)) break;
 	}
 
 	let bottom = requestedRow;
 	traversed = 0;
-	while (bottom + 1 < buffer.length && traversed < maxRowsPerDirection) {
+	while (bottom + 1 < buffer.length && traversed < MAX_LINK_WINDOW_CELLS) {
 		const next = buffer.getLine(bottom + 1);
 		if (!next?.isWrapped) break;
 		bottom++;
-		traversed++;
+		traversed += Math.max(1, term.cols);
+		if (WHITESPACE_RE.test(next.translateToString(true))) break;
 	}
 
 	const text: string[] = [];
@@ -282,6 +289,18 @@ function readLogicalLineWindow(
 			line.getCell(col, cell);
 			const width = cell.getWidth();
 			if (!width) continue;
+			// xterm leaves a null cell when a wide character wraps early. It
+			// is padding, not a space in the path. Preserve real printed spaces.
+			if (
+				col === term.cols - 1 &&
+				!cell.getChars() &&
+				row < bottom &&
+				buffer
+					.getLine(row + 1)
+					?.getCell(0)
+					?.getWidth() === 2
+			)
+				continue;
 			const chars = cell.getChars() || " ";
 			for (let i = 0; i < chars.length; i++) {
 				text.push(chars[i]);
