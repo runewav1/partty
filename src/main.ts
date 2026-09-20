@@ -135,6 +135,7 @@ import {
 	type Workspace,
 } from "./tabs/workspaces";
 import {
+	consumeSinglePress,
 	WHEEL_ZOOM_ACTIONS,
 	zoomAppliesToAllVisible,
 	zoomDirectionForAction,
@@ -1522,6 +1523,7 @@ async function boot(): Promise<void> {
 
 	function focusAdjacentPaneByArrow(
 		key: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown",
+		repeat = false,
 	): boolean {
 		const currentId = focusedPaneId();
 		if (!currentId) return false;
@@ -1531,8 +1533,10 @@ async function boot(): Promise<void> {
 			key,
 		);
 		if (!next) return false;
-		focusPaneGlobal(next);
-		scheduleCursorWarpToPane(next, { force: true });
+		if (!repeat) {
+			focusPaneGlobal(next);
+			scheduleCursorWarpToPane(next, { force: true });
+		}
 		return true;
 	}
 
@@ -2122,6 +2126,7 @@ async function boot(): Promise<void> {
 						if (
 							focusAdjacentPaneByArrow(
 								e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown",
+								e.repeat,
 							)
 						) {
 							e.preventDefault();
@@ -2144,11 +2149,11 @@ async function boot(): Promise<void> {
 						return false;
 					case "pane_split_right":
 						e.preventDefault();
-						splitFocusedWithCwd("h");
+						if (!e.repeat) splitFocusedWithCwd("h");
 						return false;
 					case "pane_split_down":
 						e.preventDefault();
-						splitFocusedWithCwd("v");
+						if (!e.repeat) splitFocusedWithCwd("v");
 						return false;
 					case "profile_split_right":
 					case "profile_split_down":
@@ -2159,34 +2164,35 @@ async function boot(): Promise<void> {
 						const idx = tabHotkeyIndexFromEvent(e);
 						if (idx != null) {
 							e.preventDefault();
-							moveFocusedPaneToTabHotkeyIndex(idx);
+							if (!e.repeat) moveFocusedPaneToTabHotkeyIndex(idx);
 							return false;
 						}
 						break;
 					}
 					case "pane_float_toggle":
 						e.preventDefault();
-						toggleFocusedPaneFloating();
+						if (!e.repeat) toggleFocusedPaneFloating();
 						return false;
 					case "pane_float_new":
 						e.preventDefault();
-						createFloatingPaneWithCwd();
+						if (!e.repeat) createFloatingPaneWithCwd();
 						return false;
 					case "pane_float_follow":
 						e.preventDefault();
-						toggleFocusedPaneFollow();
+						if (!e.repeat) toggleFocusedPaneFollow();
 						return false;
 					case "pane_swap_left":
 					case "pane_swap_right":
 					case "pane_swap_up":
 					case "pane_swap_down":
 						e.preventDefault();
+						if (e.repeat) return false;
 						return swapFocusedPaneWithAdjacent(
 							e.key as "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown",
 						);
 					case "pane_close":
 						e.preventDefault();
-						void closeFocusedPane(getPaneId());
+						if (!e.repeat) void closeFocusedPane(getPaneId());
 						return false;
 					case "terminal_zoom_in":
 					case "terminal_zoom_out":
@@ -4224,8 +4230,7 @@ async function boot(): Promise<void> {
 				const t = e.target as HTMLElement | null;
 				if (t?.closest("#command-palette") || t?.closest("#settings-panel"))
 					return;
-				e.preventDefault();
-				e.stopPropagation();
+				if (!consumeSinglePress(e)) return;
 				moveFocusedPaneToTabHotkeyIndex(
 					mMoveTab.param === 0 ? 9 : mMoveTab.param - 1,
 				);
@@ -4234,8 +4239,7 @@ async function boot(): Promise<void> {
 
 			const mSwitchTab = k.matchParam(e, "tab_switch");
 			if (mSwitchTab) {
-				e.preventDefault();
-				e.stopPropagation();
+				if (!consumeSinglePress(e)) return;
 				if (e.shiftKey) return;
 				switchOrCreateTabForHotkeyIndex(
 					mSwitchTab.param === 0 ? 9 : mSwitchTab.param - 1,
@@ -4253,32 +4257,27 @@ async function boot(): Promise<void> {
 			);
 
 			if (m === "window_toggle") {
-				e.preventDefault();
-				e.stopPropagation();
+				if (!consumeSinglePress(e)) return;
 				void invoke("toggle_overlay").catch(() => {});
 				return;
 			}
 			if (m === "window_move_next_monitor") {
-				e.preventDefault();
-				e.stopPropagation();
+				if (!consumeSinglePress(e)) return;
 				void moveWindowToAdjacentMonitor(1);
 				return;
 			}
 			if (m === "window_move_prev_monitor") {
-				e.preventDefault();
-				e.stopPropagation();
+				if (!consumeSinglePress(e)) return;
 				void moveWindowToAdjacentMonitor(-1);
 				return;
 			}
 			if (m === "window_maximize") {
-				e.preventDefault();
-				e.stopPropagation();
+				if (!consumeSinglePress(e)) return;
 				void setWindowMaximized(true);
 				return;
 			}
 			if (m === "window_restore") {
-				e.preventDefault();
-				e.stopPropagation();
+				if (!consumeSinglePress(e)) return;
 				void setWindowMaximized(false);
 			}
 		},
@@ -5050,8 +5049,7 @@ async function boot(): Promise<void> {
 			const t = e.target as HTMLElement | null;
 			if (t?.closest("#command-palette") || t?.closest("#settings-panel"))
 				return;
-			e.preventDefault();
-			e.stopPropagation();
+			if (!consumeSinglePress(e)) return;
 			switch (m) {
 				case "pane_float_toggle":
 					toggleFocusedPaneFloating();
@@ -5371,13 +5369,15 @@ async function boot(): Promise<void> {
 	}
 
 	/** Jump to the pane of the currently visible completion toast. */
-	function focusNotificationPane(): boolean {
+	function focusNotificationPane(repeat = false): boolean {
 		if (!processToast) return false;
 		if (processToast.classList.contains("proc-toast--hidden")) return false;
 		const paneId = processToast.dataset.paneId;
 		if (!paneId) return false;
-		navigateToPane(paneId);
-		processToast.classList.add("proc-toast--hidden");
+		if (!repeat) {
+			navigateToPane(paneId);
+			processToast.classList.add("proc-toast--hidden");
+		}
 		return true;
 	}
 
@@ -6251,8 +6251,7 @@ async function boot(): Promise<void> {
 				t?.closest(".partty-dialog-panel")
 			)
 				return;
-			e.preventDefault();
-			e.stopPropagation();
+			if (!consumeSinglePress(e)) return;
 			toggleHelp();
 		},
 		true,
@@ -6277,7 +6276,7 @@ async function boot(): Promise<void> {
 				return;
 			// Only consume the chord while a navigable toast is actually visible;
 			// otherwise let the terminal receive Ctrl+N (e.g. next-history in readline).
-			if (!focusNotificationPane()) return;
+			if (!focusNotificationPane(e.repeat)) return;
 			e.preventDefault();
 			e.stopPropagation();
 		},
@@ -6288,8 +6287,7 @@ async function boot(): Promise<void> {
 		"keydown",
 		(e) => {
 			if (!k.match(e, "terminal_find")) return;
-			e.preventDefault();
-			e.stopPropagation();
+			if (!consumeSinglePress(e)) return;
 			if (findBar?.isOpen()) {
 				findBar.close();
 				return;
@@ -6304,8 +6302,7 @@ async function boot(): Promise<void> {
 			"keydown",
 			(e) => {
 				if (!k.match(e, "palette_open")) return;
-				e.preventDefault();
-				e.stopPropagation();
+				if (!consumeSinglePress(e)) return;
 				if (commandPalette.isOpen()) {
 					commandPalette.close();
 					return;
@@ -6344,8 +6341,7 @@ async function boot(): Promise<void> {
 					t?.closest(".partty-dialog-panel")
 				)
 					return;
-				e.preventDefault();
-				e.stopPropagation();
+				if (!consumeSinglePress(e)) return;
 				if (m === "profile_float_new") {
 					openProfileFloatPicker();
 					return;
@@ -6820,8 +6816,7 @@ async function boot(): Promise<void> {
 				if (t?.closest("#command-palette") || t?.closest("#settings-panel"))
 					return;
 				if (!parttyPerf.enabled) return;
-				e.preventDefault();
-				e.stopPropagation();
+				if (!consumeSinglePress(e)) return;
 				if (!devMetricsOverlay && appRoot) {
 					devMetricsOverlay = createDevMetricsOverlay({
 						root: appRoot,

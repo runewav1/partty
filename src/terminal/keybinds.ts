@@ -66,6 +66,9 @@ export function createKeybinds(): KeybindsApi {
 	async function load() {
 		try {
 			const snap = await invoke<KeybindsSnapshot>("get_keybinds");
+			// The native snapshot already merges defaults and removes unbound
+			// actions. Retaining frontend defaults here would resurrect unbinds.
+			for (const action of Object.keys(bind)) delete bind[action];
 			for (const [action, raw] of Object.entries(snap.bind)) {
 				bind[action] = raw;
 			}
@@ -113,7 +116,7 @@ export function createKeybinds(): KeybindsApi {
 					e.metaKey === p.meta
 				) {
 					const n = digitIndex(e);
-					if (n >= 0) {
+					if (n >= 0 && (p.param || keyMatches(e.key, p.key))) {
 						return { action, param: n };
 					}
 				}

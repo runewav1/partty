@@ -88,6 +88,18 @@ export function keyMatches(ek: string, bk: string): boolean {
 	return normalizeKey(ek) === normalizeKey(bk);
 }
 
+/** Consume an already matched, context-eligible UI shortcut, but run it only once.
+ * Keep this at dispatch sites: returning no match for repeats would leak them
+ * to the terminal or other controls. No matching, timers or held-key state here.
+ */
+export function consumeSinglePress(
+	e: Pick<KeyboardEvent, "repeat" | "preventDefault" | "stopPropagation">,
+): boolean {
+	e.preventDefault();
+	e.stopPropagation();
+	return !e.repeat;
+}
+
 /**
  * Wheel direction token ("wheelup"/"wheeldown") for a vertical wheel delta.
  * Returns null when there is no vertical motion so horizontal-only wheel
