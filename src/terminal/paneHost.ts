@@ -2236,10 +2236,8 @@ export class PaneHost {
 					theme: this.opts.getTheme(node.id),
 					scrollback: this.opts.scrollbackLines,
 					linkHandler: this.opts.linkHandler ?? undefined,
-					// ConPTY always terminates wrapped lines with CRLF-style control
-					// sequences; the Windows wrapping heuristics + scrollback handling
-					// in xterm match that. Not in the public typings — kept at runtime.
 					windowsMode: true,
+					vtExtensions: { kittyKeyboard: true },
 				} as ITerminalOptions);
 				const fit = new FitAddon();
 				term.loadAddon(fit);
