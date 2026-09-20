@@ -47,7 +47,6 @@
               spellcheck="false"
               autocomplete="off"
               autocorrect="off"
-              placeholder="Command"
               aria-label="Filter commands"
             />
             <div
@@ -61,12 +60,14 @@
       </div>
 
       <!-- Help Panel -->
-      <div id="help-panel" class="help-panel help-panel--hidden" aria-hidden="true">
+      <div
+        id="help-panel"
+        class="help-panel help-panel--hidden"
+        role="dialog"
+        aria-label="Shortcuts"
+        aria-hidden="true"
+      >
         <div class="help-panel-card command-island-panel">
-          <div class="help-panel-head">
-            <span class="help-panel-title">Shortcuts</span>
-            <button type="button" class="help-panel-close" data-close-help aria-label="Close"></button>
-          </div>
           <div class="help-panel-body">
             <div class="help-shortcuts"></div>
           </div>
@@ -77,11 +78,8 @@
 
 
       <!-- Settings Panel -->
-      <div id="settings-panel" class="settings-panel settings-panel--hidden" aria-hidden="true">
+      <div id="settings-panel" class="settings-panel settings-panel--hidden" role="dialog" aria-label="Settings" aria-hidden="true">
         <div class="settings-panel-card command-island-panel">
-          <div class="settings-panel-head">
-            <span class="settings-panel-title">Settings</span>
-          </div>
           <div class="settings-panel-main">
             <div class="settings-panel-nav" role="tablist" aria-label="Settings sections">
               <span class="settings-tab-indicator" aria-hidden="true"></span>
@@ -95,7 +93,7 @@
             <div class="settings-panel-content">
               <div class="settings-panel-search-row">
                 <div class="settings-panel-search-field">
-                  <input id="settings-search" type="search" class="settings-input settings-search" placeholder="Search settings" spellcheck="false" autocomplete="off" />
+                  <input id="settings-search" type="search" class="settings-input settings-search" aria-label="Search settings" spellcheck="false" autocomplete="off" />
                   <span id="settings-search-count" class="settings-search-count" hidden></span>
                 </div>
               </div>

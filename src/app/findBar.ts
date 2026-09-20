@@ -60,28 +60,7 @@ export function createFindBar(options: {
 	count.className = "terminal-find-count";
 	count.setAttribute("aria-live", "polite");
 
-	const button = (
-		label: string,
-		className: string,
-		extra?: (b: HTMLButtonElement) => void,
-	): HTMLButtonElement => {
-		const b = document.createElement("button");
-		b.type = "button";
-		b.className = className;
-		b.setAttribute("aria-label", label);
-		extra?.(b);
-		return b;
-	};
-
-	const closeBtn = button(
-		"Close find",
-		"terminal-find-btn terminal-find-close",
-		(b) => {
-			b.textContent = "✕";
-		},
-	);
-
-	panel.append(input, count, closeBtn);
+	panel.append(input, count);
 	root.appendChild(panel);
 
 	let open = false;
@@ -239,7 +218,6 @@ export function createFindBar(options: {
 
 	input.addEventListener("input", onInput);
 	input.addEventListener("keydown", onKeyDown);
-	closeBtn.addEventListener("click", () => close());
 
 	root.addEventListener("pointerdown", (e) => {
 		if (e.target === root) close();

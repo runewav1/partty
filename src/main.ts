@@ -23,6 +23,7 @@ import {
 import type { DevMetricsOverlayApi } from "./app/devMetricsOverlay";
 import { showAlert } from "./app/dialog";
 import { createFindBar, type FindBarApi } from "./app/findBar";
+import { type ShortcutEffect, shortcutRuns } from "./app/modalShortcuts";
 import {
 	bindMouseCursorForceVisible,
 	createMouseCursorController,
@@ -5047,8 +5048,12 @@ async function boot(): Promise<void> {
 			);
 			if (!m) return;
 			const t = e.target as HTMLElement | null;
-			if (t?.closest("#command-palette") || t?.closest("#settings-panel"))
-				return;
+			// A surface shortcut (Settings) must bypass the modal deep-focus
+			// guard so the palette/settings/help can be switched between without
+			// dismissing first; pane mutations stay suppressed behind a surface.
+			const effect: ShortcutEffect =
+				m === "settings_open" ? "surface" : "mutation";
+			if (!shortcutRuns(effect, t)) return;
 			if (!consumeSinglePress(e)) return;
 			switch (m) {
 				case "pane_float_toggle":
@@ -5601,7 +5606,7 @@ async function boot(): Promise<void> {
 		}
 		workspacePickerIds = ids;
 		workspacePickerOpen = true;
-		commandPalette?.open({ placeholder: "Workspace" });
+		commandPalette?.open();
 	}
 
 	function getWorkspaceCommands(filter: string): PaletteCommand[] {
@@ -5625,7 +5630,7 @@ async function boot(): Promise<void> {
 
 	function beginProfilePicker(action: ProfilePaletteAction): void {
 		profilePickerSession = action;
-		commandPalette?.open({ placeholder: "Profile" });
+		commandPalette?.open();
 	}
 
 	function listProfileCommands(
@@ -6051,7 +6056,6 @@ async function boot(): Promise<void> {
 						workspacePickerOpen = false;
 						workspacePickerIds = [];
 						getFocusedTerm()?.focus();
-						if (cpInput) cpInput.placeholder = "Command";
 					},
 					onTabComplete: (currentInput: string, selected) => {
 						if (
@@ -6073,7 +6077,6 @@ async function boot(): Promise<void> {
 							const action = profileActionForPaletteCommandId(selected?.id);
 							if (action) {
 								profilePickerSession = action;
-								if (cpInput) cpInput.placeholder = "Profile";
 								return "";
 							}
 						}
@@ -6116,9 +6119,6 @@ async function boot(): Promise<void> {
 		else closeHelpPanel();
 	};
 
-	helpPanelEl
-		?.querySelector("[data-close-help]")
-		?.addEventListener("click", () => closeHelpPanel());
 	helpPanelEl?.addEventListener("pointerdown", (e) => {
 		if (e.target === helpPanelEl) closeHelpPanel();
 	});
@@ -6234,23 +6234,9 @@ async function boot(): Promise<void> {
 		(e) => {
 			if (!k.match(e, "help_toggle")) return;
 			const t = e.target as HTMLElement | null;
-			if (
-				t?.closest("#command-palette") &&
-				(t.tagName === "INPUT" || t.tagName === "TEXTAREA")
-			)
-				return;
-			if (
-				t?.closest("#settings-panel") &&
-				(t.tagName === "INPUT" ||
-					t.tagName === "TEXTAREA" ||
-					t.tagName === "SELECT")
-			)
-				return;
-			if (
-				t?.closest(".partty-dialog-input") ||
-				t?.closest(".partty-dialog-panel")
-			)
-				return;
+			// Help is a switchable surface, so it must run from any other
+			// surface's search field; only a blocking dialog suppresses it.
+			if (!shortcutRuns("surface", t)) return;
 			if (!consumeSinglePress(e)) return;
 			toggleHelp();
 		},

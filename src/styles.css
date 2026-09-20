@@ -343,6 +343,20 @@ html[data-motion-style="gentle"] {
 	mask-image: radial-gradient(circle at 100% 100%, transparent 17.5px, #000 18px);
 }
 
+/* Opaque equivalent of the input tint over the panel, shared by the shoulders
+   which have no panel underneath them. */
+.command-island {
+	--palette-search-bg: color-mix(in srgb, var(--input-bg) 90%, var(--panel-bg));
+}
+
+.command-island-panel > .command-palette-input:first-child,
+.command-island:has(> [data-island-view="palette"].island-rendered)
+	.island-shell-neck::before,
+.command-island:has(> [data-island-view="palette"].island-rendered)
+	.island-shell-neck::after {
+	background: var(--palette-search-bg);
+}
+
 .command-island-view.island-retracting,
 .command-island-view.island-retracting .command-island-panel {
 	pointer-events: none !important;
@@ -393,35 +407,6 @@ html[data-motion-style="gentle"] {
 	font-size: 11px;
 	font-variant-numeric: tabular-nums;
 	color: var(--ui-chrome-fainter);
-}
-
-.terminal-find-btn {
-	flex: 0 0 auto;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 26px;
-	height: 26px;
-	border: none;
-	border-radius: 6px;
-	background: transparent;
-	color: var(--ui-chrome-muted);
-	font: inherit;
-	font-size: 13px;
-	cursor: pointer;
-	transition:
-		background var(--motion-fast) var(--motion-ease-out),
-		color var(--motion-fast) var(--motion-ease-out);
-}
-
-.terminal-find-btn:hover {
-	background: var(--hover-overlay-light);
-	color: var(--ui-chrome-fg);
-}
-
-.terminal-find-close:hover {
-	background: rgba(239, 68, 68, 0.12);
-	color: #fca5a5;
 }
 
 @keyframes motion-surface-out {
@@ -1627,10 +1612,6 @@ html.tabs-hidden #main-workspace {
 	outline: none;
 }
 
-.command-palette-input::placeholder {
-	color: var(--ui-chrome-fainter);
-}
-
 .command-palette-list {
 	list-style: none;
 	margin: 0;
@@ -1818,47 +1799,6 @@ html.tabs-hidden #main-workspace {
 	box-shadow: var(--panel-elevated-shadow);
 	overflow: hidden;
 }
-.help-panel-head {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
-	padding: 6px 6px 6px 12px;
-	background: var(--panel-header-bg);
-	border-bottom: 1px solid var(--panel-divider);
-	user-select: none;
-}
-.help-panel-title {
-	font-size: 12px;
-	font-weight: 600;
-	letter-spacing: 0.01em;
-	color: var(--ui-chrome-fg);
-}
-.help-panel-close {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 24px;
-	height: 24px;
-	border: none;
-	border-radius: 6px;
-	background: transparent;
-	color: var(--ui-chrome-muted);
-	font: inherit;
-	font-size: 13px;
-	line-height: 1;
-	cursor: pointer;
-	transition:
-		color var(--motion-fast) var(--motion-ease-out),
-		background var(--motion-fast) var(--motion-ease-out);
-}
-.help-panel-close::before {
-	content: "✕";
-}
-.help-panel-close:hover {
-	color: var(--ui-chrome-fg);
-	background: var(--hover-overlay-light);
-}
 .help-panel-body {
 	margin: 0;
 	padding: 6px 0;
@@ -1922,23 +1862,6 @@ html.tabs-hidden #main-workspace {
 	border: 1px solid var(--panel-border);
 	border-radius: var(--panel-radius);
 	box-shadow: var(--panel-elevated-shadow);
-}
-.settings-panel-head {
-	display: flex;
-	flex-direction: row;
-	align-items: center;
-	justify-content: space-between;
-	padding: 8px 8px 8px 14px;
-	background: var(--panel-header-bg);
-	border-bottom: 1px solid var(--panel-divider);
-	user-select: none;
-}
-.settings-panel-title {
-	margin: 0;
-	font-size: 13px;
-	font-weight: 600;
-	color: var(--ui-chrome-fg);
-	letter-spacing: -0.01em;
 }
 .settings-panel-main {
 	display: grid;
@@ -2304,9 +2227,6 @@ html.tabs-hidden #main-workspace {
 	background: var(--input-bg);
 	box-shadow: 0 0 0 2px
 		color-mix(in srgb, var(--accent-primary) 22%, transparent);
-}
-.settings-search::placeholder {
-	color: var(--ui-chrome-fainter);
 }
 /* Hide the WebView's default search affordances; Escape clears the query. */
 .settings-search::-webkit-search-cancel-button,

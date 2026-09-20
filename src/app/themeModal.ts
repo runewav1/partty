@@ -163,7 +163,7 @@ export function createThemeModal(
 	const searchInput = document.createElement("input");
 	searchInput.type = "search";
 	searchInput.className = "theme-modal-search";
-	searchInput.placeholder = "Search themes";
+	searchInput.setAttribute("aria-label", "Search themes");
 	searchInput.spellcheck = false;
 
 	const list = document.createElement("ul");

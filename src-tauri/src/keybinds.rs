@@ -54,6 +54,7 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("palette_open", "Ctrl+Shift+P"),
     ("palette_chord", "Ctrl+Shift+P"),
     ("help_toggle", "Ctrl+Shift+/"),
+    ("terminal_find", "Ctrl+Shift+F"),
     ("notification_focus", "Ctrl+N"),
     ("terminal_newline", "Shift+Enter"),
     ("terminal_copy", "Ctrl+C"),
@@ -383,6 +384,72 @@ pub fn reset_keybinds() -> Result<(), String> {
 #[cfg(test)]
 mod keybinds_tests {
     use super::*;
+
+    /// Parse the frontend `DEFAULT_BINDS` object literal straight from the
+    /// shared TypeScript source so the native `DEFAULTS` table can never drift
+    /// from it again. The snapshot from `get_keybinds` is authoritative on the
+    /// frontend, so any action present only in TS silently disappears on load.
+    fn frontend_default_binds() -> HashMap<String, String> {
+        let src = include_str!("../../src/terminal/keybindCore.ts");
+        let decl = src
+            .find("export const DEFAULT_BINDS")
+            .expect("DEFAULT_BINDS declaration present");
+        let open = decl + src[decl..].find('{').expect("DEFAULT_BINDS opens") + 1;
+        let close = open + src[open..].find("};").expect("DEFAULT_BINDS terminated");
+        let mut map = HashMap::new();
+        for line in src[open..close].lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with("//") {
+                continue;
+            }
+            let (key, value) = line
+                .split_once(':')
+                .expect("DEFAULT_BINDS entries have an action and binding");
+            let value = value.trim().trim_end_matches(',').trim();
+            let value = value
+                .strip_prefix('"')
+                .and_then(|v| v.strip_suffix('"'))
+                .expect("DEFAULT_BINDS entries are string literals");
+            map.insert(key.trim().to_string(), value.to_string());
+        }
+        map
+    }
+
+    #[test]
+    fn native_defaults_match_frontend_default_binds_exactly() {
+        assert_eq!(
+            default_binds_map(),
+            frontend_default_binds(),
+            "native DEFAULTS must stay in lockstep with frontend DEFAULT_BINDS"
+        );
+    }
+
+    #[test]
+    fn terminal_find_default_override_and_unbind_are_preserved() {
+        assert_eq!(
+            default_binds_map().get("terminal_find").map(String::as_str),
+            Some("Ctrl+Shift+F")
+        );
+
+        // An explicit override still wins over the newly added native default.
+        let mut overridden: KeybindsFile =
+            toml::from_str("[bind]\nterminal_find = \"Ctrl+F\"\n").unwrap();
+        merge_defaults(&mut overridden);
+        assert_eq!(
+            overridden.bind.get("terminal_find").map(String::as_str),
+            Some("Ctrl+F")
+        );
+
+        // An explicit unbind still removes it from the merged file + snapshot.
+        let mut unbound: KeybindsFile = toml::from_str("unbind = [\"terminal_find\"]\n").unwrap();
+        merge_defaults(&mut unbound);
+        assert!(!unbound.bind.contains_key("terminal_find"));
+        assert!(
+            !KeybindsSnapshot::from(&unbound)
+                .bind
+                .contains_key("terminal_find")
+        );
+    }
 
     #[test]
     fn defaults_include_split_wheel_zoom_bindings() {

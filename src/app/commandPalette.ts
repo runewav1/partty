@@ -57,7 +57,6 @@ export type CommandPaletteMount = {
 
 export type CommandPaletteOpenOptions = {
 	query?: string;
-	placeholder?: string;
 };
 
 type RankedCommand = PaletteCommand & LexicalSearchItem;
@@ -96,7 +95,6 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 	let pendingOpen: CommandPaletteOpenOptions | null = null;
 	let overlay: OverlayHandle | null = null;
 	let lastRenderSignature: string | null = null;
-	const defaultPlaceholder = input.placeholder || "Command or > …";
 
 	/** Ordered, collision-free fingerprint of the rows the DOM should show. */
 	function commandRowSignature(rows: readonly PaletteCommand[]): string {
@@ -242,10 +240,8 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 				showSurface(root, "command-palette--hidden");
 				root.setAttribute("aria-hidden", "false");
 				const q = pendingOpen?.query ?? "";
-				const ph = pendingOpen?.placeholder;
 				pendingOpen = null;
 				input.value = q;
-				input.placeholder = ph?.trim() ? ph : defaultPlaceholder;
 				selected = 0;
 				applyFilter();
 				if (refreshMs) {
@@ -270,7 +266,6 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 		island?.dismiss("palette");
 		mouseCursorForceVisible(false);
 		root.setAttribute("aria-hidden", "true");
-		input.placeholder = defaultPlaceholder;
 		if (refreshTimer) {
 			window.clearInterval(refreshTimer);
 			refreshTimer = 0;
