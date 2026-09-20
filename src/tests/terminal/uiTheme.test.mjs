@@ -6,7 +6,7 @@
  * surfaces under test (themeCssVarsForPrefs / buildXtermThemeFromPrefs), so
  * node --experimental-strip-types can import it directly.
  *
- * Authoritative sources (see PR/commit notes for the audit):
+ * Authoritative sources:
  * - Catppuccin palette.json (catppuccin/palette) — latte text/mauve/rosewater + ansiColors
  * - Solarized (altercation/solarized) — base00 #657b83, base01 #586e75, blue #268bd2
  * - Ayu (ayu-theme/ayu-colors / alacritty-theme) — bg #0A0E14, fg #B3B1AD
@@ -15,18 +15,12 @@
  * - SynthWave '84 (robb0wen/synthwave-vscode) — bg #262335, fg #ffffff, accent #ff7edb
  * - Tokyo Night (folke/tokyonight.nvim) — selection #283457, cyan #7dcfff
  *
- * Run: node --experimental-strip-types --test src/tests/themePalettes.test.mjs
+ * Run: node --experimental-strip-types --test src/tests/terminal/uiTheme.test.mjs
  */
 
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
 
-const HERE = fileURLToPath(new URL(".", import.meta.url));
-const REPO = resolve(HERE, "..", "..");
-
-const MODULE_URL = pathToFileURL(resolve(REPO, "src/terminal/uiTheme.ts")).href;
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 const {
@@ -35,7 +29,7 @@ const {
 	terminalFindColors,
 	themeCssVarsForPrefs,
 	themeUsesCanonicalTerminalColors,
-} = await import(MODULE_URL);
+} = await import("../../terminal/uiTheme.ts");
 
 function vars(theme, variant) {
 	return themeCssVarsForPrefs({ ui_theme: theme, ui_theme_variant: variant });

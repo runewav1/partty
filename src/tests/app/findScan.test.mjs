@@ -6,19 +6,13 @@
  * correct cell columns, and matches spanning a soft-wrapped logical line must be
  * found and split into per-visual-line segments.
  *
- * Run: node --experimental-strip-types --test src/tests/findScan.test.mjs
+ * Run: node --experimental-strip-types --test src/tests/app/findScan.test.mjs
  */
 
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
 
-const HERE = fileURLToPath(new URL(".", import.meta.url));
-const REPO = resolve(HERE, "..", "..");
-const MODULE_URL = pathToFileURL(resolve(REPO, "src/app/findScan.ts")).href;
-
-const { scanBuffer } = await import(MODULE_URL);
+const { scanBuffer } = await import("../../app/findScan.ts");
 
 function cell(chars, width = 1) {
 	return { getWidth: () => width, getChars: () => chars };

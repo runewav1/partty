@@ -149,3 +149,34 @@ pub fn delete_theme(name: String) -> Result<(), String> {
 pub fn get_theme_effective_prefs(theme_name: String) -> Result<Prefs, String> {
     resolve_theme_prefs(&theme_name)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::merge_toml_values;
+    use toml::Value;
+
+    fn parse(text: &str) -> Value {
+        toml::from_str::<Value>(text).unwrap()
+    }
+
+    #[test]
+    fn merge_recurses_and_overlay_wins_per_key() {
+        let base = parse("[a]\nx = 1\n[a.b]\ny = 2\nz = 3\n[c]\nk = 1\n");
+        let overlay = parse("[a]\nx = 9\n[a.b]\ny = 8\nnew = 7\n[c]\nk = \"s\"\n");
+        let merged = merge_toml_values(base, overlay);
+        // Overlay scalars win while untouched base keys survive.
+        assert_eq!(merged["a"]["x"].as_integer(), Some(9));
+        assert_eq!(merged["a"]["b"]["y"].as_integer(), Some(8));
+        assert_eq!(merged["a"]["b"]["z"].as_integer(), Some(3));
+        assert_eq!(merged["a"]["b"]["new"].as_integer(), Some(7));
+        // A type change is a replacement, not a merge.
+        assert_eq!(merged["c"]["k"].as_str(), Some("s"));
+    }
+
+    #[test]
+    fn non_table_overlay_replaces_the_base_value() {
+        let merged = merge_toml_values(parse("a = 1\nb = 2\n"), parse("a = [1, 2, 3]\n"));
+        assert_eq!(merged["a"].as_array().map(Vec::len), Some(3));
+        assert_eq!(merged["b"].as_integer(), Some(2));
+    }
+}

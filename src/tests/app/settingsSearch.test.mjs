@@ -8,21 +8,15 @@
  * multi-token AND, description/option matches surfacing the parent item,
  * pref-name hits, keyword synonyms, and separator/case normalization.
  *
- * Run: node --experimental-strip-types --test src/tests/settingsSearch.test.mjs
+ * Run: node --experimental-strip-types --test src/tests/app/settingsSearch.test.mjs
  */
 
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
 
-const HERE = fileURLToPath(new URL(".", import.meta.url));
-const REPO = resolve(HERE, "..", "..");
-const MODULE_URL = pathToFileURL(
-	resolve(REPO, "src/app/settingsSearch.ts"),
-).href;
-
-const { filterSettingsItems, settingsItemText } = await import(MODULE_URL);
+const { filterSettingsItems, settingsItemText } = await import(
+	"../../app/settingsSearch.ts"
+);
 
 const ITEMS = [
 	{ label: "Font size", pref: "terminal_font_size", keywords: "text px" },

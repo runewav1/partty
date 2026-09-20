@@ -164,3 +164,46 @@ pub fn apply_saved_window_bounds(window: &WebviewWindow, ws: &WindowState) {
     let _ = window.set_size(tauri::PhysicalSize::new(ws.width, ws.height));
     suppress_snapshot_for(500);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, sanitize_window_state};
+    use crate::prefs::WindowState;
+
+    #[test]
+    fn clamps_window_dimensions_to_the_valid_range() {
+        let mut tiny = WindowState {
+            width: 10,
+            height: 10,
+            ..WindowState::default()
+        };
+        sanitize_window_state(&mut tiny);
+        assert_eq!(tiny.width, MIN_WINDOW_WIDTH);
+        assert_eq!(tiny.height, MIN_WINDOW_HEIGHT);
+
+        let mut huge = WindowState {
+            width: u32::MAX,
+            height: u32::MAX,
+            ..WindowState::default()
+        };
+        sanitize_window_state(&mut huge);
+        assert_eq!(huge.width, 16_000);
+        assert_eq!(huge.height, 16_000);
+    }
+
+    #[test]
+    fn pulls_a_far_offscreen_window_back_into_view() {
+        let original_x = i32::MIN / 2;
+        let original_y = i32::MIN / 2;
+        let mut ws = WindowState {
+            x: original_x,
+            y: original_y,
+            width: 400,
+            height: 300,
+            ..WindowState::default()
+        };
+        sanitize_window_state(&mut ws);
+        assert!(ws.x > original_x, "x must be pulled toward the virtual screen");
+        assert!(ws.y > original_y, "y must be pulled toward the virtual screen");
+    }
+}

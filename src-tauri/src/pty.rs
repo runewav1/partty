@@ -747,857 +747,6 @@ fn osc_scan(buf: &[u8], from: usize, budget: usize) -> OscScan {
     }
 }
 
-#[cfg(test)]
-mod stripper_tests {
-    use super::*;
-
-    // ─── Spec-based whole-stream oracle ─────────────────────────────────────
-    // Written as a separate, deliberately naive algorithm: no chunk state, no
-    // scratch buffer, no run tracking. It walks the stream, finds complete
-    // `ESC ]` sequences, and drops exactly the ones whose OSC number the
-    // stripper must remove. Independent from the implementation's structure
-    // so the two cannot share the same bug.
-
-    const STRIPPED_OSC_NUMBERS: [&str; 11] = [
-        "0", "1", "2", "7", "50", "52", "133", "633", "1337", "1338", "1339",
-    ];
-
-    /// Naive terminator search: BEL or `ESC \`. Returns (payload_end, seq_end).
-    fn oracle_terminator(buf: &[u8], from: usize) -> Option<(usize, usize)> {
-        let mut i = from;
-        while i < buf.len() {
-            if buf[i] == 0x07 {
-                return Some((i, i + 1));
-            }
-            if buf[i] == 0x1b && i + 1 < buf.len() && buf[i + 1] == 0x5c {
-                return Some((i, i + 2));
-            }
-            i += 1;
-        }
-        None
-    }
-
-    /// True when the payload's OSC number is one the stripper must remove.
-    /// Numberless payloads (`ESC ]` / `ESC ];...`) are malformed and stripped.
-    fn oracle_should_strip(payload: &[u8]) -> bool {
-        let Ok(s) = std::str::from_utf8(payload) else {
-            return false;
-        };
-        let number = s.split(';').next().unwrap_or("");
-        STRIPPED_OSC_NUMBERS.contains(&number) || number.is_empty()
-    }
-
-    /// Whole-stream reference: kept bytes plus the payloads of every OSC the
-    /// stripper must remove, in stream order.
-    fn oracle_strip(stream: &[u8]) -> (Vec<u8>, Vec<&[u8]>) {
-        let mut out = Vec::with_capacity(stream.len());
-        let mut stripped_payloads = Vec::new();
-        let mut i = 0;
-        while i < stream.len() {
-            if stream[i] == 0x1b
-                && i + 1 < stream.len()
-                && stream[i + 1] == 0x5d
-                && let Some((payload_end, seq_end)) = oracle_terminator(stream, i + 2)
-            {
-                let payload = &stream[i + 2..payload_end];
-                if oracle_should_strip(payload) {
-                    stripped_payloads.push(payload);
-                    i = seq_end;
-                    continue;
-                }
-                // Unknown OSC: pass the whole sequence through untouched.
-                out.extend_from_slice(&stream[i..seq_end]);
-                i = seq_end;
-                continue;
-            }
-            out.push(stream[i]);
-            i += 1;
-        }
-        (out, stripped_payloads)
-    }
-
-    // ─── Implementation runner ──────────────────────────────────────────────
-
-    fn event_key(ev: &OscSideEvent) -> String {
-        match ev {
-            OscSideEvent::Cwd(s) => format!("Cwd({s})"),
-            OscSideEvent::Title(s) => format!("Title({s})"),
-            OscSideEvent::PromptStart => "PromptStart".into(),
-            OscSideEvent::PromptEnd => "PromptEnd".into(),
-            OscSideEvent::PreExec => "PreExec".into(),
-            OscSideEvent::CommandDone(c) => format!("CommandDone({c:?})"),
-            OscSideEvent::CommandLine(s) => format!("CommandLine({s})"),
-            OscSideEvent::Osc52Set(s) => format!("Osc52Set({s})"),
-            OscSideEvent::Osc52Query(s) => format!("Osc52Query({s})"),
-        }
-    }
-
-    /// Feed `chunks` through the real stripper and return the fully flushed
-    /// result (cleaned bytes + event keys). Deferred tail bytes (dangling ESC
-    /// / incomplete OSC) are passthrough by contract, so they are flushed
-    /// before returning, making results comparable to the whole-stream oracle.
-    fn run_impl(chunks: &[&[u8]]) -> (Vec<u8>, Vec<String>) {
-        let mut s = OscStripper::new();
-        let mut acc = Vec::new();
-        let mut keys = Vec::new();
-        for c in chunks {
-            let (clean, events) = s.process(c.to_vec());
-            acc.extend_from_slice(&clean);
-            for e in events {
-                keys.push(event_key(&e));
-            }
-        }
-        acc.extend_from_slice(&s.partial);
-        (acc, keys)
-    }
-
-    // ─── Properties ─────────────────────────────────────────────────────────
-
-    /// Cleaned output must be a byte-exact subsequence of the stream: nothing
-    /// dropped except stripped sequences, nothing reordered, nothing invented.
-    fn is_subsequence(sub: &[u8], of: &[u8]) -> bool {
-        let mut j = 0;
-        for &b in of {
-            if j < sub.len() && sub[j] == b {
-                j += 1;
-            }
-        }
-        j == sub.len()
-    }
-
-    /// No *complete* OSC with a stripped number may survive in cleaned output.
-    /// Incomplete (dangling) sequences are allowed — they are deferred state.
-    fn no_complete_stripped_osc_survives(cleaned: &[u8]) {
-        let mut i = 0;
-        while i < cleaned.len() {
-            if cleaned[i] == 0x1b
-                && i + 1 < cleaned.len()
-                && cleaned[i + 1] == 0x5d
-                && let Some((payload_end, seq_end)) = oracle_terminator(cleaned, i + 2)
-            {
-                assert!(
-                    !oracle_should_strip(&cleaned[i + 2..payload_end]),
-                    "complete recognized OSC survived in cleaned output",
-                );
-                i = seq_end;
-                continue;
-            }
-            i += 1;
-        }
-    }
-
-    // ─── Deterministic generator ────────────────────────────────────────────
-
-    struct Gen {
-        seed: u64,
-    }
-
-    impl Gen {
-        fn next_u64(&mut self) -> u64 {
-            self.seed = self
-                .seed
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
-            self.seed
-        }
-        fn below(&mut self, n: usize) -> usize {
-            (self.next_u64() % n.max(1) as u64) as usize
-        }
-        fn pick<'a, T>(&mut self, xs: &'a [T]) -> &'a T {
-            &xs[self.below(xs.len())]
-        }
-    }
-
-    const OSC_NUMS: [&str; 7] = ["0", "1", "2", "7", "52", "133", "633"];
-    const UNKNOWN_OSC_NUMS: [&str; 6] = ["4", "8", "12", "48", "100", "1000"];
-    const PLAIN_BYTES: &[u8] = b"abcXYZ0123 _-.,!?()/\\:~=#*\t\r\n";
-    const UTF8_FRAG: &[u8] = "caf\u{e9} \u{3c0} \u{1f680} \u{5927}".as_bytes();
-
-    fn gen_stream(g: &mut Gen, len_hint: usize) -> Vec<u8> {
-        let mut out = Vec::with_capacity(len_hint);
-        while out.len() < len_hint {
-            match g.below(12) {
-                0..=3 => {
-                    // Plain run; occasionally laced with adversarial bytes.
-                    let n = 1 + g.below(24);
-                    for _ in 0..n {
-                        match g.below(12) {
-                            0 => out.push(0x1b), // stray ESC
-                            1 => out.push(0x07), // stray BEL
-                            _ => out.push(*g.pick(PLAIN_BYTES)),
-                        }
-                    }
-                }
-                4..=5 => {
-                    // CSI passthrough (ESC [ ...).
-                    out.push(0x1b);
-                    out.push(0x5b);
-                    let n = 1 + g.below(4);
-                    for _ in 0..n {
-                        out.push(*g.pick(b"0123456789;?:"))
-                    }
-                    out.push(*g.pick(b"mHhJAnlfsu"));
-                }
-                6..=9 => {
-                    // OSC sequence.
-                    out.push(0x1b);
-                    out.push(0x5d);
-                    out.extend_from_slice(g.pick(&OSC_NUMS).as_bytes());
-                    if g.below(3) != 0 {
-                        out.push(b';');
-                        let n = 1 + g.below(10);
-                        for _ in 0..n {
-                            if g.below(3) == 0 {
-                                out.extend_from_slice(UTF8_FRAG);
-                            } else {
-                                out.push(*g.pick(PLAIN_BYTES));
-                            }
-                        }
-                    }
-                    // Terminator: BEL, ST, ESC alone (resolved next chunk), or
-                    // none at all (dangling incomplete OSC).
-                    match g.below(4) {
-                        0 => out.push(0x07),
-                        1 => {
-                            out.push(0x1b);
-                            out.push(0x5c);
-                        }
-                        2 => out.push(0x1b),
-                        _ => {}
-                    }
-                }
-                10 => {
-                    // Unknown OSC (must pass through).
-                    out.push(0x1b);
-                    out.push(0x5d);
-                    out.extend_from_slice(g.pick(&UNKNOWN_OSC_NUMS).as_bytes());
-                    out.push(b';');
-                    out.extend_from_slice(UTF8_FRAG);
-                    out.push(0x07);
-                }
-                11 => {
-                    // Raw binary blob (may be invalid UTF-8, may contain ESC).
-                    let n = 1 + g.below(48);
-                    for _ in 0..n {
-                        out.push(g.next_u64() as u8);
-                    }
-                }
-                _ => unreachable!(),
-            }
-        }
-        out
-    }
-
-    fn chunk_random<'a>(g: &mut Gen, stream: &'a [u8], cuts: usize) -> Vec<&'a [u8]> {
-        let mut pts = vec![0usize];
-        for _ in 0..cuts {
-            pts.push(1 + g.below(stream.len().saturating_sub(1)));
-        }
-        pts.push(stream.len());
-        pts.sort_unstable();
-        pts.dedup();
-        pts.windows(2).map(|w| &stream[w[0]..w[1]]).collect()
-    }
-
-    fn chunk_thin(stream: &[u8]) -> Vec<&[u8]> {
-        stream.chunks(3).collect()
-    }
-
-    // ─── Verification driver ────────────────────────────────────────────────
-
-    fn verify_stream(stream: &[u8], g: &mut Gen) {
-        // Spec oracle over the whole stream.
-        let (expected_clean, expected_payloads) = oracle_strip(stream);
-        let mut oracle_stripper = OscStripper::new();
-        let mut expected_keys = Vec::new();
-        for payload in &expected_payloads {
-            let mut evs = Vec::new();
-            let stripped = oracle_stripper.dispatch_osc(payload, &mut evs);
-            assert!(
-                stripped,
-                "oracle marked a payload stripped that dispatch rejects"
-            );
-            for e in evs {
-                expected_keys.push(event_key(&e));
-            }
-        }
-
-        // Implementation on the whole stream.
-        let (impl_clean, impl_keys) = run_impl(&[stream]);
-
-        // Property: bytes are conserved (subsequence, order preserved).
-        assert!(
-            is_subsequence(&impl_clean, stream),
-            "impl dropped or reordered bytes",
-        );
-        // Property: no complete recognized OSC survives.
-        no_complete_stripped_osc_survives(&impl_clean);
-        // Property: stripping is idempotent — a second pass is a byte-identical
-        // no-op and produces no events.
-        let (again, again_keys) = run_impl(&[&impl_clean]);
-        assert_eq!(again, impl_clean, "strip is not idempotent");
-        assert!(
-            again_keys.is_empty(),
-            "second strip produced events: {again_keys:?}"
-        );
-
-        // The impl must match the spec oracle exactly.
-        assert_eq!(
-            impl_clean, expected_clean,
-            "cleaned bytes differ from oracle"
-        );
-        assert_eq!(impl_keys, expected_keys, "events differ from oracle");
-
-        // Property: chunk-boundary invariance — any chunking yields the same
-        // flushed result and the same events.
-        for cuts in [1usize, 3, 9, 31] {
-            let chunks = chunk_random(g, stream, cuts);
-            let (c_clean, c_keys) = run_impl(&chunks);
-            assert_eq!(c_clean, impl_clean, "chunking diverges (cuts={cuts})");
-            assert_eq!(c_keys, impl_keys, "chunked events diverge (cuts={cuts})");
-        }
-        let thin = chunk_thin(stream);
-        let (t_clean, t_keys) = run_impl(&thin);
-        assert_eq!(t_clean, impl_clean, "3-byte chunking diverges");
-        assert_eq!(t_keys, impl_keys, "3-byte chunked events diverge");
-    }
-
-    #[test]
-    fn stripper_matches_spec_and_properties() {
-        let mut g = Gen { seed: 0x5DEECE66D };
-        for i in 0..384u64 {
-            let mut g2 = Gen {
-                seed: g.seed.wrapping_add(i.wrapping_mul(0x9E3779B97F4A7C15)),
-            };
-            let len = 8 + g2.below(2000);
-            let stream = gen_stream(&mut g2, len);
-            verify_stream(&stream, &mut g2);
-        }
-        // Large streams exercise long no-ESC runs and big batches.
-        for _ in 0..8 {
-            let len = 16 * 1024 + g.below(16 * 1024);
-            let stream = gen_stream(&mut g, len);
-            verify_stream(&stream, &mut g);
-        }
-        // Hand-crafted adversarial cases.
-        let fixed: Vec<Vec<u8>> = vec![
-            b"\x1b\x1b".to_vec(),
-            b"\x1b]0;x\x1b\x1b]1;y\x07".to_vec(),
-            b"\x1b]7;\x07".to_vec(),
-            b"\x1b]133;\x07".to_vec(),
-            b"\x1b];\x07".to_vec(),
-            b"\x1b]".to_vec(),
-            b"\x1b\x1b]0;t\x1b\\".to_vec(),
-            b"\x1b]633;P;Cwd=C:\\x\x07".to_vec(),
-            b"\x1b]0;a\x07\x1b]0;b\x07".to_vec(),
-            b"a\x1b]2;\x1b\\b".to_vec(),
-            b"\x1b]0;partial".to_vec(),
-            b"\x1b]0;t\x07\x1b".to_vec(),
-            b"\x1b]8;;https://x\x07link".to_vec(),
-            b"\x1b]52;0;SGVsbG8=\x07".to_vec(),
-            b"\x1b]52;c;?\x1b\\".to_vec(),
-            b"\x1b]52;1;AAAA\x07".to_vec(),
-            b"\x1b]52;0;sensitive\x1b\\".to_vec(),
-            b"\x1b[31mred\x1b[0m".to_vec(),
-            b"\x1b\x1b[K".to_vec(),
-        ];
-        for s in &fixed {
-            verify_stream(s, &mut g);
-        }
-    }
-
-    // ─── Adversarial / challenge-derived tests ──────────────────────────────
-    // Written as challenges to break the stripper, then folded in as
-    // permanent coverage: exhaustive split invariance, oversized-sequence
-    // discard semantics, and degenerate input.
-
-    // Every possible chunk split of a stream must yield the same flushed
-    // result as the whole stream — the exhaustive-boundary form of the
-    // property the random-cut tests above sample.
-
-    /// Every possible chunk split of `stream` must yield the same flushed
-    /// result as the whole stream (the exhaustive-boundary form of the
-    /// property the random-cut tests sample).
-    fn assert_split_invariant(stream: &[u8]) {
-        let (whole, whole_keys) = run_impl(&[stream]);
-        let n = stream.len();
-        let mut mask: Vec<u8> = vec![0; n];
-        for split in 1..n {
-            mask[split] = 1;
-            let mut chunks = Vec::new();
-            let mut start = 0;
-            for (idx, &is_cut) in mask.iter().enumerate() {
-                if is_cut != 0 {
-                    chunks.push(&stream[start..idx]);
-                    start = idx;
-                }
-            }
-            chunks.push(&stream[start..]);
-            let (got, got_keys) = run_impl(&chunks);
-            assert_eq!(got, whole, "split at byte {split} diverged (len {n})");
-            assert_eq!(
-                got_keys, whole_keys,
-                "split at byte {split} diverged events"
-            );
-            mask[split] = 0;
-        }
-    }
-
-    #[test]
-    fn split_invariant_exhaustive_coverage() {
-        // A stream exercising every stripper feature; every byte boundary
-        // must be chunk-safe.
-        let stream = concat!(
-            "plain \x1b]0;title\x07 text \x1b[31mred\x1b[0m ",
-            "\x1b]7;file:///c:/x\x07 \x1b]633;A\x07 \x1b]133;D;0\x07 ",
-            "\x1b]8;;https://x\x07link\x1b]8;;\x07 \x1b]1337;base64;\x07",
-            "\x1b]50;?\x07 \x1b]2;t2\x1b\\ tail",
-        );
-        assert_split_invariant(stream.as_bytes());
-    }
-
-    #[test]
-    fn split_invariant_utf8_and_terminators() {
-        // Multibyte UTF-8 inside payloads + both terminator kinds, split
-        // at every byte.
-        let stream =
-            "\x1b]7;/home/caf\u{e9}\u{1f680}\x1b\\\x1b]633;P;Cwd=\u{5927}\x07\x1b]0;\u{3c0}\x07"
-                .as_bytes();
-        assert_split_invariant(stream);
-    }
-
-    #[test]
-    fn strips_legacy_and_dead_osc_numbers() {
-        let stream = b"a\x1b]50;?\x07b\x1b]1337;X\x07c\x1b]1338;\x07d\x1b]1339;1\x1b\\e";
-        let (clean, payloads) = oracle_strip(stream);
-        assert_eq!(
-            std::str::from_utf8(&clean).unwrap(),
-            "abcde",
-            "50/1337/1338/1339 must be stripped"
-        );
-        assert_eq!(payloads.len(), 4);
-        let (got, _) = run_impl(&[stream]);
-        assert_eq!(got, clean);
-        assert_split_invariant(stream);
-    }
-
-    #[test]
-    fn strips_osc50_both_forms() {
-        // The query form is the echoback vector; both forms must vanish.
-        for stream in [
-            b"\x1b]50;?\x07".as_slice(),
-            b"\x1b]50;#aabbcc\x07".as_slice(),
-            b"\x1b]50;?\x1b\\".as_slice(),
-            b"x\x1b]50;\x07y".as_slice(),
-        ] {
-            let (clean, _) = run_impl(&[stream]);
-            assert!(!clean.contains(&0x1b), "OSC 50 leaked: {clean:?}");
-            assert_split_invariant(stream);
-        }
-    }
-
-    #[test]
-    fn osc52_handling() {
-        // Set form (selections `0`, `c`, comma list `0,s`) → Osc52Set, stripped.
-        // Empty payload clears the clipboard. Query form → Osc52Query, stripped.
-        // Unsupported selection (1) → stripped with no event.
-        let stream = b"a\x1b]52;0;SGVsbG8=\x07b\x1b]52;c;?\x1b\\c\x1b]52;1;QUFB\x07d";
-        let (clean, keys) = run_impl(&[stream]);
-        assert_eq!(clean, b"abcd", "OSC 52 must be stripped");
-        assert_eq!(keys, vec!["Osc52Set(SGVsbG8=)", "Osc52Query(c)"]);
-        assert_split_invariant(stream);
-
-        let (clean, keys) = run_impl(&[b"\x1b]52;c;\x07\x1b]52;0,s;Zg==\x07"]);
-        assert!(!clean.contains(&0x1b), "OSC 52 leaked: {clean:?}");
-        assert_eq!(keys, vec!["Osc52Set()", "Osc52Set(Zg==)"]);
-        assert_split_invariant(b"\x1b]52;c;\x07\x1b]52;0,s;Zg==\x07");
-    }
-
-    #[test]
-    fn oversized_unterminated_osc_discarded() {
-        // Unterminated OSC far beyond the cap: everything up to the stream
-        // end must be discarded, and memory must stay bounded (the stripper
-        // must not buffer it).
-        let big = vec![b'x'; MAX_OSC_LEN + 4096];
-        let mut stream = b"head \x1b]0;".to_vec();
-        stream.extend_from_slice(&big);
-        let (clean, _) = run_impl(&[&stream]);
-        assert_eq!(clean, b"head ".to_vec());
-        // Chunked in a pathological way: 1-byte chunks.
-        let chunks: Vec<&[u8]> = stream.iter().map(std::slice::from_ref).collect();
-        let (clean2, _) = run_impl(&chunks);
-        assert_eq!(clean2, b"head ".to_vec(), "1-byte chunking must agree");
-    }
-
-    #[test]
-    fn oversized_osc_with_late_terminator() {
-        // The cap is exceeded, but a BEL eventually arrives: everything up
-        // to and including the BEL is discarded, then normal processing
-        // resumes.
-        let mut stream = b"a\x1b]7;".to_vec();
-        stream.extend_from_slice(&vec![b'y'; MAX_OSC_LEN]);
-        stream.extend_from_slice(b"\x07after\x1b]133;A\x07z");
-        let (clean, _) = run_impl(&[&stream]);
-        assert_eq!(clean, b"aafterz".to_vec());
-        // Split so the BEL straddles chunk boundaries (cuts must stay in
-        // bounds; the BEL sits at MAX_OSC_LEN + 5).
-        for cut in [MAX_OSC_LEN, MAX_OSC_LEN + 1, MAX_OSC_LEN + 4] {
-            let (a, b) = stream.split_at(cut);
-            let (clean2, _) = run_impl(&[a, b]);
-            assert_eq!(clean2, b"aafterz".to_vec(), "cut at {cut}");
-        }
-    }
-
-    #[test]
-    fn oversized_then_sequences_resume_same_chunk() {
-        // After the oversized discard ends, further sequences in the SAME
-        // chunk must still be processed normally.
-        let mut stream = b"\x1b]0;".to_vec();
-        stream.extend_from_slice(&vec![b'p'; MAX_OSC_LEN]);
-        stream.extend_from_slice(b"\x1b\\text\x1b]133;D;42\x07tail");
-        let (clean, keys) = run_impl(&[&stream]);
-        assert_eq!(clean, b"texttail".to_vec());
-        assert!(keys.iter().any(|k| k == "CommandDone(Some(42))"));
-    }
-
-    #[test]
-    fn oversized_osc_split_accumulation() {
-        // The cap must also hold when the payload accumulates across many
-        // small chunks (the partial-buffer growth path). The payload must
-        // actually exceed the cap; chunked and whole-stream runs must agree.
-        let mut chunks = vec![b"\x1b]0;".as_slice()];
-        let payload = vec![b'q'; MAX_OSC_LEN + 4096];
-        chunks.extend(payload.chunks(1024));
-        let (clean, _) = run_impl(&chunks);
-        assert!(clean.is_empty(), "partial must not leak: {clean:?}");
-        let (clean2, _) = run_impl(&[chunks.concat().as_slice()]);
-        assert_eq!(clean2, clean);
-    }
-
-    #[test]
-    fn split_esc_backslash_and_bel_boundaries() {
-        // `ESC \` and BEL terminators must survive every byte split, including
-        // splits that put the `ESC` of `ESC \` at the very end of one chunk
-        // and the `\` at the start of the next (the boundary-spanning
-        // terminator) — for both stripped and passthrough OSC numbers.
-        let cases: Vec<&[u8]> = vec![
-            b"a\x1b]0;t1\x1b\\b\x1b]0;t2\x07c",
-            b"\x1b]8;;https://x\x1b\\link",
-            b"\x1b]7;/x\x1b\\\x1b]133;A\x07",
-            b"\x1b]52;0;QUFB\x1b\\\x1b]52;c;?\x07",
-        ];
-        for stream in cases {
-            // Every byte boundary (exhaustive chunking) must agree with the
-            // whole stream.
-            assert_split_invariant(stream);
-            // And the result must match the spec oracle byte-for-byte.
-            let (clean, _) = run_impl(&[stream]);
-            let (expected, _) = oracle_strip(stream);
-            assert_eq!(clean, expected, "stream {stream:?}");
-        }
-    }
-
-    #[test]
-    fn oversize_tiny_chunks_regression_linear_scan() {
-        // Regression for the pathological feeding pattern: an unterminated OSC
-        // far past the cap delivered one byte per chunk. The incremental
-        // scanner must examine/copy bytes only linearly (bytes copied into the
-        // pending buffer stay below the total input size); the old
-        // concatenate-then-rescan design copied ~n²/2 bytes here (≈35 GB),
-        // which is what made this test take over a minute in debug.
-        let mut stream = b"head \x1b]0;".to_vec();
-        stream.extend(std::iter::repeat_n(b'x', MAX_OSC_LEN + 4096));
-        let mut s = OscStripper::new();
-        let mut acc = Vec::new();
-        for &b in &stream {
-            let (clean, events) = s.process(vec![b]);
-            acc.extend_from_slice(&clean);
-            assert!(events.is_empty());
-        }
-        assert_eq!(acc, b"head ".to_vec(), "oversized OSC must be discarded");
-        assert!(
-            s.partial_copies < stream.len(),
-            "pending-OSC accumulation copied {} bytes for a {} byte stream; expected linear, not quadratic",
-            s.partial_copies,
-            stream.len(),
-        );
-    }
-
-    #[test]
-    fn oversized_osc_discard_ends_at_split_st() {
-        let mut s = OscStripper::new();
-        let mut stream = b"\x1b]0;".to_vec();
-        stream.extend(std::iter::repeat_n(b'x', MAX_OSC_LEN + 1));
-        assert!(s.process(stream).0.is_empty());
-        assert!(s.process(b"\x1b".to_vec()).0.is_empty());
-        assert!(s.process(Vec::new()).0.is_empty());
-        let (clean, events) = s.process(b"\\tail\x1b]0;title\x07".to_vec());
-        assert_eq!(clean, b"tail");
-        assert_eq!(events.len(), 1);
-        assert!(!s.discarding);
-    }
-
-    #[test]
-    fn split_osc_interpretations_across_boundaries() {
-        // Every OSC side event (title, cwd, shell integration A–E/P, OSC 52)
-        // must be interpreted identically no matter how its payload is split
-        // across chunks — the incremental accumulation path must dispatch the
-        // exact same payloads as a single-chunk feed.
-        let stream = concat!(
-            "\x1b]0;title\x07\x1b]1;t2\x1b\\\x1b]7;/home/user\x07",
-            "\x1b]133;A\x07\x1b]133;B\x07\x1b]133;C\x07\x1b]133;D;42\x07",
-            "\x1b]633;E;git status\x07\x1b]633;P;IsWindows=true\x07",
-            "\x1b]633;P;Cwd=/home\x07\x1b]52;0;SGVsbG8=\x07\x1b]52;c;?\x1b\\",
-        );
-        let (whole_clean, whole_keys) = run_impl(&[stream.as_bytes()]);
-        assert_eq!(whole_clean, b"", "every sequence must be stripped");
-        assert_eq!(
-            whole_keys,
-            vec![
-                "Title(title)",
-                "Title(t2)",
-                "Cwd(/home/user)",
-                "PromptStart",
-                "PromptEnd",
-                "PreExec",
-                "CommandDone(Some(42))",
-                "CommandLine(git status)",
-                "Cwd(/home)",
-                "Osc52Set(SGVsbG8=)",
-                "Osc52Query(c)",
-            ],
-        );
-        for cuts in [1usize, 3, 9, 31] {
-            let mut g = Gen { seed: 0x7F4A7C15 };
-            let chunks = chunk_random(&mut g, stream.as_bytes(), cuts);
-            let (clean, keys) = run_impl(&chunks);
-            assert_eq!(clean, whole_clean, "clean diverged (cuts={cuts})");
-            assert_eq!(keys, whole_keys, "events diverged (cuts={cuts})");
-        }
-    }
-
-    #[test]
-    fn strips_empty_and_degenerate_oscs() {
-        for stream in [
-            b"\x1b]0;\x1b\\".as_slice(),
-            b"\x1b]7;\x07".as_slice(),
-            b"\x1b]133;\x07".as_slice(),
-            b"\x1b]133\x07".as_slice(),
-            b"\x1b]\x07".as_slice(),
-            b"\x1b]50\x07".as_slice(),
-        ] {
-            let (clean, _) = run_impl(&[stream]);
-            assert!(!clean.contains(&0x1b), "degenerate OSC leaked: {clean:?}");
-            assert_split_invariant(stream);
-        }
-    }
-
-    #[test]
-    fn esc_runs_and_adjacent_sequences() {
-        // Exact expected outputs. Note: `ESC ] ESC ...` is ONE malformed OSC
-        // whose payload contains an ESC (only ST terminates an OSC — same
-        // state-machine semantics as xterm), so it passes through whole.
-        let cases: Vec<(Vec<u8>, Vec<u8>, Vec<&str>)> = vec![
-            (
-                b"\x1b\x1b]0;t\x07".to_vec(),
-                b"\x1b".to_vec(),
-                vec!["Title(t)"],
-            ),
-            (
-                b"\x1b\x1b\x1b]7;x\x07".to_vec(),
-                b"\x1b\x1b".to_vec(),
-                vec!["Cwd(x)"],
-            ),
-            (
-                b"\x1b]0;a\x07\x1b]133;A\x07\x1b]8;;u\x07".to_vec(),
-                b"\x1b]8;;u\x07".to_vec(),
-                vec!["Title(a)", "PromptStart"],
-            ),
-            // Nested ESC: single OSC with payload `A ESC ]133;B` — the number
-            // still parses as 133, so it is stripped (no event); only when
-            // the ESC lands inside the *number* does the sequence become
-            // unrecognized and pass through (xterm's state machine agrees).
-            (b"\x1b]133;A\x1b]133;B\x07".to_vec(), b"".to_vec(), vec![]),
-            (
-                b"\x1b]\x1b]7;x\x07".to_vec(),
-                b"\x1b]\x1b]7;x\x07".to_vec(),
-                vec![],
-            ),
-        ];
-        for (stream, expected, expected_keys) in &cases {
-            assert_split_invariant(stream);
-            let (clean, keys) = run_impl(&[stream]);
-            assert_eq!(clean, *expected, "stream {stream:?}");
-            assert_eq!(keys, *expected_keys, "stream {stream:?}");
-        }
-    }
-
-    #[test]
-    fn control_bytes_inside_payloads() {
-        // CAN/SUB/other control bytes inside an OSC payload must not break
-        // terminator detection (BEL/ST still win).
-        for stream in [
-            b"\x1b]0;a\x18b\x07".as_slice(),
-            b"\x1b]7;c\x1ac\x1b\\".as_slice(),
-            b"\x1b]50;\x18\x1a?\x07".as_slice(),
-        ] {
-            let (clean, _) = run_impl(&[stream]);
-            assert!(
-                !clean.contains(&0x1b),
-                "control-laced OSC leaked: {clean:?}"
-            );
-            assert_split_invariant(stream);
-        }
-    }
-
-    #[test]
-    fn invalid_utf8_passthrough_unchanged() {
-        // Non-UTF-8 payloads are not ours to interpret: the complete
-        // sequence passes through byte-for-byte (and chunking must agree).
-        let stream = b"\x1b]0;\xff\xfe\x80\x07".as_slice();
-        let (clean, keys) = run_impl(&[stream]);
-        assert_eq!(clean, stream);
-        assert!(keys.is_empty());
-        assert_split_invariant(stream);
-        // Same for a recognized-number OSC with non-UTF-8 payload.
-        let stream2 = b"\x1b]7;\xff\x07".as_slice();
-        let (clean2, _) = run_impl(&[stream2]);
-        assert_eq!(clean2, stream2);
-    }
-
-    #[test]
-    fn matches_oracle_on_adversarial_cases() {
-        // Reference-vs-impl over a grab-bag of adversarial fragments.
-        let cases: Vec<Vec<u8>> = vec![
-            b"\x1b]0;x\x1b\x1b]1;y\x07".to_vec(),
-            b"\x1b]7;\x07".to_vec(),
-            b"\x1b]133;\x07".to_vec(),
-            b"\x1b];\x07".to_vec(),
-            b"\x1b]".to_vec(),
-            b"\x1b\x1b]0;t\x1b\\".to_vec(),
-            b"a\x1b]2;\x1b\\b".to_vec(),
-            b"\x1b]0;partial".to_vec(),
-            b"\x1b]0;t\x07\x1b".to_vec(),
-            b"\x1b[31mred\x1b[0m".to_vec(),
-            b"\x1b]50;?\x07x\x1b]1337;\x07".to_vec(),
-            b"\x1b]8;;https://x\x07link".to_vec(),
-        ];
-        for case in &cases {
-            let (expected, _) = oracle_strip(case);
-            let (got, _) = run_impl(&[case]);
-            assert_eq!(got, expected, "case {case:?}");
-        }
-    }
-}
-
-#[cfg(test)]
-mod alt_screen_tests {
-    use super::*;
-
-    /// Run chunks through a fresh detector, returning `1`/`0` per transition.
-    fn run(chunks: &[&[u8]]) -> Vec<u8> {
-        let mut d = AltScreenDetector::new();
-        let mut out = Vec::new();
-        for c in chunks {
-            d.observe(c, &mut out);
-        }
-        out.iter().map(|&b| u8::from(b)).collect()
-    }
-
-    #[test]
-    fn basic_enter_leave() {
-        assert_eq!(run(&[b"\x1b[?1049h".as_slice()]), vec![1]);
-        assert_eq!(run(&[b"\x1b[?1049l".as_slice()]), Vec::<u8>::new());
-        assert_eq!(
-            run(&[b"\x1b[?1049h".as_slice(), b"\x1b[?1049l".as_slice()]),
-            vec![1, 0]
-        );
-    }
-
-    #[test]
-    fn legacy_aliases() {
-        assert_eq!(run(&[b"\x1b[?1047h".as_slice()]), vec![1]);
-        assert_eq!(run(&[b"\x1b[?47h".as_slice()]), vec![1]);
-        assert_eq!(run(&[b"\x1b[?47l".as_slice()]), Vec::<u8>::new());
-    }
-
-    #[test]
-    fn split_across_chunks() {
-        let stream = b"pre\x1b[?1049hpost\x1b[?1049ltail";
-        for cuts in [1usize, 2, 3, 5, 6, 7] {
-            let mut d = AltScreenDetector::new();
-            let mut out = Vec::new();
-            let mut i = 0;
-            while i < stream.len() {
-                let end = (i + cuts).min(stream.len());
-                d.observe(&stream[i..end], &mut out);
-                i = end;
-            }
-            let got: Vec<u8> = out.iter().map(|&b| u8::from(b)).collect();
-            assert_eq!(got, vec![1, 0], "cuts={cuts}");
-        }
-    }
-
-    #[test]
-    fn ignores_unrelated_sequences() {
-        // Cursor show, wrong final byte, non-private, wrong number, mouse modes.
-        for stream in [
-            b"\x1b[?25h".as_slice(),
-            b"\x1b[?1049m".as_slice(),
-            b"\x1b[1049h".as_slice(),
-            b"\x1b[?10490h".as_slice(),
-            b"\x1b[?1000;1006h".as_slice(),
-            b"\x1b[?1;2c".as_slice(),
-            b"\x1b[31m\x1b[0m".as_slice(),
-        ] {
-            assert!(run(&[stream]).is_empty(), "stream={stream:?}");
-        }
-    }
-
-    #[test]
-    fn multi_param_lists() {
-        assert_eq!(run(&[b"\x1b[?1000;1049h".as_slice()]), vec![1]);
-        assert_eq!(run(&[b"\x1b[?1049;1049h".as_slice()]), vec![1]);
-        assert_eq!(run(&[b"\x1b[?1047;1049l".as_slice()]), Vec::<u8>::new());
-    }
-
-    #[test]
-    fn ris_resets_to_normal() {
-        assert_eq!(
-            run(&[b"\x1b[?1049h".as_slice(), b"\x1bc".as_slice()]),
-            vec![1, 0]
-        );
-    }
-
-    #[test]
-    fn only_reports_transitions() {
-        assert_eq!(
-            run(&[
-                b"\x1b[?1049h".as_slice(),
-                b"\x1b[?1049h".as_slice(),
-                b"text".as_slice(),
-            ]),
-            vec![1]
-        );
-    }
-
-    #[test]
-    fn ignores_csi_inside_passthrough_osc() {
-        // An unknown OSC the stripper passes through whose payload embeds an
-        // alt-screen sequence must not be observed.
-        let mut s = OscStripper::new();
-        let (clean, _) = s.process(b"\x1b]8;;\x1b[?1049h\x07sync".to_vec());
-        assert!(
-            clean.windows(7).any(|w| w == b"\x1b[?1049"),
-            "payload preserved"
-        );
-        let mut d = AltScreenDetector::new();
-        let mut out = Vec::new();
-        d.observe(&clean, &mut out);
-        assert!(out.is_empty(), "cleaned={clean:?}");
-    }
-}
-
 /// Decode `\xHH` and `\\` escapes used in OSC payloads.
 fn osc_unescape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -1623,23 +772,6 @@ fn osc_unescape(s: &str) -> String {
                 }
                 _ => out.push('\\'),
             }
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
-/// The escape contract shared by the shell-integration scripts (pwsh/bash/zsh):
-/// control chars, `;`, `\`, and DEL become `\xHH`; everything else (including
-/// non-ASCII) passes through verbatim as its original char.
-#[cfg(test)]
-fn shell_escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 8);
-    for c in s.chars() {
-        let code = c as u32;
-        if code < 0x20 || code == 0x3B || code == 0x5C || code == 0x7F {
-            out.push_str(&format!("\\x{:02x}", code));
         } else {
             out.push(c);
         }
@@ -3081,6 +2213,874 @@ fn detect_shell_kind(prefs: &Prefs) -> ShellKind {
         _ if name.contains("powershell") => ShellKind::PowerShell,
         _ if name.contains("bash") => ShellKind::Bash,
         _ => ShellKind::Other,
+    }
+}
+
+/// The escape contract shared by the shell-integration scripts (pwsh/bash/zsh):
+/// control chars, `;`, `\`, and DEL become `\xHH`; everything else (including
+/// non-ASCII) passes through verbatim as its original char.
+#[cfg(test)]
+fn shell_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 8);
+    for c in s.chars() {
+        let code = c as u32;
+        if code < 0x20 || code == 0x3B || code == 0x5C || code == 0x7F {
+            out.push_str(&format!("\\x{:02x}", code));
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod stripper_tests {
+    use super::*;
+
+    // ─── Spec-based whole-stream oracle ─────────────────────────────────────
+    // Written as a separate, deliberately naive algorithm: no chunk state, no
+    // scratch buffer, no run tracking. It walks the stream, finds complete
+    // `ESC ]` sequences, and drops exactly the ones whose OSC number the
+    // stripper must remove. Independent from the implementation's structure
+    // so the two cannot share the same bug.
+
+    const STRIPPED_OSC_NUMBERS: [&str; 11] = [
+        "0", "1", "2", "7", "50", "52", "133", "633", "1337", "1338", "1339",
+    ];
+
+    /// Naive terminator search: BEL or `ESC \`. Returns (payload_end, seq_end).
+    fn oracle_terminator(buf: &[u8], from: usize) -> Option<(usize, usize)> {
+        let mut i = from;
+        while i < buf.len() {
+            if buf[i] == 0x07 {
+                return Some((i, i + 1));
+            }
+            if buf[i] == 0x1b && i + 1 < buf.len() && buf[i + 1] == 0x5c {
+                return Some((i, i + 2));
+            }
+            i += 1;
+        }
+        None
+    }
+
+    /// True when the payload's OSC number is one the stripper must remove.
+    /// Numberless payloads (`ESC ]` / `ESC ];...`) are malformed and stripped.
+    fn oracle_should_strip(payload: &[u8]) -> bool {
+        let Ok(s) = std::str::from_utf8(payload) else {
+            return false;
+        };
+        let number = s.split(';').next().unwrap_or("");
+        STRIPPED_OSC_NUMBERS.contains(&number) || number.is_empty()
+    }
+
+    /// Whole-stream reference: kept bytes plus the payloads of every OSC the
+    /// stripper must remove, in stream order.
+    fn oracle_strip(stream: &[u8]) -> (Vec<u8>, Vec<&[u8]>) {
+        let mut out = Vec::with_capacity(stream.len());
+        let mut stripped_payloads = Vec::new();
+        let mut i = 0;
+        while i < stream.len() {
+            if stream[i] == 0x1b
+                && i + 1 < stream.len()
+                && stream[i + 1] == 0x5d
+                && let Some((payload_end, seq_end)) = oracle_terminator(stream, i + 2)
+            {
+                let payload = &stream[i + 2..payload_end];
+                if oracle_should_strip(payload) {
+                    stripped_payloads.push(payload);
+                    i = seq_end;
+                    continue;
+                }
+                // Unknown OSC: pass the whole sequence through untouched.
+                out.extend_from_slice(&stream[i..seq_end]);
+                i = seq_end;
+                continue;
+            }
+            out.push(stream[i]);
+            i += 1;
+        }
+        (out, stripped_payloads)
+    }
+
+    // ─── Implementation runner ──────────────────────────────────────────────
+
+    fn event_key(ev: &OscSideEvent) -> String {
+        match ev {
+            OscSideEvent::Cwd(s) => format!("Cwd({s})"),
+            OscSideEvent::Title(s) => format!("Title({s})"),
+            OscSideEvent::PromptStart => "PromptStart".into(),
+            OscSideEvent::PromptEnd => "PromptEnd".into(),
+            OscSideEvent::PreExec => "PreExec".into(),
+            OscSideEvent::CommandDone(c) => format!("CommandDone({c:?})"),
+            OscSideEvent::CommandLine(s) => format!("CommandLine({s})"),
+            OscSideEvent::Osc52Set(s) => format!("Osc52Set({s})"),
+            OscSideEvent::Osc52Query(s) => format!("Osc52Query({s})"),
+        }
+    }
+
+    /// Feed `chunks` through the real stripper and return the fully flushed
+    /// result (cleaned bytes + event keys). Deferred tail bytes (dangling ESC
+    /// / incomplete OSC) are passthrough by contract, so they are flushed
+    /// before returning, making results comparable to the whole-stream oracle.
+    fn run_impl(chunks: &[&[u8]]) -> (Vec<u8>, Vec<String>) {
+        let mut s = OscStripper::new();
+        let mut acc = Vec::new();
+        let mut keys = Vec::new();
+        for c in chunks {
+            let (clean, events) = s.process(c.to_vec());
+            acc.extend_from_slice(&clean);
+            for e in events {
+                keys.push(event_key(&e));
+            }
+        }
+        acc.extend_from_slice(&s.partial);
+        (acc, keys)
+    }
+
+    // ─── Properties ─────────────────────────────────────────────────────────
+
+    /// Cleaned output must be a byte-exact subsequence of the stream: nothing
+    /// dropped except stripped sequences, nothing reordered, nothing invented.
+    fn is_subsequence(sub: &[u8], of: &[u8]) -> bool {
+        let mut j = 0;
+        for &b in of {
+            if j < sub.len() && sub[j] == b {
+                j += 1;
+            }
+        }
+        j == sub.len()
+    }
+
+    /// No *complete* OSC with a stripped number may survive in cleaned output.
+    /// Incomplete (dangling) sequences are allowed — they are deferred state.
+    fn no_complete_stripped_osc_survives(cleaned: &[u8]) {
+        let mut i = 0;
+        while i < cleaned.len() {
+            if cleaned[i] == 0x1b
+                && i + 1 < cleaned.len()
+                && cleaned[i + 1] == 0x5d
+                && let Some((payload_end, seq_end)) = oracle_terminator(cleaned, i + 2)
+            {
+                assert!(
+                    !oracle_should_strip(&cleaned[i + 2..payload_end]),
+                    "complete recognized OSC survived in cleaned output",
+                );
+                i = seq_end;
+                continue;
+            }
+            i += 1;
+        }
+    }
+
+    // ─── Deterministic generator ────────────────────────────────────────────
+
+    struct Gen {
+        seed: u64,
+    }
+
+    impl Gen {
+        fn next_u64(&mut self) -> u64 {
+            self.seed = self
+                .seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            self.seed
+        }
+        fn below(&mut self, n: usize) -> usize {
+            (self.next_u64() % n.max(1) as u64) as usize
+        }
+        fn pick<'a, T>(&mut self, xs: &'a [T]) -> &'a T {
+            &xs[self.below(xs.len())]
+        }
+    }
+
+    const OSC_NUMS: [&str; 7] = ["0", "1", "2", "7", "52", "133", "633"];
+    const UNKNOWN_OSC_NUMS: [&str; 6] = ["4", "8", "12", "48", "100", "1000"];
+    const PLAIN_BYTES: &[u8] = b"abcXYZ0123 _-.,!?()/\\:~=#*\t\r\n";
+    const UTF8_FRAG: &[u8] = "caf\u{e9} \u{3c0} \u{1f680} \u{5927}".as_bytes();
+
+    fn gen_stream(g: &mut Gen, len_hint: usize) -> Vec<u8> {
+        let mut out = Vec::with_capacity(len_hint);
+        while out.len() < len_hint {
+            match g.below(12) {
+                0..=3 => {
+                    // Plain run; occasionally laced with adversarial bytes.
+                    let n = 1 + g.below(24);
+                    for _ in 0..n {
+                        match g.below(12) {
+                            0 => out.push(0x1b), // stray ESC
+                            1 => out.push(0x07), // stray BEL
+                            _ => out.push(*g.pick(PLAIN_BYTES)),
+                        }
+                    }
+                }
+                4..=5 => {
+                    // CSI passthrough (ESC [ ...).
+                    out.push(0x1b);
+                    out.push(0x5b);
+                    let n = 1 + g.below(4);
+                    for _ in 0..n {
+                        out.push(*g.pick(b"0123456789;?:"))
+                    }
+                    out.push(*g.pick(b"mHhJAnlfsu"));
+                }
+                6..=9 => {
+                    // OSC sequence.
+                    out.push(0x1b);
+                    out.push(0x5d);
+                    out.extend_from_slice(g.pick(&OSC_NUMS).as_bytes());
+                    if g.below(3) != 0 {
+                        out.push(b';');
+                        let n = 1 + g.below(10);
+                        for _ in 0..n {
+                            if g.below(3) == 0 {
+                                out.extend_from_slice(UTF8_FRAG);
+                            } else {
+                                out.push(*g.pick(PLAIN_BYTES));
+                            }
+                        }
+                    }
+                    // Terminator: BEL, ST, ESC alone (resolved next chunk), or
+                    // none at all (dangling incomplete OSC).
+                    match g.below(4) {
+                        0 => out.push(0x07),
+                        1 => {
+                            out.push(0x1b);
+                            out.push(0x5c);
+                        }
+                        2 => out.push(0x1b),
+                        _ => {}
+                    }
+                }
+                10 => {
+                    // Unknown OSC (must pass through).
+                    out.push(0x1b);
+                    out.push(0x5d);
+                    out.extend_from_slice(g.pick(&UNKNOWN_OSC_NUMS).as_bytes());
+                    out.push(b';');
+                    out.extend_from_slice(UTF8_FRAG);
+                    out.push(0x07);
+                }
+                11 => {
+                    // Raw binary blob (may be invalid UTF-8, may contain ESC).
+                    let n = 1 + g.below(48);
+                    for _ in 0..n {
+                        out.push(g.next_u64() as u8);
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
+        out
+    }
+
+    fn chunk_random<'a>(g: &mut Gen, stream: &'a [u8], cuts: usize) -> Vec<&'a [u8]> {
+        let mut pts = vec![0usize];
+        for _ in 0..cuts {
+            pts.push(1 + g.below(stream.len().saturating_sub(1)));
+        }
+        pts.push(stream.len());
+        pts.sort_unstable();
+        pts.dedup();
+        pts.windows(2).map(|w| &stream[w[0]..w[1]]).collect()
+    }
+
+    fn chunk_thin(stream: &[u8]) -> Vec<&[u8]> {
+        stream.chunks(3).collect()
+    }
+
+    // ─── Verification driver ────────────────────────────────────────────────
+
+    fn verify_stream(stream: &[u8], g: &mut Gen) {
+        // Spec oracle over the whole stream.
+        let (expected_clean, expected_payloads) = oracle_strip(stream);
+        let mut oracle_stripper = OscStripper::new();
+        let mut expected_keys = Vec::new();
+        for payload in &expected_payloads {
+            let mut evs = Vec::new();
+            let stripped = oracle_stripper.dispatch_osc(payload, &mut evs);
+            assert!(
+                stripped,
+                "oracle marked a payload stripped that dispatch rejects"
+            );
+            for e in evs {
+                expected_keys.push(event_key(&e));
+            }
+        }
+
+        // Implementation on the whole stream.
+        let (impl_clean, impl_keys) = run_impl(&[stream]);
+
+        // Property: bytes are conserved (subsequence, order preserved).
+        assert!(
+            is_subsequence(&impl_clean, stream),
+            "impl dropped or reordered bytes",
+        );
+        // Property: no complete recognized OSC survives.
+        no_complete_stripped_osc_survives(&impl_clean);
+        // Property: stripping is idempotent — a second pass is a byte-identical
+        // no-op and produces no events.
+        let (again, again_keys) = run_impl(&[&impl_clean]);
+        assert_eq!(again, impl_clean, "strip is not idempotent");
+        assert!(
+            again_keys.is_empty(),
+            "second strip produced events: {again_keys:?}"
+        );
+
+        // The impl must match the spec oracle exactly.
+        assert_eq!(
+            impl_clean, expected_clean,
+            "cleaned bytes differ from oracle"
+        );
+        assert_eq!(impl_keys, expected_keys, "events differ from oracle");
+
+        // Property: chunk-boundary invariance — any chunking yields the same
+        // flushed result and the same events.
+        for cuts in [1usize, 3, 9, 31] {
+            let chunks = chunk_random(g, stream, cuts);
+            let (c_clean, c_keys) = run_impl(&chunks);
+            assert_eq!(c_clean, impl_clean, "chunking diverges (cuts={cuts})");
+            assert_eq!(c_keys, impl_keys, "chunked events diverge (cuts={cuts})");
+        }
+        let thin = chunk_thin(stream);
+        let (t_clean, t_keys) = run_impl(&thin);
+        assert_eq!(t_clean, impl_clean, "3-byte chunking diverges");
+        assert_eq!(t_keys, impl_keys, "3-byte chunked events diverge");
+    }
+
+    #[test]
+    fn stripper_matches_spec_and_properties() {
+        let mut g = Gen { seed: 0x5DEECE66D };
+        for i in 0..384u64 {
+            let mut g2 = Gen {
+                seed: g.seed.wrapping_add(i.wrapping_mul(0x9E3779B97F4A7C15)),
+            };
+            let len = 8 + g2.below(2000);
+            let stream = gen_stream(&mut g2, len);
+            verify_stream(&stream, &mut g2);
+        }
+        // Large streams exercise long no-ESC runs and big batches.
+        for _ in 0..8 {
+            let len = 16 * 1024 + g.below(16 * 1024);
+            let stream = gen_stream(&mut g, len);
+            verify_stream(&stream, &mut g);
+        }
+        // Hand-crafted adversarial cases.
+        let fixed: Vec<Vec<u8>> = vec![
+            b"\x1b\x1b".to_vec(),
+            b"\x1b]0;x\x1b\x1b]1;y\x07".to_vec(),
+            b"\x1b]7;\x07".to_vec(),
+            b"\x1b]133;\x07".to_vec(),
+            b"\x1b];\x07".to_vec(),
+            b"\x1b]".to_vec(),
+            b"\x1b\x1b]0;t\x1b\\".to_vec(),
+            b"\x1b]633;P;Cwd=C:\\x\x07".to_vec(),
+            b"\x1b]0;a\x07\x1b]0;b\x07".to_vec(),
+            b"a\x1b]2;\x1b\\b".to_vec(),
+            b"\x1b]0;partial".to_vec(),
+            b"\x1b]0;t\x07\x1b".to_vec(),
+            b"\x1b]8;;https://x\x07link".to_vec(),
+            b"\x1b]52;0;SGVsbG8=\x07".to_vec(),
+            b"\x1b]52;c;?\x1b\\".to_vec(),
+            b"\x1b]52;1;AAAA\x07".to_vec(),
+            b"\x1b]52;0;sensitive\x1b\\".to_vec(),
+            b"\x1b[31mred\x1b[0m".to_vec(),
+            b"\x1b\x1b[K".to_vec(),
+        ];
+        for s in &fixed {
+            verify_stream(s, &mut g);
+        }
+    }
+
+    // ─── Adversarial / challenge-derived tests ──────────────────────────────
+    // Written as challenges to break the stripper, then folded in as
+    // permanent coverage: exhaustive split invariance, oversized-sequence
+    // discard semantics, and degenerate input.
+
+    // Every possible chunk split of a stream must yield the same flushed
+    // result as the whole stream — the exhaustive-boundary form of the
+    // property the random-cut tests above sample.
+
+    /// Every possible chunk split of `stream` must yield the same flushed
+    /// result as the whole stream (the exhaustive-boundary form of the
+    /// property the random-cut tests sample).
+    fn assert_split_invariant(stream: &[u8]) {
+        let (whole, whole_keys) = run_impl(&[stream]);
+        let n = stream.len();
+        let mut mask: Vec<u8> = vec![0; n];
+        for split in 1..n {
+            mask[split] = 1;
+            let mut chunks = Vec::new();
+            let mut start = 0;
+            for (idx, &is_cut) in mask.iter().enumerate() {
+                if is_cut != 0 {
+                    chunks.push(&stream[start..idx]);
+                    start = idx;
+                }
+            }
+            chunks.push(&stream[start..]);
+            let (got, got_keys) = run_impl(&chunks);
+            assert_eq!(got, whole, "split at byte {split} diverged (len {n})");
+            assert_eq!(
+                got_keys, whole_keys,
+                "split at byte {split} diverged events"
+            );
+            mask[split] = 0;
+        }
+    }
+
+    #[test]
+    fn split_invariant_exhaustive_coverage() {
+        // A stream exercising every stripper feature; every byte boundary
+        // must be chunk-safe.
+        let stream = concat!(
+            "plain \x1b]0;title\x07 text \x1b[31mred\x1b[0m ",
+            "\x1b]7;file:///c:/x\x07 \x1b]633;A\x07 \x1b]133;D;0\x07 ",
+            "\x1b]8;;https://x\x07link\x1b]8;;\x07 \x1b]1337;base64;\x07",
+            "\x1b]50;?\x07 \x1b]2;t2\x1b\\ tail",
+        );
+        assert_split_invariant(stream.as_bytes());
+    }
+
+    #[test]
+    fn split_invariant_utf8_and_terminators() {
+        // Multibyte UTF-8 inside payloads + both terminator kinds, split
+        // at every byte.
+        let stream =
+            "\x1b]7;/home/caf\u{e9}\u{1f680}\x1b\\\x1b]633;P;Cwd=\u{5927}\x07\x1b]0;\u{3c0}\x07"
+                .as_bytes();
+        assert_split_invariant(stream);
+    }
+
+    #[test]
+    fn strips_legacy_and_dead_osc_numbers() {
+        let stream = b"a\x1b]50;?\x07b\x1b]1337;X\x07c\x1b]1338;\x07d\x1b]1339;1\x1b\\e";
+        let (clean, payloads) = oracle_strip(stream);
+        assert_eq!(
+            std::str::from_utf8(&clean).unwrap(),
+            "abcde",
+            "50/1337/1338/1339 must be stripped"
+        );
+        assert_eq!(payloads.len(), 4);
+        let (got, _) = run_impl(&[stream]);
+        assert_eq!(got, clean);
+        assert_split_invariant(stream);
+    }
+
+    #[test]
+    fn strips_osc50_both_forms() {
+        // The query form is the echoback vector; both forms must vanish.
+        for stream in [
+            b"\x1b]50;?\x07".as_slice(),
+            b"\x1b]50;#aabbcc\x07".as_slice(),
+            b"\x1b]50;?\x1b\\".as_slice(),
+            b"x\x1b]50;\x07y".as_slice(),
+        ] {
+            let (clean, _) = run_impl(&[stream]);
+            assert!(!clean.contains(&0x1b), "OSC 50 leaked: {clean:?}");
+            assert_split_invariant(stream);
+        }
+    }
+
+    #[test]
+    fn osc52_handling() {
+        // Set form (selections `0`, `c`, comma list `0,s`) → Osc52Set, stripped.
+        // Empty payload clears the clipboard. Query form → Osc52Query, stripped.
+        // Unsupported selection (1) → stripped with no event.
+        let stream = b"a\x1b]52;0;SGVsbG8=\x07b\x1b]52;c;?\x1b\\c\x1b]52;1;QUFB\x07d";
+        let (clean, keys) = run_impl(&[stream]);
+        assert_eq!(clean, b"abcd", "OSC 52 must be stripped");
+        assert_eq!(keys, vec!["Osc52Set(SGVsbG8=)", "Osc52Query(c)"]);
+        assert_split_invariant(stream);
+
+        let (clean, keys) = run_impl(&[b"\x1b]52;c;\x07\x1b]52;0,s;Zg==\x07"]);
+        assert!(!clean.contains(&0x1b), "OSC 52 leaked: {clean:?}");
+        assert_eq!(keys, vec!["Osc52Set()", "Osc52Set(Zg==)"]);
+        assert_split_invariant(b"\x1b]52;c;\x07\x1b]52;0,s;Zg==\x07");
+    }
+
+    #[test]
+    fn oversized_unterminated_osc_discarded() {
+        // Unterminated OSC far beyond the cap: everything up to the stream
+        // end must be discarded, and memory must stay bounded (the stripper
+        // must not buffer it).
+        let big = vec![b'x'; MAX_OSC_LEN + 4096];
+        let mut stream = b"head \x1b]0;".to_vec();
+        stream.extend_from_slice(&big);
+        let (clean, _) = run_impl(&[&stream]);
+        assert_eq!(clean, b"head ".to_vec());
+        // Chunked in a pathological way: 1-byte chunks.
+        let chunks: Vec<&[u8]> = stream.iter().map(std::slice::from_ref).collect();
+        let (clean2, _) = run_impl(&chunks);
+        assert_eq!(clean2, b"head ".to_vec(), "1-byte chunking must agree");
+    }
+
+    #[test]
+    fn oversized_osc_with_late_terminator() {
+        // The cap is exceeded, but a BEL eventually arrives: everything up
+        // to and including the BEL is discarded, then normal processing
+        // resumes.
+        let mut stream = b"a\x1b]7;".to_vec();
+        stream.extend_from_slice(&vec![b'y'; MAX_OSC_LEN]);
+        stream.extend_from_slice(b"\x07after\x1b]133;A\x07z");
+        let (clean, _) = run_impl(&[&stream]);
+        assert_eq!(clean, b"aafterz".to_vec());
+        // Split so the BEL straddles chunk boundaries (cuts must stay in
+        // bounds; the BEL sits at MAX_OSC_LEN + 5).
+        for cut in [MAX_OSC_LEN, MAX_OSC_LEN + 1, MAX_OSC_LEN + 4] {
+            let (a, b) = stream.split_at(cut);
+            let (clean2, _) = run_impl(&[a, b]);
+            assert_eq!(clean2, b"aafterz".to_vec(), "cut at {cut}");
+        }
+    }
+
+    #[test]
+    fn oversized_then_sequences_resume_same_chunk() {
+        // After the oversized discard ends, further sequences in the SAME
+        // chunk must still be processed normally.
+        let mut stream = b"\x1b]0;".to_vec();
+        stream.extend_from_slice(&vec![b'p'; MAX_OSC_LEN]);
+        stream.extend_from_slice(b"\x1b\\text\x1b]133;D;42\x07tail");
+        let (clean, keys) = run_impl(&[&stream]);
+        assert_eq!(clean, b"texttail".to_vec());
+        assert!(keys.iter().any(|k| k == "CommandDone(Some(42))"));
+    }
+
+    #[test]
+    fn oversized_osc_split_accumulation() {
+        // The cap must also hold when the payload accumulates across many
+        // small chunks (the partial-buffer growth path). The payload must
+        // actually exceed the cap; chunked and whole-stream runs must agree.
+        let mut chunks = vec![b"\x1b]0;".as_slice()];
+        let payload = vec![b'q'; MAX_OSC_LEN + 4096];
+        chunks.extend(payload.chunks(1024));
+        let (clean, _) = run_impl(&chunks);
+        assert!(clean.is_empty(), "partial must not leak: {clean:?}");
+        let (clean2, _) = run_impl(&[chunks.concat().as_slice()]);
+        assert_eq!(clean2, clean);
+    }
+
+    #[test]
+    fn split_esc_backslash_and_bel_boundaries() {
+        // `ESC \` and BEL terminators must survive every byte split, including
+        // splits that put the `ESC` of `ESC \` at the very end of one chunk
+        // and the `\` at the start of the next (the boundary-spanning
+        // terminator) — for both stripped and passthrough OSC numbers.
+        let cases: Vec<&[u8]> = vec![
+            b"a\x1b]0;t1\x1b\\b\x1b]0;t2\x07c",
+            b"\x1b]8;;https://x\x1b\\link",
+            b"\x1b]7;/x\x1b\\\x1b]133;A\x07",
+            b"\x1b]52;0;QUFB\x1b\\\x1b]52;c;?\x07",
+        ];
+        for stream in cases {
+            // Every byte boundary (exhaustive chunking) must agree with the
+            // whole stream.
+            assert_split_invariant(stream);
+            // And the result must match the spec oracle byte-for-byte.
+            let (clean, _) = run_impl(&[stream]);
+            let (expected, _) = oracle_strip(stream);
+            assert_eq!(clean, expected, "stream {stream:?}");
+        }
+    }
+
+    #[test]
+    fn oversize_tiny_chunks_regression_linear_scan() {
+        // Regression for the pathological feeding pattern: an unterminated OSC
+        // far past the cap delivered one byte per chunk. The incremental
+        // scanner must examine/copy bytes only linearly (bytes copied into the
+        // pending buffer stay below the total input size); the old
+        // concatenate-then-rescan design copied ~n²/2 bytes here (≈35 GB),
+        // which is what made this test take over a minute in debug.
+        let mut stream = b"head \x1b]0;".to_vec();
+        stream.extend(std::iter::repeat_n(b'x', MAX_OSC_LEN + 4096));
+        let mut s = OscStripper::new();
+        let mut acc = Vec::new();
+        for &b in &stream {
+            let (clean, events) = s.process(vec![b]);
+            acc.extend_from_slice(&clean);
+            assert!(events.is_empty());
+        }
+        assert_eq!(acc, b"head ".to_vec(), "oversized OSC must be discarded");
+        assert!(
+            s.partial_copies < stream.len(),
+            "pending-OSC accumulation copied {} bytes for a {} byte stream; expected linear, not quadratic",
+            s.partial_copies,
+            stream.len(),
+        );
+    }
+
+    #[test]
+    fn oversized_osc_discard_ends_at_split_st() {
+        let mut s = OscStripper::new();
+        let mut stream = b"\x1b]0;".to_vec();
+        stream.extend(std::iter::repeat_n(b'x', MAX_OSC_LEN + 1));
+        assert!(s.process(stream).0.is_empty());
+        assert!(s.process(b"\x1b".to_vec()).0.is_empty());
+        assert!(s.process(Vec::new()).0.is_empty());
+        let (clean, events) = s.process(b"\\tail\x1b]0;title\x07".to_vec());
+        assert_eq!(clean, b"tail");
+        assert_eq!(events.len(), 1);
+        assert!(!s.discarding);
+    }
+
+    #[test]
+    fn split_osc_interpretations_across_boundaries() {
+        // Every OSC side event (title, cwd, shell integration A–E/P, OSC 52)
+        // must be interpreted identically no matter how its payload is split
+        // across chunks — the incremental accumulation path must dispatch the
+        // exact same payloads as a single-chunk feed.
+        let stream = concat!(
+            "\x1b]0;title\x07\x1b]1;t2\x1b\\\x1b]7;/home/user\x07",
+            "\x1b]133;A\x07\x1b]133;B\x07\x1b]133;C\x07\x1b]133;D;42\x07",
+            "\x1b]633;E;git status\x07\x1b]633;P;IsWindows=true\x07",
+            "\x1b]633;P;Cwd=/home\x07\x1b]52;0;SGVsbG8=\x07\x1b]52;c;?\x1b\\",
+        );
+        let (whole_clean, whole_keys) = run_impl(&[stream.as_bytes()]);
+        assert_eq!(whole_clean, b"", "every sequence must be stripped");
+        assert_eq!(
+            whole_keys,
+            vec![
+                "Title(title)",
+                "Title(t2)",
+                "Cwd(/home/user)",
+                "PromptStart",
+                "PromptEnd",
+                "PreExec",
+                "CommandDone(Some(42))",
+                "CommandLine(git status)",
+                "Cwd(/home)",
+                "Osc52Set(SGVsbG8=)",
+                "Osc52Query(c)",
+            ],
+        );
+        for cuts in [1usize, 3, 9, 31] {
+            let mut g = Gen { seed: 0x7F4A7C15 };
+            let chunks = chunk_random(&mut g, stream.as_bytes(), cuts);
+            let (clean, keys) = run_impl(&chunks);
+            assert_eq!(clean, whole_clean, "clean diverged (cuts={cuts})");
+            assert_eq!(keys, whole_keys, "events diverged (cuts={cuts})");
+        }
+    }
+
+    #[test]
+    fn strips_empty_and_degenerate_oscs() {
+        for stream in [
+            b"\x1b]0;\x1b\\".as_slice(),
+            b"\x1b]7;\x07".as_slice(),
+            b"\x1b]133;\x07".as_slice(),
+            b"\x1b]133\x07".as_slice(),
+            b"\x1b]\x07".as_slice(),
+            b"\x1b]50\x07".as_slice(),
+        ] {
+            let (clean, _) = run_impl(&[stream]);
+            assert!(!clean.contains(&0x1b), "degenerate OSC leaked: {clean:?}");
+            assert_split_invariant(stream);
+        }
+    }
+
+    #[test]
+    fn esc_runs_and_adjacent_sequences() {
+        // Exact expected outputs. Note: `ESC ] ESC ...` is ONE malformed OSC
+        // whose payload contains an ESC (only ST terminates an OSC — same
+        // state-machine semantics as xterm), so it passes through whole.
+        let cases: Vec<(Vec<u8>, Vec<u8>, Vec<&str>)> = vec![
+            (
+                b"\x1b\x1b]0;t\x07".to_vec(),
+                b"\x1b".to_vec(),
+                vec!["Title(t)"],
+            ),
+            (
+                b"\x1b\x1b\x1b]7;x\x07".to_vec(),
+                b"\x1b\x1b".to_vec(),
+                vec!["Cwd(x)"],
+            ),
+            (
+                b"\x1b]0;a\x07\x1b]133;A\x07\x1b]8;;u\x07".to_vec(),
+                b"\x1b]8;;u\x07".to_vec(),
+                vec!["Title(a)", "PromptStart"],
+            ),
+            // Nested ESC: single OSC with payload `A ESC ]133;B` — the number
+            // still parses as 133, so it is stripped (no event); only when
+            // the ESC lands inside the *number* does the sequence become
+            // unrecognized and pass through (xterm's state machine agrees).
+            (b"\x1b]133;A\x1b]133;B\x07".to_vec(), b"".to_vec(), vec![]),
+            (
+                b"\x1b]\x1b]7;x\x07".to_vec(),
+                b"\x1b]\x1b]7;x\x07".to_vec(),
+                vec![],
+            ),
+        ];
+        for (stream, expected, expected_keys) in &cases {
+            assert_split_invariant(stream);
+            let (clean, keys) = run_impl(&[stream]);
+            assert_eq!(clean, *expected, "stream {stream:?}");
+            assert_eq!(keys, *expected_keys, "stream {stream:?}");
+        }
+    }
+
+    #[test]
+    fn control_bytes_inside_payloads() {
+        // CAN/SUB/other control bytes inside an OSC payload must not break
+        // terminator detection (BEL/ST still win).
+        for stream in [
+            b"\x1b]0;a\x18b\x07".as_slice(),
+            b"\x1b]7;c\x1ac\x1b\\".as_slice(),
+            b"\x1b]50;\x18\x1a?\x07".as_slice(),
+        ] {
+            let (clean, _) = run_impl(&[stream]);
+            assert!(
+                !clean.contains(&0x1b),
+                "control-laced OSC leaked: {clean:?}"
+            );
+            assert_split_invariant(stream);
+        }
+    }
+
+    #[test]
+    fn invalid_utf8_passthrough_unchanged() {
+        // Non-UTF-8 payloads are not ours to interpret: the complete
+        // sequence passes through byte-for-byte (and chunking must agree).
+        let stream = b"\x1b]0;\xff\xfe\x80\x07".as_slice();
+        let (clean, keys) = run_impl(&[stream]);
+        assert_eq!(clean, stream);
+        assert!(keys.is_empty());
+        assert_split_invariant(stream);
+        // Same for a recognized-number OSC with non-UTF-8 payload.
+        let stream2 = b"\x1b]7;\xff\x07".as_slice();
+        let (clean2, _) = run_impl(&[stream2]);
+        assert_eq!(clean2, stream2);
+    }
+
+    #[test]
+    fn matches_oracle_on_adversarial_cases() {
+        // Reference-vs-impl over a grab-bag of adversarial fragments.
+        let cases: Vec<Vec<u8>> = vec![
+            b"\x1b]0;x\x1b\x1b]1;y\x07".to_vec(),
+            b"\x1b]7;\x07".to_vec(),
+            b"\x1b]133;\x07".to_vec(),
+            b"\x1b];\x07".to_vec(),
+            b"\x1b]".to_vec(),
+            b"\x1b\x1b]0;t\x1b\\".to_vec(),
+            b"a\x1b]2;\x1b\\b".to_vec(),
+            b"\x1b]0;partial".to_vec(),
+            b"\x1b]0;t\x07\x1b".to_vec(),
+            b"\x1b[31mred\x1b[0m".to_vec(),
+            b"\x1b]50;?\x07x\x1b]1337;\x07".to_vec(),
+            b"\x1b]8;;https://x\x07link".to_vec(),
+        ];
+        for case in &cases {
+            let (expected, _) = oracle_strip(case);
+            let (got, _) = run_impl(&[case]);
+            assert_eq!(got, expected, "case {case:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod alt_screen_tests {
+    use super::*;
+
+    /// Run chunks through a fresh detector, returning `1`/`0` per transition.
+    fn run(chunks: &[&[u8]]) -> Vec<u8> {
+        let mut d = AltScreenDetector::new();
+        let mut out = Vec::new();
+        for c in chunks {
+            d.observe(c, &mut out);
+        }
+        out.iter().map(|&b| u8::from(b)).collect()
+    }
+
+    #[test]
+    fn basic_enter_leave() {
+        assert_eq!(run(&[b"\x1b[?1049h".as_slice()]), vec![1]);
+        assert_eq!(run(&[b"\x1b[?1049l".as_slice()]), Vec::<u8>::new());
+        assert_eq!(
+            run(&[b"\x1b[?1049h".as_slice(), b"\x1b[?1049l".as_slice()]),
+            vec![1, 0]
+        );
+    }
+
+    #[test]
+    fn legacy_aliases() {
+        assert_eq!(run(&[b"\x1b[?1047h".as_slice()]), vec![1]);
+        assert_eq!(run(&[b"\x1b[?47h".as_slice()]), vec![1]);
+        assert_eq!(run(&[b"\x1b[?47l".as_slice()]), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn split_across_chunks() {
+        let stream = b"pre\x1b[?1049hpost\x1b[?1049ltail";
+        for cuts in [1usize, 2, 3, 5, 6, 7] {
+            let mut d = AltScreenDetector::new();
+            let mut out = Vec::new();
+            let mut i = 0;
+            while i < stream.len() {
+                let end = (i + cuts).min(stream.len());
+                d.observe(&stream[i..end], &mut out);
+                i = end;
+            }
+            let got: Vec<u8> = out.iter().map(|&b| u8::from(b)).collect();
+            assert_eq!(got, vec![1, 0], "cuts={cuts}");
+        }
+    }
+
+    #[test]
+    fn ignores_unrelated_sequences() {
+        // Cursor show, wrong final byte, non-private, wrong number, mouse modes.
+        for stream in [
+            b"\x1b[?25h".as_slice(),
+            b"\x1b[?1049m".as_slice(),
+            b"\x1b[1049h".as_slice(),
+            b"\x1b[?10490h".as_slice(),
+            b"\x1b[?1000;1006h".as_slice(),
+            b"\x1b[?1;2c".as_slice(),
+            b"\x1b[31m\x1b[0m".as_slice(),
+        ] {
+            assert!(run(&[stream]).is_empty(), "stream={stream:?}");
+        }
+    }
+
+    #[test]
+    fn multi_param_lists() {
+        assert_eq!(run(&[b"\x1b[?1000;1049h".as_slice()]), vec![1]);
+        assert_eq!(run(&[b"\x1b[?1049;1049h".as_slice()]), vec![1]);
+        assert_eq!(run(&[b"\x1b[?1047;1049l".as_slice()]), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn ris_resets_to_normal() {
+        assert_eq!(
+            run(&[b"\x1b[?1049h".as_slice(), b"\x1bc".as_slice()]),
+            vec![1, 0]
+        );
+    }
+
+    #[test]
+    fn only_reports_transitions() {
+        assert_eq!(
+            run(&[
+                b"\x1b[?1049h".as_slice(),
+                b"\x1b[?1049h".as_slice(),
+                b"text".as_slice(),
+            ]),
+            vec![1]
+        );
+    }
+
+    #[test]
+    fn ignores_csi_inside_passthrough_osc() {
+        // An unknown OSC the stripper passes through whose payload embeds an
+        // alt-screen sequence must not be observed.
+        let mut s = OscStripper::new();
+        let (clean, _) = s.process(b"\x1b]8;;\x1b[?1049h\x07sync".to_vec());
+        assert!(
+            clean.windows(7).any(|w| w == b"\x1b[?1049"),
+            "payload preserved"
+        );
+        let mut d = AltScreenDetector::new();
+        let mut out = Vec::new();
+        d.observe(&clean, &mut out);
+        assert!(out.is_empty(), "cleaned={clean:?}");
     }
 }
 

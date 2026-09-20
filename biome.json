@@ -55,7 +55,8 @@
 				"vite.config.ts",
 				"scripts/tauri.js",
 				"scripts/*.mjs",
-				"src/tests/*.test.mjs"
+				"src/tests/**/*.test.mjs",
+				"src/tests/support/*.mjs"
 			],
 			"linter": {
 				"rules": {

@@ -1,30 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { stripTypeScriptTypes } from "node:module";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
-import { createContext, SourceTextModule } from "node:vm";
 
-const file = fileURLToPath(
-	new URL("../../src/pty/metricsCore.ts", import.meta.url),
-);
-
-async function loadCore() {
-	const src = stripTypeScriptTypes(await readFile(file, "utf8"), {
-		mode: "transform",
-	});
-	const mod = new SourceTextModule(src, {
-		context: createContext({}),
-		identifier: "metricsCore.ts",
-	});
-	await mod.link(() => {
-		throw new Error("metricsCore must not import anything");
-	});
-	await mod.evaluate();
-	return mod.namespace;
-}
-
-const core = await loadCore();
 const {
 	createLatencyWindow,
 	pushLatency,
@@ -42,7 +18,7 @@ const {
 	pruneExpiredWriteTokens,
 	freezeDeep,
 	percentile,
-} = core;
+} = await import("../../pty/metricsCore.ts");
 
 test("latency window computes p50/p95/max/last over the window", () => {
 	const w = createLatencyWindow({ windowMs: 10_000, capacity: 1000 });

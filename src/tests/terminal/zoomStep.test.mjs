@@ -5,20 +5,11 @@
  * can import it directly. Asserts fractional (non-truncated) step application,
  * direction, font-size bounds, and zoom-step setting validation/clamping.
  *
- * Run: node --experimental-strip-types --test src/tests/zoomStep.test.mjs
+ * Run: node --experimental-strip-types --test src/tests/terminal/zoomStep.test.mjs
  */
 
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
-
-const HERE = fileURLToPath(new URL(".", import.meta.url));
-const REPO = resolve(HERE, "..", "..");
-
-const MODULE_URL = pathToFileURL(
-	resolve(REPO, "src/terminal/zoomStep.ts"),
-).href;
 
 const {
 	ZOOM_FONT_MIN,
@@ -28,7 +19,7 @@ const {
 	ZOOM_STEP_MAX,
 	nextZoomFontSize,
 	normalizeZoomStep,
-} = await import(MODULE_URL);
+} = await import("../../terminal/zoomStep.ts");
 
 function assertFontSize(actual, expected) {
 	assert.ok(

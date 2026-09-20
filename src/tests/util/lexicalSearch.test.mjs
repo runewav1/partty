@@ -2,27 +2,20 @@
  * Regression tests for the shared lexical matcher (src/util/lexicalSearch.ts).
  *
  * The matcher backs the command palette, theme picker, settings search and the
- * profile/workspace pickers. These tests pin the semantics the F1/F4
- * maintenance pass must not change: whitespace tokenization, multi-token AND,
- * substring/token-prefix matching, and the ranking tie-breaks. They are the
- * safety net for the palette's filtering/order characterization because the
- * palette renders exactly this function's output.
+ * profile/workspace pickers. These tests pin its semantics: whitespace
+ * tokenization, multi-token AND, substring/token-prefix matching, and the
+ * ranking tie-breaks. They are the safety net for the palette's filtering/order
+ * characterization because the palette renders exactly this function's output.
  *
- * Run: node --experimental-strip-types --test src/tests/lexicalSearch.test.mjs
+ * Run: node --experimental-strip-types --test src/tests/util/lexicalSearch.test.mjs
  */
 
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
 
-const HERE = fileURLToPath(new URL(".", import.meta.url));
-const REPO = resolve(HERE, "..", "..");
-const MODULE_URL = pathToFileURL(
-	resolve(REPO, "src/util/lexicalSearch.ts"),
-).href;
-
-const { filterAndRankLexical, normalizeQuery } = await import(MODULE_URL);
+const { filterAndRankLexical, normalizeQuery } = await import(
+	"../../util/lexicalSearch.ts"
+);
 
 const ITEMS = [
 	{ id: "term-font", label: "Font size", keywords: "text px terminal" },

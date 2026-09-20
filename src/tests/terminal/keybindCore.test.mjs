@@ -9,20 +9,11 @@
  * action → direction / scope helpers. Combos are built from token parts so the
  * tests exercise parsing rather than echoing config literals.
  *
- * Run: node --experimental-strip-types --test src/tests/keybindWheel.test.mjs
+ * Run: node --experimental-strip-types --test src/tests/terminal/keybindCore.test.mjs
  */
 
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
-
-const HERE = fileURLToPath(new URL(".", import.meta.url));
-const REPO = resolve(HERE, "..", "..");
-
-const MODULE_URL = pathToFileURL(
-	resolve(REPO, "src/terminal/keybindCore.ts"),
-).href;
 
 const {
 	DEFAULT_BINDS,
@@ -34,7 +25,7 @@ const {
 	wheelDirectionForDelta,
 	zoomAppliesToAllVisible,
 	zoomDirectionForAction,
-} = await import(MODULE_URL);
+} = await import("../../terminal/keybindCore.ts");
 
 const MOD = {
 	ctrl: "Ctrl",

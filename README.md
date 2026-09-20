@@ -153,6 +153,20 @@ For changes that span across both the back and front-end:
 > pnpm test
 ```
 
+For the full sweep, including the vendored PTY patch crates and the production
+metrics-isolation check (which builds first):
+
+```shell
+> pnpm test:all
+```
+
+Static checks:
+
+```shell
+> pnpm typecheck
+> pnpm lint
+```
+
 ## Roadmap
 
 Partty is *far from done*. Although it achieves very good performance metrics, pushing it to the very maximum

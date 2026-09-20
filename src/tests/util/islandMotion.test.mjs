@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { afterEach, beforeEach, test } from "node:test";
 
 let mediaChanged;
 const media = {
@@ -114,11 +114,36 @@ globalThis.getComputedStyle = () => ({
 			: "cubic-bezier(0.22, 1, 0.36, 1)",
 });
 const { showSurface, hideSurface, applyMotionPreferences } = await import(
-	"../util/motion.ts"
+	"../../util/motion.ts"
 );
-const { disposeIslandMotion, prepareIslandView } = await import(
-	"../util/islandMotion.ts"
-);
+const { disposeIslandMotion, finishIslandMotion, prepareIslandView } =
+	await import("../../util/islandMotion.ts");
+
+// Surfaces created by a test, torn down even when an assertion fails.
+const created = [];
+
+// Reset all shared DOM, class, preference and motion state before each test so
+// tests are independent under the per-file process and standalone runs.
+beforeEach(() => {
+	root.children = [];
+	root.classes.clear();
+	root.dataset = {};
+	media.matches = false;
+	motionOps = [];
+	applyMotionPreferences("normal", "smooth");
+});
+
+afterEach(() => {
+	for (const el of created) disposeIslandMotion(el);
+	finishIslandMotion();
+	created.length = 0;
+	root.children = [];
+	root.classes.clear();
+	root.dataset = {};
+	media.matches = false;
+	motionOps = [];
+	applyMotionPreferences("normal", "smooth");
+});
 
 function surface(host = new Element()) {
 	const el = new Element();
@@ -126,6 +151,7 @@ function surface(host = new Element()) {
 	el.classList.add("hidden");
 	el.panel = new Element();
 	host.append(el);
+	created.push(el);
 	return el;
 }
 function shell(el) {

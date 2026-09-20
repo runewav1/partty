@@ -5,7 +5,7 @@ import {
 	quotePath,
 	translatePasteText,
 	translatePathFromSource,
-} from "../util/paths.ts";
+} from "../../util/paths.ts";
 
 test("relative traversal preserves filesystem roots", () => {
 	for (const [cwd, expected] of [

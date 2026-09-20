@@ -6,23 +6,16 @@
  * terminal/buffer good enough for WebLinkProvider's boundary scan; no xterm
  * instance, DOM or private internals are involved.
  *
- * Run: node --experimental-strip-types --test src/tests/webLinks.test.mjs
+ * Run: node --experimental-strip-types --test src/tests/terminal/webLinks.test.mjs
  */
 
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
-
-const HERE = fileURLToPath(new URL(".", import.meta.url));
-const REPO = resolve(HERE, "..", "..");
 
 const { setActivationModifier } = await import(
-	pathToFileURL(resolve(REPO, "src/terminal/linkProvider.ts")).href
+	"../../terminal/linkProvider.ts"
 );
-const { registerWebLinksProvider } = await import(
-	pathToFileURL(resolve(REPO, "src/terminal/webLinks.ts")).href
-);
+const { registerWebLinksProvider } = await import("../../terminal/webLinks.ts");
 
 function makeFakeTerminal(text) {
 	const registrations = [];

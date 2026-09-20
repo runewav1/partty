@@ -7,62 +7,17 @@
  * closes the previous view, and dismissing the active view hides the host only
  * once nothing is open.
  *
- * Run: node --experimental-strip-types --test src/tests/commandIsland.test.mjs
+ * Run: node --experimental-strip-types --test src/tests/app/commandIsland.test.mjs
  */
 
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { FakeElement } from "../support/dom.mjs";
 
-const HERE = fileURLToPath(new URL(".", import.meta.url));
-const REPO = resolve(HERE, "..", "..");
-const MODULE_URL = pathToFileURL(
-	resolve(REPO, "src/app/commandIsland.ts"),
-).href;
-
-const { createCommandIsland } = await import(MODULE_URL);
-
-class FakeClassList {
-	#set = new Set();
-	add(...names) {
-		for (const n of names) this.#set.add(n);
-	}
-	remove(...names) {
-		for (const n of names) this.#set.delete(n);
-	}
-	contains(name) {
-		return this.#set.has(name);
-	}
-}
-
-class FakeEl {
-	constructor() {
-		this.children = [];
-		this.parentElement = null;
-		this.classList = new FakeClassList();
-		this.dataset = {};
-		this.attrs = new Map();
-	}
-	append(child) {
-		if (child.parentElement) {
-			child.parentElement.children = child.parentElement.children.filter(
-				(c) => c !== child,
-			);
-		}
-		child.parentElement = this;
-		this.children.push(child);
-	}
-	setAttribute(name, value) {
-		this.attrs.set(name, String(value));
-	}
-	getAttribute(name) {
-		return this.attrs.has(name) ? this.attrs.get(name) : null;
-	}
-}
+const { createCommandIsland } = await import("../../app/commandIsland.ts");
 
 function makeHarness() {
-	const host = new FakeEl();
+	const host = new FakeElement();
 	const island = createCommandIsland(host);
 	const closed = [];
 	const state = new Map();
@@ -72,7 +27,7 @@ function makeHarness() {
 		state.set(id, s);
 		views[id] = {
 			id,
-			element: new FakeEl(),
+			element: new FakeElement(),
 			hiddenClass: `${id}--hidden`,
 			isOpen: () => s.open,
 			close: () => {

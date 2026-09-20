@@ -7,22 +7,14 @@
  * boundary so a schemed URL is never re-detected as a URL or misread as a
  * drive path (`s://`).
  *
- * Run: node --experimental-strip-types --test src/tests/linkExtraction.test.mjs
+ * Run: node --experimental-strip-types --test src/tests/util/linkExtraction.test.mjs
  */
 
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
-
-const HERE = fileURLToPath(new URL(".", import.meta.url));
-const REPO = resolve(HERE, "..", "..");
-const MODULE_URL = pathToFileURL(
-	resolve(REPO, "src/util/linkExtraction.ts"),
-).href;
 
 const { findTerminalLinkMatches, normalizeExactExternalUrl } = await import(
-	MODULE_URL
+	"../../util/linkExtraction.ts"
 );
 
 function urls(line, cwd = null) {

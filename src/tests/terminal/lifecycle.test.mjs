@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { stripTypeScriptTypes } from "node:module";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
-import { createContext, SourceTextModule, SyntheticModule } from "node:vm";
+import { createVmLoader } from "../support/vm.mjs";
 
-const root = fileURLToPath(new URL("../../src/", import.meta.url));
+const root = resolve(import.meta.dirname, "../..");
 const noop = () => {};
 class Element {
 	dataset = {};
@@ -26,20 +23,6 @@ class Terminal {
 
 async function modules(extraMocks = {}) {
 	const storage = new Map();
-	const context = createContext({
-		console,
-		performance,
-		localStorage: {
-			getItem: (key) => storage.get(key) ?? null,
-			setItem: (key, value) => storage.set(key, value),
-			removeItem: (key) => storage.delete(key),
-		},
-		document: { createElement: () => new Element() },
-		ResizeObserver: class {
-			observe = noop;
-		},
-		requestIdleCallback: noop,
-	});
 	const mocks = {
 		"@xterm/xterm": { Terminal },
 		"@xterm/addon-fit": { FitAddon: class {} },
@@ -53,52 +36,25 @@ async function modules(extraMocks = {}) {
 		},
 		...extraMocks,
 	};
-	const cache = new Map();
-	async function load(specifier, parent = resolve(root, "entry.ts")) {
-		const key = specifier.startsWith(".")
-			? resolve(
-					dirname(parent),
-					specifier.endsWith(".ts") ? specifier : `${specifier}.ts`,
-				)
-			: specifier;
-		if (cache.has(key)) return cache.get(key);
-		let mod;
-		if (mocks[key]) {
-			mod = new SyntheticModule(
-				Object.keys(mocks[key]),
-				function () {
-					for (const [name, value] of Object.entries(mocks[key]))
-						this.setExport(name, value);
-				},
-				{ context, identifier: key },
-			);
-		} else {
-			mod = new SourceTextModule(
-				stripTypeScriptTypes(await readFile(key, "utf8"), {
-					mode: "transform",
-				}),
-				{
-					context,
-					identifier: key,
-					importModuleDynamically: async (name, ref) => {
-						const child = await load(name, ref.identifier);
-						if (child.status === "unlinked") await child.link(link);
-						if (child.status === "linked") await child.evaluate();
-						return child;
-					},
-				},
-			);
-		}
-		cache.set(key, mod);
-		return mod;
-	}
-	const link = (name, ref) => load(name, ref.identifier);
-	const api = async (path) => {
-		const mod = await load(resolve(root, path));
-		if (mod.status === "unlinked") await mod.link(link);
-		if (mod.status === "linked") await mod.evaluate();
-		return mod.namespace;
-	};
+	const loader = createVmLoader({
+		root,
+		globals: {
+			console,
+			performance,
+			localStorage: {
+				getItem: (key) => storage.get(key) ?? null,
+				setItem: (key, value) => storage.set(key, value),
+				removeItem: (key) => storage.delete(key),
+			},
+			document: { createElement: () => new Element() },
+			ResizeObserver: class {
+				observe = noop;
+			},
+			requestIdleCallback: noop,
+		},
+		stubs: mocks,
+	});
+	const api = (path) => loader.api(path);
 	api.storage = storage;
 	return api;
 }
@@ -325,7 +281,7 @@ test("renderer creation is shared and a late completion cannot survive hide", as
 });
 
 /**
- * Pane motion FLIP regression (P1).
+ * Pane motion FLIP regression.
  *
  * `playPaneMotion` must finish every geometry read before it writes any custom
  * property, keep the movement thresholds/values and preserve animation order.

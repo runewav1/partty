@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { stripTypeScriptTypes } from "node:module";
-import { dirname, resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
-import { createContext, SourceTextModule } from "node:vm";
+import { createVmLoader } from "../support/vm.mjs";
 
-const root = fileURLToPath(new URL("../../src/", import.meta.url));
 const WRITE_TOKEN_EXPIRE_MS = 2000;
 const WRITE_TOKEN_MAX = 256;
 
@@ -72,38 +67,11 @@ async function createEnv({ noPerformanceObserver = false } = {}) {
 			}
 		};
 	}
-	const context = createContext(globals);
-	const cache = new Map();
-	async function load(specifier, parent = resolve(root, "pty/perf.ts")) {
-		const key = specifier.startsWith(".")
-			? resolve(
-					dirname(parent),
-					specifier.endsWith(".ts") ? specifier : `${specifier}.ts`,
-				)
-			: specifier;
-		if (cache.has(key)) return cache.get(key);
-		const mod = new SourceTextModule(
-			stripTypeScriptTypes(await readFile(key, "utf8"), {
-				mode: "transform",
-			}),
-			{
-				context,
-				identifier: key,
-				importModuleDynamically: async (name, ref) => {
-					const child = await load(name, ref.identifier);
-					if (child.status === "unlinked") await child.link(link);
-					if (child.status === "linked") await child.evaluate();
-					return child;
-				},
-			},
-		);
-		cache.set(key, mod);
-		return mod;
-	}
-	const link = (name, ref) => load(name, ref.identifier);
-	const entry = await load(resolve(root, "pty/perf.ts"));
-	if (entry.status === "unlinked") await entry.link(link);
-	if (entry.status === "linked") await entry.evaluate();
+	const loader = createVmLoader({
+		root: new URL("../../", import.meta.url),
+		globals,
+	});
+	const entry = await loader.api("pty/perf.ts");
 	const pumpRaf = (n = 1) => {
 		for (let i = 0; i < n; i++) {
 			if (raf.pending.size === 0) return;
@@ -113,7 +81,7 @@ async function createEnv({ noPerformanceObserver = false } = {}) {
 		}
 	};
 	return {
-		parttyPerf: entry.namespace.parttyPerf,
+		parttyPerf: entry.parttyPerf,
 		clock,
 		raf,
 		observers,
@@ -192,46 +160,107 @@ test("term write tokens record enqueue to callback latency", async () => {
 	assert.equal(pane.rates.out, null);
 });
 
-test("term write tokens expire after the expiry budget", async () => {
+// The pure write-token arithmetic (expiry/capacity/reset) is asserted against
+// the registry in metricsCore.test.mjs. The collector facade is not a thin
+// passthrough: beginTermWrite/finishTermWrite/cancelTermWrite bump *per-pane*
+// tallies for expired/overflow/cancelled/completed, and
+// snapshot/getPaneSnapshot sweep expiry with per-pane attribution. The tests
+// below assert those facade-only outcomes, so they are not registry duplicates.
+
+test("cancelTermWrite attributes the cancel per pane and ignores the late callback", async () => {
 	const env = await createEnv();
 	const { parttyPerf, clock } = env;
 	parttyPerf.configure({ enabled: true, reset: true });
 	clock.now = 1000;
-	const token = parttyPerf.beginTermWrite("1a", 10);
-	clock.now = 1000 + WRITE_TOKEN_EXPIRE_MS + 1;
-	parttyPerf.finishTermWrite(token);
-	const snap = parttyPerf.snapshot();
-	assert.equal(snap.writeTokens.expired, 1);
+	const cancelled = parttyPerf.beginTermWrite("1a", 8);
+	const live = parttyPerf.beginTermWrite("1b", 5);
+
+	parttyPerf.cancelTermWrite(cancelled);
+	let snap = parttyPerf.snapshot();
+	assert.equal(snap.writeTokens.cancelled, 1);
+	assert.equal(snap.writeTokens.outstanding, 1);
+	const paneA = parttyPerf.getPaneSnapshot("1a");
+	const paneB = parttyPerf.getPaneSnapshot("1b");
+	assert.equal(paneA.writeTokens.cancelled, 1);
+	assert.equal(paneA.writeTokens.started, 1);
+	assert.equal(paneB.writeTokens.cancelled, 0);
+	assert.equal(paneB.writeTokens.outstanding, 1);
+
+	// A late callback for the cancelled token must not complete or sample latency.
+	clock.now = 1100;
+	parttyPerf.finishTermWrite(cancelled);
+	snap = parttyPerf.snapshot();
+	assert.equal(snap.writeTokens.completed, 0);
+	assert.equal(snap.writeLatency.n, 0);
+
+	// The other pane's token still completes normally.
+	parttyPerf.finishTermWrite(live);
+	assert.equal(parttyPerf.snapshot().writeTokens.completed, 1);
+	assert.equal(parttyPerf.getPaneSnapshot("1b").writeTokens.completed, 1);
+	assert.equal(parttyPerf.getPaneSnapshot("1b").writeTokens.cancelled, 0);
+});
+
+test("reset cancels outstanding tokens, clears panes and ignores late callbacks", async () => {
+	const env = await createEnv();
+	const { parttyPerf, clock } = env;
+	parttyPerf.configure({ enabled: true, reset: true });
+	clock.now = 1000;
+	const a = parttyPerf.beginTermWrite("1a", 5);
+	const b = parttyPerf.beginTermWrite("1b", 7);
+
+	parttyPerf.reset();
+	let snap = parttyPerf.snapshot();
+	assert.equal(snap.writeTokens.cancelled, 2);
+	assert.equal(snap.writeTokens.outstanding, 0);
+	assert.equal(snap.writeLatency.n, 0);
+	assert.equal(parttyPerf.getPaneSnapshot("1a"), null);
+	assert.equal(parttyPerf.getPaneSnapshot("1b"), null);
+
+	clock.now = 1100;
+	parttyPerf.finishTermWrite(a);
+	parttyPerf.finishTermWrite(b);
+	snap = parttyPerf.snapshot();
 	assert.equal(snap.writeTokens.completed, 0);
 	assert.equal(snap.writeLatency.n, 0);
 });
 
-test("term write tokens overflow at capacity", async () => {
-	const env = await createEnv();
-	const { parttyPerf } = env;
-	parttyPerf.configure({ enabled: true, reset: true });
-	for (let i = 0; i < WRITE_TOKEN_MAX + 4; i++) {
-		parttyPerf.beginTermWrite("1a", 1);
-	}
-	const snap = parttyPerf.snapshot();
-	assert.equal(snap.writeTokens.outstanding, WRITE_TOKEN_MAX);
-	assert.equal(snap.writeTokens.overflow, 4);
-});
-
-test("reset invalidates in-flight tokens and late callbacks are ignored", async () => {
+test("expired tokens are attributed to their own pane on finish", async () => {
 	const env = await createEnv();
 	const { parttyPerf, clock } = env;
 	parttyPerf.configure({ enabled: true, reset: true });
 	clock.now = 1000;
-	const token = parttyPerf.beginTermWrite("1a", 5);
-	parttyPerf.reset();
-	assert.equal(parttyPerf.snapshot().writeTokens.cancelled, 1);
-	assert.equal(parttyPerf.snapshot().writeTokens.outstanding, 0);
-	clock.now = 1100;
-	parttyPerf.finishTermWrite(token);
-	const after = parttyPerf.snapshot();
-	assert.equal(after.writeTokens.completed, 0);
-	assert.equal(after.writeLatency.n, 0);
+	const aged = parttyPerf.beginTermWrite("1a", 10);
+	clock.now = 1000 + WRITE_TOKEN_EXPIRE_MS + 1;
+	parttyPerf.finishTermWrite(aged);
+
+	const paneA = parttyPerf.getPaneSnapshot("1a");
+	assert.equal(paneA.writeTokens.expired, 1);
+	assert.equal(paneA.writeTokens.started, 1);
+	assert.equal(parttyPerf.snapshot().writeLatency.n, 0);
+
+	const fresh = parttyPerf.beginTermWrite("1b", 4);
+	const paneB = parttyPerf.getPaneSnapshot("1b");
+	assert.equal(paneB.writeTokens.expired, 0);
+	assert.equal(paneB.writeTokens.outstanding, 1);
+	parttyPerf.finishTermWrite(fresh);
+	assert.equal(parttyPerf.getPaneSnapshot("1b").writeTokens.completed, 1);
+});
+
+test("capacity overflow is attributed to the evicted pane", async () => {
+	const env = await createEnv();
+	const { parttyPerf } = env;
+	parttyPerf.configure({ enabled: true, reset: true });
+	for (let i = 0; i < WRITE_TOKEN_MAX; i++) {
+		parttyPerf.beginTermWrite("1a", 1);
+	}
+	// The next token evicts the oldest 1a token as overflow for pane 1a.
+	parttyPerf.beginTermWrite("1b", 1);
+	const paneA = parttyPerf.getPaneSnapshot("1a");
+	assert.equal(paneA.writeTokens.overflow, 1);
+	assert.equal(paneA.writeTokens.outstanding, WRITE_TOKEN_MAX - 1);
+	const paneB = parttyPerf.getPaneSnapshot("1b");
+	assert.equal(paneB.writeTokens.overflow, 0);
+	assert.equal(paneB.writeTokens.outstanding, 1);
 });
 
 test("resetPane cancels in-flight tokens for that pane only", async () => {
@@ -427,21 +456,8 @@ test("snapshot sweeps tokens whose callback never fires and attributes per-pane"
 	assert.equal(paneB.writeTokens.expired, 1);
 });
 
-test("cancelTermWrite cancels a pending token for synchronous write throws", async () => {
-	const env = await createEnv();
-	const { parttyPerf, clock } = env;
-	parttyPerf.configure({ enabled: true, reset: true });
-	clock.now = 1000;
-	const token = parttyPerf.beginTermWrite("1a", 8);
-	parttyPerf.cancelTermWrite(token);
-	const snap = parttyPerf.snapshot();
-	assert.equal(snap.writeTokens.cancelled, 1);
-	assert.equal(snap.writeTokens.outstanding, 0);
-	clock.now = 1100;
-	parttyPerf.finishTermWrite(token);
-	assert.equal(parttyPerf.snapshot().writeTokens.completed, 0);
-	assert.equal(parttyPerf.snapshot().writeLatency.n, 0);
-});
+// Single-token cancel (`cancelTermWrite` → primitive `cancelWriteToken`) is
+// covered in metricsCore.test.mjs; the facade adds no behavior here.
 
 test("reset discards queued observer records so pre-reset entries don't count", async () => {
 	const env = await createEnv();

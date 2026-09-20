@@ -7,22 +7,15 @@
  * (active vs not), follow status, and liveness; the helper returns the
  * order-preserving, dedup'd "currently visible" set that the wheel batch feeds.
  *
- * Run: node --experimental-strip-types --test src/tests/zoomTargets.test.mjs
+ * Run: node --experimental-strip-types --test src/tests/terminal/zoomTargets.test.mjs
  */
 
 import assert from "node:assert/strict";
-import { resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
 
-const HERE = fileURLToPath(new URL(".", import.meta.url));
-const REPO = resolve(HERE, "..", "..");
-
-const MODULE_URL = pathToFileURL(
-	resolve(REPO, "src/terminal/zoomTargets.ts"),
-).href;
-
-const { selectVisibleZoomPaneIds } = await import(MODULE_URL);
+const { selectVisibleZoomPaneIds } = await import(
+	"../../terminal/zoomTargets.ts"
+);
 
 /** Build a normalized pane descriptor (mirrors main.ts's production shape). */
 function pane(id, overrides = {}) {

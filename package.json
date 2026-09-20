@@ -7,9 +7,13 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "tsc && vite build",
+		"typecheck": "tsc --noEmit",
+		"lint": "biome check .",
 		"test": "pnpm run test:front && pnpm run test:rust",
 		"test:front": "node --experimental-vm-modules --experimental-strip-types --test \"src/tests/**/*.test.mjs\"",
 		"test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+		"test:rust:patches": "cargo test --manifest-path src-tauri/patches/portable-pty/Cargo.toml && cargo test --manifest-path src-tauri/patches/filedescriptor/Cargo.toml",
+		"test:all": "pnpm run test:front && pnpm run test:rust && pnpm run test:rust:patches && pnpm run test:prod",
 		"test:prod": "pnpm run build && node scripts/check-production-metrics.mjs",
 		"preview": "vite preview",
 		"tauri": "node scripts/tauri.js",
@@ -30,6 +34,7 @@
 		"@xterm/xterm": "6.1.0-beta.304"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "2.5.14",
 		"@tauri-apps/cli": "^2.11.4",
 		"typescript": "~7.0.2",
 		"vite": "^8.3.0"

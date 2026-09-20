@@ -2,23 +2,21 @@
  * Behavioral tests for the command palette controller (src/app/commandPalette.ts).
  *
  * Peripherals (motion / cursor / overlay stack) are stub modules loaded through
- * a VM loader (same SourceTextModule pattern as perf.test.mjs), so the palette
+ * a VM loader (same SourceTextModule pattern as the perf suite), so the palette
  * runs in isolation. Each test gets a fresh VM and disposes its palette via
  * `t.after`, so module state, timers and the overlay stack never leak.
  *
- * Run: node --experimental-vm-modules --experimental-strip-types --test src/tests/commandPalette.test.mjs
+ * Run: node --experimental-vm-modules --experimental-strip-types --test src/tests/app/commandPalette.test.mjs
  */
 
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { stripTypeScriptTypes } from "node:module";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { createContext, SourceTextModule } from "node:vm";
+import { pathToFileURL } from "node:url";
+import { FakeElement, FakeFragment } from "../support/dom.mjs";
+import { createVmLoader } from "../support/vm.mjs";
 
-const ROOT = fileURLToPath(new URL("../../src/", import.meta.url));
-const ENTRY = resolve(ROOT, "app/commandPalette.ts");
+const ROOT = resolve(import.meta.dirname, "../..");
 const LEXICAL_URL = pathToFileURL(resolve(ROOT, "util/lexicalSearch.ts")).href;
 
 const { filterAndRankLexical, normalizeQuery } = await import(LEXICAL_URL);
@@ -56,132 +54,7 @@ const STUBS = new Map([
 	],
 ]);
 
-// --- Minimal DOM stubs (only what commandPalette touches). ---
-
-const WHITESPACE_RE = /\s+/;
-
-class FakeClassList {
-	#set = new Set();
-	add(...names) {
-		for (const name of names) if (name) this.#set.add(name);
-	}
-	remove(...names) {
-		for (const name of names) this.#set.delete(name);
-	}
-	contains(name) {
-		return this.#set.has(name);
-	}
-	toggle(name, force) {
-		const on = force === undefined ? !this.#set.has(name) : Boolean(force);
-		if (on) this.#set.add(name);
-		else this.#set.delete(name);
-		return on;
-	}
-	reset(raw) {
-		this.#set.clear();
-		if (!raw) return;
-		for (const name of String(raw).split(WHITESPACE_RE)) {
-			if (name) this.#set.add(name);
-		}
-	}
-}
-
-function matchesSelector(el, selector) {
-	if (selector.startsWith(".")) return el.classList.contains(selector.slice(1));
-	if (selector === "[data-index]") return el.dataset.index !== undefined;
-	const prefix = '[data-index="';
-	if (selector.startsWith(prefix)) {
-		return el.dataset.index === selector.slice(prefix.length, -2);
-	}
-	return false;
-}
-
-class FakeElement {
-	constructor(tag) {
-		this.tagName = String(tag).toUpperCase();
-		this.children = [];
-		this.parentElement = null;
-		this.classList = new FakeClassList();
-		this.dataset = {};
-		this.attrs = new Map();
-		this.listeners = new Map();
-		this.textContent = "";
-		this.innerHTML = "";
-	}
-	set className(value) {
-		this.classList.reset(value);
-	}
-	setAttribute(name, value) {
-		this.attrs.set(name, String(value));
-	}
-	getAttribute(name) {
-		return this.attrs.has(name) ? this.attrs.get(name) : null;
-	}
-	removeAttribute(name) {
-		this.attrs.delete(name);
-	}
-	appendChild(child) {
-		if (child.parentElement) {
-			child.parentElement.children = child.parentElement.children.filter(
-				(c) => c !== child,
-			);
-		}
-		child.parentElement = this;
-		this.children.push(child);
-		return child;
-	}
-	replaceChildren(...nodes) {
-		this.children = [];
-		for (const node of nodes) {
-			if (!node) continue;
-			if (node.isFragment) {
-				for (const child of [...node.children]) this.appendChild(child);
-				node.children = [];
-			} else this.appendChild(node);
-		}
-	}
-	querySelectorAll(selector) {
-		const out = [];
-		const walk = (node) => {
-			for (const child of node.children) {
-				if (matchesSelector(child, selector)) out.push(child);
-				walk(child);
-			}
-		};
-		walk(this);
-		return out;
-	}
-	querySelector(selector) {
-		return this.querySelectorAll(selector)[0] ?? null;
-	}
-	addEventListener(type, fn) {
-		const list = this.listeners.get(type) ?? [];
-		list.push(fn);
-		this.listeners.set(type, list);
-	}
-	removeEventListener(type, fn) {
-		const list = this.listeners.get(type);
-		if (list)
-			this.listeners.set(
-				type,
-				list.filter((f) => f !== fn),
-			);
-	}
-	focus() {}
-	scrollIntoView() {}
-	setSelectionRange() {}
-}
-
-class FakeFragment {
-	constructor() {
-		this.isFragment = true;
-		this.children = [];
-	}
-	appendChild(child) {
-		this.children.push(child);
-		return child;
-	}
-}
+// The DOM fixtures and VM loader live in ../support/ (shared with other suites).
 
 /** Compile the controller once per test with isolated state and stubbed peers. */
 async function createEnv() {
@@ -206,37 +79,24 @@ async function createEnv() {
 		},
 		clearInterval: (id) => state.intervals.delete(id),
 	};
-	const context = createContext({
-		document: documentStub,
-		window: windowStub,
-		requestAnimationFrame: (fn) => {
-			const id = ++state.id;
-			state.rafs.set(id, fn);
-			return id;
+	const loader = createVmLoader({
+		root: ROOT,
+		globals: {
+			document: documentStub,
+			window: windowStub,
+			requestAnimationFrame: (fn) => {
+				const id = ++state.id;
+				state.rafs.set(id, fn);
+				return id;
+			},
+			cancelAnimationFrame: (id) => state.rafs.delete(id),
 		},
-		cancelAnimationFrame: (id) => state.rafs.delete(id),
+		stubs: STUBS,
 	});
-
-	const cache = new Map();
-	const load = async (specifier, parent = ENTRY) => {
-		const key = specifier.startsWith(".")
-			? resolve(dirname(parent), specifier)
-			: specifier;
-		if (cache.has(key)) return cache.get(key);
-		const source =
-			STUBS.get(key) ??
-			stripTypeScriptTypes(await readFile(key, "utf8"), { mode: "transform" });
-		const mod = new SourceTextModule(source, { context, identifier: key });
-		cache.set(key, mod);
-		return mod;
-	};
-	const link = (name, ref) => load(name, ref.identifier);
-	const entry = await load(ENTRY);
-	if (entry.status === "unlinked") await entry.link(link);
-	if (entry.status === "linked") await entry.evaluate();
+	const entry = await loader.api("app/commandPalette.ts");
 
 	return {
-		createCommandPalette: entry.namespace.createCommandPalette,
+		createCommandPalette: entry.createCommandPalette,
 		document: documentStub,
 		get createCount() {
 			return state.createCount;
