@@ -176,7 +176,41 @@ export type LeafGeometry = {
 	cy: number;
 };
 
+type PaneRect = {
+	left: number;
+	top: number;
+	width: number;
+	height: number;
+};
+
 type PaneMotionSnapshot = Map<string, DOMRect>;
+
+/** Current uniform focus-scale factor on a pane leaf (1 when not scaled). */
+function focusScaleOf(el: HTMLElement): number {
+	const value = getComputedStyle(el).scale;
+	if (!value || value === "none") return 1;
+	const scale = Number.parseFloat(value);
+	return Number.isFinite(scale) && scale > 0 ? scale : 1;
+}
+
+/**
+ * Destination rect without the centre-origin focus scale, which is disabled
+ * by `.pane-leaf--moving`. The source snapshot stays visual so the animation
+ * starts where the pane was actually displayed, including interrupted motion.
+ */
+function paneLayoutRect(el: HTMLElement): PaneRect {
+	const rect = el.getBoundingClientRect();
+	const scale = focusScaleOf(el);
+	if (scale === 1) return rect;
+	const width = rect.width / scale;
+	const height = rect.height / scale;
+	return {
+		left: rect.left + (rect.width - width) / 2,
+		top: rect.top + (rect.height - height) / 2,
+		width,
+		height,
+	};
+}
 
 type FocusDir =
 	| "h"
@@ -1349,7 +1383,7 @@ export class PaneHost {
 		for (const [id, rect] of snapshot) {
 			const leaf = this.leafEl(id);
 			if (!leaf) continue;
-			const after = leaf.getBoundingClientRect();
+			const after = paneLayoutRect(leaf);
 			const dx = rect.left - after.left;
 			const dy = rect.top - after.top;
 			const sx = rect.width / Math.max(1, after.width);

@@ -47,6 +47,12 @@ async function modules(extraMocks = {}) {
 				removeItem: (key) => storage.delete(key),
 			},
 			document: { createElement: () => new Element() },
+			getComputedStyle: (el) => ({
+				scale:
+					el && typeof el.focusScale === "number"
+						? String(el.focusScale)
+						: "none",
+			}),
 			ResizeObserver: class {
 				observe = noop;
 			},
@@ -307,6 +313,9 @@ function createMotionPaneHost(PaneHost, events) {
 			id,
 			rect: { left: 0, top: 0, width: 100, height: 100 },
 			nextRect: null,
+			// Uniform focus-scale factor about the bounding-box centre, mirrored
+			// by the `getComputedStyle` global above.
+			focusScale: 1,
 			style: {
 				setProperty(name, value) {
 					log.push({ type: "write", id, name, value });
@@ -318,7 +327,14 @@ function createMotionPaneHost(PaneHost, events) {
 			classList: { add: noop, remove: noop, toggle: noop },
 			getBoundingClientRect() {
 				log.push({ type: "read", id });
-				return { ...this.rect };
+				const width = this.rect.width * this.focusScale;
+				const height = this.rect.height * this.focusScale;
+				return {
+					left: this.rect.left + (this.rect.width - width) / 2,
+					top: this.rect.top + (this.rect.height - height) / 2,
+					width,
+					height,
+				};
 			},
 		};
 		leaves.set(id, leaf);
@@ -480,4 +496,63 @@ test("pane motion is fully skipped under reduced motion", async () => {
 	assert.equal(host.swapPanes("1a", "1b"), true);
 	assert.deepEqual(events.animates, []);
 	assert.deepEqual(log, [], "no reads or writes when motion is disabled");
+});
+
+test("first split starts at the original size when the surviving pane becomes unfocused", async () => {
+	const events = { animates: [] };
+	const load = await modules({
+		[resolve(root, "util/motion.ts")]: motionMock(events),
+	});
+	const { PaneHost } = await load("terminal/paneHost.ts");
+	const { host, leaves, log } = createMotionPaneHost(PaneHost, events);
+	const before = host.capturePaneMotion(["1a"]);
+	leaves.get("1a").rect = { left: 0, top: 0, width: 50, height: 100 };
+	leaves.get("1a").focusScale = 0.994;
+	host.playPaneMotion(before);
+	const written = (name) =>
+		log.find((e) => e.type === "write" && e.name === name)?.value;
+	assert.equal(written("--pane-motion-sx"), "2");
+	assert.equal(written("--pane-motion-sy"), "1");
+	assert.equal(written("--pane-motion-dx"), "0px");
+	assert.equal(written("--pane-motion-dy"), "0px");
+});
+
+test("pane motion starts at the visible source without double-counting destination focus scale", async () => {
+	const events = { animates: [] };
+	const load = await modules({
+		[resolve(root, "util/motion.ts")]: motionMock(events),
+	});
+	const { PaneHost } = await load("terminal/paneHost.ts");
+	const { host, leaves, log } = createMotionPaneHost(PaneHost, events);
+
+	// The source may already have focus scaling; preserve its visible bounds.
+	leaves.get("1a").rect = { left: 0, top: 0, width: 100, height: 100 };
+	leaves.get("1a").nextRect = { left: 100, top: 0, width: 100, height: 100 };
+	leaves.get("1b").rect = { left: 100, top: 0, width: 100, height: 100 };
+	leaves.get("1b").nextRect = { left: 0, top: 0, width: 100, height: 100 };
+
+	// The destination's focus scale disappears when the moving class is added.
+	// It must not contaminate the FLIP denominator or destination position.
+	const delta = 0.006;
+	leaves.get("1a").focusScale = 1 + delta;
+	leaves.get("1b").focusScale = 1 - delta;
+	const baseMount = PaneHost.prototype.mountTree;
+	PaneHost.prototype.mountTree = function () {
+		baseMount.call(this);
+		leaves.get("1a").focusScale = 1 - delta;
+		leaves.get("1b").focusScale = 1 + delta;
+	};
+
+	assert.equal(host.swapPanes("1a", "1b"), true);
+	const written = (id, name) =>
+		log.find((e) => e.type === "write" && e.id === id && e.name === name)
+			?.value;
+	const near = (actual, expected) =>
+		assert.ok(Math.abs(actual - expected) < 1e-9);
+	near(Number(written("1a", "--pane-motion-sx")) * 100, 100 * (1 + delta));
+	near(
+		100 + Number.parseFloat(written("1a", "--pane-motion-dx")),
+		(-100 * delta) / 2,
+	);
+	near(Number(written("1b", "--pane-motion-sx")) * 100, 100 * (1 - delta));
 });
