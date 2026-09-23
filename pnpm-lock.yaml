@@ -167,11 +167,11 @@ importers:
   .:
     dependencies:
       '@partty/addon-webgl':
-        specifier: 0.20.2
-        version: 0.20.2
+        specifier: 0.20.3-rc1
+        version: 0.20.3-rc1
       '@partty/addon-webgpu':
-        specifier: 0.1.6
-        version: 0.1.6
+        specifier: 0.1.7-rc1
+        version: 0.1.7-rc1
       '@tauri-apps/api':
         specifier: ^2.11.1
         version: 2.11.1
@@ -275,11 +275,11 @@ packages:
   '@oxc-project/types@0.150.0':
     resolution: {integrity: sha512-rDS5/31E9HfPl/CIzGrn0DOlvBbXFseQ5URJ9sYMfstbKLD/c6Gm9vmRzRGDdAXyOIL4zmO37lc9RIwYqVruZw==}
 
-  '@partty/addon-webgl@0.20.2':
-    resolution: {integrity: sha512-uw/efkl14Z+qKE//s0Csz/B5pzQSkb1sjNf+jmQVC9pQj+8t1DYbqHUFPLk/18dwBQQuuujfpW1rF1iKo03HSw==}
+  '@partty/addon-webgl@0.20.3-rc1':
+    resolution: {integrity: sha512-ZZtSJUMkCQqB06CQutKTG/iEqREPkv5AMYu4bpgOfGhAolpggF+moHEOkJ4tFMgXQdc7r7/SNo1yOVipG4H+JQ==}
 
-  '@partty/addon-webgpu@0.1.6':
-    resolution: {integrity: sha512-s3a/xVbQHc06O/QipgA+qBGX30nuqJvDXsFKh9VwRC4TQoRPw3sPGR0TroMOgvIxt9pglIH4qKu9gr4xBFNEUg==}
+  '@partty/addon-webgpu@0.1.7-rc1':
+    resolution: {integrity: sha512-Ma+KbV4S83Ceh3ei/rM22ed8lpyuazVPbEGgvZVEjOmsdwGWtI2OIkuK8cfDmikeKyUWNqplCDmkvKP92LJDiA==}
 
   '@rolldown/binding-android-arm-eabi@1.2.9':
     resolution: {integrity: sha512-tNISae1QEf/vkb3xkRcjV5SEdzPE97We5IVaa2Z8jSszQPZ8U60B/YCYpw4QI7VidYsBtKavczXf+DyDs9WGxw==}
@@ -834,9 +834,9 @@ snapshots:
 
   '@oxc-project/types@0.150.0': {}
 
-  '@partty/addon-webgl@0.20.2': {}
+  '@partty/addon-webgl@0.20.3-rc1': {}
 
-  '@partty/addon-webgpu@0.1.6': {}
+  '@partty/addon-webgpu@0.1.7-rc1': {}
 
   '@rolldown/binding-android-arm-eabi@1.2.9':
     optional: true
