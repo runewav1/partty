@@ -139,15 +139,12 @@
                   <select id="setting-font-terminal" name="font_terminal" class="settings-input settings-input--font"></select>
                 </div>
                 <div class="settings-item" data-pref="terminal_font_size" data-keywords="font text size px">
-                  <span class="settings-item-label">Font size</span>
+                  <span class="settings-item-label">Font size <span class="settings-item-unit">px</span></span>
                   <input name="terminal_font_size" type="number" min="8" max="48" step="1" class="settings-input settings-input--narrow" />
                 </div>
                 <div class="settings-item" data-pref="terminal_zoom_step" data-keywords="zoom font increment wheel ctrl">
-                  <span class="settings-item-label" title="Per-notch font zoom increment in CSS px. Applies to both wheel zoom modes (hovered terminal and all visible terminals), whose bindings are configurable in ~/.partty/keybinds.toml. Default 0.25.">Zoom increment</span>
-                  <span class="settings-item-control">
-                    <input name="terminal_zoom_step" type="number" min="0.05" max="2" step="0.05" value="0.25" class="settings-input settings-input--narrow" />
-                    <span class="settings-hint">px</span>
-                  </span>
+                  <span class="settings-item-label" title="Per-notch font zoom increment in CSS px. Applies to both wheel zoom modes (hovered terminal and all visible terminals), whose bindings are configurable in ~/.partty/keybinds.toml. Default 0.25.">Zoom increment <span class="settings-item-unit">px</span></span>
+                  <input name="terminal_zoom_step" type="number" min="0.05" max="2" step="0.05" value="0.25" class="settings-input settings-input--narrow" />
                 </div>
                 <div class="settings-item" data-pref="terminal_font_weight" data-keywords="font weight">
                   <span class="settings-item-label">Font weight</span>
@@ -166,11 +163,11 @@
                   <input name="terminal_line_height" type="number" min="0.5" max="4" step="0.1" class="settings-input settings-input--narrow" />
                 </div>
                 <div class="settings-item" data-pref="terminal_letter_spacing" data-keywords="letter spacing tracking">
-                  <span class="settings-item-label">Letter spacing</span>
+                  <span class="settings-item-label">Letter spacing <span class="settings-item-unit">px</span></span>
                   <input name="terminal_letter_spacing" type="number" min="-2" max="10" step="0.5" class="settings-input settings-input--narrow" />
                 </div>
                 <div class="settings-item" data-pref="scrollback_lines" data-keywords="scrollback history buffer lines">
-                  <span class="settings-item-label">Scrollback</span>
+                  <span class="settings-item-label">Scrollback <span class="settings-item-unit">lines</span></span>
                   <input id="setting-scrollback" name="scrollback_lines" type="number" min="0" max="50000" step="1" class="settings-input settings-input--narrow" />
                 </div>
                 <div class="settings-item" data-pref="terminal_animation_speed" data-keywords="motion animation speed">
@@ -186,11 +183,11 @@
                   </select>
                 </div>
                 <div class="settings-item" data-pref="terminal_pane_gap" data-keywords="pane gap spacing">
-                  <span class="settings-item-label">Pane gap</span>
+                  <span class="settings-item-label">Pane gap <span class="settings-item-unit">px</span></span>
                   <input id="setting-terminal-pane-gap" name="terminal_pane_gap" type="number" min="0" max="32" step="1" class="settings-input settings-input--narrow" />
                 </div>
                 <div class="settings-item" data-pref="terminal_sandbox_padding" data-keywords="edge padding sandbox">
-                  <span class="settings-item-label">Edge padding</span>
+                  <span class="settings-item-label">Edge padding <span class="settings-item-unit">px</span></span>
                   <input id="setting-terminal-sandbox-padding" name="terminal_sandbox_padding" type="number" min="0" max="32" step="1" class="settings-input settings-input--narrow" />
                 </div>
                 <div class="settings-item" data-pref="split_layout_style" data-keywords="split layout style balanced dwindle master">
@@ -204,11 +201,11 @@
                   <input class="settings-checkbox-input" type="checkbox" name="quiet_pane_deferral" />
                 </label>
                 <div class="settings-item" data-pref="snapshot_max_lines" data-keywords="snapshot max lines">
-                  <span class="settings-item-label">Snapshot</span>
+                  <span class="settings-item-label">Snapshot <span class="settings-item-unit">lines</span></span>
                   <input id="setting-snapshot-max" name="snapshot_max_lines" type="number" min="50" max="50000" step="50" class="settings-input settings-input--narrow" />
                 </div>
                 <div class="settings-item" data-pref="pane_corner_radius" data-keywords="radius corner round pane">
-                  <span class="settings-item-label">Radius</span>
+                  <span class="settings-item-label">Radius <span class="settings-item-unit">px</span></span>
                   <input id="setting-pane-corner-radius" name="pane_corner_radius" type="number" min="0" max="32" step="1" class="settings-input settings-input--narrow" />
                 </div>
                 <div class="settings-item" data-pref="terminal_cursor_style" data-keywords="cursor style block underline bar">
@@ -256,11 +253,8 @@
                   <input class="settings-checkbox-input" type="checkbox" name="blur_unfocused_panes" />
                 </label>
                 <div class="settings-item" data-pref="pane_blur_radius" data-keywords="blur radius panes">
-                  <span class="settings-item-label">Blur radius</span>
-                  <span class="settings-item-control">
-                    <input name="pane_blur_radius" type="number" min="0" max="10" step="0.1" class="settings-input settings-input--narrow" />
-                    <span class="settings-hint">px</span>
-                  </span>
+                  <span class="settings-item-label">Blur radius <span class="settings-item-unit">px</span></span>
+                  <input name="pane_blur_radius" type="number" min="0" max="10" step="0.1" class="settings-input settings-input--narrow" />
                 </div>
                 <label class="settings-item settings-item--toggle" data-pref="pane_variable_opacity" data-keywords="variable opacity transparent panes">
                   <span class="settings-item-label">Variable opacity</span>
@@ -291,6 +285,10 @@
                   <input class="settings-checkbox-input" type="checkbox" name="osc52" checked />
                   <span class="settings-item-desc">Allow remote programs to read/write the local clipboard.</span>
                 </label>
+                <label class="settings-item settings-item--toggle" data-pref="terminal_sideload_openconsole" data-keywords="sideload openconsole conpty host images sixel kitty iterm">
+                  <span class="settings-item-label">Sideload OpenConsole host</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="terminal_sideload_openconsole" />
+                </label>
               </div>
             </div>
 
@@ -298,11 +296,8 @@
               <div class="settings-section-hd">Scroll</div>
               <div class="settings-section-bd">
                 <div class="settings-item" data-pref="terminal_smooth_scroll_duration" data-keywords="smooth scroll duration">
-                  <span class="settings-item-label">Smooth duration</span>
-                  <span class="settings-item-control">
-                    <input name="terminal_smooth_scroll_duration" type="number" min="0" max="1000" step="50" class="settings-input settings-input--narrow" />
-                    <span class="settings-hint">ms</span>
-                  </span>
+                  <span class="settings-item-label">Smooth duration <span class="settings-item-unit">ms</span></span>
+                  <input name="terminal_smooth_scroll_duration" type="number" min="0" max="1000" step="50" class="settings-input settings-input--narrow" />
                 </div>
                 <div class="settings-item" data-pref="terminal_scroll_sensitivity" data-keywords="scroll sensitivity speed">
                   <span class="settings-item-label">Sensitivity</span>
@@ -323,18 +318,12 @@
                   <input class="settings-checkbox-input" type="checkbox" name="process_notification_enabled" />
                 </label>
                 <div class="settings-item" data-pref="process_notification_threshold" data-keywords="notify after threshold seconds" data-child-of="process_notification_enabled">
-                  <span class="settings-item-label">Notify after</span>
-                  <span class="settings-item-control">
-                    <input name="process_notification_threshold" class="settings-input settings-input--narrow" type="number" value="5.0" min="0.1" max="3600" step="0.1" style="width:4.8em" />
-                    <span class="settings-hint">s</span>
-                  </span>
+                  <span class="settings-item-label">Notify after <span class="settings-item-unit">s</span></span>
+                  <input name="process_notification_threshold" class="settings-input settings-input--narrow" type="number" value="5.0" min="0.1" max="3600" step="0.1" style="width:4.8em" />
                 </div>
                 <div class="settings-item" data-pref="process_notification_show_for" data-keywords="show for toast duration" data-child-of="process_notification_enabled">
-                  <span class="settings-item-label">Show for</span>
-                  <span class="settings-item-control">
-                    <input name="process_notification_show_for" class="settings-input settings-input--narrow" type="number" value="5000" min="1000" max="30000" step="500" style="width:4.8em" />
-                    <span class="settings-hint">ms</span>
-                  </span>
+                  <span class="settings-item-label">Show for <span class="settings-item-unit">ms</span></span>
+                  <input name="process_notification_show_for" class="settings-input settings-input--narrow" type="number" value="5000" min="1000" max="30000" step="500" style="width:4.8em" />
                 </div>
                 <label class="settings-item settings-item--toggle" data-pref="process_notification_show_ms" data-keywords="show milliseconds toast" data-child-of="process_notification_enabled">
                   <span class="settings-item-label">Show milliseconds</span>
@@ -354,17 +343,6 @@
                   <span class="settings-item-label" title="Use WebGL">Use WebGL</span>
                   <input class="settings-checkbox-input" type="checkbox" name="use_webgl" />
                   <span class="settings-item-desc">Utilize the older WebGL renderer; must restart or re-create the window to take effect.</span>
-                </label>
-              </div>
-            </div>
-
-            <div class="settings-section" data-section="terminal">
-              <div class="settings-section-hd settings-section-hd--experimental">Experimental</div>
-              <div class="settings-section-bd">
-                <label class="settings-item settings-item--toggle" data-pref="terminal_sideload_openconsole" data-keywords="sideload openconsole conpty host images sixel kitty iterm">
-                  <span class="settings-item-label" title="Use a sideloaded conpty.dll / OpenConsole.exe deployed next to the binary as the ConPTY host (Windows Terminal's approach), enabling image protocols (sixel / kitty / iTerm) that the inbox host filters out">Sideload OpenConsole host</span>
-                  <input class="settings-checkbox-input" type="checkbox" name="terminal_sideload_openconsole" />
-                  <span class="settings-item-desc">Unstable. Requires conpty.dll + OpenConsole.exe next to partty.exe and a restart; without them the inbox host is used.</span>
                 </label>
               </div>
             </div>
@@ -425,11 +403,8 @@
                   <input class="settings-checkbox-input" type="checkbox" name="mouse_hide_on_idle" />
                 </label>
                 <div class="settings-item" data-pref="mouse_idle_seconds" data-keywords="idle delay seconds mouse" data-child-of="mouse_hide_on_idle">
-                  <span class="settings-item-label">Idle delay</span>
-                  <span class="settings-item-control">
-                    <input name="mouse_idle_seconds" type="number" min="0.5" max="300" step="0.5" value="3" class="settings-input settings-input--narrow" style="width:4.8em" />
-                    <span class="settings-hint">s</span>
-                  </span>
+                  <span class="settings-item-label">Idle delay <span class="settings-item-unit">s</span></span>
+                  <input name="mouse_idle_seconds" type="number" min="0.5" max="300" step="0.5" value="3" class="settings-input settings-input--narrow" style="width:4.8em" />
                 </div>
                 <label class="settings-item settings-item--toggle" data-pref="cursor_follow_pane_focus" data-keywords="cursor follow focused pane focus">
                   <span class="settings-item-label" title="Move the OS cursor to the focused pane when you change panes, tabs, or swap layout">Follow focused pane</span>
@@ -479,8 +454,8 @@
                   <input class="settings-checkbox-input" type="checkbox" name="preload_pty_on_startup" checked />
                   <span class="settings-item-desc">Start a shell early so new panes open faster.</span>
                 </label>
-                <label class="settings-item settings-item--toggle" data-pref="preload_webgl_on_startup" data-keywords="preload webgl gpu startup">
-                  <span class="settings-item-label">Preload WebGL</span>
+                <label class="settings-item settings-item--toggle" data-pref="preload_webgl_on_startup" data-keywords="preload webgl webgpu gpu renderer startup">
+                  <span class="settings-item-label">Preload renderer</span>
                   <input class="settings-checkbox-input" type="checkbox" name="preload_webgl_on_startup" checked />
                   <span class="settings-item-desc">Warm up the GPU renderer before first paint.</span>
                 </label>
@@ -499,8 +474,8 @@
                   <input class="settings-checkbox-input" type="checkbox" name="shed_on_hide" />
                   <span class="settings-item-desc">Stop shells when the window is hidden.</span>
                 </label>
-                <label class="settings-item settings-item--toggle" data-pref="webgl_shed_on_hide" data-keywords="shed webgl gpu hide">
-                  <span class="settings-item-label">Shed WebGL</span>
+                <label class="settings-item settings-item--toggle" data-pref="webgl_shed_on_hide" data-keywords="shed webgl webgpu gpu renderer hide">
+                  <span class="settings-item-label">Shed renderer</span>
                   <input class="settings-checkbox-input" type="checkbox" name="webgl_shed_on_hide" checked />
                   <span class="settings-item-desc">Release the GPU renderer when the window is hidden.</span>
                 </label>
@@ -524,11 +499,8 @@
                   <input class="settings-checkbox-input" type="checkbox" name="dev_perf_console" />
                 </label>
                 <div class="settings-item" data-pref="dev_perf_console_interval_ms" data-keywords="snapshot interval metrics dev" data-child-of="dev_perf_enabled">
-                  <span class="settings-item-label">Snapshot interval</span>
-                  <span class="settings-item-control">
-                    <input name="dev_perf_console_interval_ms" type="number" min="1000" max="60000" step="500" value="5000" class="settings-input settings-input--narrow" />
-                    <span class="settings-hint">ms</span>
-                  </span>
+                  <span class="settings-item-label">Snapshot interval <span class="settings-item-unit">ms</span></span>
+                  <input name="dev_perf_console_interval_ms" type="number" min="1000" max="60000" step="500" value="5000" class="settings-input settings-input--narrow" />
                 </div>
                 <div class="settings-item" data-pref="dev_window_toggle_override" data-keywords="toggle shortcut override dev keybind">
                   <span class="settings-item-label">Toggle shortcut override</span>

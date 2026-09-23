@@ -5,6 +5,8 @@ import { createVmLoader } from "../support/vm.mjs";
 
 const root = resolve(import.meta.dirname, "../..");
 const noop = () => {};
+const ADAPTER_UNAVAILABLE_RE = /adapter unavailable/;
+const ALREADY_FAILED_RE = /already failed/;
 class Element {
 	dataset = {};
 	style = {};
@@ -283,6 +285,100 @@ test("renderer creation is shared and a late completion cannot survive hide", as
 	});
 	assert.equal(await next, "current");
 	assert.equal(await lifecycle.createRendererAddon(true), "current");
+	lifecycle.disposeWebgpuSession();
+});
+
+test("WebGPU shedding releases ready sessions and summon creates fresh pane addons", async () => {
+	const sessions = [];
+	const load = await modules({
+		"@partty/addon-webgpu": {
+			WebgpuSession: {
+				create: async () => {
+					const session = {
+						disposed: 0,
+						addons: [],
+						onError(callback) {
+							this.error = callback;
+						},
+						onContextLoss(callback) {
+							this.loss = callback;
+						},
+						createAddon() {
+							assert.equal(this.disposed, 0);
+							const addon = {
+								session: this,
+								disposed: false,
+								dispose() {
+									this.disposed = true;
+								},
+							};
+							this.addons.push(addon);
+							return addon;
+						},
+						dispose() {
+							assert.ok(this.addons.every((addon) => addon.disposed));
+							this.disposed++;
+						},
+					};
+					sessions.push(session);
+					return session;
+				},
+			},
+		},
+	});
+	const lifecycle = await load("terminal/termLifecycle.ts");
+	for (let cycle = 0; cycle < 3; cycle++) {
+		// biome-ignore lint/performance/noAwaitInLoops: Each summon must follow the previous dismiss of the shared session.
+		const addons = await Promise.all([
+			lifecycle.createRendererAddon(true),
+			lifecycle.createRendererAddon(true),
+		]);
+		assert.equal(sessions.length, cycle + 1);
+		assert.notEqual(addons[0], addons[1]);
+		assert.ok(addons.every((addon) => addon.session === sessions[cycle]));
+		if (cycle > 0) {
+			// Delayed callbacks from a disposed device cannot poison the new session.
+			sessions[cycle - 1].error();
+			sessions[cycle - 1].loss();
+		}
+		const extra = await lifecycle.createRendererAddon(true);
+		assert.equal(extra.session, sessions[cycle]);
+		// Same disposal order as main.ts shedWebgl: pane addons, then session.
+		for (const addon of [...addons, extra]) addon.dispose();
+		lifecycle.disposeWebgpuSession();
+		lifecycle.disposeWebgpuSession();
+		assert.equal(sessions[cycle].disposed, 1);
+	}
+});
+
+test("WebGPU creation failure does not prevent retry after dismiss and summon", async () => {
+	let attempts = 0;
+	const addon = {};
+	const load = await modules({
+		"@partty/addon-webgpu": {
+			WebgpuSession: {
+				create: async () => {
+					if (++attempts === 1) throw new Error("adapter unavailable");
+					return {
+						onError: noop,
+						onContextLoss: noop,
+						dispose: noop,
+						createAddon: () => addon,
+					};
+				},
+			},
+		},
+	});
+	const lifecycle = await load("terminal/termLifecycle.ts");
+	await assert.rejects(
+		lifecycle.createRendererAddon(true),
+		ADAPTER_UNAVAILABLE_RE,
+	);
+	await assert.rejects(lifecycle.createRendererAddon(true), ALREADY_FAILED_RE);
+	assert.equal(attempts, 1);
+	lifecycle.disposeWebgpuSession();
+	assert.equal(await lifecycle.createRendererAddon(true), addon);
+	assert.equal(attempts, 2);
 	lifecycle.disposeWebgpuSession();
 });
 

@@ -1986,11 +1986,6 @@ html.tabs-hidden #main-workspace {
 	border-bottom: 1px solid var(--panel-divider);
 }
 
-/* Experimental sections: warm gold tint to signal unstable/advanced config. */
-.settings-section-hd--experimental {
-	color: color-mix(in srgb, #e2b053 72%, var(--ui-chrome-fg) 28%);
-}
-
 .settings-section-bd {
 	padding: 6px 14px 10px;
 }
@@ -2033,10 +2028,12 @@ html.tabs-hidden #main-workspace {
 	grid-column: 2;
 	justify-self: end;
 }
-.settings-item-control {
-	display: flex;
-	align-items: center;
-	gap: 2px;
+/* Unit suffix (px/ms/s/lines): inline with the label, dimmer but same size. */
+.settings-item-unit {
+	margin-left: 4px;
+	font-size: inherit;
+	font-weight: 400;
+	color: var(--ui-chrome-muted);
 }
 .settings-item-desc {
 	grid-column: 1 / -1;
