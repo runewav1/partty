@@ -31,7 +31,7 @@
 		"@xterm/addon-unicode-graphemes": "beta",
 		"@xterm/addon-unicode11": "beta",
 		"@xterm/addon-web-links": "beta",
-		"@xterm/xterm": "6.1.0-beta.304"
+		"@xterm/xterm": "npm:@partty/xterm@6.2.0-beta.2"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.14",
