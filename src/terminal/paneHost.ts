@@ -11,6 +11,7 @@ import {
 	animateClass,
 	motionDisabled,
 } from "./../util/motion";
+import { scheduleReclaim } from "./wbmem";
 
 const MAIN_PANE_ID = "main";
 
@@ -692,10 +693,13 @@ export class PaneHost {
 
 	setScrollbackLines(lines: number): void {
 		const scrollback = Math.max(0, Math.min(50_000, Math.floor(lines)));
+		const shrank = scrollback < this.opts.scrollbackLines;
 		this.opts.scrollbackLines = scrollback;
 		for (const pt of this.terminals.values()) {
 			pt.term.options.scrollback = scrollback;
 		}
+		// Shrinking discards whole buffer lines; reclaim them once settled.
+		if (shrank) scheduleReclaim();
 	}
 
 	setCursorStyle(style: "block" | "underline" | "bar"): void {
@@ -970,6 +974,7 @@ export class PaneHost {
 				try {
 					placeholderPt.fit.dispose();
 					placeholderPt.term.dispose();
+					scheduleReclaim();
 				} catch {
 					/* ignore */
 				}
@@ -1025,6 +1030,7 @@ export class PaneHost {
 			try {
 				placeholderPt.fit.dispose();
 				placeholderPt.term.dispose();
+				scheduleReclaim();
 			} catch {
 				/* ignore */
 			}
@@ -1271,6 +1277,7 @@ export class PaneHost {
 				try {
 					pt.fit.dispose();
 					pt.term.dispose();
+					scheduleReclaim();
 				} catch {
 					/* ignore */
 				}
@@ -1317,6 +1324,7 @@ export class PaneHost {
 				try {
 					pt.fit.dispose();
 					pt.term.dispose();
+					scheduleReclaim();
 				} catch {
 					/* ignore */
 				}
@@ -1630,6 +1638,7 @@ export class PaneHost {
 		}
 		this.terminals.clear();
 		this.root.remove();
+		scheduleReclaim();
 	}
 
 	private mountTree(): void {
@@ -2307,6 +2316,7 @@ export class PaneHost {
 				scheduleImageAddon(pt, this.opts.sideloadOpenconsole);
 				this.setTerminal(node.id, pt);
 				this.opts.onPaneCreated(node.id, pt);
+				scheduleReclaim();
 			}
 			this.applyLeafTheme(wrap, node.id, pt);
 			wrap.appendChild(pt.row);

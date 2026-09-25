@@ -196,6 +196,7 @@ import {
 	type UiThemePrefs,
 	uiPrefsChanged,
 } from "./terminal/uiTheme";
+import { scheduleReclaim } from "./terminal/wbmem";
 import { registerWebLinksProvider } from "./terminal/webLinks";
 import { nextZoomFontSize, normalizeZoomStep } from "./terminal/zoomStep";
 import {
@@ -1657,6 +1658,8 @@ async function boot(): Promise<void> {
 		for (const paneId of [...paneWebglStates.keys()])
 			disposeWebglForPane(paneId);
 		disposeWebgpuSession();
+		// Addons, atlas textures and the shared GPU session are now garbage.
+		scheduleReclaim();
 	}
 
 	function updateWebglPerfGauges(): void {
@@ -1744,7 +1747,6 @@ async function boot(): Promise<void> {
 				state.status = "ready";
 				paneWebglStates.set(paneId, state);
 				updateWebglPerfGauges();
-				console.info(`${kind} renderer active for pane ${paneId}`);
 				pt.term.refresh(0, pt.term.rows - 1);
 				parttyPerf.mark("webgl.mount.ready");
 				parttyPerf.time("webgl.mount.ms", performance.now() - started);
@@ -6652,6 +6654,8 @@ async function boot(): Promise<void> {
 			paneHost?.forEachPane((_id, p) => {
 				p.term.reset();
 			});
+			// Resetting every terminal drops its scrollback buffers.
+			scheduleReclaim();
 		}),
 		listen("partty-hide", () => {
 			void (async () => {

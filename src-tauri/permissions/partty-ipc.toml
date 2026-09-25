@@ -38,4 +38,5 @@ commands.allow = [
   "list_workspaces",
   "read_workspace",
   "open_external_url",
+  "reclaim_wbmem",
 ]

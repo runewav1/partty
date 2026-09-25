@@ -7,6 +7,7 @@ mod profiles;
 mod pty;
 mod subprocess;
 mod theme;
+mod wbmem;
 mod window_state;
 mod workspaces;
 
@@ -1213,6 +1214,7 @@ pub fn run() {
             get_persisted_state,
             get_acrylic_available,
             get_app_session_id,
+            wbmem::reclaim_wbmem,
             stash_terminal_buffers,
             take_terminal_buffers,
             take_webview_destroyed_for_hide,
