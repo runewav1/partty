@@ -1,7 +1,7 @@
 //! Connection profiles under `~/.partty/profiles/*.toml`.
 //!
 //! Local profiles are seeded from detected shells; WSL profiles from
-//! `wsl.exe -l -q` (same discovery Windows Terminal uses). Friendly `name`
+//! the WSL registry (same discovery Windows Terminal uses). Friendly `name`
 //! is display-only — spawn uses `shell` / `wsl_distro` / etc.
 
 use crate::prefs::{Prefs, ensure_config_dir};
@@ -9,7 +9,6 @@ use crate::pty::{detect_available_shells, detected_shell_profile_field};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
 
 pub const LOCAL_DEFAULT_ID: &str = "local-default";
 
@@ -296,35 +295,7 @@ fn sort_profiles(profiles: &mut [ConnectionProfile]) {
     });
 }
 
-/// Decode `wsl.exe -l -q` output (UTF-16 LE with or without BOM, or UTF-8).
-fn decode_wsl_list_bytes(bytes: &[u8]) -> String {
-    let bytes = if bytes.starts_with(&[0xFF, 0xFE]) {
-        &bytes[2..]
-    } else if bytes.starts_with(&[0xFE, 0xFF]) {
-        // UTF-16 BE — rare for wsl.exe; fall through to lossy UTF-8
-        return String::from_utf8_lossy(bytes).into_owned();
-    } else {
-        bytes
-    };
-
-    let looks_utf16_le = bytes.len() >= 4
-        && bytes.len() % 2 == 0
-        && bytes.iter().skip(1).step_by(2).filter(|&&b| b == 0).count() * 2 >= bytes.len() / 2;
-
-    if looks_utf16_le {
-        let u16s: Vec<u16> = bytes
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
-            .collect();
-        return String::from_utf16_lossy(&u16s);
-    }
-
-    String::from_utf8_lossy(bytes).into_owned()
-}
-
-/// Installed WSL distribution names (`wsl.exe -l -q`), matching Windows Terminal.
+/// Installed WSL distribution names from the registry, matching Windows Terminal.
 pub fn list_wsl_distros() -> Vec<String> {
     use std::sync::Mutex;
     use std::time::{Duration, Instant};
@@ -347,34 +318,7 @@ pub fn list_wsl_distros() -> Vec<String> {
 }
 
 fn list_wsl_distros_uncached() -> Vec<String> {
-    let mut cmd = Command::new("wsl.exe");
-    cmd.args(["-l", "-q"]);
-    crate::subprocess::hide_console_window(&mut cmd);
-    let output = cmd.output();
-    let Ok(out) = output else {
-        return Vec::new();
-    };
-    // wsl may exit non-zero when no distros / WSL missing; still try stdout.
-    let text = decode_wsl_list_bytes(&out.stdout);
-    let mut names = Vec::new();
-    for line in text.lines() {
-        let name = line.trim().trim_start_matches('\u{feff}');
-        if name.is_empty() {
-            continue;
-        }
-        // Skip noise / error lines
-        if name.starts_with("Windows Subsystem")
-            || name.contains("wsl.exe")
-            || name.contains("error")
-            || name.contains("Error")
-        {
-            continue;
-        }
-        if !names.iter().any(|n: &String| n.eq_ignore_ascii_case(name)) {
-            names.push(name.to_string());
-        }
-    }
-    names
+    crate::shell_discovery::wsl_distros()
 }
 
 fn seed_local_shell_profiles() -> Result<(), String> {
@@ -721,16 +665,5 @@ theme = "carbonfox"
         assert_eq!(dto.theme.as_deref(), Some("carbonfox"));
         let json = serde_json::to_value(&dto).unwrap();
         assert_eq!(json["theme"], "carbonfox");
-    }
-
-    #[test]
-    fn decode_utf16_le_wsl_list() {
-        // "ubuntu\r\n" in UTF-16 LE
-        let bytes: Vec<u8> = "ubuntu\r\n"
-            .encode_utf16()
-            .flat_map(|u| u.to_le_bytes())
-            .collect();
-        let text = decode_wsl_list_bytes(&bytes);
-        assert!(text.contains("ubuntu"));
     }
 }

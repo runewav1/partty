@@ -1370,44 +1370,9 @@ impl Drop for PtySession {
     }
 }
 
-fn pwsh_standard_paths() -> Vec<PathBuf> {
-    let mut v = Vec::new();
-    if let Ok(pf) = std::env::var("ProgramFiles") {
-        v.push(
-            PathBuf::from(pf)
-                .join("PowerShell")
-                .join("7")
-                .join("pwsh.exe"),
-        );
-    }
-    if let Ok(pfx86) = std::env::var("ProgramFiles(x86)") {
-        v.push(
-            PathBuf::from(pfx86)
-                .join("PowerShell")
-                .join("7")
-                .join("pwsh.exe"),
-        );
-    }
-    if let Ok(la) = std::env::var("LOCALAPPDATA") {
-        v.push(
-            PathBuf::from(la)
-                .join("Microsoft")
-                .join("WindowsApps")
-                .join("pwsh.exe"),
-        );
-    }
-    v
-}
-
 /// Resolve PowerShell 7+ for GUI apps where `PATH` may omit the install directory.
-/// Prefer well-known install paths before scanning `PATH` (works when PATH is wrong).
 fn resolve_pwsh_executable() -> Option<PathBuf> {
-    for p in pwsh_standard_paths() {
-        if p.is_file() {
-            return Some(p);
-        }
-    }
-    resolve_on_path("pwsh.exe")
+    crate::shell_discovery::resolve_pwsh(false)
 }
 
 /// Standard Git for Windows `bin\bash.exe` locations (not `sh.exe`).
@@ -1431,7 +1396,8 @@ fn git_bash_standard_paths() -> Vec<PathBuf> {
 }
 
 pub fn resolve_git_bash_executable() -> Option<PathBuf> {
-    git_bash_standard_paths().into_iter().find(|p| p.is_file())
+    crate::shell_discovery::resolve_git_bash()
+        .or_else(|| git_bash_standard_paths().into_iter().find(|p| p.is_file()))
 }
 
 fn is_git_bash_path(path: &Path) -> bool {
@@ -1488,7 +1454,7 @@ pub struct DetectedShell {
 }
 
 pub fn detected_shell_profile_field(name: &str, path: &str) -> String {
-    if is_git_bash_path(Path::new(path)) {
+    if name.eq_ignore_ascii_case("bash") || is_git_bash_path(Path::new(path)) {
         path.to_string()
     } else {
         name.to_string()
@@ -1560,13 +1526,13 @@ fn detect_available_shells_uncached() -> Vec<DetectedShell> {
                 resolve_on_path("cmd.exe").map(|p| p.to_string_lossy().into_owned())
             });
 
-            // bash — Git for Windows install only (not PATH / WSL shim / sh.exe).
+            // bash — Git for Windows install (including registered/custom PATH installs).
             let bash =
                 s.spawn(|| resolve_git_bash_executable().map(|p| p.to_string_lossy().into_owned()));
 
             // WSL
             let wsl = s.spawn(|| -> Option<String> {
-                resolve_on_path("wsl.exe").map(|p| p.to_string_lossy().into_owned())
+                crate::shell_discovery::resolve_wsl().map(|p| p.to_string_lossy().into_owned())
             });
 
             (
@@ -1686,7 +1652,10 @@ fn wsl_distro_command(
     profile: Option<&ConnectionProfile>,
 ) -> Result<CommandBuilder, String> {
     let startup = profile_startup(profile);
-    let mut c = CommandBuilder::new("wsl.exe");
+    let mut c = CommandBuilder::new(
+        crate::shell_discovery::resolve_wsl()
+            .ok_or_else(|| "WSL (wsl.exe) not found.".to_string())?,
+    );
     c.arg("-d");
     c.arg(distro);
     if let Some(dir) = prefs
@@ -1784,7 +1753,10 @@ fn detect_wsl_login_shell(distro: &str) -> WslLoginShell {
 }
 
 fn detect_wsl_login_shell_uncached(distro: &str) -> WslLoginShell {
-    let mut cmd = std::process::Command::new("wsl.exe");
+    let Some(exe) = crate::shell_discovery::resolve_wsl() else {
+        return WslLoginShell::Unknown;
+    };
+    let mut cmd = std::process::Command::new(exe);
     cmd.args([
         "-d",
         distro,
@@ -2034,23 +2006,24 @@ fn write_shell_integration_script(name: &str, contents: &str) -> Result<PathBuf,
 }
 
 fn resolve_on_path(name: &str) -> Option<PathBuf> {
-    let path_var = std::env::var_os("PATH")?;
-    let exts = std::env::var_os("PATHEXT").unwrap_or_else(|| ".EXE".into());
-    for dir in std::env::split_paths(&path_var) {
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-        for ext in std::env::split_paths(&exts) {
-            let with_ext = dir
-                .join(name)
-                .with_extension(ext.to_str()?.strip_prefix('.')?);
-            if with_ext.is_file() {
-                return Some(with_ext);
-            }
-        }
+    crate::shell_discovery::resolve_on_path(name)
+}
+
+/// Explicit paths take precedence over every automatic resolver, including for
+/// recognized shell kinds. Never silently substitute another shell for a bad path.
+fn configured_shell_path(shell: &str) -> Result<Option<PathBuf>, String> {
+    let path = crate::shell_discovery::expand_path(shell);
+    let text = path.to_string_lossy();
+    if !text.contains(['\\', '/']) && !path.is_absolute() {
+        return Ok(None);
     }
-    None
+    if !crate::shell_discovery::executable_exists(&path) {
+        return Err(format!(
+            "Configured shell executable not found: {}",
+            path.display()
+        ));
+    }
+    Ok(Some(path))
 }
 
 fn windows_shell_command(
@@ -2060,7 +2033,9 @@ fn windows_shell_command(
     static EXE_CACHE: OnceLock<ParkingMutex<HashMap<String, PathBuf>>> = OnceLock::new();
     fn cached_resolve(key: &str, resolve: impl FnOnce() -> Option<PathBuf>) -> Option<PathBuf> {
         let cache = EXE_CACHE.get_or_init(|| ParkingMutex::new(HashMap::new()));
-        if let Some(cached) = cache.lock().get(key) {
+        if let Some(cached) = cache.lock().get(key)
+            && crate::shell_discovery::executable_exists(cached)
+        {
             return Some(cached.clone());
         }
         let found = resolve()?;
@@ -2070,11 +2045,18 @@ fn windows_shell_command(
 
     let startup = profile_startup(profile);
     let kind = detect_shell_kind(prefs);
+    let configured = configured_shell_path(&prefs.shell)?;
     match kind {
         ShellKind::Pwsh | ShellKind::PowerShell => {
-            let exe = if matches!(kind, ShellKind::Pwsh) {
+            let exe = if let Some(path) = configured {
+                path
+            } else if normalize_shell_token(&prefs.shell).trim_end_matches(".exe") == "pwsh-preview"
+            {
+                cached_resolve("pwsh-preview", || crate::shell_discovery::resolve_pwsh(true))
+                    .ok_or_else(|| "PowerShell Preview not found. Set the profile `shell` to its full executable path.".to_string())?
+            } else if matches!(kind, ShellKind::Pwsh) {
                 cached_resolve("pwsh", resolve_pwsh_executable)
-                    .ok_or_else(|| "PowerShell 7 (pwsh) not found.".to_string())?
+                    .ok_or_else(|| "PowerShell (pwsh) not found in PATH, installer registrations, or known install locations. Set the profile `shell` to its full executable path.".to_string())?
             } else {
                 cached_resolve("powershell", || resolve_on_path("powershell.exe"))
                     .unwrap_or_else(|| PathBuf::from("powershell.exe"))
@@ -2098,7 +2080,11 @@ fn windows_shell_command(
             apply_cwd(c, prefs)
         }
         ShellKind::Bash => {
-            let bash = resolve_bash_executable(prefs)?;
+            let bash = if let Some(path) = configured {
+                CommandBuilder::new(path)
+            } else {
+                resolve_bash_executable(prefs)?
+            };
             let script =
                 write_shell_integration_script("shell_int.partty.bash", SHELL_INTEGRATION_BASH)?;
             let script_unix = script.to_string_lossy().replace('\\', "/");
@@ -2124,7 +2110,11 @@ fn windows_shell_command(
             let script_unix = script.to_string_lossy().replace('\\', "/");
             let zdot = ensure_zsh_zdot(&script_unix, startup)?;
             let original_zdot = std::env::var("ZDOTDIR").unwrap_or_default();
-            let mut c = CommandBuilder::new("zsh.exe");
+            let mut c = CommandBuilder::new(
+                configured
+                    .or_else(|| resolve_on_path("zsh.exe"))
+                    .unwrap_or_else(|| PathBuf::from("zsh.exe")),
+            );
             c.arg("-i");
             c.env("ZDOTDIR", zdot.to_string_lossy().as_ref());
             c.env("PARTTY_ORIGINAL_ZDOTDIR", original_zdot);
@@ -2134,6 +2124,13 @@ fn windows_shell_command(
             apply_cwd(c, prefs)
         }
         ShellKind::Cmd => {
+            if let Some(path) = configured {
+                let mut c = CommandBuilder::new(path);
+                if let Some(cmd) = startup {
+                    c.args(["/k", cmd]);
+                }
+                return apply_cwd(c, prefs);
+            }
             if let Some(cmd) = startup {
                 let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into());
                 let mut c = CommandBuilder::new(comspec);
@@ -2149,21 +2146,19 @@ fn windows_shell_command(
                 return windows_host_shell(prefs);
             }
             let path_candidate = Path::new(trimmed);
-            let mut builder =
-                if (trimmed.contains('\\') || trimmed.contains('/') || trimmed.ends_with(".exe"))
-                    && path_candidate.is_file()
-                {
-                    CommandBuilder::new(path_candidate)
+            let mut builder = if let Some(path) = configured {
+                CommandBuilder::new(path)
+            } else if (trimmed.contains('\\') || trimmed.contains('/') || trimmed.ends_with(".exe"))
+                && path_candidate.is_file()
+            {
+                CommandBuilder::new(path_candidate)
+            } else {
+                if let Some(exe) = resolve_on_path(trimmed) {
+                    CommandBuilder::new(exe)
                 } else {
-                    let exe_with = format!("{}.exe", trimmed);
-                    if resolve_on_path(&exe_with).is_some() {
-                        CommandBuilder::new(exe_with)
-                    } else if resolve_on_path(trimmed).is_some() {
-                        CommandBuilder::new(trimmed)
-                    } else {
-                        return windows_host_shell(prefs);
-                    }
-                };
+                    return windows_host_shell(prefs);
+                }
+            };
             if let Some(startup_cmd) = startup {
                 builder.arg("-c");
                 builder.arg(startup_cmd);
@@ -2184,7 +2179,9 @@ enum ShellKind {
 }
 
 fn detect_shell_kind(prefs: &Prefs) -> ShellKind {
-    let trimmed = prefs.shell.trim().trim_matches(|c| c == '"' || c == '\'');
+    let expanded = crate::shell_discovery::expand_path(&prefs.shell);
+    let text = expanded.to_string_lossy();
+    let trimmed = text.as_ref();
     if trimmed.is_empty() {
         return ShellKind::Cmd;
     }
@@ -3087,9 +3084,9 @@ mod alt_screen_tests {
 #[cfg(test)]
 mod tests {
     use super::{
-        detected_shell_profile_field, is_git_bash_path, is_wsl_bash_shim, looks_like_unix_root,
-        osc_unescape, osc633_normalize_cwd, shell_escape, split_commandline,
-        windows_path_to_wsl_mnt,
+        Prefs, configured_shell_path, detected_shell_profile_field, is_git_bash_path,
+        is_wsl_bash_shim, looks_like_unix_root, osc_unescape, osc633_normalize_cwd, shell_escape,
+        split_commandline, windows_path_to_wsl_mnt, windows_shell_command,
     };
     use std::path::{Path, PathBuf};
 
@@ -3164,10 +3161,42 @@ mod tests {
     }
 
     #[test]
+    fn explicit_shell_paths_survive_command_building() {
+        let temp = crate::shell_discovery::tests::Fixture::new();
+        for shell in ["pwsh", "powershell", "bash", "zsh", "cmd", "custom-shell"] {
+            let exe = temp.exe(&format!("O'Brien & 日本語 (portable)/{shell}.exe"));
+            let prefs = Prefs {
+                shell: format!("\"{}\"", exe.display()),
+                ..Prefs::default()
+            };
+            let command = windows_shell_command(&prefs, None).unwrap();
+            assert_eq!(command.get_argv()[0], exe.as_os_str(), "{shell}");
+        }
+    }
+
+    #[test]
+    fn missing_explicit_shell_does_not_fall_back_to_another_install() {
+        let temp = crate::shell_discovery::tests::Fixture::new();
+        let missing = temp.0.join("removed/pwsh.exe");
+        let prefs = Prefs {
+            shell: missing.to_string_lossy().into_owned(),
+            ..Prefs::default()
+        };
+        let error = windows_shell_command(&prefs, None).err().unwrap();
+        assert!(error.contains(missing.to_str().unwrap()));
+        assert_eq!(configured_shell_path("pwsh").unwrap(), None);
+        assert_eq!(configured_shell_path("pwsh.exe").unwrap(), None);
+    }
+
+    #[test]
     fn detected_bash_profile_shell_field() {
         assert_eq!(
             detected_shell_profile_field("bash", r"C:\Program Files\Git\bin\bash.exe"),
             r"C:\Program Files\Git\bin\bash.exe"
+        );
+        assert_eq!(
+            detected_shell_profile_field("bash", r"D:\Portable Tools\bin\bash.exe"),
+            r"D:\Portable Tools\bin\bash.exe"
         );
         assert_eq!(
             detected_shell_profile_field("pwsh", r"C:\Tools\pwsh.exe"),

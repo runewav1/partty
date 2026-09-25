@@ -3,7 +3,7 @@
 **Definitions:** `~/.partty/profiles/{id}.toml`  
 **Behavior:** `[profiles]` in [`config.toml`](config/config.toml.md)
 
-One file per profile. Local and WSL profiles are seeded when missing (detected shells + `wsl.exe -l -q`). SSH profiles are manual only.
+One file per profile. Local and WSL profiles are seeded when missing (detected shells + registered WSL distributions). SSH profiles are manual only.
 
 File name stem must match `id` (letters, numbers, `-`, `_` only).
 
@@ -76,6 +76,49 @@ shell = "pwsh"
 
 `local-default` uses `[profiles].shell` when `shell` is omitted.
 
+### Shell discovery and custom installations
+
+An explicit executable path always wins over automatic discovery, including for
+PowerShell, bash, zsh, and cmd. Surrounding quotes and `%ENVIRONMENT_VARIABLE%`
+references are supported. A missing explicit path reports that path rather than
+silently launching a different installation. `shell` is an executable, not a
+command line; use `startup_command` for commands to run after startup.
+
+```toml
+version = 1
+id = "portable-pwsh"
+name = "Portable PowerShell"
+kind = "local"
+shell = 'D:\My Tools\PowerShell\pwsh.exe'
+# Or: shell = '%USERPROFILE%\Tools\PowerShell\pwsh.exe'
+```
+
+For the `pwsh` alias, discovery checks:
+
+1. The process PATH, then persisted machine/user PATH (useful when an installer
+   updated PATH after ParTTY or Explorer started).
+2. User and machine **App Paths** and PowerShell **InstalledVersions** registry
+   entries, in both 64-bit and 32-bit views. These support custom installation
+   locations on other drives.
+3. Versioned `PowerShell` directories under Program Files, including x86/ARM roots.
+4. Microsoft Store stable/preview app execution aliases, .NET global tools, and
+   Scoop shims (including `SCOOP`, `SCOOP_GLOBAL`, and `DOTNET_CLI_HOME` overrides).
+
+Known stable candidates are preferred over known preview candidates. Within each
+channel, the source order above is preserved; conventional version directories
+prefer higher major versions. `pwsh-preview` selects a known preview installation.
+Git Bash also uses Git for Windows registration and the installation containing
+`git.exe` on PATH, so its directory need not be named `Git`.
+
+A portable executable in an arbitrary folder must be exposed through PATH,
+registration, or an explicit profile path. Discovery does not recursively scan
+every drive. Existing profile customizations are preserved.
+
+This follows the discovery sources used by Windows Terminal's
+[PowerShell generator](https://github.com/microsoft/terminal/blob/main/src/cascadia/TerminalSettingsModel/PowershellCoreProfileGenerator.cpp),
+with additional PATH and installer-registry lookup. ParTTY keeps one automatically
+seeded PowerShell profile; create explicit-path profiles to pin multiple installations.
+
 ## WSL
 
 | Key | Type | Description |
@@ -91,6 +134,13 @@ wsl_distro = "Ubuntu"
 ```
 
 Rename `name` freely; spawn always uses `wsl_distro`. Cwd uses Windows or Linux paths via `wsl --cd` (Start in / pane cwd / `initial_cwd`).
+
+Automatic discovery reads `HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss`,
+following Windows Terminal's
+[WSL generator](https://github.com/microsoft/terminal/blob/main/src/cascadia/TerminalSettingsModel/WslDistroGenerator.cpp).
+It does not start WSL or parse localized command output. Docker Desktop and Rancher
+utility distributions are excluded from automatic seeding. Launch uses the system
+`wsl.exe` path, including the Sysnative path when needed for WOW64.
 
 Reinstalling or changing distros: update or delete the profile file, or let ParTTY seed a new one on next list. Hide stale ids with `[profiles].omit`.
 

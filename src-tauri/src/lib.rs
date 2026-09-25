@@ -5,6 +5,7 @@ mod prefs;
 mod profile_icons;
 mod profiles;
 mod pty;
+mod shell_discovery;
 mod subprocess;
 mod theme;
 mod wbmem;
