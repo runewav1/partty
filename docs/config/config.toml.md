@@ -40,6 +40,32 @@ s = "ssh-prod"
 | `width` | float px | `1.0` | `0.5`–`10.0` |
 | `inactive_style` | string | `"outline"` | `"outline"` `"block"` `"bar"` `"underline"` `"none"` |
 | `alt_click_moves` | bool | `true` | Alt+click repositions cursor |
+| `trail` | float ms | `0` | Cursor trail stationary delay; `0` disables (kitty `cursor_trail`) |
+| `trail_decay` | float s, float s | `[0.1, 0.4]` | `[fast, slow]`; slow is raised to at least fast (kitty `cursor_trail_decay`) |
+| `trail_start_threshold` | float or `[float, float]` cells | `2` | Cells of travel needed to start a trail; a single value applies to both axes (kitty `cursor_trail_start_threshold`) |
+| `trail_color` | string | `"none"` | Any CSS color; `none` uses the theme cursor color (kitty `cursor_trail_color`) |
+
+### Cursor trail
+
+The cursor trail is a GPU-only effect implemented by the WebGL and WebGPU
+renderers; the DOM renderer ignores it. It exposes four kitty controls, mapped
+here to `trail`, `trail_decay`, `trail_start_threshold` and `trail_color`; the
+motion, decay, threshold and color semantics follow kitty's `cursor_trail`,
+`cursor_trail_decay`, `cursor_trail_start_threshold` and `cursor_trail_color`.
+The exact geometry, easing and masking live in ParTTY's packaged xterm.js build;
+see that project's cursor trail documentation for the precise behaviour. The
+effect is off by default (`trail = 0`), and the OS reduced-motion preference
+disables it automatically (there is no per-user override). `trail_start_threshold`
+only decides whether a trail starts and the comparison is strictly greater than
+the threshold.
+
+```toml
+[cursor]
+trail = 250
+trail_decay = [0.1, 0.4]
+trail_start_threshold = [2, 2]
+trail_color = "#80bfff"
+```
 
 ## `[font]`
 

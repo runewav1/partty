@@ -135,6 +135,7 @@ import {
 	readWorkspace,
 	type Workspace,
 } from "./tabs/workspaces";
+import { cursorTrailToXtermOptions } from "./terminal/cursorTrail";
 import {
 	consumeSinglePress,
 	WHEEL_ZOOM_ACTIONS,
@@ -773,6 +774,9 @@ async function boot(): Promise<void> {
 	};
 	const cursorWidthRef = {
 		v: (persisted.prefs as Partial<ParttyPrefs>).terminal_cursor_width ?? 1,
+	};
+	const cursorTrailRef = {
+		v: cursorTrailToXtermOptions(persisted.prefs as Partial<ParttyPrefs>),
 	};
 	const fontSizeRef = {
 		v: (persisted.prefs as Partial<ParttyPrefs>).terminal_font_size ?? 12,
@@ -3019,6 +3023,7 @@ async function boot(): Promise<void> {
 				cursorBlink: cursorBlinkRef.v,
 				cursorInactiveStyle: cursorInactiveStyleRef.v,
 				cursorWidth: cursorWidthRef.v,
+				...cursorTrailRef.v,
 				altClickMovesCursor: altClickCursorRef.v,
 				fontSize: fontSizeRef.v,
 				fontWeight: fontWeightRef.v,
@@ -4897,6 +4902,9 @@ async function boot(): Promise<void> {
 									| undefined) ?? "outline";
 							cursorWidthRef.v =
 								(saved as Partial<ParttyPrefs>).terminal_cursor_width ?? 1;
+							cursorTrailRef.v = cursorTrailToXtermOptions(
+								saved as Partial<ParttyPrefs>,
+							);
 							fontSizeRef.v =
 								(saved as Partial<ParttyPrefs>).terminal_font_size ?? 12;
 							zoomStepRef.v = normalizeZoomStep(
@@ -5178,6 +5186,7 @@ async function boot(): Promise<void> {
 				t.options.cursorStyle = cursorStyleRef.v;
 			});
 			host.setCursorStyle(cursorStyleRef.v);
+			host.setCursorTrail(cursorTrailRef.v);
 		}
 		lastPtyDims.clear();
 		scheduleResizeImmediate(true);

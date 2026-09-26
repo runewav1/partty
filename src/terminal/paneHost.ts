@@ -11,6 +11,7 @@ import {
 	animateClass,
 	motionDisabled,
 } from "./../util/motion";
+import type { CursorTrailOptions } from "./cursorTrail";
 import { scheduleReclaim } from "./wbmem";
 
 const MAIN_PANE_ID = "main";
@@ -108,6 +109,11 @@ export type PaneHostOptions = {
 	cursorBlink: boolean;
 	cursorInactiveStyle?: "outline" | "block" | "bar" | "underline" | "none";
 	cursorWidth?: number;
+	/** Flat kitty-style cursor trail options (see `CursorTrailOptions`). */
+	cursorTrail?: number;
+	cursorTrailDecay?: [number, number];
+	cursorTrailStartThreshold?: number | [number, number];
+	cursorTrailColor?: string;
 	altClickMovesCursor: boolean;
 	fontSize: number;
 	fontWeight?: string;
@@ -706,6 +712,25 @@ export class PaneHost {
 		this.opts.cursorStyle = style;
 		for (const pt of this.terminals.values()) {
 			pt.term.options.cursorStyle = style;
+		}
+	}
+
+	/**
+	 * Apply flat cursor trail options to this host's live and future panes. The
+	 * adapter returns a fresh `cursorTrailDecay` array for each resolve, so the
+	 * core's reference check always sees a change.
+	 */
+	setCursorTrail(trail: CursorTrailOptions): void {
+		this.opts.cursorTrail = trail.cursorTrail;
+		this.opts.cursorTrailDecay = trail.cursorTrailDecay;
+		this.opts.cursorTrailStartThreshold = trail.cursorTrailStartThreshold;
+		this.opts.cursorTrailColor = trail.cursorTrailColor;
+		for (const pt of this.terminals.values()) {
+			pt.term.options.cursorTrail = trail.cursorTrail;
+			pt.term.options.cursorTrailDecay = trail.cursorTrailDecay;
+			pt.term.options.cursorTrailStartThreshold =
+				trail.cursorTrailStartThreshold;
+			pt.term.options.cursorTrailColor = trail.cursorTrailColor;
 		}
 	}
 
@@ -2260,6 +2285,10 @@ export class PaneHost {
 					cursorInactiveStyle: this.opts.cursorInactiveStyle ?? "outline",
 					cursorStyle: this.opts.cursorStyle,
 					cursorWidth: this.opts.cursorWidth ?? 1,
+					cursorTrail: this.opts.cursorTrail,
+					cursorTrailDecay: this.opts.cursorTrailDecay,
+					cursorTrailStartThreshold: this.opts.cursorTrailStartThreshold,
+					cursorTrailColor: this.opts.cursorTrailColor,
 					drawBoldTextInBrightColors: this.opts.drawBoldTextInBrightColors,
 					fastScrollSensitivity: this.opts.fastScrollSensitivity ?? 5,
 					fontFamily: this.opts.fontStack,

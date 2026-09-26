@@ -208,26 +208,6 @@
                   <span class="settings-item-label">Radius <span class="settings-item-unit">px</span></span>
                   <input id="setting-pane-corner-radius" name="pane_corner_radius" type="number" min="0" max="32" step="1" class="settings-input settings-input--narrow" />
                 </div>
-                <div class="settings-item" data-pref="terminal_cursor_style" data-keywords="cursor style block underline bar">
-                  <span class="settings-item-label">Cursor</span>
-                  <select id="setting-cursor-style" name="terminal_cursor_style" class="settings-input settings-input--narrow">
-                    <option value="block">Block</option><option value="underline">Underline</option><option value="bar">Bar</option>
-                  </select>
-                </div>
-                <div class="settings-item" data-pref="terminal_cursor_inactive_style" data-keywords="cursor inactive unfocused style outline block bar underline none">
-                  <span class="settings-item-label">Cursor inactive</span>
-                  <select id="setting-cursor-inactive-style" name="terminal_cursor_inactive_style" class="settings-input settings-input--narrow">
-                    <option value="outline">Outline</option><option value="block">Block</option><option value="bar">Bar</option><option value="underline">Underline</option><option value="none">None</option>
-                  </select>
-                </div>
-                <label class="settings-item settings-item--toggle" data-pref="terminal_cursor_blink" data-keywords="cursor blink blinking">
-                  <span class="settings-item-label">Blinking cursor</span>
-                  <input class="settings-checkbox-input" type="checkbox" name="terminal_cursor_blink" checked />
-                </label>
-                <label class="settings-item settings-item--toggle" data-pref="terminal_alt_click_moves_cursor" data-keywords="alt click cursor mouse">
-                  <span class="settings-item-label">Alt+click cursor</span>
-                  <input class="settings-checkbox-input" type="checkbox" name="terminal_alt_click_moves_cursor" checked />
-                </label>
                 <label class="settings-item settings-item--toggle" data-pref="terminal_draw_bold_bright" data-keywords="bold bright colors ansi">
                   <span class="settings-item-label">Bold = bright colors</span>
                   <input class="settings-checkbox-input" type="checkbox" name="terminal_draw_bold_bright" checked />
@@ -288,6 +268,71 @@
                 <label class="settings-item settings-item--toggle" data-pref="terminal_sideload_openconsole" data-keywords="sideload openconsole conpty host images sixel kitty iterm">
                   <span class="settings-item-label">Sideload OpenConsole host</span>
                   <input class="settings-checkbox-input" type="checkbox" name="terminal_sideload_openconsole" />
+                </label>
+              </div>
+            </div>
+
+            <div class="settings-section" data-section="terminal">
+              <div class="settings-section-hd">Cursor appearance</div>
+              <div class="settings-section-bd">
+                <div class="settings-item" data-pref="terminal_cursor_style" data-keywords="cursor style block underline bar">
+                  <label class="settings-item-label" for="setting-cursor-style">Shape</label>
+                  <select id="setting-cursor-style" name="terminal_cursor_style" class="settings-input settings-input--narrow">
+                    <option value="block">Block</option><option value="underline">Underline</option><option value="bar">Bar</option>
+                  </select>
+                </div>
+                <div class="settings-item" data-pref="terminal_cursor_inactive_style" data-keywords="cursor inactive unfocused style outline block bar underline none">
+                  <label class="settings-item-label" for="setting-cursor-inactive-style">Inactive shape</label>
+                  <select id="setting-cursor-inactive-style" name="terminal_cursor_inactive_style" class="settings-input settings-input--narrow">
+                    <option value="outline">Outline</option><option value="block">Block</option><option value="bar">Bar</option><option value="underline">Underline</option><option value="none">None</option>
+                  </select>
+                </div>
+                <label class="settings-item settings-item--toggle" data-pref="terminal_cursor_blink" data-keywords="cursor blink blinking">
+                  <span class="settings-item-label">Blinking cursor</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="terminal_cursor_blink" checked />
+                </label>
+                <label class="settings-item" data-pref="terminal_cursor_width" data-keywords="cursor bar beam width thickness">
+                  <span class="settings-item-label">Bar width <span class="settings-item-unit">px</span></span>
+                  <input name="terminal_cursor_width" type="number" min="1" step="1" value="1" class="settings-input settings-input--narrow" />
+                </label>
+                <label class="settings-item settings-item--toggle" data-pref="terminal_alt_click_moves_cursor" data-keywords="alt click cursor mouse">
+                  <span class="settings-item-label">Alt+click cursor</span>
+                  <input class="settings-checkbox-input" type="checkbox" name="terminal_alt_click_moves_cursor" checked />
+                </label>
+              </div>
+            </div>
+
+            <div class="settings-section" data-section="terminal">
+              <div class="settings-section-hd">Cursor trail</div>
+              <div class="settings-section-bd">
+                <label class="settings-item" data-pref="terminal_cursor_trail" data-keywords="cursor trail delay stationary ms ghost streak">
+                  <span class="settings-item-label" title="Milliseconds the cursor must rest before the trail follows it.">Trail delay <span class="settings-item-unit">ms</span></span>
+                  <input id="setting-cursor-trail" name="terminal_cursor_trail" type="number" min="0" step="1" value="0" class="settings-input settings-input--narrow" />
+                  <span class="settings-item-desc">0 disables; try 3 ms to enable. Filters rapid cursor repositioning during redraws. Respects OS reduced motion.</span>
+                </label>
+                <label class="settings-item" data-pref="terminal_cursor_trail_decay" data-keywords="cursor trail decay fast seconds">
+                  <span class="settings-item-label" title="Decay in seconds for corners moving with the cursor. The slow value is raised to at least this one.">Fast decay <span class="settings-item-unit">s</span></span>
+                  <input id="setting-cursor-trail-decay-fast" name="terminal_cursor_trail_decay_fast" type="number" min="0" step="0.05" value="0.1" class="settings-input settings-input--narrow" />
+                  <span class="settings-item-desc">Leading corners catch up faster. Smaller values make the trail quicker.</span>
+                </label>
+                <label class="settings-item" data-pref="terminal_cursor_trail_decay" data-keywords="cursor trail decay slow trailing seconds">
+                  <span class="settings-item-label" title="Decay in seconds for the trailing corners; raised to at least the fast value.">Slow decay <span class="settings-item-unit">s</span></span>
+                  <input id="setting-cursor-trail-decay-slow" name="terminal_cursor_trail_decay_slow" type="number" min="0" step="0.05" value="0.4" class="settings-input settings-input--narrow" />
+                  <span class="settings-item-desc">Trailing corners follow more slowly. Must be at least the fast decay.</span>
+                </label>
+                <label class="settings-item" data-pref="terminal_cursor_trail_start_threshold" data-keywords="cursor trail threshold start cells x horizontal">
+                  <span class="settings-item-label" title="Horizontal cells of cursor travel needed to start a trail. Only gates starting, and the move must be strictly greater.">Threshold X <span class="settings-item-unit">cells</span></span>
+                  <input id="setting-cursor-trail-threshold-x" name="terminal_cursor_trail_start_threshold_x" type="number" min="0" step="1" value="2" class="settings-input settings-input--narrow" />
+                  <span class="settings-item-desc">Starts when movement exceeds either axis threshold. Does not interrupt a moving trail.</span>
+                </label>
+                <label class="settings-item" data-pref="terminal_cursor_trail_start_threshold" data-keywords="cursor trail threshold start cells y vertical">
+                  <span class="settings-item-label" title="Vertical cells of cursor travel needed to start a trail. Only gates starting, and the move must be strictly greater.">Threshold Y <span class="settings-item-unit">cells</span></span>
+                  <input id="setting-cursor-trail-threshold-y" name="terminal_cursor_trail_start_threshold_y" type="number" min="0" step="1" value="2" class="settings-input settings-input--narrow" />
+                </label>
+                <label class="settings-item" data-pref="terminal_cursor_trail_color" data-keywords="cursor trail color tint hex theme">
+                  <span class="settings-item-label" title="Any CSS color; blank or none follows the theme cursor color.">Trail color</span>
+                  <input id="setting-cursor-trail-color" name="terminal_cursor_trail_color" type="text" placeholder="Theme cursor" spellcheck="false" class="settings-input settings-input--narrow" />
+                  <span class="settings-item-desc">Blank or &ldquo;none&rdquo; follows the theme cursor color.</span>
                 </label>
               </div>
             </div>

@@ -16,11 +16,15 @@ class Element {
 	setAttribute = noop;
 }
 class Terminal {
-	options = {};
+	options;
 	unicode = {};
 	loadAddon = noop;
 	open = noop;
 	refresh = noop;
+	constructor(options = {}) {
+		// Mirror xterm.js: constructor options seed `term.options` (shallow copy).
+		this.options = { ...options };
+	}
 }
 
 async function modules(extraMocks = {}) {
@@ -651,4 +655,139 @@ test("pane motion starts at the visible source without double-counting destinati
 		(-100 * delta) / 2,
 	);
 	near(Number(written("1b", "--pane-motion-sx")) * 100, 100 * (1 - delta));
+});
+
+test("cursor trail applies to live panes and to panes created after a change", async () => {
+	const load = await modules();
+	const { PaneHost, collectLeafIds } = await load("terminal/paneHost.ts");
+	PaneHost.prototype.mountTree = function () {
+		const ids = [];
+		collectLeafIds(this.getTree(), ids);
+		for (const id of ids) this.renderNode({ kind: "leaf", id });
+	};
+	const first = {
+		cursorTrail: 140,
+		cursorTrailDecay: [0.1, 0.4],
+		cursorTrailStartThreshold: 2,
+		cursorTrailColor: "none",
+	};
+	const second = {
+		cursorTrail: 0,
+		cursorTrailDecay: [0.2, 0.5],
+		cursorTrailStartThreshold: [1, 3],
+		cursorTrailColor: "#ff0000",
+	};
+	const host = new PaneHost(
+		new Element(),
+		{
+			rootPaneId: "1a",
+			...first,
+			getTheme: () => ({}),
+			onPaneCreated: noop,
+			suppressEnterAnimation: () => true,
+		},
+		{
+			initialTree: {
+				kind: "split",
+				dir: "h",
+				ratio: 0.5,
+				a: { kind: "leaf", id: "1a" },
+				b: { kind: "leaf", id: "1b" },
+			},
+		},
+	);
+	// Initial construction propagates the flat options to every existing pane.
+	assert.equal(host.getPaneTerminal("1a").term.options.cursorTrail, 140);
+	assert.deepEqual(
+		host.getPaneTerminal("1a").term.options.cursorTrailDecay,
+		[0.1, 0.4],
+	);
+	assert.equal(host.getPaneTerminal("1b").term.options.cursorTrail, 140);
+
+	// A runtime change reaches every live pane, including an explicit zero.
+	host.setCursorTrail(second);
+	assert.equal(host.getPaneTerminal("1a").term.options.cursorTrail, 0);
+	assert.deepEqual(
+		host.getPaneTerminal("1a").term.options.cursorTrailDecay,
+		[0.2, 0.5],
+	);
+	assert.deepEqual(
+		host.getPaneTerminal("1a").term.options.cursorTrailStartThreshold,
+		[1, 3],
+	);
+	assert.equal(
+		host.getPaneTerminal("1b").term.options.cursorTrailColor,
+		"#ff0000",
+	);
+
+	// A pane (re)created after the change inherits the latest flat options.
+	host.terminals.delete("1b");
+	host.renderNode({ kind: "leaf", id: "1b" });
+	assert.equal(host.getPaneTerminal("1b").term.options.cursorTrail, 0);
+	assert.equal(
+		host.getPaneTerminal("1b").term.options.cursorTrailColor,
+		"#ff0000",
+	);
+});
+
+test("cursor trail is left to the core default when the preference is absent", async () => {
+	const load = await modules();
+	const { PaneHost, collectLeafIds } = await load("terminal/paneHost.ts");
+	PaneHost.prototype.mountTree = function () {
+		const ids = [];
+		collectLeafIds(this.getTree(), ids);
+		for (const id of ids) this.renderNode({ kind: "leaf", id });
+	};
+	const host = new PaneHost(
+		new Element(),
+		{
+			rootPaneId: "1a",
+			getTheme: () => ({}),
+			onPaneCreated: noop,
+			suppressEnterAnimation: () => true,
+		},
+		{ initialTree: { kind: "leaf", id: "1a" } },
+	);
+	assert.equal(host.getPaneTerminal("1a").term.options.cursorTrail, undefined);
+});
+
+test("cursor trail survives a webview shed/rebuild (recreated host)", async () => {
+	const load = await modules();
+	const { PaneHost, collectLeafIds } = await load("terminal/paneHost.ts");
+	PaneHost.prototype.mountTree = function () {
+		const ids = [];
+		collectLeafIds(this.getTree(), ids);
+		for (const id of ids) this.renderNode({ kind: "leaf", id });
+	};
+	const trail = {
+		cursorTrail: 200,
+		cursorTrailDecay: [0.15, 0.45],
+		cursorTrailStartThreshold: [2, 4],
+		cursorTrailColor: "#20b2aa",
+	};
+	const tree = { kind: "leaf", id: "1a" };
+	const opts = {
+		rootPaneId: "1a",
+		...trail,
+		getTheme: () => ({}),
+		onPaneCreated: noop,
+		suppressEnterAnimation: () => true,
+	};
+	const before = new PaneHost(new Element(), opts, { initialTree: tree });
+	assert.equal(before.getPaneTerminal("1a").term.options.cursorTrail, 200);
+
+	// Webview teardown discards the host; the rebuilt host is constructed with
+	// the current preference (as createPaneHost does from its ref), so the
+	// recreated pane keeps the trail instead of falling back to the default.
+	const after = new PaneHost(new Element(), opts, { initialTree: tree });
+	assert.notEqual(after, before);
+	assert.equal(after.getPaneTerminal("1a").term.options.cursorTrail, 200);
+	assert.deepEqual(
+		after.getPaneTerminal("1a").term.options.cursorTrailDecay,
+		[0.15, 0.45],
+	);
+	assert.equal(
+		after.getPaneTerminal("1a").term.options.cursorTrailColor,
+		"#20b2aa",
+	);
 });

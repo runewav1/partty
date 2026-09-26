@@ -115,6 +115,18 @@ fn default_cursor_inactive_style() -> String {
 fn default_cursor_width() -> f64 {
     1.0
 }
+fn default_cursor_trail() -> f64 {
+    0.0
+}
+fn default_cursor_trail_decay() -> [f64; 2] {
+    [0.1, 0.4]
+}
+fn default_cursor_trail_start_threshold() -> CursorTrailThreshold {
+    CursorTrailThreshold::Single(2.0)
+}
+fn default_cursor_trail_color() -> String {
+    "none".to_string()
+}
 fn default_font_size() -> f64 {
     12.0
 }
@@ -296,6 +308,21 @@ pub struct Prefs {
     pub terminal_cursor_inactive_style: String,
     #[serde(default = "default_cursor_width")]
     pub terminal_cursor_width: f64,
+    /// Cursor trail: milliseconds the cursor must remain stationary before the
+    /// trail follows it. `0` disables the trail (kitty `cursor_trail`).
+    #[serde(default = "default_cursor_trail")]
+    pub terminal_cursor_trail: f64,
+    /// Cursor trail decay in seconds, `[fast, slow]` (kitty `cursor_trail_decay`).
+    #[serde(default = "default_cursor_trail_decay")]
+    pub terminal_cursor_trail_decay: [f64; 2],
+    /// Cursor trail start threshold in cells; a single number applies to both
+    /// axes, a pair sets x and y (kitty `cursor_trail_start_threshold`).
+    #[serde(default = "default_cursor_trail_start_threshold")]
+    pub terminal_cursor_trail_start_threshold: CursorTrailThreshold,
+    /// Cursor trail color override; `"none"` follows the theme cursor color
+    /// (kitty `cursor_trail_color`).
+    #[serde(default = "default_cursor_trail_color")]
+    pub terminal_cursor_trail_color: String,
     #[serde(default = "default_true")]
     pub terminal_alt_click_moves_cursor: bool,
     #[serde(default = "default_font_size")]
@@ -432,6 +459,10 @@ impl Default for Prefs {
             terminal_cursor_blink: true,
             terminal_cursor_inactive_style: default_cursor_inactive_style(),
             terminal_cursor_width: default_cursor_width(),
+            terminal_cursor_trail: default_cursor_trail(),
+            terminal_cursor_trail_decay: default_cursor_trail_decay(),
+            terminal_cursor_trail_start_threshold: default_cursor_trail_start_threshold(),
+            terminal_cursor_trail_color: default_cursor_trail_color(),
             terminal_alt_click_moves_cursor: true,
             terminal_font_size: default_font_size(),
             terminal_zoom_step: default_font_zoom_step(),
@@ -536,6 +567,15 @@ fn resolve_config_initial_dir(profiles: &ProfilesSection) -> Option<String> {
         .map(str::to_string)
 }
 
+/// `trail_start_threshold`: a single cell count applied to both axes, or an
+/// explicit `[x, y]` pair. Mirrors kitty's `cursor_trail_start_threshold`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CursorTrailThreshold {
+    Single(f64),
+    Pair([f64; 2]),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CursorSection {
     #[serde(default = "default_cursor_style")]
@@ -548,6 +588,15 @@ pub struct CursorSection {
     pub inactive_style: String,
     #[serde(default = "default_true")]
     pub alt_click_moves: bool,
+    /// `None` when the key is absent, so a saved default is omitted.
+    #[serde(default)]
+    pub trail: Option<f64>,
+    #[serde(default)]
+    pub trail_decay: Option<Vec<f64>>,
+    #[serde(default)]
+    pub trail_start_threshold: Option<CursorTrailThreshold>,
+    #[serde(default)]
+    pub trail_color: Option<String>,
 }
 
 impl Default for CursorSection {
@@ -558,7 +607,76 @@ impl Default for CursorSection {
             width: default_cursor_width(),
             inactive_style: default_cursor_inactive_style(),
             alt_click_moves: true,
+            trail: None,
+            trail_decay: None,
+            trail_start_threshold: None,
+            trail_color: None,
         }
+    }
+}
+
+fn cursor_trail_finite(v: f64, fallback: f64) -> f64 {
+    if v.is_finite() { v } else { fallback }
+}
+
+/// Floor a value to a non-negative count, falling back for non-finite input.
+/// Mirrors the xterm.js core sanitizer.
+fn cursor_trail_floor_non_negative(v: f64, fallback: f64) -> f64 {
+    cursor_trail_finite(v, fallback).max(0.0).floor()
+}
+
+/// `cursor_trail`: whole non-negative milliseconds (`0` disables).
+fn normalize_cursor_trail(v: f64) -> f64 {
+    cursor_trail_floor_non_negative(v, default_cursor_trail())
+}
+
+/// `cursor_trail_decay`: `[fast, slow]` seconds, non-negative, with `slow`
+/// lifted to at least `fast`. Non-finite values fall back to the kitty default.
+fn normalize_cursor_trail_decay(v: [f64; 2]) -> [f64; 2] {
+    let d = default_cursor_trail_decay();
+    let fast = cursor_trail_finite(v[0], d[0]).max(0.0);
+    let slow = cursor_trail_finite(v[1], d[1]).max(0.0);
+    [fast, slow.max(fast)]
+}
+
+fn cursor_trail_decay_from_vec(v: Option<Vec<f64>>) -> [f64; 2] {
+    match v {
+        Some(v) => {
+            let d = default_cursor_trail_decay();
+            normalize_cursor_trail_decay([
+                v.first().copied().unwrap_or(d[0]),
+                v.get(1).copied().unwrap_or(d[1]),
+            ])
+        }
+        None => default_cursor_trail_decay(),
+    }
+}
+
+/// `cursor_trail_start_threshold`: floor each axis to a non-negative cell count.
+fn normalize_cursor_trail_threshold(t: CursorTrailThreshold) -> CursorTrailThreshold {
+    let fallback = match default_cursor_trail_start_threshold() {
+        CursorTrailThreshold::Single(v) => v,
+        CursorTrailThreshold::Pair(p) => p[0],
+    };
+    match t {
+        CursorTrailThreshold::Single(v) => {
+            CursorTrailThreshold::Single(cursor_trail_floor_non_negative(v, fallback))
+        }
+        CursorTrailThreshold::Pair([x, y]) => CursorTrailThreshold::Pair([
+            cursor_trail_floor_non_negative(x, fallback),
+            cursor_trail_floor_non_negative(y, fallback),
+        ]),
+    }
+}
+
+/// `cursor_trail_color`: blank becomes the sentinel `"none"` (theme cursor
+/// color). Case is preserved so xterm's own color parser sees the user's value.
+fn normalize_cursor_trail_color(c: &str) -> String {
+    let t = c.trim();
+    if t.is_empty() {
+        default_cursor_trail_color()
+    } else {
+        t.to_string()
     }
 }
 
@@ -1153,12 +1271,34 @@ impl From<ConfigToml> for Prefs {
         let shell = resolve_config_shell(&c.profiles);
         let initial_cwd = resolve_config_initial_dir(&c.profiles);
 
+        let trail = match c.cursor.trail {
+            Some(v) => normalize_cursor_trail(v),
+            None => default_cursor_trail(),
+        };
+        let trail_decay = if c.cursor.trail_decay.is_some() {
+            cursor_trail_decay_from_vec(c.cursor.trail_decay.clone())
+        } else {
+            default_cursor_trail_decay()
+        };
+        let trail_start_threshold = match c.cursor.trail_start_threshold.clone() {
+            Some(t) => normalize_cursor_trail_threshold(t),
+            None => default_cursor_trail_start_threshold(),
+        };
+        let trail_color = match c.cursor.trail_color.as_deref() {
+            Some(s) => normalize_cursor_trail_color(s),
+            None => default_cursor_trail_color(),
+        };
+
         Self {
             shell,
             initial_cwd,
             terminal_cursor_style: c.cursor.style,
             terminal_cursor_blink: c.cursor.blink,
             terminal_cursor_width: c.cursor.width,
+            terminal_cursor_trail: trail,
+            terminal_cursor_trail_decay: trail_decay,
+            terminal_cursor_trail_start_threshold: trail_start_threshold,
+            terminal_cursor_trail_color: trail_color,
             terminal_cursor_inactive_style: c.cursor.inactive_style,
             terminal_alt_click_moves_cursor: c.cursor.alt_click_moves,
             terminal_font_size: c.font.size,
@@ -1266,6 +1406,14 @@ impl From<&Prefs> for ConfigToml {
                 width: p.terminal_cursor_width,
                 inactive_style: p.terminal_cursor_inactive_style.clone(),
                 alt_click_moves: p.terminal_alt_click_moves_cursor,
+                trail: Some(normalize_cursor_trail(p.terminal_cursor_trail)),
+                trail_decay: Some(
+                    normalize_cursor_trail_decay(p.terminal_cursor_trail_decay).to_vec(),
+                ),
+                trail_start_threshold: Some(normalize_cursor_trail_threshold(
+                    p.terminal_cursor_trail_start_threshold.clone(),
+                )),
+                trail_color: Some(normalize_cursor_trail_color(&p.terminal_cursor_trail_color)),
             },
             font: FontSection {
                 size: p.terminal_font_size,
@@ -1702,5 +1850,111 @@ mod renderer_config_tests {
         assert_eq!(p.terminal_zoom_step, 2.0);
         let p = prefs_from("[font]\nzoom_step = 0.0\n");
         assert_eq!(p.terminal_zoom_step, 0.05);
+    }
+}
+
+#[cfg(test)]
+mod cursor_trail_tests {
+    use super::*;
+
+    fn prefs_from(text: &str) -> Prefs {
+        Prefs::from(toml::from_str::<ConfigToml>(text).unwrap())
+    }
+
+    #[test]
+    fn defaults_match_kitty_and_are_off() {
+        let p = Prefs::default();
+        assert_eq!(p.terminal_cursor_trail, 0.0);
+        assert_eq!(p.terminal_cursor_trail_decay, [0.1, 0.4]);
+        assert_eq!(
+            p.terminal_cursor_trail_start_threshold,
+            CursorTrailThreshold::Single(2.0)
+        );
+        assert_eq!(p.terminal_cursor_trail_color, "none");
+    }
+
+    #[test]
+    fn parses_flat_cursor_trail_keys() {
+        let text = r##"
+[cursor]
+trail = 250
+trail_decay = [0.05, 0.2]
+trail_start_threshold = 4
+trail_color = "#ff00ff"
+"##;
+        let p = prefs_from(text);
+        assert_eq!(p.terminal_cursor_trail, 250.0);
+        assert_eq!(p.terminal_cursor_trail_decay, [0.05, 0.2]);
+        assert_eq!(
+            p.terminal_cursor_trail_start_threshold,
+            CursorTrailThreshold::Single(4.0)
+        );
+        assert_eq!(p.terminal_cursor_trail_color, "#ff00ff");
+    }
+
+    #[test]
+    fn threshold_accepts_an_xy_pair() {
+        let p = prefs_from("[cursor]\ntrail_start_threshold = [1, 3]\n");
+        assert_eq!(
+            p.terminal_cursor_trail_start_threshold,
+            CursorTrailThreshold::Pair([1.0, 3.0])
+        );
+    }
+
+    #[test]
+    fn missing_new_values_are_backward_compatible() {
+        let p = prefs_from("[cursor]\nstyle = \"bar\"\n");
+        assert_eq!(p.terminal_cursor_trail, 0.0);
+        assert_eq!(p.terminal_cursor_trail_decay, [0.1, 0.4]);
+        assert_eq!(
+            p.terminal_cursor_trail_start_threshold,
+            CursorTrailThreshold::Single(2.0)
+        );
+        assert_eq!(p.terminal_cursor_trail_color, "none");
+    }
+
+    #[test]
+    fn clamps_and_floors_match_the_xterm_core() {
+        let p = prefs_from(
+            "[cursor]\ntrail = -5\ntrail_decay = [0.4, 0.1]\ntrail_start_threshold = [-3, 2.9]\ntrail_color = \"   \"\n",
+        );
+        assert_eq!(p.terminal_cursor_trail, 0.0);
+        // slow is lifted to at least fast.
+        assert_eq!(p.terminal_cursor_trail_decay, [0.4, 0.4]);
+        assert_eq!(
+            p.terminal_cursor_trail_start_threshold,
+            CursorTrailThreshold::Pair([0.0, 2.0])
+        );
+        assert_eq!(p.terminal_cursor_trail_color, "none");
+    }
+
+    #[test]
+    fn roundtrips_flat_trail_through_toml() {
+        let p = Prefs {
+            terminal_cursor_trail: 321.0,
+            terminal_cursor_trail_decay: [0.25, 0.5],
+            terminal_cursor_trail_start_threshold: CursorTrailThreshold::Pair([1.0, 2.0]),
+            terminal_cursor_trail_color: "#a1b2c3".to_string(),
+            ..Prefs::default()
+        };
+        let text = toml::to_string(&ConfigToml::from(&p)).unwrap();
+        let back = Prefs::from(toml::from_str::<ConfigToml>(&text).unwrap());
+        assert_eq!(back.terminal_cursor_trail, 321.0);
+        assert_eq!(back.terminal_cursor_trail_decay, [0.25, 0.5]);
+        assert_eq!(
+            back.terminal_cursor_trail_start_threshold,
+            CursorTrailThreshold::Pair([1.0, 2.0])
+        );
+        assert_eq!(back.terminal_cursor_trail_color, "#a1b2c3");
+    }
+
+    #[test]
+    fn saving_writes_flat_trail_keys() {
+        let text = toml::to_string(&ConfigToml::from(&Prefs::default())).unwrap();
+        assert!(text.contains("[cursor]"), "got: {text}");
+        assert!(text.contains("trail = 0"), "got: {text}");
+        assert!(text.contains("trail_decay"), "got: {text}");
+        assert!(text.contains("trail_start_threshold"), "got: {text}");
+        assert!(text.contains("trail_color"), "got: {text}");
     }
 }

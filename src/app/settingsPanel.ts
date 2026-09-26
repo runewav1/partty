@@ -1,4 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
+import {
+	CURSOR_TRAIL_COLOR_NONE,
+	cursorTrailToXtermOptions,
+	DEFAULT_CURSOR_TRAIL_DECAY,
+	DEFAULT_CURSOR_TRAIL_START_THRESHOLD,
+} from "../terminal/cursorTrail";
 import { normalizeZoomStep, ZOOM_STEP_DEFAULT } from "../terminal/zoomStep";
 import { hideSurface, showSurface } from "./../util/motion";
 import type { CommandIslandApi } from "./commandIsland";
@@ -105,6 +111,14 @@ export type ParttyPrefs = {
 	terminal_cursor_inactive_style?: string;
 	/** Cursor width in px when cursor_style is `bar`. */
 	terminal_cursor_width?: number;
+	/** Stationary delay in ms before the cursor trail follows; `0` disables. */
+	terminal_cursor_trail?: number;
+	/** `[fast, slow]` decay in seconds; slow is lifted to at least fast. */
+	terminal_cursor_trail_decay?: number[] | [number, number];
+	/** Start threshold in cells; `number` for both axes or `[x, y]`. */
+	terminal_cursor_trail_start_threshold?: number | number[];
+	/** CSS color override; empty/`none` follows the theme cursor color. */
+	terminal_cursor_trail_color?: string;
 	/** Alt+click repositions the terminal cursor to the click position. */
 	terminal_alt_click_moves_cursor?: boolean;
 	/** Terminal font size in px. */
@@ -317,6 +331,43 @@ export function createSettingsPanel(
 			g("terminal_sandbox_padding"),
 			previous.terminal_sandbox_padding ?? 0,
 		);
+		const parseNonNeg = (raw: string, fb: number) => {
+			const n = Number.parseFloat(raw);
+			return Number.isFinite(n) ? Math.max(0, n) : fb;
+		};
+		const cursorTrail = Math.floor(
+			parseNonNeg(
+				g("terminal_cursor_trail"),
+				previous.terminal_cursor_trail ?? 0,
+			),
+		);
+		const prevDecay = previous.terminal_cursor_trail_decay;
+		const cursorTrailDecayFast = parseNonNeg(
+			g("terminal_cursor_trail_decay_fast"),
+			prevDecay?.[0] ?? DEFAULT_CURSOR_TRAIL_DECAY[0],
+		);
+		const cursorTrailDecaySlow = Math.max(
+			cursorTrailDecayFast,
+			parseNonNeg(
+				g("terminal_cursor_trail_decay_slow"),
+				prevDecay?.[1] ?? DEFAULT_CURSOR_TRAIL_DECAY[1],
+			),
+		);
+		const prevThreshold = previous.terminal_cursor_trail_start_threshold;
+		const prevThresholdX = Array.isArray(prevThreshold)
+			? (prevThreshold[0] ?? DEFAULT_CURSOR_TRAIL_START_THRESHOLD)
+			: (prevThreshold ?? DEFAULT_CURSOR_TRAIL_START_THRESHOLD);
+		const prevThresholdY = Array.isArray(prevThreshold)
+			? (prevThreshold[1] ?? DEFAULT_CURSOR_TRAIL_START_THRESHOLD)
+			: prevThresholdX;
+		const cursorTrailThresholdX = Math.floor(
+			parseNonNeg(g("terminal_cursor_trail_start_threshold_x"), prevThresholdX),
+		);
+		const cursorTrailThresholdY = Math.floor(
+			parseNonNeg(g("terminal_cursor_trail_start_threshold_y"), prevThresholdY),
+		);
+		const cursorTrailColor =
+			g("terminal_cursor_trail_color") || CURSOR_TRAIL_COLOR_NONE;
 
 		return {
 			shell: previous.shell || "pwsh",
@@ -417,6 +468,13 @@ export function createSettingsPanel(
 			terminal_cursor_blink: gc("terminal_cursor_blink"),
 			terminal_cursor_inactive_style: gs("terminal_cursor_inactive_style"),
 			terminal_cursor_width: clamp1p(g("terminal_cursor_width"), 1),
+			terminal_cursor_trail: cursorTrail,
+			terminal_cursor_trail_decay: [cursorTrailDecayFast, cursorTrailDecaySlow],
+			terminal_cursor_trail_start_threshold: [
+				cursorTrailThresholdX,
+				cursorTrailThresholdY,
+			],
+			terminal_cursor_trail_color: cursorTrailColor,
 			terminal_font_size: clampf(g("terminal_font_size"), 12, 8, 48),
 			terminal_zoom_step: normalizeZoomStep(
 				Number.parseFloat(g("terminal_zoom_step")),
@@ -906,6 +964,35 @@ export function createSettingsPanel(
 					: "outline")(pr.terminal_cursor_inactive_style),
 		);
 		setVal("terminal_cursor_width", String(pr.terminal_cursor_width ?? 1));
+		const trail = cursorTrailToXtermOptions(pr);
+		setVal("terminal_cursor_trail", String(trail.cursorTrail));
+		setVal(
+			"terminal_cursor_trail_decay_fast",
+			String(trail.cursorTrailDecay[0]),
+		);
+		setVal(
+			"terminal_cursor_trail_decay_slow",
+			String(trail.cursorTrailDecay[1]),
+		);
+		const trailThreshold = trail.cursorTrailStartThreshold;
+		setVal(
+			"terminal_cursor_trail_start_threshold_x",
+			String(
+				Array.isArray(trailThreshold) ? trailThreshold[0] : trailThreshold,
+			),
+		);
+		setVal(
+			"terminal_cursor_trail_start_threshold_y",
+			String(
+				Array.isArray(trailThreshold) ? trailThreshold[1] : trailThreshold,
+			),
+		);
+		setVal(
+			"terminal_cursor_trail_color",
+			trail.cursorTrailColor === CURSOR_TRAIL_COLOR_NONE
+				? ""
+				: trail.cursorTrailColor,
+		);
 		setChk(
 			"terminal_alt_click_moves_cursor",
 			pr.terminal_alt_click_moves_cursor ?? true,
