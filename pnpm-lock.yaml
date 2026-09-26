@@ -167,38 +167,38 @@ importers:
   .:
     dependencies:
       '@partty/addon-webgl':
-        specifier: 0.20.3
-        version: 0.20.3
+        specifier: 0.20.4-beta.1
+        version: 0.20.4-beta.1
       '@partty/addon-webgpu':
-        specifier: 0.1.7
-        version: 0.1.7
+        specifier: 0.1.7-beta.1
+        version: 0.1.7-beta.1
       '@tauri-apps/api':
         specifier: ^2.11.1
         version: 2.11.1
       '@xterm/addon-fit':
         specifier: beta
-        version: 0.12.0-beta.301(@partty/xterm@6.2.0)
+        version: 0.12.0-beta.301(@partty/xterm@6.2.1-beta.1)
       '@xterm/addon-image':
         specifier: beta
-        version: 0.10.0-beta.301(@partty/xterm@6.2.0)
+        version: 0.10.0-beta.301(@partty/xterm@6.2.1-beta.1)
       '@xterm/addon-ligatures':
         specifier: beta
-        version: 0.11.0-beta.301(@partty/xterm@6.2.0)
+        version: 0.11.0-beta.301(@partty/xterm@6.2.1-beta.1)
       '@xterm/addon-serialize':
         specifier: beta
-        version: 0.15.0-beta.301(@partty/xterm@6.2.0)
+        version: 0.15.0-beta.301(@partty/xterm@6.2.1-beta.1)
       '@xterm/addon-unicode-graphemes':
         specifier: beta
-        version: 0.5.0-beta.301(@partty/xterm@6.2.0)
+        version: 0.5.0-beta.301(@partty/xterm@6.2.1-beta.1)
       '@xterm/addon-unicode11':
         specifier: beta
-        version: 0.10.0-beta.301(@partty/xterm@6.2.0)
+        version: 0.10.0-beta.301(@partty/xterm@6.2.1-beta.1)
       '@xterm/addon-web-links':
         specifier: beta
-        version: 0.13.0-beta.301(@partty/xterm@6.2.0)
+        version: 0.13.0-beta.301(@partty/xterm@6.2.1-beta.1)
       '@xterm/xterm':
-        specifier: npm:@partty/xterm@6.2.0
-        version: '@partty/xterm@6.2.0'
+        specifier: npm:@partty/xterm@6.2.1-beta.1
+        version: '@partty/xterm@6.2.1-beta.1'
     devDependencies:
       '@biomejs/biome':
         specifier: 2.5.14
@@ -275,14 +275,14 @@ packages:
   '@oxc-project/types@0.151.0':
     resolution: {integrity: sha512-J1yXrIlNDZVzE3ada310xeAw7nH8yCAyLPuUIsjKatFPmfn5bS1oW+cM+QsGOtVWd5nhSpbwZWx/rue+r5Z+PA==}
 
-  '@partty/addon-webgl@0.20.3':
-    resolution: {integrity: sha512-t8O+qFWbUz2dYoEhmS8AqG36BepjFB/H0LEXgSw6tncGZtvjmy8H5UGAVZ1HWikbQbvSQIjqj3VpjAdMnl2mOQ==}
+  '@partty/addon-webgl@0.20.4-beta.1':
+    resolution: {integrity: sha512-rvn6zZklDOr97sq0sK6mj384h60i6OolWlAIzyFy4DmM4UhwBa/WJvuIPJUX/GXNwsHnfjPzPjoEHYluYTnNKA==}
 
-  '@partty/addon-webgpu@0.1.7':
-    resolution: {integrity: sha512-ELdl5RJc4dg5prm8Q6p4/Tesic6sAct3ZgK1oNBSYjQyKyIrdpMTKT3BKksrEs80aqRH+3mb+bjuq71vdFtRcQ==}
+  '@partty/addon-webgpu@0.1.7-beta.1':
+    resolution: {integrity: sha512-QCP6sEBhwyltLbL71j7eFVnDJ3s8CNUK2clgFp7H1emdKysGYGB+Gd/Y737xeHjwn4zxRNIEVH+BoWqrxSUvMA==}
 
-  '@partty/xterm@6.2.0':
-    resolution: {integrity: sha512-K/wEZoXjrOhYkMDlGJMTZe5PJvs65fespwh0Q6fnuQKzY1FcyPTD3YIhSRSQKM4Wh9rnmpjvfatlajAlVngaTQ==}
+  '@partty/xterm@6.2.1-beta.1':
+    resolution: {integrity: sha512-iIIp/4IIwWpyJASmXqPYR1ReqKxtjXuwE/HXvC2cVXdqUWLUPbu9zAKX62Eklm8rrwiN9OkXRKV3fd1WyR+2lw==}
     engines: {node: '>=26'}
 
   '@rolldown/binding-android-arm-eabi@1.2.11':
@@ -835,11 +835,11 @@ snapshots:
 
   '@oxc-project/types@0.151.0': {}
 
-  '@partty/addon-webgl@0.20.3': {}
+  '@partty/addon-webgl@0.20.4-beta.1': {}
 
-  '@partty/addon-webgpu@0.1.7': {}
+  '@partty/addon-webgpu@0.1.7-beta.1': {}
 
-  '@partty/xterm@6.2.0': {}
+  '@partty/xterm@6.2.1-beta.1': {}
 
   '@rolldown/binding-android-arm-eabi@1.2.11':
     optional: true
@@ -997,35 +997,35 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
-  '@xterm/addon-fit@0.12.0-beta.301(@partty/xterm@6.2.0)':
+  '@xterm/addon-fit@0.12.0-beta.301(@partty/xterm@6.2.1-beta.1)':
     dependencies:
-      '@xterm/xterm': '@partty/xterm@6.2.0'
+      '@xterm/xterm': '@partty/xterm@6.2.1-beta.1'
 
-  '@xterm/addon-image@0.10.0-beta.301(@partty/xterm@6.2.0)':
+  '@xterm/addon-image@0.10.0-beta.301(@partty/xterm@6.2.1-beta.1)':
     dependencies:
-      '@xterm/xterm': '@partty/xterm@6.2.0'
+      '@xterm/xterm': '@partty/xterm@6.2.1-beta.1'
 
-  '@xterm/addon-ligatures@0.11.0-beta.301(@partty/xterm@6.2.0)':
+  '@xterm/addon-ligatures@0.11.0-beta.301(@partty/xterm@6.2.1-beta.1)':
     dependencies:
-      '@xterm/xterm': '@partty/xterm@6.2.0'
+      '@xterm/xterm': '@partty/xterm@6.2.1-beta.1'
       lru-cache: 11.5.3
       opentype.js: 2.0.0
 
-  '@xterm/addon-serialize@0.15.0-beta.301(@partty/xterm@6.2.0)':
+  '@xterm/addon-serialize@0.15.0-beta.301(@partty/xterm@6.2.1-beta.1)':
     dependencies:
-      '@xterm/xterm': '@partty/xterm@6.2.0'
+      '@xterm/xterm': '@partty/xterm@6.2.1-beta.1'
 
-  '@xterm/addon-unicode-graphemes@0.5.0-beta.301(@partty/xterm@6.2.0)':
+  '@xterm/addon-unicode-graphemes@0.5.0-beta.301(@partty/xterm@6.2.1-beta.1)':
     dependencies:
-      '@xterm/xterm': '@partty/xterm@6.2.0'
+      '@xterm/xterm': '@partty/xterm@6.2.1-beta.1'
 
-  '@xterm/addon-unicode11@0.10.0-beta.301(@partty/xterm@6.2.0)':
+  '@xterm/addon-unicode11@0.10.0-beta.301(@partty/xterm@6.2.1-beta.1)':
     dependencies:
-      '@xterm/xterm': '@partty/xterm@6.2.0'
+      '@xterm/xterm': '@partty/xterm@6.2.1-beta.1'
 
-  '@xterm/addon-web-links@0.13.0-beta.301(@partty/xterm@6.2.0)':
+  '@xterm/addon-web-links@0.13.0-beta.301(@partty/xterm@6.2.1-beta.1)':
     dependencies:
-      '@xterm/xterm': '@partty/xterm@6.2.0'
+      '@xterm/xterm': '@partty/xterm@6.2.1-beta.1'
 
   detect-libc@2.1.2: {}
 
