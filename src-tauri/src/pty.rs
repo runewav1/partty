@@ -188,9 +188,15 @@ impl OscStripper {
     #[cfg(not(test))]
     fn note_partial_copy(&mut self, _n: usize) {}
 
-    /// Takes ownership so escape-free chunks pass through untouched.
+    /// Takes ownership so chunks without OSC introducers pass through untouched.
     fn process(&mut self, input: Vec<u8>) -> (Vec<u8>, Vec<OscSideEvent>) {
-        if !self.discarding && self.partial.is_empty() && !input.contains(&0x1b) {
+        // CSI and other escapes need no output reconstruction. A trailing ESC
+        // must still be deferred in case the next chunk starts with `]`.
+        if !self.discarding
+            && self.partial.is_empty()
+            && input.last() != Some(&0x1b)
+            && memchr::memmem::find(&input, b"\x1b]").is_none()
+        {
             return (input, Vec::new());
         }
         let mut events = Vec::new();
@@ -2593,6 +2599,48 @@ mod stripper_tests {
     // Written as challenges to break the stripper, then folded in as
     // permanent coverage: exhaustive split invariance, oversized-sequence
     // discard semantics, and degenerate input.
+
+    #[test]
+    fn non_osc_chunks_preserve_input_allocation() {
+        let mut s = OscStripper::new();
+        for bytes in [
+            b"plain text\n".as_slice(),
+            b"\x1b[31mred\x1b[0m\x1b[2;3H[log] value]".as_slice(),
+            b"]\x1b[0m]\x1b\x1b[K\x1b\\".as_slice(),
+        ] {
+            let mut input = Vec::with_capacity(bytes.len() + 64);
+            input.extend_from_slice(bytes);
+            let ptr = input.as_ptr();
+            let capacity = input.capacity();
+            let (clean, events) = s.process(input);
+            assert_eq!(clean, bytes);
+            assert_eq!(clean.as_ptr(), ptr, "unchanged chunk was copied");
+            assert_eq!(clean.capacity(), capacity);
+            assert!(events.is_empty());
+            assert!(s.partial.is_empty());
+        }
+    }
+
+    #[test]
+    fn csi_chunk_trailing_esc_preserves_split_osc() {
+        let mut s = OscStripper::new();
+        let prefix = b"\x1b[31m[log] red\x1b[0m";
+        let mut input = prefix.to_vec();
+        input.push(0x1b);
+        let (clean, events) = s.process(input);
+        assert_eq!(clean, prefix);
+        assert!(events.is_empty());
+        assert_eq!(s.partial, b"\x1b");
+        assert!(s.process(Vec::new()).0.is_empty());
+
+        let (clean, events) = s.process(b"]0;title\x07\x1b[2;3Htail]".to_vec());
+        assert_eq!(clean, b"\x1b[2;3Htail]");
+        assert_eq!(
+            events.iter().map(event_key).collect::<Vec<_>>(),
+            vec!["Title(title)"]
+        );
+        assert!(s.partial.is_empty());
+    }
 
     // Every possible chunk split of a stream must yield the same flushed
     // result as the whole stream — the exhaustive-boundary form of the
