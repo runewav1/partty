@@ -172,6 +172,7 @@ import {
 	isLayoutValidForRoot,
 	type PersistedPaneLayout,
 } from "./terminal/paneLayout";
+import { serializeReplayMouseEncoding } from "./terminal/replayModes";
 import {
 	activeRendererKind,
 	createRendererAddon,
@@ -1812,7 +1813,7 @@ async function boot(): Promise<void> {
 		try {
 			const snapshot = await ptyReplaySnapshot(pt.sessionId);
 			if (snapshot && snapshot.byteLength > 0) {
-				pt.term.write(new Uint8Array(snapshot));
+				await writeTerminalSerialized(pt.term, new Uint8Array(snapshot));
 			}
 		} catch (e) {
 			console.warn("pty_replay_snapshot", e);
@@ -6382,7 +6383,9 @@ async function boot(): Promise<void> {
 								const start = firstContentScrollbackLine(pt.term);
 								const end = Math.max(0, pt.term.buffer.normal.length - 1);
 								const payload: StashedPaneBuffer = {
-									data: serialize.serialize({ range: { start, end } }),
+									data:
+										serialize.serialize({ range: { start, end } }) +
+										serializeReplayMouseEncoding(pt.term),
 									cols: pt.term.cols,
 									rows: pt.term.rows,
 								};
@@ -6406,7 +6409,7 @@ async function boot(): Promise<void> {
 
 	function writeTerminalSerialized(
 		term: Terminal,
-		data: string,
+		data: string | Uint8Array,
 	): Promise<void> {
 		return new Promise((resolve, reject) => {
 			try {
