@@ -672,18 +672,28 @@ impl AltScreenDetector {
     /// (`true` = entered the alternate screen, `false` = returned to normal) to
     /// `out` in stream order.
     fn observe(&mut self, bytes: &[u8], out: &mut Vec<bool>) {
-        // Fast path: nothing in flight and no ESC means nothing to detect.
-        if self.state == AltScreenState::Ground && !bytes.contains(&0x1b) {
-            return;
-        }
         let mut i = 0;
         while i < bytes.len() {
             let b = bytes[i];
             match self.state {
                 AltScreenState::Ground => {
-                    if b == 0x1b {
-                        self.state = AltScreenState::Esc;
+                    // Text cannot change detector state. Jump to the next ESC
+                    // rather than walking every byte in ANSI-containing output;
+                    // this also handles ESC-free batches without a second scan.
+                    // Scan a short prefix inline: dense TUI output often has
+                    // adjacent controls or tiny text runs where a search call
+                    // costs more than the few byte comparisons it replaces.
+                    let prefix_end = (i + 16).min(bytes.len());
+                    while i < prefix_end && bytes[i] != 0x1b {
+                        i += 1;
                     }
+                    if i == prefix_end {
+                        let Some(offset) = memchr::memchr(0x1b, &bytes[i..]) else {
+                            break;
+                        };
+                        i += offset;
+                    }
+                    self.state = AltScreenState::Esc;
                     i += 1;
                 }
                 AltScreenState::Esc => {
@@ -1110,7 +1120,7 @@ impl PtySession {
         // session transparently reattach on resummon.
         let _emitter = thread::spawn(move || {
             let batch_window = Duration::from_millis(PTY_OUTPUT_BATCH_MS);
-            let mut pending = Vec::<u8>::with_capacity(16 * 1024);
+            let mut pending = Vec::<u8>::new();
             let mut stripper = OscStripper::new();
             let mut alt_detector = AltScreenDetector::new();
             let mut alt_transitions = Vec::new();
@@ -1133,7 +1143,9 @@ impl PtySession {
                 }
                 if pending.is_empty() {
                     match rx.recv() {
-                        Ok(chunk) => pending.extend_from_slice(&chunk),
+                        // Adopt the reader's allocation for the first chunk;
+                        // only additional chunks need copying to form a batch.
+                        Ok(chunk) => pending = chunk,
                         Err(_) => break,
                     }
                 }
@@ -1350,7 +1362,7 @@ impl PtySession {
                     }
                     // Fresh accumulator for the next batch (the old one was
                     // moved into the channel).
-                    pending = Vec::with_capacity(32 * 1024);
+                    pending = Vec::new();
                 }
 
                 if disconnected {
@@ -3326,6 +3338,39 @@ mod alt_screen_tests {
         let mut out = Vec::new();
         d.observe(&clean, &mut out);
         assert!(out.is_empty(), "cleaned={clean:?}");
+    }
+
+    #[test]
+    fn text_runs_preserve_transitions_through_stripping_and_chunk_boundaries() {
+        // Exercise the real stripper -> detector contract: passthrough OSCs
+        // containing false transitions remain whole, and split CSI/ESC state
+        // resumes before the next text run is skipped. Include non-ASCII bytes
+        // and empty batches so the fast scan never depends on text decoding.
+        let mut stream = "日本語 🚀 plain text\r\n".repeat(200).into_bytes();
+        stream.extend_from_slice(b"\x1b[32mcolor\x1b[0m\x1b[?1049h");
+        stream.extend_from_slice(&[0xff, 0x00, 0x07]);
+        stream.extend_from_slice(b"\x1b]8;;embedded\x1b[?1049l\x07link\x1b[?1049h");
+        stream.extend_from_slice(&vec![b'x'; 8192]);
+        stream.extend_from_slice(b"\x1b\x1b[?1049l\x1b[?1047h\x1bctail\x1b");
+        for chunk_size in [1, 2, 3, 5, 7, 16, 63, 1024, 4096, stream.len()] {
+            let mut stripper = OscStripper::new();
+            let mut detector = AltScreenDetector::new();
+            let mut out = Vec::new();
+            for chunk in stream.chunks(chunk_size) {
+                let (cleaned, _) = stripper.process(chunk.to_vec());
+                detector.observe(&cleaned, &mut out);
+                detector.observe(&[], &mut out);
+            }
+            // Complete the trailing ESC with '[' + a private mode in a later
+            // chunk, including the stripper's deferred introducer boundary.
+            let (cleaned, _) = stripper.process(b"[?47h".to_vec());
+            detector.observe(&cleaned, &mut out);
+            assert_eq!(
+                out,
+                vec![true, false, true, false, true],
+                "chunk_size={chunk_size}"
+            );
+        }
     }
 }
 
