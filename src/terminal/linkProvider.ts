@@ -112,6 +112,8 @@ export function registerTerminalLinkProvider(
 	let debounceTimer: number | null = null;
 	let scanFrame: number | null = null;
 	let disposed = false;
+	let prewarmDeadline = 0;
+	let prewarmNow: (() => number) | null = null;
 
 	const cacheLogicalLine = (
 		bufferRow: number,
@@ -181,24 +183,38 @@ export function registerTerminalLinkProvider(
 		}
 	};
 
+	const flushViewportPrewarm = (): void => {
+		debounceTimer = null;
+		if (disposed || !options.isFocused() || !prewarmNow) return;
+		const remaining = prewarmDeadline - prewarmNow();
+		if (remaining > 0) {
+			debounceTimer = window.setTimeout(flushViewportPrewarm, remaining);
+			return;
+		}
+		scanFrame = requestAnimationFrame(() => {
+			scanFrame = null;
+			scanViewport();
+		});
+	};
+
 	const scheduleViewportPrewarm = (): void => {
 		if (disposed || !options.isFocused()) return;
-		if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+		prewarmNow ??= performance.now.bind(performance);
+		prewarmDeadline = prewarmNow() + LINK_SCAN_DEBOUNCE_MS;
 		if (scanFrame !== null) {
 			cancelAnimationFrame(scanFrame);
 			scanFrame = null;
 		}
-		debounceTimer = window.setTimeout(() => {
-			debounceTimer = null;
-			scanFrame = requestAnimationFrame(() => {
-				scanFrame = null;
-				scanViewport();
-			});
-		}, LINK_SCAN_DEBOUNCE_MS);
+		if (debounceTimer === null) {
+			debounceTimer = window.setTimeout(
+				flushViewportPrewarm,
+				LINK_SCAN_DEBOUNCE_MS,
+			);
+		}
 	};
 
 	const invalidate = (): void => {
-		rowCache.clear();
+		if (rowCache.size > 0) rowCache.clear();
 		scheduleViewportPrewarm();
 	};
 

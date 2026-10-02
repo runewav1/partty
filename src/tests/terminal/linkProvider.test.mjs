@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { registerTerminalLinkProvider } from "../../terminal/linkProvider.ts";
 
-function fixture(rows, cols) {
+function fixture(rows, cols, focused = false) {
 	let provider;
 	let invalidate;
 	const lines = rows.map(([text, isWrapped = false]) => ({
@@ -23,6 +23,7 @@ function fixture(rows, cols) {
 		buffer: {
 			active: {
 				length: rows.length,
+				viewportY: 0,
 				getLine: (y) => lines[y],
 				getNullCell: () => ({}),
 			},
@@ -39,12 +40,13 @@ function fixture(rows, cols) {
 		onScroll: disposable,
 		onResize: disposable,
 	};
-	registerTerminalLinkProvider(term, {
+	const controller = registerTerminalLinkProvider(term, {
 		getCwd: () => "/project",
-		isFocused: () => false,
+		isFocused: () => focused,
 		activate() {},
 	});
 	return {
+		controller,
 		lines,
 		invalidate: () => invalidate(),
 		links(y) {
@@ -56,6 +58,113 @@ function fixture(rows, cols) {
 		},
 	};
 }
+
+function fakeScheduling(t) {
+	let now = 0;
+	let nextId = 1;
+	const timers = new Map();
+	const frames = new Map();
+	const calls = { timerSets: 0, timerClears: 0, frameCancels: 0 };
+	const saved = {
+		window: globalThis.window,
+		requestAnimationFrame: globalThis.requestAnimationFrame,
+		cancelAnimationFrame: globalThis.cancelAnimationFrame,
+	};
+	t.mock.method(performance, "now", () => now);
+	globalThis.window = {
+		setTimeout(fn, delay) {
+			calls.timerSets++;
+			const id = nextId++;
+			timers.set(id, { fn, due: now + delay });
+			return id;
+		},
+		clearTimeout(id) {
+			calls.timerClears++;
+			timers.delete(id);
+		},
+	};
+	globalThis.requestAnimationFrame = (fn) => {
+		const id = nextId++;
+		frames.set(id, fn);
+		return id;
+	};
+	globalThis.cancelAnimationFrame = (id) => {
+		calls.frameCancels++;
+		frames.delete(id);
+	};
+	return {
+		timers,
+		frames,
+		calls,
+		advanceTo(time) {
+			now = time;
+			while (true) {
+				const next = [...timers].find(([, timer]) => timer.due <= now);
+				if (!next) break;
+				timers.delete(next[0]);
+				next[1].fn();
+			}
+		},
+		flushFrames() {
+			const callbacks = [...frames.values()];
+			frames.clear();
+			for (const fn of callbacks) fn(now);
+		},
+		restore() {
+			for (const [key, value] of Object.entries(saved)) {
+				if (value === undefined) delete globalThis[key];
+				else globalThis[key] = value;
+			}
+		},
+	};
+}
+
+test("output bursts retain one timer and preserve the trailing debounce deadline", (t) => {
+	const scheduling = fakeScheduling(t);
+	const f = fixture([["/tmp/a.txt"]], 20, true);
+	t.after(() => {
+		f.controller.dispose();
+		scheduling.restore();
+	});
+	for (let i = 0; i < 10_000; i++) f.invalidate();
+	assert.equal(scheduling.calls.timerSets, 1);
+	assert.equal(scheduling.calls.timerClears, 0);
+	assert.equal(scheduling.timers.size, 1);
+	assert.equal(
+		f.links(1)[0].text,
+		"/tmp/a.txt",
+		"hover remains synchronous during output",
+	);
+	scheduling.advanceTo(60);
+	f.invalidate();
+	scheduling.advanceTo(75);
+	assert.equal(scheduling.frames.size, 0);
+	assert.equal(scheduling.calls.timerSets, 2);
+	scheduling.advanceTo(135);
+	assert.equal(scheduling.frames.size, 1);
+	scheduling.flushFrames();
+	assert.equal(scheduling.frames.size, 0);
+	assert.equal(scheduling.timers.size, 0);
+});
+
+test("new output cancels pending prewarm and disposal clears the scheduler", (t) => {
+	const scheduling = fakeScheduling(t);
+	const f = fixture([["/tmp/a.txt"]], 20, true);
+	t.after(() => {
+		f.controller.dispose();
+		scheduling.restore();
+	});
+	scheduling.advanceTo(75);
+	assert.equal(scheduling.frames.size, 1);
+	scheduling.advanceTo(76);
+	f.invalidate();
+	assert.equal(scheduling.frames.size, 0);
+	assert.equal(scheduling.calls.frameCancels, 1);
+	f.controller.dispose();
+	assert.equal(scheduling.timers.size, 0);
+	f.invalidate();
+	assert.equal(scheduling.timers.size, 0);
+});
 
 test("wrapped paths have exact inclusive cell ranges", () => {
 	const f = fixture([["/tmp/abcde"], ["file.txt", true]], 10);
