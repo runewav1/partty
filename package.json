@@ -3,7 +3,7 @@
 	"private": true,
 	"version": "0.6.0",
 	"type": "module",
-	"packageManager": "pnpm@12.9.0",
+	"packageManager": "pnpm@12.10.1",
 	"scripts": {
 		"dev": "vite",
 		"build": "tsc && vite build",
@@ -31,7 +31,7 @@
 		"@xterm/addon-unicode-graphemes": "beta",
 		"@xterm/addon-unicode11": "beta",
 		"@xterm/addon-web-links": "beta",
-		"@xterm/xterm": "npm:@partty/xterm@6.2.1-beta.4"
+		"@xterm/xterm": "npm:@partty/xterm@6.2.1-beta.5"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.15",
