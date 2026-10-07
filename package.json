@@ -31,12 +31,12 @@
 		"@xterm/addon-unicode-graphemes": "beta",
 		"@xterm/addon-unicode11": "beta",
 		"@xterm/addon-web-links": "beta",
-		"@xterm/xterm": "npm:@partty/xterm@6.2.1-beta.5"
+		"@xterm/xterm": "npm:@partty/xterm@6.2.3"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.15",
 		"@tauri-apps/cli": "^2.12.1",
 		"typescript": "~7.0.2",
-		"vite": "^8.3.2"
+		"vite": "^8.3.3"
 	}
 }
