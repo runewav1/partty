@@ -23,7 +23,7 @@
 	"dependencies": {
 		"@partty/addon-webgl": "0.20.5",
 		"@partty/addon-webgpu": "0.1.8",
-		"@tauri-apps/api": "^2.12.1",
+		"@tauri-apps/api": "^2.12.4",
 		"@xterm/addon-fit": "beta",
 		"@xterm/addon-image": "beta",
 		"@xterm/addon-ligatures": "beta",
@@ -35,7 +35,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.15",
-		"@tauri-apps/cli": "^2.12.1",
+		"@tauri-apps/cli": "^2.12.3",
 		"typescript": "~7.0.2",
 		"vite": "^8.3.4"
 	}
