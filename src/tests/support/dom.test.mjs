@@ -24,6 +24,19 @@ test("className reflects the class list in both directions", () => {
 	assert.equal(el.className, "");
 });
 
+test("firstElementChild and dispatched event payload follow DOM semantics", () => {
+	const parent = new FakeElement();
+	const child = new FakeElement("span");
+	const received = [];
+	parent.addEventListener("pointerdown", (event) => received.push(event));
+	assert.equal(parent.firstElementChild, null);
+	parent.appendChild(child);
+	assert.equal(parent.firstElementChild, child);
+	const event = { type: "pointerdown" };
+	parent.dispatch("pointerdown", event);
+	assert.deepEqual(received, [event]);
+});
+
 test("setting textContent clears children and reads back descendants", () => {
 	const parent = new FakeElement();
 	const child = new FakeElement("span");

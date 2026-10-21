@@ -134,6 +134,9 @@ export class FakeElement {
 			} else this.appendChild(node);
 		}
 	}
+	get firstElementChild() {
+		return this.children[0] ?? null;
+	}
 	querySelectorAll(selector) {
 		const out = [];
 		const walk = (node) => {
@@ -163,8 +166,8 @@ export class FakeElement {
 			);
 		}
 	}
-	dispatch(type) {
-		for (const fn of [...(this.listeners.get(type) ?? [])]) fn();
+	dispatch(type, event) {
+		for (const fn of [...(this.listeners.get(type) ?? [])]) fn(event);
 	}
 	click() {
 		this.dispatch("click");

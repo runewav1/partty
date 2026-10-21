@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { test } from "node:test";
+import { FakeElement } from "../support/dom.mjs";
 import { createVmLoader } from "../support/vm.mjs";
 
 const root = resolve(import.meta.dirname, "../..");
@@ -27,7 +28,15 @@ class Terminal {
 	}
 }
 
-async function modules(extraMocks = {}) {
+const defaultComputedStyle = (el) => ({
+	scale:
+		el && typeof el.focusScale === "number" ? String(el.focusScale) : "none",
+});
+
+async function modules(
+	extraMocks = {},
+	{ elementClass = Element, computedStyle = defaultComputedStyle } = {},
+) {
 	const storage = new Map();
 	const mocks = {
 		"@xterm/xterm": { Terminal },
@@ -52,15 +61,12 @@ async function modules(extraMocks = {}) {
 				setItem: (key, value) => storage.set(key, value),
 				removeItem: (key) => storage.delete(key),
 			},
-			document: { createElement: () => new Element() },
-			getComputedStyle: (el) => ({
-				scale:
-					el && typeof el.focusScale === "number"
-						? String(el.focusScale)
-						: "none",
-			}),
+			document: { createElement: (tag) => new elementClass(tag) },
+			CSS: { escape: (value) => String(value) },
+			getComputedStyle: computedStyle,
 			ResizeObserver: class {
 				observe = noop;
+				disconnect = noop;
 			},
 			requestIdleCallback: noop,
 		},
@@ -789,5 +795,79 @@ test("cursor trail survives a webview shed/rebuild (recreated host)", async () =
 	assert.equal(
 		after.getPaneTerminal("1a").term.options.cursorTrailColor,
 		"#20b2aa",
+	);
+});
+
+/**
+ * Pane-host focus listener lifecycle regression.
+ *
+ * `mountTree` replaces the host's descendants on every remount. Leaf focus is a
+ * bubble-phase listener on the persistent host root, so it must be registered
+ * once with the host rather than re-added by each mount (which accumulated
+ * duplicate handlers and repeated focus work on every pointerdown).
+ */
+function rootPointerDownListeners(host) {
+	return host.root.listeners.get("pointerdown") ?? [];
+}
+
+function leafTarget(leaf) {
+	return {
+		closest: (selector) => (selector === ".pane-leaf" ? leaf : null),
+	};
+}
+
+test("pane host leaf focus keeps one listener across remounts and drops it on dispose", async () => {
+	const load = await modules({}, { elementClass: FakeElement });
+	const { PaneHost } = await load("terminal/paneHost.ts");
+	const focused = [];
+	const host = new PaneHost(
+		new FakeElement(),
+		{
+			rootPaneId: "1a",
+			getTheme: () => ({}),
+			onPaneCreated: noop,
+			onPaneFocus: (id) => focused.push(id),
+			onPaneDisposed: noop,
+			suppressEnterAnimation: () => true,
+		},
+		{
+			initialTree: {
+				kind: "split",
+				dir: "h",
+				ratio: 0.5,
+				a: { kind: "leaf", id: "1a" },
+				b: { kind: "leaf", id: "1b" },
+			},
+		},
+	);
+
+	// One capture-phase alt-drag listener plus one bubble-phase focus listener.
+	assert.equal(rootPointerDownListeners(host).length, 2);
+	for (let i = 0; i < 3; i += 1) host.mountTree();
+	assert.equal(
+		rootPointerDownListeners(host).length,
+		2,
+		"remounting must not re-register root pointerdown handlers",
+	);
+
+	// The stable handler still resolves the freshly mounted leaf.
+	const leaf = host.root
+		.querySelectorAll(".pane-leaf")
+		.find((el) => el.dataset.paneId === "1b");
+	host.root.dispatch("pointerdown", {
+		target: leafTarget(leaf),
+		altKey: false,
+		button: 0,
+		preventDefault: noop,
+		stopPropagation: noop,
+	});
+	assert.equal(host.getFocusedPaneId(), "1b");
+	assert.deepEqual(focused, ["1b"]);
+
+	host.dispose();
+	assert.equal(
+		rootPointerDownListeners(host).length,
+		0,
+		"dispose must remove the stable root handlers",
 	);
 });

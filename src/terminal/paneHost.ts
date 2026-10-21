@@ -450,6 +450,15 @@ export class PaneHost {
 	/** Cached leaf rects for directional focus; invalidated on layout/mount. */
 	private leafGeometryCache: LeafGeometry[] | null = null;
 
+	private readonly onRootLeafPointerDown = (e: PointerEvent): void => {
+		const leaf = (e.target as HTMLElement).closest(
+			".pane-leaf",
+		) as HTMLElement | null;
+		if (!(leaf && this.ownsLeafElement(leaf))) return;
+		const id = leaf.dataset.paneId;
+		if (id) this.setFocusedPaneId(id);
+	};
+
 	private readonly onFollowMountPointerDown = (e: PointerEvent): void => {
 		const leaf = (e.target as HTMLElement).closest(
 			".pane-leaf",
@@ -511,6 +520,10 @@ export class PaneHost {
 			this.onPaneAltDragPointerDown,
 			true,
 		);
+		// Bubble-phase leaf focus is stable for the host lifetime: mountTree only
+		// replaces descendants, so re-registering this on every remount would
+		// accumulate duplicate handlers on `root`.
+		this.root.addEventListener("pointerdown", this.onRootLeafPointerDown);
 		this.opts.followMount?.addEventListener(
 			"pointerdown",
 			this.onPaneAltDragPointerDown,
@@ -1639,6 +1652,7 @@ export class PaneHost {
 			this.onPaneAltDragPointerDown,
 			true,
 		);
+		this.root.removeEventListener("pointerdown", this.onRootLeafPointerDown);
 		this.opts.followMount?.removeEventListener(
 			"pointerdown",
 			this.onPaneAltDragPointerDown,
@@ -1730,16 +1744,6 @@ export class PaneHost {
 	}
 
 	private wireFocus(): void {
-		const onLeafPointerDown = (e: PointerEvent): void => {
-			const leaf = (e.target as HTMLElement).closest(
-				".pane-leaf",
-			) as HTMLElement | null;
-			if (!(leaf && this.ownsLeafElement(leaf))) return;
-			const id = leaf.dataset.paneId;
-			if (id) this.setFocusedPaneId(id);
-		};
-		this.root.addEventListener("pointerdown", onLeafPointerDown);
-
 		this.root
 			.querySelectorAll<HTMLElement>(".pane-gutter")
 			.forEach((gutter) => {
