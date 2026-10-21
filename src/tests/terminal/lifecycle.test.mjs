@@ -871,3 +871,118 @@ test("pane host leaf focus keeps one listener across remounts and drops it on di
 		"dispose must remove the stable root handlers",
 	);
 });
+
+/**
+ * Shared follow-layer ownership regression.
+ *
+ * Every live tab host renders follow floats into one shared followMount.
+ * `wireFocus` wires resize handles by querying that layer, so it must ignore
+ * leaves owned by other hosts: otherwise a foreign follow leaf retains this
+ * host's closures and receives its resize handling.
+ */
+function followHandles(leaf) {
+	return [
+		...leaf.querySelectorAll(".pane-corner-handle"),
+		...leaf.querySelectorAll(".pane-floating-resize"),
+	];
+}
+
+function assertWired(leaf, label) {
+	const handles = followHandles(leaf);
+	assert.equal(handles.length, 8, `${label} renders every resize handle`);
+	for (const handle of handles) {
+		assert.equal(
+			(handle.listeners.get("pointerdown") ?? []).length,
+			1,
+			`${label} wires each follow resize handle exactly once`,
+		);
+	}
+	return handles.map((handle) => handle.listeners.get("pointerdown")[0]);
+}
+
+test("shared follow mount only wires resize handles owned by each host", async () => {
+	const load = await modules({}, { elementClass: FakeElement });
+	const { PaneHost } = await load("terminal/paneHost.ts");
+	const followMount = new FakeElement();
+	const followLeaf = (id) =>
+		followMount
+			.querySelectorAll(".pane-leaf")
+			.find((el) => el.dataset.paneId === id) ?? null;
+	const createHost = (rootId, followId) =>
+		new PaneHost(
+			new FakeElement(),
+			{
+				rootPaneId: rootId,
+				followMount,
+				getTheme: () => ({}),
+				onPaneCreated: noop,
+				onPaneFocus: noop,
+				onPaneDisposed: noop,
+				suppressEnterAnimation: () => true,
+			},
+			{
+				initialTree: {
+					kind: "split",
+					dir: "h",
+					ratio: 0.5,
+					a: { kind: "leaf", id: rootId },
+					b: { kind: "leaf", id: followId },
+				},
+				initialFloating: {
+					[followId]: {
+						x: 0,
+						y: 0,
+						width: 320,
+						height: 200,
+						z: 1,
+						follow: true,
+					},
+				},
+			},
+		);
+
+	const hostA = createHost("1a", "*a");
+	const leafA = followLeaf("*a");
+	assert.ok(leafA);
+	const listenersA = assertWired(leafA, "host A");
+
+	// A second live host mounting into the shared layer must not touch A's DOM.
+	const hostB = createHost("2a", "*b");
+	const leafB = followLeaf("*b");
+	assert.ok(leafB);
+	const listenersB = assertWired(leafB, "host B");
+	assert.notDeepEqual(listenersA, listenersB);
+	assert.deepEqual(assertWired(leafA, "host A after host B mount"), listenersA);
+
+	// Remounting either host rebuilds only its own follow leaf.
+	hostB.mountTree();
+	assert.equal(followLeaf("*a"), leafA, "host B remount leaves A's DOM alone");
+	const listenersBAfter = assertWired(followLeaf("*b"), "host B after remount");
+	assert.deepEqual(
+		assertWired(leafA, "host A after host B remount"),
+		listenersA,
+	);
+
+	hostA.mountTree();
+	const nextLeafA = followLeaf("*a");
+	assert.ok(nextLeafA);
+	assert.notEqual(nextLeafA, leafA);
+	const listenersAAfter = assertWired(nextLeafA, "host A after remount");
+	assert.deepEqual(
+		assertWired(followLeaf("*b"), "host B after host A remount"),
+		listenersBAfter,
+	);
+	assert.notDeepEqual(listenersAAfter, listenersA);
+
+	// Disposing the unrelated host removes only its follow leaf; A's surviving
+	// handles keep exactly their own callbacks and no stale B closures.
+	hostB.dispose();
+	assert.equal(followLeaf("*b"), null);
+	assert.deepEqual(
+		assertWired(followLeaf("*a"), "host A after host B disposal"),
+		listenersAAfter,
+	);
+
+	hostA.dispose();
+	assert.equal(followLeaf("*a"), null);
+});

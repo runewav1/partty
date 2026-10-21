@@ -1766,11 +1766,15 @@ export class PaneHost {
 			mount
 				.querySelectorAll<HTMLElement>(".pane-corner-handle")
 				.forEach((corner) => {
+					const leaf = corner.closest(".pane-leaf") as HTMLElement | null;
+					// The follow mount is shared by every live tab host. Only wire
+					// handles on leaves this host owns; otherwise a foreign host's
+					// follow DOM retains this host's closures and receives its
+					// resize handling.
+					if (!(leaf && this.ownsLeafElement(leaf))) return;
 					corner.addEventListener("pointerdown", (e) => {
 						e.preventDefault();
 						e.stopPropagation();
-						const leaf = corner.closest(".pane-leaf") as HTMLElement | null;
-						if (!leaf) return;
 						const paneId = leaf.dataset.paneId;
 						if (paneId && this.floating.has(paneId)) {
 							this.beginFloatingPaneResize(
@@ -1794,12 +1798,13 @@ export class PaneHost {
 			mount
 				.querySelectorAll<HTMLElement>(".pane-floating-resize")
 				.forEach((edge) => {
+					const leaf = edge.closest(".pane-leaf") as HTMLElement | null;
+					if (!(leaf && this.ownsLeafElement(leaf))) return;
 					edge.addEventListener("pointerdown", (e) => {
 						e.preventDefault();
 						e.stopPropagation();
-						const leaf = edge.closest(".pane-leaf") as HTMLElement | null;
-						const paneId = leaf?.dataset.paneId;
-						if (!(leaf && paneId && this.floating.has(paneId))) return;
+						const paneId = leaf.dataset.paneId;
+						if (!(paneId && this.floating.has(paneId))) return;
 						this.beginFloatingPaneResize(
 							leaf,
 							paneId,

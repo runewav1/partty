@@ -41,14 +41,23 @@ export class FakeClassList {
 	}
 }
 
+const SELECTOR_PART_RE = /\.([\w-]+)|\[data-([\w-]+)(?:="([^"]*)")?\]/g;
+
 export function matchesSelector(el, selector) {
-	if (selector.startsWith(".")) return el.classList.contains(selector.slice(1));
-	if (selector === "[data-index]") return el.dataset.index !== undefined;
-	const prefix = '[data-index="';
-	if (selector.startsWith(prefix)) {
-		return el.dataset.index === selector.slice(prefix.length, -2);
+	const parts = [...selector.matchAll(SELECTOR_PART_RE)];
+	if (
+		parts.length === 0 ||
+		parts.map((match) => match[0]).join("") !== selector
+	) {
+		return false;
 	}
-	return false;
+	return parts.every((match) => {
+		if (match[1] !== undefined) return el.classList.contains(match[1]);
+		const key = match[2].replace(/-([a-z])/g, (_, char) => char.toUpperCase());
+		const value = el.dataset[key];
+		if (match[3] === undefined) return value !== undefined;
+		return value !== undefined && String(value) === match[3];
+	});
 }
 
 function detach(child) {
@@ -150,6 +159,14 @@ export class FakeElement {
 	}
 	querySelector(selector) {
 		return this.querySelectorAll(selector)[0] ?? null;
+	}
+	closest(selector) {
+		let node = this;
+		while (node) {
+			if (matchesSelector(node, selector)) return node;
+			node = node.parentElement;
+		}
+		return null;
 	}
 
 	addEventListener(type, fn) {
