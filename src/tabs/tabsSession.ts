@@ -1,4 +1,8 @@
-import type { PaneNode } from "./../terminal/paneHost";
+import {
+	collectLeafIds,
+	type PaneHostInit,
+	type PaneNode,
+} from "./../terminal/paneHost";
 import {
 	emptyTabLayout,
 	mapLayoutToTabKey,
@@ -45,6 +49,118 @@ export type TabsStateV1 = {
 	activeTabId: string;
 	groups: TabGroup[];
 };
+
+/** A restored tab whose PaneHost is created lazily on first activation. */
+export type DeferredTabInit = {
+	init: PaneHostInit;
+	rootPaneId: string;
+};
+
+/** Seeded per-pane runtime maps that follow a deferred tab's layout ids. */
+export type DeferredPaneMaps = {
+	paneThemes: Map<string, unknown>;
+	paneProfileIds: Map<string, unknown>;
+	paneCwdHints: Map<string, unknown>;
+};
+
+export type DeferredPaneTeardownOptions = {
+	/** A live host owns its panes and kills their sessions through `onPaneDisposed`. */
+	hasLiveHost: boolean;
+	maps: DeferredPaneMaps;
+	killSession: (sessionId: string) => void;
+};
+
+/**
+ * Consume a deferred tab init for hydration. The returned layout is handed to a
+ * new PaneHost, which adopts its session ids; callers must not also run
+ * `disposeDeferredTabPanes` for it.
+ */
+export function takeDeferredTabInit(
+	deferred: Map<string, DeferredTabInit>,
+	tabId: string,
+): DeferredTabInit | undefined {
+	const init = deferred.get(tabId);
+	if (init) deferred.delete(tabId);
+	return init;
+}
+
+function paneIdsForDeferredInit(init: PaneHostInit): string[] {
+	const paneIds: string[] = [];
+	if (init.initialTree) collectLeafIds(init.initialTree, paneIds);
+	// Keep session-map keys too: a stale key must not keep seeded metadata alive
+	// if the tree and session map ever diverge.
+	for (const paneId of Object.keys(init.initialSessionIds ?? {})) {
+		if (!paneIds.includes(paneId)) paneIds.push(paneId);
+	}
+	return paneIds;
+}
+
+function sessionIdsForDeferredInit(init: PaneHostInit): string[] {
+	const sessionIds: string[] = [];
+	const seen = new Set<string>();
+	for (const sessionId of Object.values(init.initialSessionIds ?? {})) {
+		if (!sessionId || seen.has(sessionId)) continue;
+		seen.add(sessionId);
+		sessionIds.push(sessionId);
+	}
+	return sessionIds;
+}
+
+/**
+ * Permanently release a restored tab that never materialized a PaneHost.
+ * Without this, closing an unopened inactive tab leaves its backend PTYs
+ * (shells, reader threads, replay buffers) and seeded pane metadata behind.
+ * The helper deliberately never constructs a host; hydration uses
+ * `takeDeferredTabInit` and transfers ownership to a live host instead.
+ */
+export function disposeDeferredTabPanes(
+	deferred: DeferredTabInit | undefined,
+	opts: DeferredPaneTeardownOptions,
+): void {
+	if (!deferred || opts.hasLiveHost) return;
+	for (const paneId of paneIdsForDeferredInit(deferred.init)) {
+		opts.maps.paneThemes.delete(paneId);
+		opts.maps.paneProfileIds.delete(paneId);
+		opts.maps.paneCwdHints.delete(paneId);
+	}
+	for (const sessionId of sessionIdsForDeferredInit(deferred.init)) {
+		opts.killSession(sessionId);
+	}
+}
+
+function rekeyPaneMap(
+	map: Map<string, unknown>,
+	from: string,
+	to: string,
+): void {
+	if (from === to || !map.has(from)) return;
+	const value = map.get(from);
+	map.delete(from);
+	map.set(to, value);
+}
+
+/**
+ * Move deferred-tab pane metadata to its rekeyed layout ids. Every source moves
+ * to a temporary key first, so swapping tab indexes cannot overwrite another
+ * pane's theme/profile/cwd.
+ */
+export function rekeyDeferredPaneMaps(
+	moves: ReadonlyArray<{ from: string; to: string }>,
+	maps: DeferredPaneMaps,
+): void {
+	const temps = moves.map((move, index) => {
+		const temp = `#deferred-${index}`;
+		rekeyPaneMap(maps.paneThemes, move.from, temp);
+		rekeyPaneMap(maps.paneProfileIds, move.from, temp);
+		rekeyPaneMap(maps.paneCwdHints, move.from, temp);
+		return temp;
+	});
+	moves.forEach((move, index) => {
+		rekeyPaneMap(maps.paneThemes, temps[index]!, move.to);
+		rekeyPaneMap(maps.paneProfileIds, temps[index]!, move.to);
+		rekeyPaneMap(maps.paneCwdHints, temps[index]!, move.to);
+	});
+}
 
 function migrateLayoutFromLegacyMain(
 	layout: PersistedPaneLayout,

@@ -986,3 +986,248 @@ test("shared follow mount only wires resize handles owned by each host", async (
 	hostA.dispose();
 	assert.equal(followLeaf("*a"), null);
 });
+
+/**
+ * Deferred restored-tab teardown regression.
+ *
+ * Boot parks inactive tabs in `deferredTabInits` with their restored layout and
+ * stable PTY session ids. Closing one before activation must release those
+ * backend sessions and the metadata seeded for its panes, without constructing
+ * a terminal host. Hydration instead consumes the init and transfers ownership.
+ */
+test("deferred tab teardown kills restored sessions and clears seeded metadata after rekey", async () => {
+	const load = await modules();
+	const tabs = await load("tabs/tabsSession.ts");
+	const { mapLayoutToTabKey } = await load("terminal/paneIds.ts");
+	const saved = {
+		v: 1,
+		tree: {
+			kind: "split",
+			dir: "h",
+			ratio: 0.5,
+			a: { kind: "leaf", id: "1a" },
+			b: { kind: "leaf", id: "1b" },
+		},
+		focusedId: "1b",
+		paneSessionIds: { "1a": "sid-a", "1b": "sid-b" },
+		paneThemes: {
+			"1a": { background: "#111111" },
+			"1b": { background: "#222222" },
+		},
+		paneProfileIds: { "1a": "profile-a", "1b": "profile-b" },
+		paneCwds: { "1a": "C:\\a", "1b": "C:\\b" },
+	};
+	const mapped = mapLayoutToTabKey(saved, "3", new Set()).layout;
+	// Session ids stay stable by value even though their pane-id keys rekey.
+	assert.equal(mapped.paneSessionIds["3a"], "sid-a");
+	assert.equal(mapped.paneSessionIds["3b"], "sid-b");
+	const maps = {
+		paneThemes: new Map(Object.entries(mapped.paneThemes)),
+		paneProfileIds: new Map(Object.entries(mapped.paneProfileIds)),
+		paneCwdHints: new Map(Object.entries(mapped.paneCwds)),
+	};
+	const killed = [];
+	tabs.disposeDeferredTabPanes(
+		{
+			init: {
+				initialTree: mapped.tree,
+				initialSessionIds: mapped.paneSessionIds,
+			},
+			rootPaneId: "3a",
+		},
+		{
+			hasLiveHost: false,
+			maps,
+			killSession: (sessionId) => killed.push(sessionId),
+		},
+	);
+	assert.deepEqual(killed.sort(), ["sid-a", "sid-b"]);
+	assert.equal(maps.paneThemes.size, 0);
+	assert.equal(maps.paneProfileIds.size, 0);
+	assert.equal(maps.paneCwdHints.size, 0);
+});
+
+test("deferred tab teardown without session ids only clears metadata", async () => {
+	const load = await modules();
+	const tabs = await load("tabs/tabsSession.ts");
+	const tree = {
+		kind: "split",
+		dir: "v",
+		ratio: 0.5,
+		a: { kind: "leaf", id: "4a" },
+		b: { kind: "leaf", id: "4b" },
+	};
+	const maps = {
+		paneThemes: new Map([
+			["4a", { background: "#111111" }],
+			["4b", { background: "#222222" }],
+		]),
+		paneProfileIds: new Map([
+			["4a", "profile-a"],
+			["4b", "profile-b"],
+		]),
+		paneCwdHints: new Map([
+			["4a", "C:\\a"],
+			["4b", "C:\\b"],
+		]),
+	};
+	const killed = [];
+	tabs.disposeDeferredTabPanes(
+		{ init: { initialTree: tree }, rootPaneId: "4a" },
+		{
+			hasLiveHost: false,
+			maps,
+			killSession: (sessionId) => killed.push(sessionId),
+		},
+	);
+	assert.deepEqual(killed, [], "a layout without session ids spawns no kill");
+	assert.equal(maps.paneThemes.size, 0);
+	assert.equal(maps.paneProfileIds.size, 0);
+	assert.equal(maps.paneCwdHints.size, 0);
+});
+
+test("deferred pane metadata follows layout rekey without overwriting a swapped tab", async () => {
+	const load = await modules();
+	const tabs = await load("tabs/tabsSession.ts");
+	const maps = {
+		paneThemes: new Map([
+			["1a", "theme-a"],
+			["2a", "theme-b"],
+		]),
+		paneProfileIds: new Map([
+			["1a", "profile-a"],
+			["2a", "profile-b"],
+		]),
+		paneCwdHints: new Map([
+			["1a", "C:\\a"],
+			["2a", "C:\\b"],
+		]),
+	};
+	// Tab indexes swapped: each pane must keep its own metadata.
+	tabs.rekeyDeferredPaneMaps(
+		[
+			{ from: "1a", to: "2a" },
+			{ from: "2a", to: "1a" },
+		],
+		maps,
+	);
+	assert.equal(maps.paneThemes.get("1a"), "theme-b");
+	assert.equal(maps.paneThemes.get("2a"), "theme-a");
+	assert.equal(maps.paneProfileIds.get("1a"), "profile-b");
+	assert.equal(maps.paneProfileIds.get("2a"), "profile-a");
+	assert.equal(maps.paneCwdHints.get("1a"), "C:\\b");
+	assert.equal(maps.paneCwdHints.get("2a"), "C:\\a");
+});
+
+test("hydration consumes deferred sessions while live host disposal stays the owner", async () => {
+	const load = await modules({}, { elementClass: FakeElement });
+	const { PaneHost, collectLeafIds } = await load("terminal/paneHost.ts");
+	const tabs = await load("tabs/tabsSession.ts");
+	PaneHost.prototype.mountTree = function () {
+		const ids = [];
+		collectLeafIds(this.getTree(), ids);
+		for (const id of ids) this.renderNode({ kind: "leaf", id });
+	};
+	const tree = {
+		kind: "split",
+		dir: "h",
+		ratio: 0.5,
+		a: { kind: "leaf", id: "2a" },
+		b: { kind: "leaf", id: "2b" },
+	};
+	const sessions = { "2a": "sid-a", "2b": "sid-b" };
+	const deferred = new Map([
+		[
+			"tab-2",
+			{
+				init: { initialTree: tree, initialSessionIds: sessions },
+				rootPaneId: "2a",
+			},
+		],
+	]);
+	const hydrated = tabs.takeDeferredTabInit(deferred, "tab-2");
+	assert.ok(hydrated);
+	assert.equal(deferred.size, 0);
+	const killed = [];
+	tabs.disposeDeferredTabPanes(deferred.get("tab-2"), {
+		hasLiveHost: false,
+		maps: {
+			paneThemes: new Map(),
+			paneProfileIds: new Map(),
+			paneCwdHints: new Map(),
+		},
+		killSession: (sessionId) => killed.push(sessionId),
+	});
+	assert.deepEqual(
+		killed,
+		[],
+		"hydration transfers ownership instead of killing",
+	);
+
+	const host = new PaneHost(
+		new FakeElement(),
+		{
+			rootPaneId: "2a",
+			getTheme: () => ({}),
+			onPaneCreated: noop,
+			onPaneDisposed: noop,
+			suppressEnterAnimation: () => true,
+		},
+		hydrated.init,
+	);
+	assert.equal(host.getPaneTerminal("2a").sessionId, "sid-a");
+	assert.equal(host.getPaneTerminal("2b").sessionId, "sid-b");
+	host.dispose();
+
+	// A live host keeps its existing disposal path; the deferred helper must not
+	// duplicate its kills or clear metadata the host still owns.
+	const liveTree = {
+		kind: "split",
+		dir: "h",
+		ratio: 0.5,
+		a: { kind: "leaf", id: "5a" },
+		b: { kind: "leaf", id: "5b" },
+	};
+	const disposed = [];
+	const live = new PaneHost(
+		new FakeElement(),
+		{
+			rootPaneId: "5a",
+			getTheme: () => ({}),
+			onPaneCreated: noop,
+			onPaneDisposed: (paneId, sessionId) => disposed.push([paneId, sessionId]),
+			suppressEnterAnimation: () => true,
+		},
+		{
+			initialTree: liveTree,
+			initialSessionIds: { "5a": "live-a", "5b": "live-b" },
+		},
+	);
+	const liveMaps = {
+		paneThemes: new Map([["5a", "theme-a"]]),
+		paneProfileIds: new Map([["5a", "profile-a"]]),
+		paneCwdHints: new Map([["5a", "C:\\a"]]),
+	};
+	const liveKilled = [];
+	tabs.disposeDeferredTabPanes(
+		{
+			init: {
+				initialTree: liveTree,
+				initialSessionIds: { "5a": "live-a", "5b": "live-b" },
+			},
+			rootPaneId: "5a",
+		},
+		{
+			hasLiveHost: true,
+			maps: liveMaps,
+			killSession: (sessionId) => liveKilled.push(sessionId),
+		},
+	);
+	assert.deepEqual(liveKilled, [], "live host disposal owns the kill");
+	assert.equal(liveMaps.paneThemes.size, 1);
+	live.dispose();
+	assert.deepEqual(disposed.sort(), [
+		["5a", "live-a"],
+		["5b", "live-b"],
+	]);
+});

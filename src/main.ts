@@ -114,16 +114,20 @@ import {
 	procPaletteHeadline,
 } from "./tabs/displayNames";
 import {
+	type DeferredTabInit,
+	disposeDeferredTabPanes,
 	duplicateTabLayout,
 	initialLayoutForTab,
 	loadLayoutForTab,
 	loadTabsState,
 	nextTabName,
 	persistLayoutForTab,
+	rekeyDeferredPaneMaps,
 	saveTabsState,
 	type TabGroup,
 	type TabRecord,
 	type TabsStateV1,
+	takeDeferredTabInit,
 } from "./tabs/tabsSession";
 import {
 	queueWorkspaceStartupCommands,
@@ -2678,7 +2682,6 @@ async function boot(): Promise<void> {
 	saveTabsState(tabsState);
 	const tabPaneHosts = new Map<string, PaneHost>();
 	const tabPaneShells = new Map<string, HTMLElement>();
-	type DeferredTabInit = { init: PaneHostInit; rootPaneId: string };
 	const deferredTabInits = new Map<string, DeferredTabInit>();
 
 	function rekeyKeyed<T>(map: Map<string, T>, from: string, to: string): void {
@@ -2754,6 +2757,7 @@ async function boot(): Promise<void> {
 	function syncLivePaneIds(): void {
 		const tabs = tabsInIndexOrder();
 		const planned: Array<{ host: PaneHost; from: string; to: string }> = [];
+		const plannedDeferredMaps: Array<{ from: string; to: string }> = [];
 		const followUsed = new Set<string>();
 		for (let i = 0; i < tabs.length; i++) {
 			const tab = tabs[i]!;
@@ -2773,6 +2777,9 @@ async function boot(): Promise<void> {
 					tabKey,
 					followUsed,
 				);
+				for (const [from, to] of mapped.idMap) {
+					if (from !== to) plannedDeferredMaps.push({ from, to });
+				}
 				deferred.init.initialTree = mapped.layout.tree;
 				deferred.init.initialFocusedId = mapped.layout.focusedId;
 				deferred.init.initialFloating = mapped.layout.floating;
@@ -2798,9 +2805,17 @@ async function boot(): Promise<void> {
 				}
 			}
 		}
-		if (planned.length === 0) return;
+		if (planned.length === 0 && plannedDeferredMaps.length === 0) return;
+		// Live hosts vacate their old ids first, then deferred metadata moves
+		// through temporary keys before live hosts claim their new ids. This
+		// keeps a tab-index swap from overwriting either side's pane metadata.
 		planned.forEach((move, i) => {
 			retargetPaneId(move.host, move.from, `#${i}`);
+		});
+		rekeyDeferredPaneMaps(plannedDeferredMaps, {
+			paneThemes,
+			paneProfileIds,
+			paneCwdHints,
 		});
 		planned.forEach((move, i) => {
 			retargetPaneId(move.host, `#${i}`, move.to);
@@ -3215,9 +3230,8 @@ async function boot(): Promise<void> {
 	function ensureTabPaneHost(tabId: string): PaneHost | null {
 		const existing = tabPaneHosts.get(tabId);
 		if (existing) return existing;
-		const deferred = deferredTabInits.get(tabId);
+		const deferred = takeDeferredTabInit(deferredTabInits, tabId);
 		if (!deferred) return null;
-		deferredTabInits.delete(tabId);
 		return createTabPaneShellAndHost(tabId, deferred.init, deferred.rootPaneId);
 	}
 
@@ -3684,8 +3698,15 @@ async function boot(): Promise<void> {
 	}
 
 	function disposeTabPaneHost(tabId: string): void {
-		deferredTabInits.delete(tabId);
+		const deferred = takeDeferredTabInit(deferredTabInits, tabId);
 		const h = tabPaneHosts.get(tabId);
+		disposeDeferredTabPanes(deferred, {
+			hasLiveHost: Boolean(h),
+			maps: { paneThemes, paneProfileIds, paneCwdHints },
+			killSession: (sessionId) => {
+				void ptyKillPane(sessionId).catch(() => {});
+			},
+		});
 		if (h) {
 			h.dispose();
 			tabPaneHosts.delete(tabId);
