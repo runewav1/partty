@@ -88,6 +88,8 @@ import {
 	truncatePathTail,
 } from "./pty/processTracking";
 import {
+	isPtyOwner,
+	ownedPtyPaneId,
 	ptyAckExit,
 	ptyEnsure,
 	ptyFocusPane,
@@ -95,6 +97,7 @@ import {
 	ptyReplaySnapshot,
 	ptyResizeBatch,
 	ptyWrite,
+	runPtyStartup,
 } from "./pty/ptyIpc";
 import {
 	getSessionShedOnExitMode,
@@ -1391,6 +1394,7 @@ async function boot(): Promise<void> {
 		paneRemoteIsWindows.delete(paneId);
 		paneProfileIds.delete(paneId);
 		lastPtyDims.delete(paneId);
+		pendingPaneSpawnStartup.delete(paneId);
 		pendingPtyWriteByPane.delete(paneId);
 		pendingPtyOutputByPane.delete(paneId);
 		activeProcesses.delete(paneId);
@@ -1808,19 +1812,22 @@ async function boot(): Promise<void> {
 	}
 
 	async function replayBackendSnapshotOnce(
-		paneId: string,
 		pt: PaneTerminal,
+		isOwned: () => boolean,
 	): Promise<void> {
+		if (!isOwned()) return;
+		const paneId = pt.paneId;
 		if (backendReplayRestoredPanes.has(paneId)) return;
 		backendReplayRestoredPanes.add(paneId);
 		if (!isTerminalVisiblyEmpty(pt.term)) return;
 		try {
 			const snapshot = await ptyReplaySnapshot(pt.sessionId);
-			if (snapshot && snapshot.byteLength > 0) {
-				await writeTerminalSerialized(pt.term, new Uint8Array(snapshot));
-			}
+			// Disposal during the snapshot fetch must not repopulate pane state
+			// or write into a terminal that has already been torn down.
+			if (!isOwned() || !snapshot || snapshot.byteLength === 0) return;
+			await writeTerminalSerialized(pt.term, new Uint8Array(snapshot));
 		} catch (e) {
-			console.warn("pty_replay_snapshot", e);
+			if (isOwned()) console.warn("pty_replay_snapshot", e);
 		}
 	}
 
@@ -2544,19 +2551,28 @@ async function boot(): Promise<void> {
 		ptIn?: PaneTerminal,
 		initialCwd?: string | null,
 	): Promise<void> {
-		await ensureProfilesLoaded();
 		const pt = ptIn ?? getPaneTerminalById(paneId);
 		if (!pt) return;
-		const startupOverride = pendingPaneSpawnStartup.get(paneId) ?? null;
+		// Stable session→terminal identity survives re-keys/transfers; positional
+		// pane ids can be reused by a fresh terminal after disposal.
+		const isOwned = () => isPtyOwner(paneBySessionId, pt);
+		if (!isOwned()) return;
+		await ensureProfilesLoaded();
+		if (!isOwned()) return;
+		// Read every setup key after the await and through the current pane id, so
+		// a re-key/transfer during profile loading keeps targeting this terminal.
+		const currentPaneId = pt.paneId;
+		const startupOverride = pendingPaneSpawnStartup.get(currentPaneId) ?? null;
 		const profileId = assignPaneProfileId(
-			paneId,
-			paneProfileIds.get(paneId) ?? profileBehaviorRef.v.default_profile_id,
+			currentPaneId,
+			paneProfileIds.get(currentPaneId) ??
+				profileBehaviorRef.v.default_profile_id,
 		);
 		const profile = getProfileById(profileId, profilesList);
 		const effectiveCwd =
 			profile?.kind === "ssh"
 				? null
-				: (initialCwd ?? paneCwdHints.get(paneId) ?? null);
+				: (initialCwd ?? paneCwdHints.get(currentPaneId) ?? null);
 		const globalShell =
 			((persisted.prefs as Partial<ParttyPrefs>).shell as string | undefined) ??
 			"pwsh";
@@ -2566,78 +2582,70 @@ async function boot(): Promise<void> {
 			profilesList,
 		);
 		const ensureStarted = performance.now();
-		pt.fit.fit();
-		let d = ptyDims(pt.fit);
-		if (!d) {
-			await waitAnimationFrames(1);
-			pt.fit.fit();
-			d = ptyDims(pt.fit);
-		}
-		if (!d) {
-			await waitAnimationFrames(1);
-			pt.fit.fit();
-			d = ptyDims(pt.fit);
-		}
-		let raw = d ?? { cols: PTY_FALLBACK_COLS, rows: PTY_FALLBACK_ROWS };
-		let safe = clampPtyColsRows(raw.cols, raw.rows);
-		const maxAttempts = 4;
-		let lastErr: unknown;
-		for (let attempt = 0; attempt < maxAttempts; attempt++) {
-			if (attempt > 0) {
-				await new Promise<void>((r) => setTimeout(r, 55 * attempt));
-				pt.fit.fit();
-				const d2 = ptyDims(pt.fit);
-				raw = d2 ?? raw;
-				safe = clampPtyColsRows(raw.cols, raw.rows);
-			}
-			try {
+		await runPtyStartup({
+			sessionId: pt.sessionId,
+			isOwned,
+			fit: () => pt.fit.fit(),
+			readDims: () => ptyDims(pt.fit),
+			waitFrame: () => waitAnimationFrames(1),
+			sleep: sleepMs,
+			makeOutput: () => {
 				// Fresh output channel per ensure: on resummon after a webview
 				// rebuild Rust swaps it in (`session.set_output_channel`), which is
 				// how live output re-attaches without restarting the shell.
 				const output = new Channel<ArrayBuffer>();
 				output.onmessage = (buf: ArrayBuffer) => {
-					deliverDirectPtyOut(pt.paneId, new Uint8Array(buf));
+					// Route through the stable session→terminal map, never the
+					// captured pane id: a disposed terminal's slot may already
+					// belong to a different pane by the time this chunk arrives.
+					const livePaneId = ownedPtyPaneId(paneBySessionId, pt);
+					if (livePaneId) {
+						deliverDirectPtyOut(livePaneId, new Uint8Array(buf));
+					}
 				};
-				await ptyEnsure(
+				return output;
+			},
+			ensure: (dims, output) =>
+				ptyEnsure(
 					pt.sessionId,
-					safe.cols,
-					safe.rows,
+					dims.cols,
+					dims.rows,
 					effectiveCwd,
 					shellOverride,
 					profileId,
 					startupOverride,
 					output,
-				);
-				pendingPaneSpawnStartup.delete(paneId);
-				await replayBackendSnapshotOnce(paneId, pt);
-				lastPtyDims.set(paneId, safe);
+				),
+			replay: () => replayBackendSnapshotOnce(pt, isOwned),
+			fallbackDims: { cols: PTY_FALLBACK_COLS, rows: PTY_FALLBACK_ROWS },
+			clampDims: (dims) => clampPtyColsRows(dims.cols, dims.rows),
+			onEnsured: (dims) => {
+				pendingPaneSpawnStartup.delete(pt.paneId);
+				lastPtyDims.set(pt.paneId, dims);
 				parttyPerf.mark("pty.ensure.success");
 				parttyPerf.time("pty.ensure.ms", performance.now() - ensureStarted);
-				return;
-			} catch (e) {
-				lastErr = e;
+			},
+			onFailure: (lastErr) => {
+				const msg = String(lastErr);
+				console.error("pty_ensure failed:", lastErr);
 				parttyPerf.mark("pty.ensure.failure");
-				const msg = String(e).toLowerCase();
-				if (
-					/not found|cannot find|does not exist|no such file|access denied|permission denied|invalid/i.test(
-						msg,
-					)
-				) {
-					break;
+				parttyPerf.time("pty.ensure.ms", performance.now() - ensureStarted);
+				try {
+					pt.term.write(
+						`\r\n\x1b[31mShell failed after retries.\x1b[0m \x1b[90m${msg}\x1b[0m\r\n`,
+					);
+				} catch {
+					/* ignore */
 				}
-			}
-		}
-		const msg = String(lastErr);
-		console.error("pty_ensure failed:", lastErr);
-		parttyPerf.mark("pty.ensure.failure");
-		parttyPerf.time("pty.ensure.ms", performance.now() - ensureStarted);
-		try {
-			pt.term.write(
-				`\r\n\x1b[31mShell failed after retries.\x1b[0m \x1b[90m${msg}\x1b[0m\r\n`,
-			);
-		} catch {
-			/* ignore */
-		}
+			},
+			onAttemptFailure: () => parttyPerf.mark("pty.ensure.failure"),
+			// Only discard a genuinely orphaned late session. If some other live
+			// terminal has since adopted the same stable id, it owns the process.
+			kill: (sessionId) =>
+				paneBySessionId.has(sessionId)
+					? Promise.resolve()
+					: ptyKillPane(sessionId),
+		});
 	}
 
 	/** Coalesce heavy focus side-effects so arrow spam stays visual-only. */

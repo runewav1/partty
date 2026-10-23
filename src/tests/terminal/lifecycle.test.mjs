@@ -1231,3 +1231,253 @@ test("hydration consumes deferred sessions while live host disposal stays the ow
 		["5b", "live-b"],
 	]);
 });
+
+const PTY_IPC_MOCKS = {
+	"@tauri-apps/api/core": { invoke: async () => undefined },
+};
+
+async function loadPtyIpc() {
+	const load = await modules(PTY_IPC_MOCKS);
+	return load("pty/ptyIpc.ts");
+}
+
+/**
+ * Exercise the production PTY startup loop with only I/O boundaries faked.
+ * Ownership is the real stable session→terminal map, so a pane slot can be
+ * reused without the old terminal regaining ownership.
+ */
+function ptyStartupHarness(ptyIpc, overrides = {}) {
+	const pt = { sessionId: "sid-1", paneId: "1a" };
+	const paneBySessionId = new Map([[pt.sessionId, pt]]);
+	const calls = {
+		fit: 0,
+		ensure: 0,
+		replay: 0,
+		kill: [],
+		ensured: [],
+		failure: [],
+		sleeps: [],
+		output: 0,
+	};
+	const ensureGate = overrides.ensureGate ?? deferred();
+	const opts = {
+		sessionId: pt.sessionId,
+		isOwned: () => ptyIpc.isPtyOwner(paneBySessionId, pt),
+		fit: () => {
+			calls.fit++;
+		},
+		readDims: () => ({ cols: 100, rows: 30 }),
+		waitFrame: async () => {},
+		sleep: async (ms) => {
+			calls.sleeps.push(ms);
+		},
+		makeOutput: () => {
+			calls.output++;
+			return { onmessage: null };
+		},
+		ensure: async (dims) => {
+			calls.ensure++;
+			calls.dims = dims;
+			await ensureGate.promise;
+		},
+		replay: async () => {
+			calls.replay++;
+		},
+		fallbackDims: { cols: 80, rows: 24 },
+		clampDims: (dims) => dims,
+		onEnsured: (dims) => {
+			calls.ensured.push(dims);
+		},
+		onFailure: (error) => {
+			calls.failure.push(error);
+		},
+		onAttemptFailure: noop,
+		kill: async (sessionId) => {
+			calls.kill.push(sessionId);
+		},
+	};
+	return { pt, paneBySessionId, calls, ensureGate, opts };
+}
+
+test("PTY startup closed before ensure never spawns, fits again or reports failure", async () => {
+	const ptyIpc = await loadPtyIpc();
+	const { pt, paneBySessionId, calls, opts } = ptyStartupHarness(ptyIpc);
+	opts.readDims = () => null;
+	opts.waitFrame = async () => {
+		// Disposal lands while the startup loop is waiting for layout.
+		paneBySessionId.delete(pt.sessionId);
+	};
+	const outcome = await ptyIpc.runPtyStartup(opts);
+	assert.equal(outcome, "aborted");
+	assert.equal(calls.ensure, 0, "no pty_ensure after ownership loss");
+	assert.equal(calls.fit, 1, "no re-fit after ownership loss");
+	assert.equal(calls.replay, 0);
+	assert.equal(calls.kill.length, 0);
+	assert.deepEqual(calls.ensured, []);
+	assert.deepEqual(calls.failure, []);
+
+	// Closed even before the startup loop begins: no work at all.
+	const second = ptyStartupHarness(ptyIpc);
+	second.paneBySessionId.delete(second.pt.sessionId);
+	assert.equal(await ptyIpc.runPtyStartup(second.opts), "aborted");
+	assert.equal(second.calls.fit, 0);
+	assert.equal(second.calls.ensure, 0);
+});
+
+test("late successful ensure after disposal is killed without retry, replay or state", async () => {
+	const ptyIpc = await loadPtyIpc();
+	const { pt, paneBySessionId, calls, ensureGate, opts } =
+		ptyStartupHarness(ptyIpc);
+	const run = ptyIpc.runPtyStartup(opts);
+	assert.equal(calls.ensure, 1, "ensure is in flight");
+	paneBySessionId.delete(pt.sessionId);
+	// A replacement terminal reuses the same positional pane id.
+	const replacement = { sessionId: "sid-2", paneId: pt.paneId };
+	paneBySessionId.set(replacement.sessionId, replacement);
+	ensureGate.resolve();
+	assert.equal(await run, "aborted");
+	assert.deepEqual(calls.kill, [pt.sessionId], "late process is killed");
+	assert.equal(calls.ensure, 1, "no retry after disposal");
+	assert.equal(calls.replay, 0, "no replay after disposal");
+	assert.deepEqual(calls.ensured, [], "no success bookkeeping after disposal");
+	assert.deepEqual(calls.failure, []);
+	assert.equal(ptyIpc.ownedPtyPaneId(paneBySessionId, pt), null);
+	assert.equal(
+		ptyIpc.ownedPtyPaneId(paneBySessionId, replacement),
+		"1a",
+		"reused pane slot belongs to the replacement terminal",
+	);
+});
+
+test("ensure rejection after disposal is not retried or written to the pane", async () => {
+	const ptyIpc = await loadPtyIpc();
+	const { pt, paneBySessionId, calls, ensureGate, opts } =
+		ptyStartupHarness(ptyIpc);
+	const run = ptyIpc.runPtyStartup(opts);
+	paneBySessionId.delete(pt.sessionId);
+	ensureGate.reject(new Error("spawn failed"));
+	assert.equal(await run, "aborted");
+	assert.equal(calls.ensure, 1, "a lost pane must not retry pty_ensure");
+	assert.deepEqual(calls.sleeps, []);
+	assert.deepEqual(calls.failure, [], "no terminal error write after disposal");
+	assert.deepEqual(calls.kill, []);
+});
+
+test("re-key or transfer keeps the same owner and is not cancelled", async () => {
+	const ptyIpc = await loadPtyIpc();
+	const { pt, paneBySessionId, calls, ensureGate, opts } =
+		ptyStartupHarness(ptyIpc);
+	const run = ptyIpc.runPtyStartup(opts);
+	// Re-key/transfer preserves the PaneTerminal identity and session; only the
+	// mutable positional pane id changes.
+	pt.paneId = "2a";
+	ensureGate.resolve();
+	assert.equal(await run, "ensured");
+	assert.deepEqual(calls.kill, [], "a live re-keyed owner is not killed");
+	assert.equal(calls.replay, 1);
+	assert.deepEqual(calls.ensured, [{ cols: 100, rows: 30 }]);
+	assert.equal(ptyIpc.ownedPtyPaneId(paneBySessionId, pt), "2a");
+});
+
+test("parallel ensure calls for the same live owner do not cancel each other", async () => {
+	const ptyIpc = await loadPtyIpc();
+	const { calls, opts } = ptyStartupHarness(ptyIpc);
+	const firstGate = deferred();
+	const secondGate = deferred();
+	const first = ptyIpc.runPtyStartup({
+		...opts,
+		ensure: async () => {
+			calls.ensure++;
+			await firstGate.promise;
+		},
+	});
+	const second = ptyIpc.runPtyStartup({
+		...opts,
+		ensure: async () => {
+			calls.ensure++;
+			await secondGate.promise;
+		},
+	});
+	assert.equal(calls.ensure, 2);
+	firstGate.resolve();
+	secondGate.resolve();
+	assert.deepEqual(await Promise.all([first, second]), ["ensured", "ensured"]);
+	assert.deepEqual(calls.kill, []);
+	assert.equal(calls.ensured.length, 2);
+});
+
+test("still-owned retryable ensure failure retries and succeeds", async () => {
+	const ptyIpc = await loadPtyIpc();
+	const { calls, opts } = ptyStartupHarness(ptyIpc);
+	let attempts = 0;
+	const outcome = await ptyIpc.runPtyStartup({
+		...opts,
+		ensure: async () => {
+			calls.ensure++;
+			if (++attempts === 1) throw new Error("ConPTY busy");
+		},
+	});
+	assert.equal(outcome, "ensured");
+	assert.equal(calls.ensure, 2);
+	assert.deepEqual(calls.sleeps, [55]);
+	assert.equal(calls.replay, 1);
+	assert.equal(calls.ensured.length, 1);
+	assert.deepEqual(calls.failure, []);
+});
+
+test("closure during a retry sleep stops further work and state", async () => {
+	const ptyIpc = await loadPtyIpc();
+	const { pt, paneBySessionId, calls, opts } = ptyStartupHarness(ptyIpc);
+	const sleepGate = deferred();
+	const run = ptyIpc.runPtyStartup({
+		...opts,
+		ensure: async () => {
+			calls.ensure++;
+			throw new Error("ConPTY busy");
+		},
+		sleep: async (ms) => {
+			calls.sleeps.push(ms);
+			await sleepGate.promise;
+		},
+	});
+	await new Promise(setImmediate);
+	assert.equal(calls.ensure, 1);
+	assert.deepEqual(calls.sleeps, [55]);
+	paneBySessionId.delete(pt.sessionId);
+	sleepGate.resolve();
+	assert.equal(await run, "aborted");
+	assert.equal(calls.ensure, 1, "no retry after disposal");
+	assert.equal(calls.fit, 1, "no re-fit after disposal");
+	assert.equal(calls.replay, 0);
+	assert.deepEqual(calls.ensured, []);
+	assert.deepEqual(calls.failure, []);
+	assert.deepEqual(calls.kill, [], "no successful ensure to kill");
+});
+
+test("closure during replay stops success state and swallows a failed late kill", async () => {
+	const ptyIpc = await loadPtyIpc();
+	const { pt, paneBySessionId, calls, ensureGate, opts } =
+		ptyStartupHarness(ptyIpc);
+	const replayGate = deferred();
+	const run = ptyIpc.runPtyStartup({
+		...opts,
+		replay: async () => {
+			calls.replay++;
+			await replayGate.promise;
+		},
+		kill: async (sessionId) => {
+			calls.kill.push(sessionId);
+			throw new Error("kill failed");
+		},
+	});
+	ensureGate.resolve();
+	await new Promise(setImmediate);
+	assert.equal(calls.replay, 1);
+	paneBySessionId.delete(pt.sessionId);
+	replayGate.resolve();
+	assert.equal(await run, "aborted");
+	assert.deepEqual(calls.kill, [pt.sessionId], "late success is still killed");
+	assert.deepEqual(calls.ensured, [], "no success bookkeeping after disposal");
+	assert.deepEqual(calls.failure, []);
+	assert.equal(calls.ensure, 1);
+});
