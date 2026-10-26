@@ -186,7 +186,7 @@ export function createThemeModal(
 		const idx = flat.findIndex(
 			(r) => r.themeId === n.ui_theme && r.variantId === n.ui_theme_variant,
 		);
-		return idx >= 0 ? idx : 0;
+		return Math.max(idx, 0);
 	}
 
 	function previewAt(i: number): void {

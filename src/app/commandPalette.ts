@@ -61,6 +61,12 @@ export type CommandPaletteOpenOptions = {
 
 type RankedCommand = PaletteCommand & LexicalSearchItem;
 
+/** Keep failed palette actions observable without blocking the terminal with a modal. */
+function reportPaletteError(context: string, err: unknown): void {
+	// biome-ignore lint/suspicious/noConsole: Palette failures would otherwise disappear; a modal would steal focus from the terminal.
+	console.error(`command palette: ${context}`, err);
+}
+
 function filterAndRankCommands(
 	all: readonly PaletteCommand[],
 	parts: string[],
@@ -178,9 +184,16 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 					// Rows can be reused across interval refreshes, so resolve the
 					// command from the current filtered list at click time instead
 					// of the snapshot this node was originally built from.
-					Promise.resolve(filtered[index]?.remove?.()).then(() => {
-						applyFilter();
-					});
+					void (async () => {
+						try {
+							await filtered[index]?.remove?.();
+						} catch (err) {
+							reportPaletteError("remove command", err);
+						} finally {
+							// A partially applied remove should still refresh the list.
+							applyFilter();
+						}
+					})();
 				});
 				row.appendChild(del);
 			}
@@ -214,22 +227,24 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 		closePalette(true);
 		try {
 			await Promise.resolve(cmd.run());
+		} catch (err) {
+			reportPaletteError(`run "${cmd.id}"`, err);
 		} finally {
 			onClosed?.();
 		}
 	}
 
-	async function runSelected(): Promise<void> {
+	function runSelected(): void {
 		const cmd = filtered[selected];
 		if (!cmd) return;
-		await runCommand(cmd);
+		void runCommand(cmd);
 	}
 
 	function openPalette(opts?: CommandPaletteOpenOptions): void {
 		if (open || opening) return;
 		opening = true;
 		pendingOpen = opts ?? null;
-		(async () => {
+		void (async () => {
 			try {
 				await onBeforeOpen?.();
 				if (open) return;
@@ -252,6 +267,8 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 					const len = input.value.length;
 					input.setSelectionRange(len, len);
 				});
+			} catch (err) {
+				reportPaletteError("open", err);
 			} finally {
 				opening = false;
 			}
@@ -346,7 +363,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 			if (cmd) {
 				e.preventDefault();
 				e.stopPropagation();
-				runCommand(cmd);
+				void runCommand(cmd);
 			}
 		}
 	}

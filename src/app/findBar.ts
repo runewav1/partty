@@ -158,7 +158,7 @@ export function createFindBar(options: {
 					// search near the prompt does not yank the user to the top.
 					const viewportY = term.buffer.active.viewportY;
 					const idx = matches.findIndex((m) => m.line >= viewportY);
-					activeIndex = idx >= 0 ? idx : 0;
+					activeIndex = Math.max(idx, 0);
 				} else {
 					// A background rescan (terminal output) must not move the
 					// viewport; keep the active match roughly in place.

@@ -177,6 +177,33 @@ test("native snapshot unbinds are authoritative; IPC failure retains defaults", 
 	);
 });
 
+test("malformed snapshots keep labels and matching on the previous bindings", {
+	timeout: 2000,
+}, async () => {
+	// A valid first entry followed by an unparseable value: a destructive apply
+	// would leave the label configured while matching stayed on defaults.
+	const partial = await bindings({
+		palette_open: "Alt+K",
+		pane_split_right: 42,
+	});
+	assert.equal(partial.label("palette_open"), DEFAULT_BINDS.palette_open);
+	assert.deepEqual({ ...partial.all() }, { ...DEFAULT_BINDS });
+	assert.equal(
+		partial.match(event(DEFAULT_BINDS.palette_open), "palette_open"),
+		"palette_open",
+	);
+	assert.equal(partial.match(event("Alt+K"), "palette_open"), null);
+
+	// A snapshot with no usable bind map must also leave readiness settled.
+	const missing = await bindings(null);
+	assert.equal(missing.label("palette_open"), DEFAULT_BINDS.palette_open);
+	assert.deepEqual({ ...missing.all() }, { ...DEFAULT_BINDS });
+	assert.equal(
+		missing.match(event(DEFAULT_BINDS.palette_open), "palette_open"),
+		"palette_open",
+	);
+});
+
 test("parameter bindings respect configured digits and exact modifiers", async () => {
 	const api = await bindings({ ...DEFAULT_BINDS, tab_switch: "Ctrl+Alt+2" });
 	const two = { ...event("Ctrl+Alt+2", true), code: "Digit2" };

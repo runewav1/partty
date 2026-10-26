@@ -420,7 +420,7 @@ export function finishWriteToken(
 	r.counts.completed++;
 	return {
 		status: "completed",
-		ageMs: age < 0 ? 0 : age,
+		ageMs: Math.max(age, 0),
 		paneId: entry.paneId,
 		bytes: entry.bytes,
 	};

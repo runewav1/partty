@@ -4,3 +4,13 @@ src-tauri/scripts/*.zsh text eol=lf
 src-tauri/scripts/*.fish text eol=lf
 # PowerShell scripts target Windows (local inject + Windows SSH remotes).
 src-tauri/scripts/*.ps1 text eol=crlf
+
+# Keep Biome-managed frontend/tooling files consistent across Git checkouts.
+*.ts text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+README.md text eol=lf
+docs/**/*.md text eol=lf
+pnpm-workspace.yaml text eol=lf

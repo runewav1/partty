@@ -34,7 +34,7 @@
 		"@xterm/xterm": "npm:@partty/xterm@6.2.4"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "2.5.15",
+		"@biomejs/biome": "2.6.3",
 		"@tauri-apps/cli": "^2.12.4",
 		"typescript": "~7.0.2",
 		"vite": "^8.3.5"

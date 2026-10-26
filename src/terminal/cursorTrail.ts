@@ -142,7 +142,7 @@ function toFiniteNumber(value: unknown, fallback: number): number {
 
 function clampNonNegative(value: unknown, fallback: number): number {
 	const number = toFiniteNumber(value, fallback);
-	return number > 0 ? number : 0;
+	return Math.max(number, 0);
 }
 
 /** `cursorTrail`: floor to whole non-negative milliseconds (`0` disables). */

@@ -60,6 +60,7 @@ const STUBS = new Map([
 async function createEnv() {
 	const state = {
 		createCount: 0,
+		errors: [],
 		intervals: new Map(),
 		rafs: new Map(),
 		id: 0,
@@ -82,6 +83,9 @@ async function createEnv() {
 	const loader = createVmLoader({
 		root: ROOT,
 		globals: {
+			console: {
+				error: (...args) => state.errors.push(args),
+			},
 			document: documentStub,
 			window: windowStub,
 			requestAnimationFrame: (fn) => {
@@ -101,6 +105,7 @@ async function createEnv() {
 		get createCount() {
 			return state.createCount;
 		},
+		errors: () => state.errors,
 		resetCreateCount() {
 			state.createCount = 0;
 		},
@@ -162,6 +167,7 @@ function makeHarness(env, options) {
 			return options.commands();
 		},
 		onClosed: options.onClosed,
+		onBeforeOpen: options.onBeforeOpen,
 		onTabComplete: options.onTabComplete,
 		onQuickSelectKey: options.onQuickSelectKey,
 		refreshMs: options.refreshMs,
@@ -202,6 +208,14 @@ function findRemoveButton(li) {
 			child.classList.contains("command-palette-item-remove"),
 		) ?? null
 	);
+}
+
+/** Drain the microtask chains started by fire-and-forget palette actions. */
+async function flushAsync() {
+	await Promise.resolve();
+	await Promise.resolve();
+	await Promise.resolve();
+	await Promise.resolve();
 }
 
 test("input is batched into one render per animation frame", async (t) => {
@@ -503,4 +517,132 @@ test("idle interval refreshes skip row construction but keep fetching commands",
 	assert.equal(h.replaceCount(), before, "no rebuilds across 6 idle ticks");
 	assert.equal(h.env.createCount, 0, "zero row nodes created while idle");
 	assert.equal(h.getCalls(), gets + 6, "commands still fetched every tick");
+});
+
+test("a rejected command run closes the palette and reopening still works", async (t) => {
+	let mode = "reject";
+	let closed = 0;
+	const runs = [];
+	const commands = [
+		{
+			id: "fail",
+			label: "Fail",
+			run: () => {
+				runs.push(mode);
+				if (mode === "throw") throw new Error("sync run");
+				if (mode === "reject") return Promise.reject(new Error("async run"));
+			},
+		},
+	];
+	const h = await setup(t, {
+		commands: () => commands,
+		onClosed: () => {
+			closed += 1;
+		},
+	});
+
+	fire(h.input, "keydown", key("Enter"));
+	await flushAsync();
+	assert.deepEqual(runs, ["reject"]);
+	assert.equal(h.api.isOpen(), false);
+	assert.equal(closed, 1, "onClosed still fires when the command rejects");
+	assert.equal(h.env.errors().length, 1, "the rejection is reported");
+
+	// A synchronous throw follows the same handled path.
+	mode = "throw";
+	h.api.open();
+	await flushAsync();
+	h.env.advanceRaf();
+	fire(h.input, "keydown", key("Enter"));
+	await flushAsync();
+	assert.deepEqual(runs, ["reject", "throw"]);
+	assert.equal(closed, 2);
+	assert.equal(h.env.errors().length, 2);
+
+	// Reopening after failures rebuilds the rows and a success closes normally.
+	mode = "ok";
+	h.api.open();
+	await flushAsync();
+	h.env.advanceRaf();
+	assert.equal(h.api.isOpen(), true);
+	assert.equal(h.rows().length, 1, "reopen rebuilds the list");
+	fire(h.input, "keydown", key("Enter"));
+	await flushAsync();
+	assert.equal(closed, 3);
+	assert.equal(h.env.errors().length, 2, "a successful run adds no error");
+});
+
+test("remove failures are reported and the list still refreshes", async (t) => {
+	let mode = "sync-throw";
+	const calls = [];
+	const commands = [
+		{
+			id: "a",
+			label: "A",
+			removeLabel: "Remove A",
+			remove: () => {
+				calls.push(mode);
+				if (mode === "sync-throw") throw new Error("sync remove");
+				if (mode === "reject") return Promise.reject(new Error("async remove"));
+			},
+		},
+	];
+	const h = await setup(t, { commands: () => commands });
+	const clickRemove = () =>
+		fire(findRemoveButton(h.rows()[0]), "click", mouseEvent());
+
+	const before = h.replaceCount();
+	clickRemove();
+	await flushAsync();
+	assert.deepEqual(calls, ["sync-throw"]);
+	assert.equal(h.env.errors().length, 1);
+	assert.equal(
+		h.replaceCount(),
+		before + 1,
+		"list refreshes after the failure",
+	);
+	assert.equal(h.rows().length, 1);
+
+	mode = "reject";
+	clickRemove();
+	await flushAsync();
+	assert.deepEqual(calls, ["sync-throw", "reject"]);
+	assert.equal(h.env.errors().length, 2);
+	assert.equal(h.rows().length, 1);
+
+	mode = "ok";
+	clickRemove();
+	await flushAsync();
+	assert.deepEqual(calls, ["sync-throw", "reject", "ok"]);
+	assert.equal(h.env.errors().length, 2, "a successful remove adds no error");
+});
+
+test("onBeforeOpen failures reset opening so the palette can be retried", async (t) => {
+	let attempts = 0;
+	const h = await setup(t, {
+		commands: () => [{ id: "a", label: "A" }],
+		onBeforeOpen: () => {
+			attempts += 1;
+			if (attempts === 1) throw new Error("sync preload");
+			if (attempts === 2) return Promise.reject(new Error("async preload"));
+		},
+	});
+
+	assert.equal(attempts, 1);
+	assert.equal(h.api.isOpen(), false, "a failed preload does not open");
+	assert.equal(h.env.errors().length, 1);
+
+	h.api.open();
+	await flushAsync();
+	assert.equal(attempts, 2);
+	assert.equal(h.api.isOpen(), false, "a rejected preload does not open");
+	assert.equal(h.env.errors().length, 2);
+
+	h.api.open();
+	await flushAsync();
+	h.env.advanceRaf();
+	assert.equal(attempts, 3, "the third attempt runs after the failures");
+	assert.equal(h.api.isOpen(), true, "a successful retry opens");
+	assert.equal(h.rows().length, 1, "the retry renders the rows");
+	assert.equal(h.env.errors().length, 2);
 });

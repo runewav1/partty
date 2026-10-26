@@ -9,29 +9,29 @@ File name stem must match `id` (letters, numbers, `-`, `_` only).
 
 ## Kinds
 
-| `kind` | Spawns | Required fields |
-|--------|--------|-----------------|
-| `local` | Host shell | — (`shell` empty → `[profiles].shell`) |
-| `wsl` | `wsl.exe -d <distro>` | `wsl_distro` |
-| `ssh` | OpenSSH `ssh.exe` | `ssh_host` or `commandline` |
+| `kind`  | Spawns                | Required fields                        |
+| ------- | --------------------- | -------------------------------------- |
+| `local` | Host shell            | — (`shell` empty → `[profiles].shell`) |
+| `wsl`   | `wsl.exe -d <distro>` | `wsl_distro`                           |
+| `ssh`   | OpenSSH `ssh.exe`     | `ssh_host` or `commandline`            |
 
 `name` / `display_name` is display-only. Spawn uses `shell`, `wsl_distro`, or SSH fields.
 
 ## Common fields
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `version` | u32 | `1` |
-| `id` | string | Stable id; must match file stem |
-| `name` | string | Palette / UI label |
-| `kind` | string | `local` `wsl` `ssh` |
-| `initial_cwd` | string | Start directory; overrides `[profiles].initial_dir`. Pane/split cwd still wins when set |
-| `icon` | string | Path to `.ico` / `.png` / `.exe`; overrides auto icon |
-| `theme` | string | Pane color theme: `id`, `id/variant`, or custom theme slug (see below) |
-| `builtin` | bool | Seeded profile (still editable) |
-| `base` | string | Spawn using another profile |
-| `startup_command` | string | Command to run after the shell is ready |
-| `inherit_cwd` | bool | Override `[profiles].inherit_cwd_on_split` for splits into this profile |
+| Key               | Type   | Description                                                                             |
+| ----------------- | ------ | --------------------------------------------------------------------------------------- |
+| `version`         | u32    | `1`                                                                                     |
+| `id`              | string | Stable id; must match file stem                                                         |
+| `name`            | string | Palette / UI label                                                                      |
+| `kind`            | string | `local` `wsl` `ssh`                                                                     |
+| `initial_cwd`     | string | Start directory; overrides `[profiles].initial_dir`. Pane/split cwd still wins when set |
+| `icon`            | string | Path to `.ico` / `.png` / `.exe`; overrides auto icon                                   |
+| `theme`           | string | Pane color theme: `id`, `id/variant`, or custom theme slug (see below)                  |
+| `builtin`         | bool   | Seeded profile (still editable)                                                         |
+| `base`            | string | Spawn using another profile                                                             |
+| `startup_command` | string | Command to run after the shell is ready                                                 |
+| `inherit_cwd`     | bool   | Override `[profiles].inherit_cwd_on_split` for splits into this profile                 |
 
 Workspace per-pane `startup_commands` override profile `startup_command` when both apply.
 
@@ -39,12 +39,12 @@ Workspace per-pane `startup_commands` override profile `startup_command` when bo
 
 Optional. Applies **colors only** to panes spawned with this profile (same as Palette → Pane theme). Theme.toml `[prefs]` are **not** applied — those only take effect when the theme is set as the **app** theme.
 
-| Value | Meaning |
-|-------|---------|
-| omitted / empty | Use the current app theme |
-| `tokyonight` | Built-in theme, default variant |
-| `github/dark` | Built-in theme + variant (`/` separates variant) |
-| `soft-amber` | Custom `~/.partty/themes/soft-amber.toml` (no `custom:` prefix) |
+| Value           | Meaning                                                         |
+| --------------- | --------------------------------------------------------------- |
+| omitted / empty | Use the current app theme                                       |
+| `tokyonight`    | Built-in theme, default variant                                 |
+| `github/dark`   | Built-in theme + variant (`/` separates variant)                |
+| `soft-amber`    | Custom `~/.partty/themes/soft-amber.toml` (no `custom:` prefix) |
 
 Deprecated combined ids such as `github-dark` / `vscode-light` still load (mapped to
 `github` + `dark`, etc.) but prefer `name/variant`. Do not use `{name} dark — default`.
@@ -62,8 +62,8 @@ theme = "github/dark"
 
 ## Local
 
-| Key | Type | Description |
-|-----|------|-------------|
+| Key     | Type   | Description                                              |
+| ------- | ------ | -------------------------------------------------------- |
 | `shell` | string | Executable or name on `PATH`. Empty → `[profiles].shell` |
 
 ```toml
@@ -121,8 +121,8 @@ seeded PowerShell profile; create explicit-path profiles to pin multiple install
 
 ## WSL
 
-| Key | Type | Description |
-|-----|------|-------------|
+| Key          | Type   | Description                              |
+| ------------ | ------ | ---------------------------------------- |
 | `wsl_distro` | string | Distro name as listed by `wsl.exe -l -q` |
 
 ```toml
@@ -152,14 +152,14 @@ ParTTY does not store keys or passwords. Auth is OpenSSH (and optionally the Win
 
 Used when `commandline` is unset:
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `ssh_host` | string | Host, `user@host`, or `~/.ssh/config` Host alias |
-| `ssh_user` | string | Optional if not in `ssh_host` / config |
-| `ssh_port` | u16 | Optional (`-p`) |
-| `ssh_identity_file` | string | Private key path (`-i`). OpenSSH formats only (e.g. ed25519, RSA, PEM) |
-| `ssh_args` | string[] | Extra client args |
-| `integration` | bool | Default `false`. Set `true` when the remote shell has loaded a Partty remote integration script (enables live remote CWD tracking) |
+| Key                 | Type     | Description                                                                                                                        |
+| ------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `ssh_host`          | string   | Host, `user@host`, or `~/.ssh/config` Host alias                                                                                   |
+| `ssh_user`          | string   | Optional if not in `ssh_host` / config                                                                                             |
+| `ssh_port`          | u16      | Optional (`-p`)                                                                                                                    |
+| `ssh_identity_file` | string   | Private key path (`-i`). OpenSSH formats only (e.g. ed25519, RSA, PEM)                                                             |
+| `ssh_args`          | string[] | Extra client args                                                                                                                  |
+| `integration`       | bool     | Default `false`. Set `true` when the remote shell has loaded a Partty remote integration script (enables live remote CWD tracking) |
 
 ```toml
 version = 1
@@ -178,12 +178,12 @@ integration = true
 
 Partty does not inject integration on SSH sessions. Install a remote script on the server and source it from the remote shell profile:
 
-| Remote shell | Script (in repo) |
-|--------------|------------------|
-| bash | `src-tauri/scripts/shell_int_remote.partty.bash` |
-| zsh | `src-tauri/scripts/shell_int_remote.partty.zsh` |
-| fish | `src-tauri/scripts/shell_int_remote.partty.fish` |
-| PowerShell (Windows SSH) | `src-tauri/scripts/shell_int_remote.partty.ps1` |
+| Remote shell             | Script (in repo)                                 |
+| ------------------------ | ------------------------------------------------ |
+| bash                     | `src-tauri/scripts/shell_int_remote.partty.bash` |
+| zsh                      | `src-tauri/scripts/shell_int_remote.partty.zsh`  |
+| fish                     | `src-tauri/scripts/shell_int_remote.partty.fish` |
+| PowerShell (Windows SSH) | `src-tauri/scripts/shell_int_remote.partty.ps1`  |
 
 After the script is loaded in the remote session, set `integration = true` on the matching SSH profile. Partty then stores live OSC CWD updates for that pane (path expansion). Without `integration = true`, OSC CWD from SSH panes is ignored. Remote CWD is **not** used for split inherit or SSH spawn.
 
@@ -217,35 +217,35 @@ commandline = "ssh -i C:\\Users\\you\\.ssh\\id_ed25519 -J jump.example.com deplo
 
 Useful OpenSSH options (via `ssh_args` or `commandline`):
 
-| Option | Role |
-|--------|------|
-| `IdentitiesOnly=yes` | Use only the specified key |
-| `BatchMode=yes` | Fail instead of prompting for a password |
-| `ForwardAgent=yes` | Agent forwarding (use deliberately) |
+| Option               | Role                                     |
+| -------------------- | ---------------------------------------- |
+| `IdentitiesOnly=yes` | Use only the specified key               |
+| `BatchMode=yes`      | Fail instead of prompting for a password |
+| `ForwardAgent=yes`   | Agent forwarding (use deliberately)      |
 
 ## Behavior (`config.toml`)
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `default` | `"local-default"` | Profile for new tabs when `new_tab_uses_default` |
-| `shell` | `"pwsh"` | Fallback for local profiles with no `shell` |
-| `initial_dir` | absent | Default start directory |
-| `inherit_on_split` | `true` | Splits copy parent profile |
-| `inherit_cwd_on_split` | `true` | Splits copy parent cwd |
-| `palette_tab_picker` | `true` | Tab on New tab / Split opens profile picker |
-| `new_tab_uses_default` | `true` | New tabs use `default`, not focused profile |
-| `omit` | `[]` | Hide profile ids from pickers (files remain) |
-| `palette_icons` | `true` | Icons in profile picker |
+| Key                    | Default           | Description                                      |
+| ---------------------- | ----------------- | ------------------------------------------------ |
+| `default`              | `"local-default"` | Profile for new tabs when `new_tab_uses_default` |
+| `shell`                | `"pwsh"`          | Fallback for local profiles with no `shell`      |
+| `initial_dir`          | absent            | Default start directory                          |
+| `inherit_on_split`     | `true`            | Splits copy parent profile                       |
+| `inherit_cwd_on_split` | `true`            | Splits copy parent cwd                           |
+| `palette_tab_picker`   | `true`            | Tab on New tab / Split opens profile picker      |
+| `new_tab_uses_default` | `true`            | New tabs use `default`, not focused profile      |
+| `omit`                 | `[]`              | Hide profile ids from pickers (files remain)     |
+| `palette_icons`        | `true`            | Icons in profile picker                          |
 
 ### Selection aliases
 
 Config-only (`[profiles.selection_aliases]`). Not in Settings; Settings saves preserve the table.
 
-| Rule | Detail |
-|------|--------|
-| Key | Single character, **case-sensitive** (`a` ≠ `A`) |
-| Value | Profile `id` |
-| When | Empty filter in the profile picker only |
+| Rule     | Detail                                                                                        |
+| -------- | --------------------------------------------------------------------------------------------- |
+| Key      | Single character, **case-sensitive** (`a` ≠ `A`)                                              |
+| Value    | Profile `id`                                                                                  |
+| When     | Empty filter in the profile picker only                                                       |
 | Conflict | Same key → two different ids: that key is disabled; other aliases and all profiles still work |
 
 ```toml
@@ -259,11 +259,11 @@ Picker: empty field, placeholder **Profile**; type to filter (case-insensitive).
 
 ## Opening profiles
 
-| Method | How |
-|--------|-----|
-| Palette | `@profile:new-tab` / `@profile:split-h` / `@profile:split-v`, or Tab on New tab / Split |
-| Split keybinds | `Alt+Shift+V` (right) / `Alt+Shift+H` (down) → picker |
-| Alias | With empty filter, press the configured character |
+| Method         | How                                                                                     |
+| -------------- | --------------------------------------------------------------------------------------- |
+| Palette        | `@profile:new-tab` / `@profile:split-h` / `@profile:split-v`, or Tab on New tab / Split |
+| Split keybinds | `Alt+Shift+V` (right) / `Alt+Shift+H` (down) → picker                                   |
+| Alias          | With empty filter, press the configured character                                       |
 
 ## Icons
 
@@ -271,11 +271,11 @@ Auto icons follow Windows Terminal where possible (shell PNGs, WSL `shortcut.ico
 
 ## Seeded examples
 
-| File | Role |
-|------|------|
-| `local-default.toml` | `[profiles].shell` |
-| `local-pwsh.toml` | `pwsh` |
-| `local-powershell.toml` | Windows PowerShell |
-| `local-cmd.toml` | CMD |
-| `local-bash.toml` | bash (if detected) |
-| `wsl-*.toml` | One per installed distro |
+| File                    | Role                     |
+| ----------------------- | ------------------------ |
+| `local-default.toml`    | `[profiles].shell`       |
+| `local-pwsh.toml`       | `pwsh`                   |
+| `local-powershell.toml` | Windows PowerShell       |
+| `local-cmd.toml`        | CMD                      |
+| `local-bash.toml`       | bash (if detected)       |
+| `wsl-*.toml`            | One per installed distro |

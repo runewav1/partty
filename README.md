@@ -50,7 +50,7 @@ https://github.com/user-attachments/assets/50b6efde-94e8-49dc-b8a8-38c7b454d877
 
 - Summon and hide the window -- set the hide operation to destroy the webview, shave memory use
   to low native numbers and pop it back in immediately, returning to your workspace.
-- Move your window across monitors *faster* with a custom keybind.
+- Move your window across monitors _faster_ with a custom keybind.
 - Window backdrop: opaque, CSS-transparent, or native acrylic blur with a tunable tint.
 
 ### Customization
@@ -60,13 +60,13 @@ https://github.com/user-attachments/assets/50b6efde-94e8-49dc-b8a8-38c7b454d877
 - On top of this, Partty supports customizing almost every keybind in the application, as well as behaviors
   for split styles, borders, focus opacities, blurs, and more.
 - Hide your cursor and take advantage of the first-class keyboard-only experience.
-- Toggle notifications on, off. 
+- Toggle notifications on, off.
 - Shape terminal padding, pane padding, window padding, corner radii or set terminals to square. Use the whole
   screen, or don't. Make it look how you want it to look.
 
 ### Notifications
 
-- Be notified when a process ends *anywhere* and navigate to the terminal where it ended using the notification block.
+- Be notified when a process ends _anywhere_ and navigate to the terminal where it ended using the notification block.
 - See what pane it's in and what process ended.
 
 ### Animation, Motion
@@ -88,6 +88,7 @@ https://github.com/user-attachments/assets/50b6efde-94e8-49dc-b8a8-38c7b454d877
   the main `config.toml` when explicitly defined.
 
 ### Manual configuration, designed for versioning
+
 - Configure everything how you want, store in a repository, move it where you need to and jump back in. Classic
   dotfiles style (stored under `~/.partty`).
 
@@ -115,7 +116,7 @@ explicitly white-listing its process name and/or white-listing its path.
 
 To run the dev build, clone the repository; then run:
 
-``` shell
+```shell
 > pnpm install
 > pnpm run build
 > pnpm run tauri dev
@@ -135,7 +136,7 @@ This will build and produce the partty.exe binary under `./src-tauri/target/rele
 
 To test, you can do a few different things depending on what you're working on:
 
-Changes that relate to the front-end: 
+Changes that relate to the front-end:
 
 ```shell
 > pnpm test:front
@@ -169,7 +170,7 @@ Static checks:
 
 ## Roadmap
 
-Partty is *far from done*. Although it achieves very good performance metrics, pushing it to the very maximum
+Partty is _far from done_. Although it achieves very good performance metrics, pushing it to the very maximum
 capabilities we can within the WebView2 runtime is an experimental goal -- reaching native performance under
 constraint is a partial goal of the entire project.
 
@@ -189,15 +190,16 @@ Some notable examples could be:
 - Refactoring the tabbing system with a terminal style bar, packed with system time information, current tab indicators,
   or any other arbitrary variables, etc.
 
-A more realistic (and sensible) goal for Partty is to give the community the *tools* to do this: establish
+A more realistic (and sensible) goal for Partty is to give the community the _tools_ to do this: establish
 a capable native extension surface and allow optional extension of the terminal's ability to do these sorts
 of experiments, rather than build them in as non-negotiable features bundled into the base application.
 This respects users who just want the terminal, and respects those who want more.
 
 ## Note on Image Rendering
+
 Image rendering within the terminal is not supported by utilizing the lone binary. The workaround is exposed
 by a platform limitation I discovered, which is that Windows Terminal supports rendering Sixel, and
-implementations of a terminal using raw conPTY/conhost.exe OS capabilities *do not* support this.
+implementations of a terminal using raw conPTY/conhost.exe OS capabilities _do not_ support this.
 
 The solution is the same as Windows Terminal; load `OpenConsole.exe` and `conpty.dll` alongside the terminal,
 and use them instead of conPTY. This enables Sixel rendering.

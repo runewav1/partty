@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+// biome-ignore lint/correctness/noUnresolvedImports: Node exposes this CommonJS package through a default export; its typings describe the browser API.
 import serialize from "@xterm/addon-serialize";
+// biome-ignore lint/correctness/noUnresolvedImports: Node exposes this CommonJS package through a default export; its typings describe the browser API.
 import xterm from "@xterm/xterm";
 import { serializeReplayMouseEncoding } from "../../terminal/replayModes.ts";
 

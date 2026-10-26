@@ -379,6 +379,7 @@ function getPathToLeaf(tree: PaneNode, id: string): string | null {
 function getNodeByPath(tree: PaneNode, path: string): PaneNode {
 	let cur: PaneNode = tree;
 	for (const ch of path) {
+		// biome-ignore lint/security/noSecrets: Tree traversal error message, not a credential.
 		if (cur.kind !== "split") throw new Error("getNodeByPath: path too deep");
 		cur = ch === "a" ? cur.a : cur.b;
 	}
@@ -394,6 +395,7 @@ function setNodeByPath(
 	const ch = path[0];
 	const rest = path.slice(1);
 	if (tree.kind !== "split") {
+		// biome-ignore lint/security/noSecrets: Tree traversal error message, not a credential.
 		throw new Error("setNodeByPath: path into leaf");
 	}
 	if (ch === "a") return { ...tree, a: setNodeByPath(tree.a, rest, newNode) };

@@ -3946,7 +3946,7 @@ async function boot(): Promise<void> {
 			workspace = await readWorkspace(id);
 		} catch (e) {
 			console.error("read workspace", id, e);
-			showAlert(`Could not read workspace \`${id}\`.`);
+			void showAlert(`Could not read workspace \`${id}\`.`);
 			return;
 		}
 		applyWorkspace(workspace);
@@ -3993,7 +3993,7 @@ async function boot(): Promise<void> {
 				tabs: tabsState.tabs.filter((t) => t.id !== newTabId),
 			};
 			saveTabsState(tabsState);
-			showAlert("Workspace layout could not be applied.");
+			void showAlert("Workspace layout could not be applied.");
 			return;
 		}
 
@@ -4026,7 +4026,7 @@ async function boot(): Promise<void> {
 			followSlotsInUse(),
 		);
 		if (!isPaneLayoutUsable(mapped)) {
-			showAlert("Workspace layout could not be applied.");
+			void showAlert("Workspace layout could not be applied.");
 			return;
 		}
 
@@ -4331,6 +4331,7 @@ async function boot(): Promise<void> {
 			if (!terminalRoot?.contains(target)) return;
 			if (
 				target.closest(
+					// biome-ignore lint/security/noSecrets: DOM selector, not a credential.
 					"input, textarea, select, button, [contenteditable='true']",
 				)
 			)
@@ -5179,6 +5180,7 @@ async function boot(): Promise<void> {
 		lastFocusedPaneId = rid;
 		await remountAuxiliaryForFocus(paneHost.getFocusedPaneId());
 		await ensurePtyForPane(rid);
+		// biome-ignore lint/security/noSecrets: Terminal status text with ANSI escapes, not a credential.
 		getFocusedTerm()?.writeln("\r\n\x1b[90m[new session]\x1b[0m\r\n");
 	}
 
@@ -5638,11 +5640,11 @@ async function boot(): Promise<void> {
 			ids = await listWorkspaceIds();
 		} catch (e) {
 			console.error("list workspaces", e);
-			showAlert("Could not list workspaces.");
+			void showAlert("Could not list workspaces.");
 			return;
 		}
 		if (ids.length === 0) {
-			showAlert("No workspaces found in ~/.partty/workspaces.");
+			void showAlert("No workspaces found in ~/.partty/workspaces.");
 			return;
 		}
 		workspacePickerIds = ids;
@@ -6053,9 +6055,11 @@ async function boot(): Promise<void> {
 					label,
 				})),
 			{
+				// biome-ignore lint/security/noSecrets: Displayed shortcut label, not a credential.
 				hotkey: "Ctrl+Alt+Drag",
 				label: "Move floating pane or swap tiled panes",
 			},
+			// biome-ignore lint/security/noSecrets: Displayed shortcut label, not a credential.
 			{ hotkey: "Alt+Shift+Drag", label: "Move window from anywhere" },
 			{ hotkey: k.label("terminal_paste"), label: "Paste from clipboard" },
 			{ hotkey: "Right-click", label: "Paste from clipboard" },
@@ -6669,23 +6673,27 @@ async function boot(): Promise<void> {
 			}
 		}),
 
-		listen<PtyExitEvent>("pty-exit", async (event) => {
-			const { sessionId } = event.payload;
-			const paneId = paneBySessionId.get(sessionId)?.paneId;
-			if (!paneId) return;
-			const pending = pendingPtyOutputByPane.get(paneId);
-			if (pending) {
-				pendingPtyOutputByPane.delete(paneId);
-				processPtyOutputBatch(
-					paneId,
-					drainByteChunks(pending.chunks),
-					pending.eventCount,
-					pending.queuedAt,
-				);
-			}
-			await ptyAckExit(sessionId);
-			finishActiveProcess(paneId, Date.now());
-			await closePaneOnShellExit(paneId);
+		listen<PtyExitEvent>("pty-exit", (event) => {
+			void (async () => {
+				const { sessionId } = event.payload;
+				const paneId = paneBySessionId.get(sessionId)?.paneId;
+				if (!paneId) return;
+				const pending = pendingPtyOutputByPane.get(paneId);
+				if (pending) {
+					pendingPtyOutputByPane.delete(paneId);
+					processPtyOutputBatch(
+						paneId,
+						drainByteChunks(pending.chunks),
+						pending.eventCount,
+						pending.queuedAt,
+					);
+				}
+				await ptyAckExit(sessionId);
+				finishActiveProcess(paneId, Date.now());
+				await closePaneOnShellExit(paneId);
+			})().catch((e) => {
+				console.error("pty-exit", e);
+			});
 		}),
 		listen("pty-session-shed", () => {
 			liveCwd = null;
@@ -6708,7 +6716,9 @@ async function boot(): Promise<void> {
 					shedWebgl();
 				}
 				// WebView teardown waits for stash (see schedule_destroy_webview_after_hide).
-			})();
+			})().catch((e) => {
+				console.error("partty-hide", e);
+			});
 		}),
 		listen("partty-prepare-show", () => {
 			void runPrepareShow().catch((e) => {
@@ -6718,40 +6728,44 @@ async function boot(): Promise<void> {
 				});
 			});
 		}),
-		listen("partty-show", async () => {
-			// Defer-show: prepare already restored/painted — avoid a second pass.
-			if (summonPreparedByDefer) {
-				summonPreparedByDefer = false;
-				summonInProgress = false;
-				getFocusedTerm()?.focus();
-				mouseCursorController?.sync();
-				return;
-			}
-
-			// Non-defer summon (or prepare skipped): restore → paint → unlock, then PTY.
-			summonInProgress = true;
-			try {
-				await restoreScrollbackIfNeeded(false);
-				await mountWebglForActivePanes();
-				getFocusedTerm()?.focus();
-				scheduleResizeImmediate();
-				await waitAnimationFrames(2);
-				await unlockSummonSurface();
-				mouseCursorController?.sync();
-				if (!lp.defer_window_show_until_prepared) {
-					const jobs: Promise<void>[] = [];
-					paneHost?.forEachPane((id, pt) => {
-						jobs.push(ensurePtyForPane(id, pt));
-					});
-					await Promise.all(jobs);
+		listen("partty-show", () => {
+			void (async () => {
+				// Defer-show: prepare already restored/painted — avoid a second pass.
+				if (summonPreparedByDefer) {
+					summonPreparedByDefer = false;
+					summonInProgress = false;
+					getFocusedTerm()?.focus();
+					mouseCursorController?.sync();
+					return;
 				}
-				reflowAllPanes();
-				const ft = getFocusedTerm();
-				if (ft) ft.refresh(0, ft.rows - 1);
-				getFocusedTerm()?.focus();
-			} finally {
-				summonInProgress = false;
-			}
+
+				// Non-defer summon (or prepare skipped): restore → paint → unlock, then PTY.
+				summonInProgress = true;
+				try {
+					await restoreScrollbackIfNeeded(false);
+					await mountWebglForActivePanes();
+					getFocusedTerm()?.focus();
+					scheduleResizeImmediate();
+					await waitAnimationFrames(2);
+					await unlockSummonSurface();
+					mouseCursorController?.sync();
+					if (!lp.defer_window_show_until_prepared) {
+						const jobs: Promise<void>[] = [];
+						paneHost?.forEachPane((id, pt) => {
+							jobs.push(ensurePtyForPane(id, pt));
+						});
+						await Promise.all(jobs);
+					}
+					reflowAllPanes();
+					const ft = getFocusedTerm();
+					if (ft) ft.refresh(0, ft.rows - 1);
+					getFocusedTerm()?.focus();
+				} finally {
+					summonInProgress = false;
+				}
+			})().catch((e) => {
+				console.error("partty-show", e);
+			});
 		}),
 	]);
 

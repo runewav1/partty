@@ -543,7 +543,7 @@ export function createSettingsPanel(
 		try {
 			const data = await invoke<Persisted>("get_persisted_state");
 			const previous = { ...(data.prefs as ParttyPrefs) };
-			const next = await buildPrefs(previous);
+			const next = buildPrefs(previous);
 			const merged = { ...previous, ...next };
 			await invoke("set_prefs", { prefs: merged });
 			await onSaved?.(merged, previous);
@@ -1212,7 +1212,10 @@ export function createSettingsPanel(
 			if (search) search.value = "";
 			applySettingsSearch();
 			positionTabIndicator(true);
-			loadAndRender();
+			void loadAndRender().catch((err) => {
+				// biome-ignore lint/suspicious/noConsole: Settings load failures must remain visible during development.
+				console.error("load settings", err);
+			});
 			requestAnimationFrame(() => {
 				(
 					root.querySelector("#settings-search") as HTMLInputElement | null

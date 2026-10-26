@@ -47,39 +47,53 @@ function digitIndex(e: KeyboardEvent): number {
 }
 
 export function createKeybinds(): KeybindsApi {
-	const bind: Record<string, string> = { ...DEFAULT_BINDS };
+	let bind: Record<string, string> = { ...DEFAULT_BINDS };
 	let parsed: Record<string, ParsedBinding | null> = {};
 	let readyResolve: () => void;
 	const readyPromise = new Promise<void>((r) => {
 		readyResolve = r;
 	});
 
-	function rebuild() {
-		parsed = {};
-		for (const [action, raw] of Object.entries(bind)) {
-			parsed[action] = parseBinding(raw);
+	function parseBindings(
+		source: Record<string, string>,
+	): Record<string, ParsedBinding | null> {
+		const next: Record<string, ParsedBinding | null> = {};
+		for (const [action, raw] of Object.entries(source)) {
+			next[action] = parseBinding(raw);
 		}
+		return next;
 	}
 
-	rebuild();
+	function rebuild() {
+		parsed = parseBindings(bind);
+	}
+
+	parsed = parseBindings(bind);
 
 	async function load() {
 		try {
 			const snap = await invoke<KeybindsSnapshot>("get_keybinds");
+			// Build the complete replacement before committing either side, so a
+			// malformed snapshot cannot leave labels and matching out of sync.
+			const nextBind: Record<string, string> = {};
+			for (const [action, raw] of Object.entries(snap.bind)) {
+				nextBind[action] = raw;
+			}
+			const nextParsed = parseBindings(nextBind);
 			// The native snapshot already merges defaults and removes unbound
 			// actions. Retaining frontend defaults here would resurrect unbinds.
-			for (const action of Object.keys(bind)) delete bind[action];
-			for (const [action, raw] of Object.entries(snap.bind)) {
-				bind[action] = raw;
-			}
+			bind = nextBind;
+			parsed = nextParsed;
 		} catch {
-			/* keep defaults */
+			/* keep the previous bindings and parsed map intact */
+		} finally {
+			// Readiness must settle even when the snapshot shape is unusable.
+			readyResolve();
 		}
-		rebuild();
-		readyResolve();
 	}
 
-	load();
+	// Fire-and-forget by design; consumers observe completion via `ready`.
+	void load();
 
 	return {
 		ready: readyPromise,

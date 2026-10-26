@@ -22,27 +22,27 @@ The ID must be 1–64 characters containing only ASCII letters, numbers, `-`, or
 
 ## Top level
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `version` | integer | Workspace schema version. Must be `1`. |
-| `id` | string | ID matching the file stem. |
-| `name` | string | Human-readable workspace name, 1–128 characters. |
+| Key        | Type             | Description                                                                                                |
+| ---------- | ---------------- | ---------------------------------------------------------------------------------------------------------- |
+| `version`  | integer          | Workspace schema version. Must be `1`.                                                                     |
+| `id`       | string           | ID matching the file stem.                                                                                 |
+| `name`     | string           | Human-readable workspace name, 1–128 characters.                                                           |
 | `tab_name` | string, optional | Explicit name for the tab created from this workspace. If omitted, the normal tab naming behavior is used. |
-| `layout` | table | Pane layout and per-pane configuration. |
+| `layout`   | table            | Pane layout and per-pane configuration.                                                                    |
 
 Unknown keys are rejected. This keeps spelling mistakes from silently changing how a workspace starts.
 
 ## Layout (`[layout]`)
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `tree` | pane tree | Split and leaf structure. |
-| `focused_id` | string | ID of the pane that receives focus. It must occur in the tree. |
-| `floating` | map | Optional floating state keyed by pane ID. |
-| `pane_themes` | map | Optional per-pane theme settings. |
-| `pane_cwds` | map | Optional per-pane starting directories. |
-| `pane_profile_ids` | map | Optional connection profile IDs. |
-| `startup_commands` | map | Optional per-pane commands injected during PTY startup. |
+| Key                | Type      | Description                                                    |
+| ------------------ | --------- | -------------------------------------------------------------- |
+| `tree`             | pane tree | Split and leaf structure.                                      |
+| `focused_id`       | string    | ID of the pane that receives focus. It must occur in the tree. |
+| `floating`         | map       | Optional floating state keyed by pane ID.                      |
+| `pane_themes`      | map       | Optional per-pane theme settings.                              |
+| `pane_cwds`        | map       | Optional per-pane starting directories.                        |
+| `pane_profile_ids` | map       | Optional connection profile IDs.                               |
+| `startup_commands` | map       | Optional per-pane commands injected during PTY startup.        |
 
 Every key in a per-pane map must refer to a leaf in `tree`. Pane IDs are local to the file and should be stable, readable values such as `root`, `editor`, and `logs`.
 
@@ -186,5 +186,3 @@ height = 600.0
 z = 2.0
 follow = false
 ```
-
-

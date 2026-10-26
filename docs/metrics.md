@@ -84,14 +84,18 @@ Integration shape for the parent:
 
 ```ts
 // enqueue side (previously parttyPerf.beginTermWrite(paneId) — now returns a token):
-const token = parttyPerf.enabled ? parttyPerf.beginTermWrite(paneId, data.length) : null;
+const token = parttyPerf.enabled
+	? parttyPerf.beginTermWrite(paneId, data.length)
+	: null;
 
 // completion side (previously parttyPerf.finishTermRender(id) from onRender):
 try {
-  pt.term.write(data, () => { if (token) parttyPerf.finishTermWrite(token); });
+	pt.term.write(data, () => {
+		if (token) parttyPerf.finishTermWrite(token);
+	});
 } catch (e) {
-  if (token) parttyPerf.cancelTermWrite(token);
-  throw e;
+	if (token) parttyPerf.cancelTermWrite(token);
+	throw e;
 }
 ```
 
@@ -109,77 +113,83 @@ try {
 ## Snapshot shape
 
 ```ts
-type TimingBucket = { count: number; totalMs: number; maxMs: number; minMs: number; lastMs: number };
+type TimingBucket = {
+	count: number;
+	totalMs: number;
+	maxMs: number;
+	minMs: number;
+	lastMs: number;
+};
 
 type LatencySummary = {
-  windowMs: number;          // rolling window length (10000 for write latency and rAF gaps)
-  capacity: number;          // max stored samples (4096)
-  n: number;                 // samples currently in the rolling window
-  p50: number | null;        // null when n === 0 (unavailable)
-  p95: number | null;        // null when n === 0 (unavailable)
-  max: number | null;        // null when n === 0
-  last: number | null;       // most recent sample; null before the first sample
-  avgMs: number | null;      // session average = totalSumMs / total
-  evictions: number;         // samples dropped at capacity (bounded window, not full population)
-  total: number;             // session total samples recorded
-  totalSumMs: number;        // session total latency sum
+	windowMs: number; // rolling window length (10000 for write latency and rAF gaps)
+	capacity: number; // max stored samples (4096)
+	n: number; // samples currently in the rolling window
+	p50: number | null; // null when n === 0 (unavailable)
+	p95: number | null; // null when n === 0 (unavailable)
+	max: number | null; // null when n === 0
+	last: number | null; // most recent sample; null before the first sample
+	avgMs: number | null; // session average = totalSumMs / total
+	evictions: number; // samples dropped at capacity (bounded window, not full population)
+	total: number; // session total samples recorded
+	totalSumMs: number; // session total latency sum
 };
 
 type RateSummary = {
-  windowMs: number;          // 1000ms trailing window
-  capacity: number;          // 4096
-  samples: number;           // events inside the window
-  spanMs: number;            // newest - oldest sample time inside the window
-  bytesInWindow: number;     // raw byte sum inside the window
-  bytesPerSec: number;       // bytesInWindow (trailing 1s rate; raw sum, see note)
-  totalBytes: number;        // session total bytes (separate from the window; correct across evictions)
-  lastBytes: number;         // most recent byte count
-  evictions: number;         // capacity drops (visible so a bounded window is not mistaken for the population)
+	windowMs: number; // 1000ms trailing window
+	capacity: number; // 4096
+	samples: number; // events inside the window
+	spanMs: number; // newest - oldest sample time inside the window
+	bytesInWindow: number; // raw byte sum inside the window
+	bytesPerSec: number; // bytesInWindow (trailing 1s rate; raw sum, see note)
+	totalBytes: number; // session total bytes (separate from the window; correct across evictions)
+	lastBytes: number; // most recent byte count
+	evictions: number; // capacity drops (visible so a bounded window is not mistaken for the population)
 };
 
 type TokenCounts = {
-  started: number;           // started === outstanding + completed + expired + cancelled + overflow
-  outstanding: number;
-  completed: number;
-  expired: number;
-  cancelled: number;
-  overflow: number;
+	started: number; // started === outstanding + completed + expired + cancelled + overflow
+	outstanding: number;
+	completed: number;
+	expired: number;
+	cancelled: number;
+	overflow: number;
 };
 
 type RafState = {
-  state: "active" | "paused";   // paused = disabled or document hidden (never labeled active while hidden)
-  pausedAt: number | null;
-  staleMs: number;              // time since the last rAF sample (grows while paused/hidden)
-  gap: LatencySummary;          // rolling inter-frame gap distribution
+	state: "active" | "paused"; // paused = disabled or document hidden (never labeled active while hidden)
+	pausedAt: number | null;
+	staleMs: number; // time since the last rAF sample (grows while paused/hidden)
+	gap: LatencySummary; // rolling inter-frame gap distribution
 };
 
 type PerfSessionMetadata = {
-  schemaVersion: number;        // 2
-  capturedAt: number;           // performance.now() at snapshot build (monotonic)
-  sessionStartedAt: number | null;  // performance.now() at last disable→enable transition
-  epoch: number;                // write-token epoch (bumped by reset/reset/dispose/disable-cancel)
-  enabled: boolean;
+	schemaVersion: number; // 2
+	capturedAt: number; // performance.now() at snapshot build (monotonic)
+	sessionStartedAt: number | null; // performance.now() at last disable→enable transition
+	epoch: number; // write-token epoch (bumped by reset/reset/dispose/disable-cancel)
+	enabled: boolean;
 };
 
 type ParttyPerfSnapshot = {
-  counters: Record<string, number>;
-  gauges: Record<string, number>;
-  timings: Record<string, TimingBucket>;
-  rates: { in: RateSummary; out: RateSummary };   // global across panes
-  writeLatency: LatencySummary;                   // global across panes
-  writeTokens: TokenCounts;
-  rAF: RafState;
-  meta: PerfSessionMetadata;
+	counters: Record<string, number>;
+	gauges: Record<string, number>;
+	timings: Record<string, TimingBucket>;
+	rates: { in: RateSummary; out: RateSummary }; // global across panes
+	writeLatency: LatencySummary; // global across panes
+	writeTokens: TokenCounts;
+	rAF: RafState;
+	meta: PerfSessionMetadata;
 };
 
 type PanePerfSnapshot = {
-  capturedAt: number;
-  counters: Record<string, number>;
-  gauges: Record<string, number>;
-  timings: Record<string, TimingBucket>;
-  rates: { in: RateSummary | null; out: RateSummary | null };
-  writeLatency: LatencySummary | null;
-  writeTokens: TokenCounts;
+	capturedAt: number;
+	counters: Record<string, number>;
+	gauges: Record<string, number>;
+	timings: Record<string, TimingBucket>;
+	rates: { in: RateSummary | null; out: RateSummary | null };
+	writeLatency: LatencySummary | null;
+	writeTokens: TokenCounts;
 };
 ```
 
@@ -194,25 +204,25 @@ type PanePerfSnapshot = {
 when the pane has no data; `observer.longtask`/`observer.layout-shift` are absent until the first
 install so a panel can distinguish unsupported (`0`) from supported-with-zero-events.
 
-| name | kind | unit | windowMs | maxSamples | availability | semantics |
-| --- | --- | --- | --- | --- | --- | --- |
-| `rAF.gap.50ms` | counter | count | — | — | dev-only | rAF callbacks with inter-frame gap > 50ms |
-| `rAF.gap.100ms` | counter | count | — | — | dev-only | rAF callbacks with inter-frame gap > 100ms |
-| `main.longtask.count` | counter | count | — | — | dev-only | long tasks since install/reset; initialized to 0 when supported |
-| `main.longtask.ms` | timing | ms | — | — | dev-only | long task durations, cumulative session bucket |
-| `layout.shift.count` | counter | count | — | — | dev-only | layout shifts since install/reset; initialized to 0 when supported |
-| `layout.shift.last` | gauge | score | — | — | dev-only | most recent layout shift score |
-| `observer.longtask` | gauge | 1 | — | — | dev-only | 1 installed / 0 unsupported; absent before first install |
-| `observer.layout-shift` | gauge | 1 | — | — | dev-only | 1 installed / 0 unsupported; absent before first install |
-| `pty.input` | rate | bytes/s | 1000 | 4096 | dev-only | actual PTY input bytes from the parent |
-| `pty.output` | rate | bytes/s | 1000 | 4096 | dev-only | actual PTY output bytes from the parent |
-| `input.events` | rate | events/s | 1000 | 4096 | dev-only | terminal onData events |
-| `write.enqueue.calls` | counter | count | — | — | dev-only | term write opens |
-| `write.enqueue.bytes` | counter | bytes | — | — | dev-only | bytes handed into term writes |
-| `write.latency.ms` | latency | ms | 10000 | 4096 | dev-only | handed-to-write → completion-callback latency |
-| `write.tokens` | token | count | — | 256 | dev-only | token lifecycle counts (reconciled via `started`) |
-| `rAF.gap` | latency | ms | 10000 | 4096 | dev-only | rAF callback cadence (not FPS) |
-| `rAF.state` | state | 1 | — | — | dev-only | active/paused sampling state |
+| name                    | kind    | unit     | windowMs | maxSamples | availability | semantics                                                          |
+| ----------------------- | ------- | -------- | -------- | ---------- | ------------ | ------------------------------------------------------------------ |
+| `rAF.gap.50ms`          | counter | count    | —        | —          | dev-only     | rAF callbacks with inter-frame gap > 50ms                          |
+| `rAF.gap.100ms`         | counter | count    | —        | —          | dev-only     | rAF callbacks with inter-frame gap > 100ms                         |
+| `main.longtask.count`   | counter | count    | —        | —          | dev-only     | long tasks since install/reset; initialized to 0 when supported    |
+| `main.longtask.ms`      | timing  | ms       | —        | —          | dev-only     | long task durations, cumulative session bucket                     |
+| `layout.shift.count`    | counter | count    | —        | —          | dev-only     | layout shifts since install/reset; initialized to 0 when supported |
+| `layout.shift.last`     | gauge   | score    | —        | —          | dev-only     | most recent layout shift score                                     |
+| `observer.longtask`     | gauge   | 1        | —        | —          | dev-only     | 1 installed / 0 unsupported; absent before first install           |
+| `observer.layout-shift` | gauge   | 1        | —        | —          | dev-only     | 1 installed / 0 unsupported; absent before first install           |
+| `pty.input`             | rate    | bytes/s  | 1000     | 4096       | dev-only     | actual PTY input bytes from the parent                             |
+| `pty.output`            | rate    | bytes/s  | 1000     | 4096       | dev-only     | actual PTY output bytes from the parent                            |
+| `input.events`          | rate    | events/s | 1000     | 4096       | dev-only     | terminal onData events                                             |
+| `write.enqueue.calls`   | counter | count    | —        | —          | dev-only     | term write opens                                                   |
+| `write.enqueue.bytes`   | counter | bytes    | —        | —          | dev-only     | bytes handed into term writes                                      |
+| `write.latency.ms`      | latency | ms       | 10000    | 4096       | dev-only     | handed-to-write → completion-callback latency                      |
+| `write.tokens`          | token   | count    | —        | 256        | dev-only     | token lifecycle counts (reconciled via `started`)                  |
+| `rAF.gap`               | latency | ms       | 10000    | 4096       | dev-only     | rAF callback cadence (not FPS)                                     |
+| `rAF.state`             | state   | 1        | —        | —          | dev-only     | active/paused sampling state                                       |
 
 Caller-defined names passed to `mark`/`gauge`/`time`/`pane*` flow through the generic
 `counters`/`gauges`/`timings` maps and are not listed in `contracts()`.

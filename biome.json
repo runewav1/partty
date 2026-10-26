@@ -11,7 +11,9 @@
 			"!!**/dist",
 			"!!**/node_modules",
 			"!!**/src/vendor",
-			"!!**/*.css"
+			"!!**/*.css",
+			"!!**/pnpm-lock.yaml",
+			"!!**/src-tauri/patches/**/*.md"
 		]
 	},
 	"formatter": {
@@ -25,8 +27,7 @@
 			"a11y": "warn",
 			"complexity": {
 				"preset": "recommended",
-				"noExcessiveLinesPerFunction": "off",
-				"noImportantStyles": "off"
+				"noExcessiveLinesPerFunction": "off"
 			},
 			"correctness": "error",
 			"performance": "warn",
@@ -34,7 +35,17 @@
 				"preset": "recommended",
 				"noSecrets": "warn"
 			},
-			"style": "off",
+			"style": {
+				"preset": "none",
+				"useConst": "error",
+				"useImportType": "error",
+				"useNodejsImportProtocol": "error"
+			},
+			"nursery": {
+				"noFloatingPromises": "warn",
+				"noMisusedPromises": "warn",
+				"useAwaitThenable": "warn"
+			},
 			"suspicious": {
 				"preset": "recommended",
 				"noConsole": "warn"
@@ -78,27 +89,7 @@
 			}
 		},
 		{
-			"includes": ["src/app/devMetricsOverlay.ts"],
-			"linter": {
-				"rules": {
-					"security": {
-						"noSecrets": "off"
-					}
-				}
-			}
-		},
-		{
-			"includes": ["src/terminal/keybinds.ts", "src/terminal/paneHost.ts"],
-			"linter": {
-				"rules": {
-					"security": {
-						"noSecrets": "off"
-					}
-				}
-			}
-		},
-		{
-			"includes": ["**/*.css", "index.html"],
+			"includes": ["index.html"],
 			"linter": {
 				"rules": {
 					"complexity": {
@@ -114,9 +105,6 @@
 					"performance": {
 						"noAwaitInLoops": "off",
 						"useTopLevelRegex": "off"
-					},
-					"security": {
-						"noSecrets": "off"
 					},
 					"suspicious": {
 						"noConsole": "off"
