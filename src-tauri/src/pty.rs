@@ -2,7 +2,7 @@ use crate::clipboard;
 use crate::prefs::Prefs;
 use crate::profiles::{ConnectionProfile, ProfileKind};
 use parking_lot::Mutex as ParkingMutex;
-use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
+use portable_pty::{Child, CommandBuilder, PtySize, native_pty_system};
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{RecvTimeoutError, sync_channel};
+use std::sync::mpsc::{RecvTimeoutError, Sender, channel, sync_channel};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use tauri::ipc::{Channel, InvokeResponseBody};
@@ -71,7 +71,11 @@ impl ReplayBuffer {
     }
 
     fn snapshot(&self) -> Vec<u8> {
-        self.bytes.iter().copied().collect()
+        let (head, tail) = self.bytes.as_slices();
+        let mut out = Vec::with_capacity(head.len() + tail.len());
+        out.extend_from_slice(head);
+        out.extend_from_slice(tail);
+        out
     }
 
     fn tail(&self, len: usize) -> Vec<u8> {
@@ -1013,9 +1017,17 @@ fn osc633_normalize_cwd(value: &str, is_windows: Option<&str>) -> String {
     raw.to_string()
 }
 
+/// Work for a session's input thread, which solely owns the ConPTY writer and
+/// master. A single FIFO keeps keystrokes, pastes, OSC 52 replies and resizes
+/// in IPC arrival order without ever blocking the caller on a full pipe.
+enum PtyInput {
+    Write(Vec<u8>),
+    Resize { cols: u16, rows: u16 },
+    Shutdown,
+}
+
 pub struct PtySession {
-    master: Arc<parking_lot::Mutex<Box<dyn MasterPty + Send>>>,
-    writer: Arc<parking_lot::Mutex<Box<dyn Write + Send>>>,
+    input: Sender<PtyInput>,
     child: Arc<parking_lot::Mutex<Option<Box<dyn Child + Send + Sync>>>>,
     stop: Arc<AtomicBool>,
     replay_buffer: Arc<parking_lot::Mutex<ReplayBuffer>>,
@@ -1029,6 +1041,7 @@ pub struct PtySession {
     _reader: JoinHandle<()>,
     _emitter: JoinHandle<()>,
     _waiter: JoinHandle<()>,
+    _input: JoinHandle<()>,
 }
 
 impl PtySession {
@@ -1065,10 +1078,42 @@ impl PtySession {
         let reader = master.try_clone_reader().map_err(|e| e.to_string())?;
         let writer = master.take_writer().map_err(|e| e.to_string())?;
 
-        let master = Arc::new(parking_lot::Mutex::new(master));
-        let writer = Arc::new(parking_lot::Mutex::new(writer));
         let child = Arc::new(parking_lot::Mutex::new(Some(child)));
         let stop = Arc::new(AtomicBool::new(false));
+
+        let (input_tx, input_rx) = channel::<PtyInput>();
+        let stop_input = Arc::clone(&stop);
+        let _input = thread::spawn(move || {
+            let mut writer = writer;
+            while let Ok(cmd) = input_rx.recv() {
+                if stop_input.load(Ordering::SeqCst) {
+                    break;
+                }
+                match cmd {
+                    PtyInput::Write(bytes) => {
+                        if let Err(e) = writer.write_all(&bytes).and_then(|()| writer.flush()) {
+                            eprintln!("partty: pty write failed: {e}");
+                        }
+                    }
+                    PtyInput::Resize { cols, rows } => {
+                        let size = PtySize {
+                            rows,
+                            cols,
+                            pixel_width: 0,
+                            pixel_height: 0,
+                        };
+                        if let Err(e) = master.resize(size) {
+                            eprintln!("partty: pty resize failed: {e}");
+                        }
+                    }
+                    PtyInput::Shutdown => break,
+                }
+            }
+            // Closing the pseudoconsole here keeps ClosePseudoConsole off the
+            // thread that dropped the session.
+            drop(writer);
+            drop(master);
+        });
         let replay_buffer = Arc::new(parking_lot::Mutex::new(ReplayBuffer::new(
             PTY_REPLAY_BUFFER_BYTES,
         )));
@@ -1105,9 +1150,9 @@ impl PtySession {
         let app_emit = app.clone();
         let session_id_emitter = Arc::clone(&session_id_arc);
         let output_channel_emitter = Arc::clone(&output_channel);
-        // OSC 52 replies write back into the PTY; clone the writer for the
-        // emitter thread (the `PtySession::write` path locks the same mutex).
-        let writer_osc = Arc::clone(&writer);
+        // OSC 52 replies write back into the PTY through the input queue so
+        // they stay ordered with user input.
+        let input_osc = input_tx.clone();
         let osc52 = prefs.osc52;
         // NOTE: do NOT capture a `WebviewWindow` here.  When
         // `destroy_webview_on_hide` is enabled (the default), the main webview
@@ -1300,9 +1345,7 @@ impl PtySession {
                                 if let Ok(text) = clipboard::read_text() {
                                     let encoded = clipboard::base64_encode(text.as_bytes());
                                     let reply = format!("\x1b]52;{selection};{encoded}\x1b\\");
-                                    let mut w = writer_osc.lock();
-                                    let _ = w.write_all(reply.as_bytes());
-                                    let _ = w.flush();
+                                    let _ = input_osc.send(PtyInput::Write(reply.into_bytes()));
                                 }
                             }
                         }
@@ -1411,8 +1454,7 @@ impl PtySession {
         });
 
         Ok(Self {
-            master,
-            writer,
+            input: input_tx,
             child,
             stop,
             replay_buffer,
@@ -1421,13 +1463,15 @@ impl PtySession {
             _reader,
             _emitter,
             _waiter,
+            _input,
         })
     }
 
-    pub fn write(&self, data: &[u8]) -> Result<(), String> {
-        let mut w = self.writer.lock();
-        w.write_all(data).map_err(|e| e.to_string())?;
-        w.flush().map_err(|e| e.to_string())
+    /// Queue input for the session's input thread; never blocks on the pipe.
+    pub fn write(&self, data: Vec<u8>) -> Result<(), String> {
+        self.input
+            .send(PtyInput::Write(data))
+            .map_err(|_| "pty input closed".to_string())
     }
 
     /// Attach (or replace) the live output channel.  Called on every
@@ -1440,16 +1484,11 @@ impl PtySession {
         self.replay_buffer.lock().snapshot()
     }
 
+    /// Queue a resize behind any pending input so sizes apply in call order.
     pub fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
-        self.master
-            .lock()
-            .resize(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|e| e.to_string())
+        self.input
+            .send(PtyInput::Resize { cols, rows })
+            .map_err(|_| "pty input closed".to_string())
     }
 
     pub fn kill(&self) {
@@ -1457,6 +1496,9 @@ impl PtySession {
         if let Some(mut c) = self.child.lock().take() {
             let _ = c.kill();
         }
+        // The emitter holds a sender for OSC 52 replies, so the queue never
+        // disconnects on its own while output is still draining.
+        let _ = self.input.send(PtyInput::Shutdown);
     }
 }
 

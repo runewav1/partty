@@ -951,6 +951,12 @@ async function boot(): Promise<void> {
 	const paneWebLinks = new Map<string, { dispose: () => void }>();
 
 	const pendingPtyWriteByPane = new Map<string, StringChunkBuffer>();
+	/**
+	 * Sessions whose `pty_ensure` is in flight. `pty_ensure` spawns off the UI
+	 * thread, so a write sent meanwhile would reach Rust before the session
+	 * exists; input is held in `pendingPtyWriteByPane` until startup settles.
+	 */
+	const ptyStartingSessions = new Set<string>();
 	const pendingPtyOutputByPane = new Map<string, PendingPtyOutput>();
 	let pendingPtyWriteRaf = 0;
 	let pendingPtyOutputRaf = 0;
@@ -976,12 +982,18 @@ async function boot(): Promise<void> {
 		pushStringChunk(buf, data);
 	};
 
+	const isPanePtyStarting = (paneId: string): boolean => {
+		const sessionId = getPaneTerminalById(paneId)?.sessionId;
+		return sessionId !== undefined && ptyStartingSessions.has(sessionId);
+	};
+
 	const flushPendingPtyWrites = (): void => {
 		pendingPtyWriteRaf = 0;
 		if (pendingPtyWriteByPane.size === 0) return;
 		for (const [paneId, buf] of pendingPtyWriteByPane) {
 			// Don't interleave with an in-flight chunked paste.
 			if (ptyBulkActiveByPane.has(paneId)) continue;
+			if (isPanePtyStarting(paneId)) continue;
 			pendingPtyWriteByPane.delete(paneId);
 			const data = drainStringChunks(buf);
 			parttyPerf.mark("pty.input.flushes");
@@ -992,6 +1004,7 @@ async function boot(): Promise<void> {
 
 	const flushPendingPtyWriteForPane = (paneId: string): void => {
 		if (ptyBulkActiveByPane.has(paneId)) return;
+		if (isPanePtyStarting(paneId)) return;
 		const buf = pendingPtyWriteByPane.get(paneId);
 		if (!buf || buf.totalChars === 0) return;
 		pendingPtyWriteByPane.delete(paneId);
@@ -1019,6 +1032,10 @@ async function boot(): Promise<void> {
 		const sessionId = getPaneTerminalById(paneId)?.sessionId;
 		if (!sessionId)
 			return Promise.reject(new Error(`no session for ${paneId}`));
+		if (ptyStartingSessions.has(sessionId)) {
+			appendPendingPtyWrite(paneId, data);
+			return Promise.resolve();
+		}
 		if (!isBulkPtyInput(data)) {
 			return ptyWrite(sessionId, data).catch((e) => {
 				console.error("pty_write", e);
@@ -2582,7 +2599,9 @@ async function boot(): Promise<void> {
 			profilesList,
 		);
 		const ensureStarted = performance.now();
-		await runPtyStartup({
+		const startingSessionId = pt.sessionId;
+		ptyStartingSessions.add(startingSessionId);
+		const outcome = await runPtyStartup({
 			sessionId: pt.sessionId,
 			isOwned,
 			fit: () => pt.fit.fit(),
@@ -2645,7 +2664,13 @@ async function boot(): Promise<void> {
 				paneBySessionId.has(sessionId)
 					? Promise.resolve()
 					: ptyKillPane(sessionId),
-		});
+		}).finally(() => ptyStartingSessions.delete(startingSessionId));
+		if (outcome === "ensured" && isOwned()) {
+			flushPendingPtyWriteForPane(pt.paneId);
+			// Resizes sent while the spawn was in flight found no session and
+			// were dropped; reconcile against the dims the PTY started with.
+			requestLayoutPass();
+		}
 	}
 
 	/** Coalesce heavy focus side-effects so arrow spam stays visual-only. */

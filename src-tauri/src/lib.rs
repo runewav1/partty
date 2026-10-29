@@ -888,13 +888,14 @@ async fn request_destroy_webview_for_hide(app: AppHandle) -> Result<(), String> 
     }
 }
 
+/// Shell spawn (process creation, WSL probing, script writes) runs on the
+/// blocking pool so it never stalls the UI thread that services IPC.
 #[tauri::command]
 // Command signature mirrors the IPC surface; grouping the args would churn
 // the frontend contract for no functional gain.
 #[allow(clippy::too_many_arguments)]
-fn pty_ensure(
+async fn pty_ensure(
     app: AppHandle,
-    state: State<'_, AppState>,
     session_id: String,
     cols: u16,
     rows: u16,
@@ -904,6 +905,36 @@ fn pty_ensure(
     startup_command: Option<String>,
     output: Channel<InvokeResponseBody>,
 ) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        pty_ensure_blocking(
+            &app,
+            session_id,
+            cols,
+            rows,
+            initial_cwd,
+            shell,
+            profile_id,
+            startup_command,
+            output,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[allow(clippy::too_many_arguments)]
+fn pty_ensure_blocking(
+    app: &AppHandle,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+    initial_cwd: Option<String>,
+    shell: Option<String>,
+    profile_id: Option<String>,
+    startup_command: Option<String>,
+    output: Channel<InvokeResponseBody>,
+) -> Result<(), String> {
+    let state = app.state::<AppState>();
     let base = state.persisted.lock().prefs.clone();
     let (spawn_prefs, profile, want) = resolve_spawn(
         &base,
@@ -989,10 +1020,13 @@ fn pty_ensure(
     if let Some(sp) = warm_profile.as_mut() {
         sp.startup_command = None;
     }
-    refill_warm_pty(&app, &spawn_prefs, want, warm_profile);
+    refill_warm_pty(app, &spawn_prefs, want, warm_profile);
     Ok(())
 }
 
+/// Must stay synchronous: enqueueing in IPC arrival order is what keeps
+/// keystrokes ordered. The blocking pipe write happens on the session's
+/// input thread.
 #[tauri::command]
 fn pty_write(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
     let session = {
@@ -1002,10 +1036,10 @@ fn pty_write(state: State<'_, AppState>, session_id: String, data: String) -> Re
     let Some(s) = session else {
         return Err("no active pty for pane".into());
     };
-    s.write(data.as_bytes())
+    s.write(data.into_bytes())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn pty_replay_snapshot(state: State<'_, AppState>, session_id: String) -> Result<Response, String> {
     let session = {
         let g = state.pty_panes.lock();
