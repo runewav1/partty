@@ -1,4 +1,4 @@
-import { type Channel, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 
 /**
  * Tauri deserializes command args with camelCase keys; Rust `session_id` → `sessionId`.
@@ -9,12 +9,9 @@ import { type Channel, invoke } from "@tauri-apps/api/core";
  */
 
 /**
- * Output channel for a session. Raw PTY bytes arrive as `ArrayBuffer` chunks
- * (Tauri `InvokeResponseBody::Raw`); pass a fresh channel on every
- * ensure/resummon so a rebuilt webview re-subscribes.
+ * Spawn or re-attach a session. Every call (including resummon) also posts a
+ * fresh shared-memory output ring for the session (`src/pty/sharedRing.ts`).
  */
-export type PtyOutputChannel = Channel<ArrayBuffer>;
-
 export function ptyEnsure(
 	sessionId: string,
 	cols: number,
@@ -23,7 +20,6 @@ export function ptyEnsure(
 	shell?: string | null,
 	profileId?: string | null,
 	startupCommand?: string | null,
-	output?: PtyOutputChannel,
 ): Promise<void> {
 	return invoke("pty_ensure", {
 		sessionId,
@@ -33,7 +29,6 @@ export function ptyEnsure(
 		shell: shell || null,
 		profileId: profileId || null,
 		startupCommand: startupCommand || null,
-		output,
 	});
 }
 
@@ -88,19 +83,6 @@ export function isPtyOwner(
 ): boolean {
 	return paneBySessionId.get(pt.sessionId) === pt;
 }
-
-/**
- * Resolve the current positional pane id for output routing. Returns null once
- * the terminal lost ownership (disposed, or its pane slot was reused) so a
- * stale channel cannot write into the replacement pane.
- */
-export function ownedPtyPaneId(
-	paneBySessionId: ReadonlyMap<string, PtySessionOwner>,
-	pt: PtySessionOwner,
-): string | null {
-	return isPtyOwner(paneBySessionId, pt) ? pt.paneId : null;
-}
-
 export type PtyStartupDims = { cols: number; rows: number };
 
 export type PtyStartupOutcome = "ensured" | "aborted" | "failed";
@@ -113,9 +95,7 @@ export type PtyStartupOptions = {
 	readDims: () => PtyStartupDims | null;
 	waitFrame: () => Promise<void>;
 	sleep: (ms: number) => Promise<void>;
-	/** Fresh channel per attempt; the caller routes messages by ownership. */
-	makeOutput: () => PtyOutputChannel;
-	ensure: (dims: PtyStartupDims, output: PtyOutputChannel) => Promise<void>;
+	ensure: (dims: PtyStartupDims) => Promise<void>;
 	replay: () => Promise<void>;
 	fallbackDims: PtyStartupDims;
 	clampDims: (dims: PtyStartupDims) => PtyStartupDims;
@@ -162,7 +142,6 @@ export async function runPtyStartup(
 		readDims,
 		waitFrame,
 		sleep,
-		makeOutput,
 		ensure,
 		replay,
 		fallbackDims,
@@ -197,7 +176,7 @@ export async function runPtyStartup(
 		}
 		if (!isOwned()) return "aborted";
 		try {
-			await ensure(safe, makeOutput());
+			await ensure(safe);
 		} catch (e) {
 			if (!isOwned()) return "aborted";
 			lastErr = e;

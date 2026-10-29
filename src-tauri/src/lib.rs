@@ -5,6 +5,7 @@ mod prefs;
 mod profile_icons;
 mod profiles;
 mod pty;
+mod shared_ring;
 mod shell_discovery;
 mod subprocess;
 mod theme;
@@ -20,7 +21,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tauri::ipc::{Channel, InvokeResponseBody, Response};
+use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -903,7 +904,6 @@ async fn pty_ensure(
     shell: Option<String>,
     profile_id: Option<String>,
     startup_command: Option<String>,
-    output: Channel<InvokeResponseBody>,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         pty_ensure_blocking(
@@ -915,7 +915,6 @@ async fn pty_ensure(
             shell,
             profile_id,
             startup_command,
-            output,
         )
     })
     .await
@@ -932,7 +931,6 @@ fn pty_ensure_blocking(
     shell: Option<String>,
     profile_id: Option<String>,
     startup_command: Option<String>,
-    output: Channel<InvokeResponseBody>,
 ) -> Result<(), String> {
     let state = app.state::<AppState>();
     let base = state.persisted.lock().prefs.clone();
@@ -943,6 +941,7 @@ fn pty_ensure_blocking(
         initial_cwd,
         startup_command.as_deref(),
     )?;
+    let ring = shared_ring::create(app, &session_id)?;
     let existing = {
         let panes = state.pty_panes.lock();
         let ids = state.pty_spawn_identity.lock();
@@ -956,8 +955,8 @@ fn pty_ensure_blocking(
     };
     if let Some(session) = existing {
         // Session already live (resummon after webview rebuild): re-subscribe
-        // the output channel and resize.
-        session.set_output_channel(output);
+        // the output ring and resize.
+        session.set_output_ring(ring);
         let _ = session.resize(cols, rows);
         return Ok(());
     }
@@ -1006,7 +1005,7 @@ fn pty_ensure_blocking(
             profile.as_ref(),
         )?)
     };
-    session.set_output_channel(output);
+    session.set_output_ring(ring);
     state.pty_panes.lock().insert(session_id.clone(), session);
     state
         .pty_spawn_identity

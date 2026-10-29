@@ -1,6 +1,7 @@
 use crate::clipboard;
 use crate::prefs::Prefs;
 use crate::profiles::{ConnectionProfile, ProfileKind};
+use crate::shared_ring::{self, SharedRing};
 use parking_lot::Mutex as ParkingMutex;
 use portable_pty::{Child, CommandBuilder, PtySize, native_pty_system};
 use std::collections::{HashMap, VecDeque};
@@ -13,7 +14,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, Sender, channel, sync_channel};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
-use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager};
 use windows_sys::Win32::Foundation::{DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE};
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, INFINITE, WaitForSingleObject};
@@ -28,7 +28,7 @@ const PTY_REPLAY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 const PTY_PENDING_HOLD_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 /// Bounded byte ring. Eviction advances the head rather than moving retained
-/// output; only snapshots and failed-send recovery need contiguous storage.
+/// output; only snapshots need contiguous storage.
 struct ReplayBuffer {
     bytes: VecDeque<u8>,
     limit: usize,
@@ -76,13 +76,6 @@ impl ReplayBuffer {
         out.extend_from_slice(head);
         out.extend_from_slice(tail);
         out
-    }
-
-    fn tail(&self, len: usize) -> Vec<u8> {
-        self.bytes
-            .range(self.bytes.len().saturating_sub(len)..)
-            .copied()
-            .collect()
     }
 }
 
@@ -172,40 +165,37 @@ enum OscSideEvent {
     Osc52Query(String),
 }
 
-/// A cleaned output batch that could not be delivered yet (webview down or
-/// channel not subscribed).  `replayed` marks batches already appended to the
-/// replay buffer — batches are appended *before* sending so a failed delivery
-/// can be reconstructed from the replay tail instead of cloning the buffer.
-#[derive(Debug)]
-struct HeldBatch {
-    bytes: Vec<u8>,
-    replayed: bool,
-}
-
-/// The emitter is the replay ring's sole writer. A failed send recovers the
-/// exact batch, and retrying it must not append it to replay a second time.
-fn deliver_replay_batch<E>(
-    replay: &ParkingMutex<ReplayBuffer>,
-    batch: HeldBatch,
-    send: impl FnOnce(Vec<u8>) -> Result<(), E>,
-) -> Result<(), HeldBatch> {
-    let len = batch.bytes.len();
-    let oversized_recovery = {
-        let mut replay = replay.lock();
-        if !batch.replayed {
-            replay.append(&batch.bytes);
+/// Write a whole batch into `ring`, waiting for JS to drain it when full.
+/// Gives up once the ring is replaced, output is gated for a webview teardown,
+/// or the session stops; the bytes are already in replay for the next restore.
+fn write_ring(
+    app: &AppHandle,
+    ring: &Arc<SharedRing>,
+    current: &ParkingMutex<Option<Arc<SharedRing>>>,
+    stop: &AtomicBool,
+    bytes: &[u8],
+) {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let (n, pos) = ring.write(&bytes[offset..]);
+        if n > 0 {
+            offset += n;
+            shared_ring::notify(app, ring.id(), pos);
+            continue;
         }
-        // Held output can exceed the ring's cap. Only these uncommon batches
-        // need a recovery copy before the channel consumes their allocation.
-        (len > replay.limit).then(|| batch.bytes.clone())
-    };
-    if send(batch.bytes).is_ok() {
-        return Ok(());
+        let attached = current
+            .lock()
+            .as_ref()
+            .is_some_and(|c| Arc::ptr_eq(c, ring));
+        let unlocked = app
+            .state::<crate::AppState>()
+            .pty_output_unlocked
+            .load(Ordering::SeqCst);
+        if !attached || !unlocked || stop.load(Ordering::SeqCst) {
+            return;
+        }
+        thread::sleep(Duration::from_millis(1));
     }
-    Err(HeldBatch {
-        bytes: oversized_recovery.unwrap_or_else(|| replay.lock().tail(len)),
-        replayed: true,
-    })
 }
 
 /// Fixed-slot shell-integration properties set via OSC 633 P. Only `IsWindows`
@@ -1031,9 +1021,9 @@ pub struct PtySession {
     child: Arc<parking_lot::Mutex<Option<Box<dyn Child + Send + Sync>>>>,
     stop: Arc<AtomicBool>,
     replay_buffer: Arc<parking_lot::Mutex<ReplayBuffer>>,
-    /// Live binary output channel.  Swapped on each `pty_ensure` so a rebuilt
+    /// Shared-memory output ring. Replaced on each `pty_ensure` so a rebuilt
     /// webview re-subscribes without restarting the reader/emitter threads.
-    output_channel: Arc<parking_lot::Mutex<Option<Channel<InvokeResponseBody>>>>,
+    output_ring: Arc<parking_lot::Mutex<Option<Arc<SharedRing>>>>,
     /// Emitted on `pty-output` / `pty-exit` for multi-pane routing.
     /// Stored behind a Mutex so that pre-warmed sessions can be adopted
     /// by a real pane without restarting the reader/emitter threads.
@@ -1117,7 +1107,7 @@ impl PtySession {
         let replay_buffer = Arc::new(parking_lot::Mutex::new(ReplayBuffer::new(
             PTY_REPLAY_BUFFER_BYTES,
         )));
-        let output_channel = Arc::new(parking_lot::Mutex::new(None));
+        let output_ring = Arc::new(parking_lot::Mutex::new(None));
 
         let session_id_arc = Arc::new(parking_lot::Mutex::new(session_id.clone()));
 
@@ -1149,43 +1139,23 @@ impl PtySession {
         let replay_emitter = Arc::clone(&replay_buffer);
         let app_emit = app.clone();
         let session_id_emitter = Arc::clone(&session_id_arc);
-        let output_channel_emitter = Arc::clone(&output_channel);
+        let output_ring_emitter = Arc::clone(&output_ring);
         // OSC 52 replies write back into the PTY through the input queue so
         // they stay ordered with user input.
         let input_osc = input_tx.clone();
         let osc52 = prefs.osc52;
         // NOTE: do NOT capture a `WebviewWindow` here.  When
         // `destroy_webview_on_hide` is enabled (the default), the main webview
-        // is torn down on hide and rebuilt on summon; a handle captured at PTY
-        // spawn time would point at the dead webview and silently lose every
-        // `eval` after the first dismiss.  Instead the frontend re-subscribes
-        // an output `Channel` on every `pty_ensure` and, while no live channel
-        // is attached, `pending` is retained so the live shell process simply
-        // back-pressures until the next subscription is ready — letting the
-        // session transparently reattach on resummon.
+        // is torn down on hide and rebuilt on summon. The frontend gets a fresh
+        // output ring on every `pty_ensure`; until one is attached, `pending`
+        // is retained so the session transparently reattaches on resummon.
         let _emitter = thread::spawn(move || {
             let batch_window = Duration::from_millis(PTY_OUTPUT_BATCH_MS);
             let mut pending = Vec::<u8>::new();
             let mut stripper = OscStripper::new();
             let mut alt_detector = AltScreenDetector::new();
             let mut alt_transitions = Vec::new();
-            // Batch that was stripped but could not be delivered (webview down
-            // or channel not subscribed yet); retried on the next iteration.
-            let mut held: Option<HeldBatch> = None;
             while !stop_emitter.load(Ordering::SeqCst) {
-                // Held bytes are already cleaned and observed. Retry them on
-                // their own so fresh output is neither skipped in replay nor
-                // interpreted as part of an old pending OSC sequence.
-                let retrying = held.is_some();
-                // Whether the batch held from the previous iteration was
-                // already appended to the replay buffer.
-                let held_replayed = held.as_ref().is_some_and(|h| h.replayed);
-                if let Some(h) = held.take() {
-                    pending = h.bytes;
-                }
-                if retrying && pending.is_empty() {
-                    continue;
-                }
                 if pending.is_empty() {
                     match rx.recv() {
                         // Adopt the reader's allocation for the first chunk;
@@ -1203,7 +1173,7 @@ impl PtySession {
                 // second chunk arrives we know it's a stream and fall back to
                 // windowed batching.
                 let mut idle_probe = true;
-                while !retrying && pending.len() < PTY_OUTPUT_BATCH_BYTES {
+                while pending.len() < PTY_OUTPUT_BATCH_BYTES {
                     let elapsed = started.elapsed();
                     if elapsed >= batch_window {
                         break;
@@ -1226,191 +1196,118 @@ impl PtySession {
                     }
                 }
 
-                if !pending.is_empty() {
-                    let sid = session_id_emitter.lock().clone();
-
-                    // Hold while JS has not finished scrollback restore.
-                    let unlocked = app_emit
-                        .state::<crate::AppState>()
-                        .pty_output_unlocked
-                        .load(Ordering::SeqCst);
-                    if !unlocked {
-                        if pending.len() > PTY_PENDING_HOLD_MAX_BYTES {
-                            let excess = pending.len() - PTY_PENDING_HOLD_MAX_BYTES;
-                            pending.drain(..excess);
-                        }
-                        if retrying {
-                            held = Some(HeldBatch {
-                                bytes: std::mem::take(&mut pending),
-                                replayed: held_replayed,
-                            });
-                        }
-                        thread::sleep(Duration::from_millis(20));
-                        continue;
+                // Hold while JS has not finished scrollback restore, or before
+                // the first `pty_ensure` attaches a ring (warm pool).
+                let unlocked = app_emit
+                    .state::<crate::AppState>()
+                    .pty_output_unlocked
+                    .load(Ordering::SeqCst);
+                let ring = output_ring_emitter.lock().clone();
+                let (true, Some(ring)) = (unlocked, ring) else {
+                    if pending.len() > PTY_PENDING_HOLD_MAX_BYTES {
+                        let excess = pending.len() - PTY_PENDING_HOLD_MAX_BYTES;
+                        pending.drain(..excess);
                     }
+                    thread::sleep(Duration::from_millis(20));
+                    continue;
+                };
+                let sid = session_id_emitter.lock().clone();
 
-                    // Strip OSC 7 / 133 / 633 in Rust; emit side-channel events.
-                    // `process` takes ownership of the batch: chunks without
-                    // OSC introducers come back untouched (zero-copy fast path).
-                    let (cleaned_bytes, osc_events) = if retrying {
-                        (std::mem::take(&mut pending), Vec::new())
-                    } else {
-                        stripper.process(std::mem::take(&mut pending))
-                    };
+                // Strip OSC 7 / 133 / 633 in Rust; emit side-channel events.
+                // `process` takes ownership of the batch: chunks without OSC
+                // introducers come back untouched (zero-copy fast path).
+                let (cleaned_bytes, osc_events) = stripper.process(std::mem::take(&mut pending));
 
-                    for ev in osc_events {
-                        match ev {
-                            OscSideEvent::Cwd(cwd) => {
-                                let remote_is_windows = stripper
-                                    .properties
-                                    .is_windows
-                                    .as_deref()
-                                    .map(|v| v.eq_ignore_ascii_case("true"));
-                                let _ = app_emit.emit(
-                                    "pty-cwd",
-                                    PtyCwdEvent {
-                                        session_id: sid.clone(),
-                                        cwd,
-                                        remote_is_windows,
-                                    },
-                                );
-                            }
-                            OscSideEvent::Title(title) => {
-                                let _ = app_emit.emit(
-                                    "pty-title",
-                                    PtyTitleEvent {
-                                        session_id: sid.clone(),
-                                        title,
-                                    },
-                                );
-                            }
-                            OscSideEvent::PromptStart => {
-                                let _ = app_emit.emit(
-                                    "pty-shell-event",
-                                    PtyShellEvent {
-                                        session_id: sid.clone(),
-                                        event: ShellEventKind::PromptStart,
-                                    },
-                                );
-                            }
-                            OscSideEvent::PromptEnd => {
-                                let _ = app_emit.emit(
-                                    "pty-shell-event",
-                                    PtyShellEvent {
-                                        session_id: sid.clone(),
-                                        event: ShellEventKind::PromptEnd,
-                                    },
-                                );
-                            }
-                            OscSideEvent::PreExec => {
-                                let _ = app_emit.emit(
-                                    "pty-shell-event",
-                                    PtyShellEvent {
-                                        session_id: sid.clone(),
-                                        event: ShellEventKind::PreExec,
-                                    },
-                                );
-                            }
-                            OscSideEvent::CommandDone(code) => {
-                                let _ = app_emit.emit(
-                                    "pty-shell-event",
-                                    PtyShellEvent {
-                                        session_id: sid.clone(),
-                                        event: ShellEventKind::CommandDone { exit_code: code },
-                                    },
-                                );
-                            }
-                            OscSideEvent::CommandLine(text_ev) => {
-                                let _ = app_emit.emit(
-                                    "pty-shell-event",
-                                    PtyShellEvent {
-                                        session_id: sid.clone(),
-                                        event: ShellEventKind::CommandLine { text: text_ev },
-                                    },
-                                );
-                            }
-                            OscSideEvent::Osc52Set(payload) => {
-                                if !osc52 {
-                                    continue;
-                                }
-                                if let Some(decoded) = clipboard::base64_decode(&payload) {
-                                    let text = String::from_utf8_lossy(&decoded);
-                                    let _ = clipboard::write_text(&text);
-                                }
-                            }
-                            OscSideEvent::Osc52Query(selection) => {
-                                if !osc52 {
-                                    continue;
-                                }
-                                if let Ok(text) = clipboard::read_text() {
-                                    let encoded = clipboard::base64_encode(text.as_bytes());
-                                    let reply = format!("\x1b]52;{selection};{encoded}\x1b\\");
-                                    let _ = input_osc.send(PtyInput::Write(reply.into_bytes()));
-                                }
-                            }
-                        }
-                    }
-
-                    // Observe alternate-screen toggles on the cleaned stream.
-                    // Passive: the CSI bytes are passed through untouched, so
-                    // xterm still performs the actual buffer switch.
-                    alt_transitions.clear();
-                    if !retrying {
-                        alt_detector.observe(&cleaned_bytes, &mut alt_transitions);
-                    }
-                    for &active in &alt_transitions {
-                        let _ = app_emit.emit(
-                            "pty-alt-screen",
-                            PtyAltScreenEvent {
-                                session_id: sid.clone(),
-                                active,
-                            },
-                        );
-                    }
-
-                    // Deliver raw bytes over the live output channel.  When no
-                    // channel is attached (webview torn down / not yet
-                    // subscribed) or the send fails, hold the cleaned batch
-                    // and retry so no output is lost across a rebuild.
-                    let channel: Option<Channel<InvokeResponseBody>> =
-                        output_channel_emitter.lock().clone();
-                    let Some(ch) = channel else {
-                        let mut h = HeldBatch {
-                            bytes: cleaned_bytes,
-                            replayed: held_replayed,
-                        };
-                        if h.bytes.len() > PTY_PENDING_HOLD_MAX_BYTES {
-                            h.bytes
-                                .drain(..(h.bytes.len() - PTY_PENDING_HOLD_MAX_BYTES));
-                        }
-                        held = Some(h);
-                        thread::sleep(Duration::from_millis(20));
-                        continue;
-                    };
-                    if let Err(mut h) = deliver_replay_batch(
-                        &replay_emitter,
-                        HeldBatch {
-                            bytes: cleaned_bytes,
-                            replayed: held_replayed,
+                let shell_event = |event| {
+                    let _ = app_emit.emit(
+                        "pty-shell-event",
+                        PtyShellEvent {
+                            session_id: sid.clone(),
+                            event,
                         },
-                        |bytes| ch.send(InvokeResponseBody::Raw(bytes)),
-                    ) {
-                        if h.bytes.len() > PTY_PENDING_HOLD_MAX_BYTES {
-                            h.bytes
-                                .drain(..(h.bytes.len() - PTY_PENDING_HOLD_MAX_BYTES));
+                    );
+                };
+                for ev in osc_events {
+                    match ev {
+                        OscSideEvent::Cwd(cwd) => {
+                            let remote_is_windows = stripper
+                                .properties
+                                .is_windows
+                                .as_deref()
+                                .map(|v| v.eq_ignore_ascii_case("true"));
+                            let _ = app_emit.emit(
+                                "pty-cwd",
+                                PtyCwdEvent {
+                                    session_id: sid.clone(),
+                                    cwd,
+                                    remote_is_windows,
+                                },
+                            );
                         }
-                        held = Some(h);
-                        thread::sleep(Duration::from_millis(20));
-                        continue;
+                        OscSideEvent::Title(title) => {
+                            let _ = app_emit.emit(
+                                "pty-title",
+                                PtyTitleEvent {
+                                    session_id: sid.clone(),
+                                    title,
+                                },
+                            );
+                        }
+                        OscSideEvent::PromptStart => shell_event(ShellEventKind::PromptStart),
+                        OscSideEvent::PromptEnd => shell_event(ShellEventKind::PromptEnd),
+                        OscSideEvent::PreExec => shell_event(ShellEventKind::PreExec),
+                        OscSideEvent::CommandDone(exit_code) => {
+                            shell_event(ShellEventKind::CommandDone { exit_code })
+                        }
+                        OscSideEvent::CommandLine(text) => {
+                            shell_event(ShellEventKind::CommandLine { text })
+                        }
+                        OscSideEvent::Osc52Set(payload) if osc52 => {
+                            if let Some(decoded) = clipboard::base64_decode(&payload) {
+                                let _ = clipboard::write_text(&String::from_utf8_lossy(&decoded));
+                            }
+                        }
+                        OscSideEvent::Osc52Query(selection) if osc52 => {
+                            if let Ok(text) = clipboard::read_text() {
+                                let encoded = clipboard::base64_encode(text.as_bytes());
+                                let reply = format!("\x1b]52;{selection};{encoded}\x1b\\");
+                                let _ = input_osc.send(PtyInput::Write(reply.into_bytes()));
+                            }
+                        }
+                        OscSideEvent::Osc52Set(_) | OscSideEvent::Osc52Query(_) => {}
                     }
-                    // Fresh accumulator for the next batch (the old one was
-                    // moved into the channel).
-                    pending = Vec::new();
                 }
+
+                // Observe alternate-screen toggles on the cleaned stream.
+                // Passive: the CSI bytes are passed through untouched, so
+                // xterm still performs the actual buffer switch.
+                alt_transitions.clear();
+                alt_detector.observe(&cleaned_bytes, &mut alt_transitions);
+                for &active in &alt_transitions {
+                    let _ = app_emit.emit(
+                        "pty-alt-screen",
+                        PtyAltScreenEvent {
+                            session_id: sid.clone(),
+                            active,
+                        },
+                    );
+                }
+
+                replay_emitter.lock().append(&cleaned_bytes);
+                write_ring(
+                    &app_emit,
+                    &ring,
+                    &output_ring_emitter,
+                    &stop_emitter,
+                    &cleaned_bytes,
+                );
 
                 if disconnected {
                     break;
                 }
+            }
+            if let Some(ring) = output_ring_emitter.lock().take() {
+                shared_ring::close(&app_emit, ring.id());
             }
         });
 
@@ -1458,7 +1355,7 @@ impl PtySession {
             child,
             stop,
             replay_buffer,
-            output_channel,
+            output_ring,
             session_id: session_id_arc,
             _reader,
             _emitter,
@@ -1474,10 +1371,10 @@ impl PtySession {
             .map_err(|_| "pty input closed".to_string())
     }
 
-    /// Attach (or replace) the live output channel.  Called on every
-    /// `pty_ensure` so a freshly built webview re-subscribes.
-    pub fn set_output_channel(&self, channel: Channel<InvokeResponseBody>) {
-        *self.output_channel.lock() = Some(channel);
+    /// Attach (or replace) the output ring. Called on every `pty_ensure` so a
+    /// freshly built webview re-subscribes.
+    pub fn set_output_ring(&self, ring: Arc<SharedRing>) {
+        *self.output_ring.lock() = Some(ring);
     }
 
     pub fn replay_snapshot(&self) -> Vec<u8> {
@@ -2373,17 +2270,14 @@ mod replay_tests {
     use super::*;
 
     #[test]
-    fn snapshots_and_recovery_tails_follow_ring_order() {
+    fn snapshots_follow_ring_order() {
         let mut replay = ReplayBuffer::new(16);
         replay.append(b"abcdefghijklmnop");
         replay.append(b"qrst");
         assert!(!replay.bytes.as_slices().1.is_empty(), "exercise wrapping");
         assert_eq!(replay.snapshot(), b"efghijklmnopqrst");
-        assert_eq!(replay.tail(4), b"qrst");
-        assert_eq!(replay.tail(0), b"");
         replay.append(b"uvwxyz");
         assert_eq!(replay.snapshot(), b"klmnopqrstuvwxyz");
-        assert_eq!(replay.tail(6), b"uvwxyz");
         replay.append(b"");
         assert_eq!(replay.snapshot(), b"klmnopqrstuvwxyz");
     }
@@ -2423,7 +2317,6 @@ mod replay_tests {
             reference.extend_from_slice(&chunk);
             replay.append(&chunk);
             assert_eq!(replay.snapshot(), reference);
-            assert_eq!(replay.tail(chunk.len()), chunk);
             assert!(replay.bytes.len() <= limit);
         }
     }
@@ -2441,52 +2334,6 @@ mod replay_tests {
         let mut disabled = ReplayBuffer::new(0);
         disabled.append(b"output");
         assert!(disabled.snapshot().is_empty());
-    }
-
-    #[test]
-    fn failed_delivery_recovers_exact_bytes_without_duplicate_replay() {
-        let replay = ParkingMutex::new(ReplayBuffer::new(16));
-        replay.lock().append(b"abcdefghijklmnop");
-        let mut batch = HeldBatch {
-            bytes: b"qrst".to_vec(),
-            replayed: false,
-        };
-        for _ in 0..3 {
-            batch = deliver_replay_batch(&replay, batch, |bytes| {
-                assert_eq!(bytes, b"qrst");
-                Err(())
-            })
-            .unwrap_err();
-            assert_eq!(batch.bytes, b"qrst");
-            assert!(batch.replayed);
-            assert_eq!(replay.lock().snapshot(), b"efghijklmnopqrst");
-        }
-        deliver_replay_batch(&replay, batch, |bytes| {
-            assert_eq!(bytes, b"qrst");
-            Ok::<_, ()>(())
-        })
-        .unwrap();
-        assert_eq!(replay.lock().snapshot(), b"efghijklmnopqrst");
-    }
-
-    #[test]
-    fn failed_oversized_delivery_retains_more_than_replay_suffix() {
-        let replay = ParkingMutex::new(ReplayBuffer::new(5));
-        let bytes = "prefix🚀XY".as_bytes();
-        let mut batch = HeldBatch {
-            bytes: bytes.to_vec(),
-            replayed: false,
-        };
-        for _ in 0..2 {
-            batch = deliver_replay_batch(&replay, batch, |_| Err(())).unwrap_err();
-            assert_eq!(batch.bytes, bytes);
-            assert_eq!(replay.lock().snapshot(), b"XY");
-        }
-        deliver_replay_batch(&replay, batch, |sent| {
-            assert_eq!(sent, bytes);
-            Ok::<_, ()>(())
-        })
-        .unwrap();
     }
 }
 

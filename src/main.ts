@@ -1,4 +1,4 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
 	availableMonitors,
@@ -89,7 +89,6 @@ import {
 } from "./pty/processTracking";
 import {
 	isPtyOwner,
-	ownedPtyPaneId,
 	ptyAckExit,
 	ptyEnsure,
 	ptyFocusPane,
@@ -105,6 +104,7 @@ import {
 	shouldShedSessionOnExitSilent,
 	syncRuntimeShedFromPrefs,
 } from "./pty/sessionShed";
+import { installSharedRings } from "./pty/sharedRing";
 import type { ShellIntegrationState } from "./pty/shellIntegration";
 import {
 	applyUserTabRename,
@@ -1283,14 +1283,14 @@ async function boot(): Promise<void> {
 		schedulePtyOutputFlush();
 	}
 
-	/**
-	 * Binary PTY output from Rust, delivered over the pane's output `Channel`
-	 * (`InvokeResponseBody::Raw` → `ArrayBuffer`). Rust holds output until
-	 * `set_pty_output_unlocked` after scrollback restore.
-	 */
-	function deliverDirectPtyOut(paneId: string, data: Uint8Array): void {
-		queuePtyOutput(paneId, data);
-	}
+	// PTY output arrives through each session's shared-memory ring; Rust holds
+	// it until `set_pty_output_unlocked` after scrollback restore. Route by the
+	// stable session id, never a captured pane id, since pane slots are reused.
+	// Must be listening before the first `pty_ensure` posts a ring.
+	installSharedRings((sessionId, bytes) => {
+		const pt = paneBySessionId.get(sessionId);
+		if (pt) queuePtyOutput(pt.paneId, bytes);
+	});
 
 	async function releasePtyHydrationGate(): Promise<void> {
 		try {
@@ -2608,23 +2608,7 @@ async function boot(): Promise<void> {
 			readDims: () => ptyDims(pt.fit),
 			waitFrame: () => waitAnimationFrames(1),
 			sleep: sleepMs,
-			makeOutput: () => {
-				// Fresh output channel per ensure: on resummon after a webview
-				// rebuild Rust swaps it in (`session.set_output_channel`), which is
-				// how live output re-attaches without restarting the shell.
-				const output = new Channel<ArrayBuffer>();
-				output.onmessage = (buf: ArrayBuffer) => {
-					// Route through the stable session→terminal map, never the
-					// captured pane id: a disposed terminal's slot may already
-					// belong to a different pane by the time this chunk arrives.
-					const livePaneId = ownedPtyPaneId(paneBySessionId, pt);
-					if (livePaneId) {
-						deliverDirectPtyOut(livePaneId, new Uint8Array(buf));
-					}
-				};
-				return output;
-			},
-			ensure: (dims, output) =>
+			ensure: (dims) =>
 				ptyEnsure(
 					pt.sessionId,
 					dims.cols,
@@ -2633,7 +2617,6 @@ async function boot(): Promise<void> {
 					shellOverride,
 					profileId,
 					startupOverride,
-					output,
 				),
 			replay: () => replayBackendSnapshotOnce(pt, isOwned),
 			fallbackDims: { cols: PTY_FALLBACK_COLS, rows: PTY_FALLBACK_ROWS },

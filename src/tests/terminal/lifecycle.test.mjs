@@ -1257,7 +1257,6 @@ function ptyStartupHarness(ptyIpc, overrides = {}) {
 		ensured: [],
 		failure: [],
 		sleeps: [],
-		output: 0,
 	};
 	const ensureGate = overrides.ensureGate ?? deferred();
 	const opts = {
@@ -1270,10 +1269,6 @@ function ptyStartupHarness(ptyIpc, overrides = {}) {
 		waitFrame: async () => {},
 		sleep: async (ms) => {
 			calls.sleeps.push(ms);
-		},
-		makeOutput: () => {
-			calls.output++;
-			return { onmessage: null };
 		},
 		ensure: async (dims) => {
 			calls.ensure++;
@@ -1341,10 +1336,10 @@ test("late successful ensure after disposal is killed without retry, replay or s
 	assert.equal(calls.replay, 0, "no replay after disposal");
 	assert.deepEqual(calls.ensured, [], "no success bookkeeping after disposal");
 	assert.deepEqual(calls.failure, []);
-	assert.equal(ptyIpc.ownedPtyPaneId(paneBySessionId, pt), null);
+	assert.equal(ptyIpc.isPtyOwner(paneBySessionId, pt), false);
 	assert.equal(
-		ptyIpc.ownedPtyPaneId(paneBySessionId, replacement),
-		"1a",
+		ptyIpc.isPtyOwner(paneBySessionId, replacement),
+		true,
 		"reused pane slot belongs to the replacement terminal",
 	);
 });
@@ -1376,7 +1371,7 @@ test("re-key or transfer keeps the same owner and is not cancelled", async () =>
 	assert.deepEqual(calls.kill, [], "a live re-keyed owner is not killed");
 	assert.equal(calls.replay, 1);
 	assert.deepEqual(calls.ensured, [{ cols: 100, rows: 30 }]);
-	assert.equal(ptyIpc.ownedPtyPaneId(paneBySessionId, pt), "2a");
+	assert.equal(ptyIpc.isPtyOwner(paneBySessionId, pt), true);
 });
 
 test("parallel ensure calls for the same live owner do not cancel each other", async () => {
