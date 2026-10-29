@@ -32,7 +32,7 @@ function makeLoader() {
 			// External boundary: uiTheme/connectionProfiles import `invoke` but the
 			// code under test never calls it.
 			"@tauri-apps/api/core": { invoke: async () => {} },
-			// Heavy module (xterm/perf/DOM); only the leaf walker is needed.
+			// Heavy module (xterm/DOM); only the leaf walker is needed.
 			[resolve(ROOT, "terminal/paneHost.ts")]: { collectLeafIds },
 		},
 	});

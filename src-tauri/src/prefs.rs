@@ -169,9 +169,6 @@ fn default_process_notification_show_for() -> f64 {
 fn default_mouse_idle_seconds() -> f64 {
     3.0
 }
-fn default_dev_perf_console_interval_ms() -> u32 {
-    5000
-}
 
 // ===========================================================================
 // Prefs — flat, in-memory representation (unchanged field names for IPC compat)
@@ -360,12 +357,6 @@ pub struct Prefs {
     pub mouse_hide_on_idle: bool,
     #[serde(default = "default_mouse_idle_seconds")]
     pub mouse_idle_seconds: f64,
-    #[serde(default)]
-    pub dev_perf_enabled: bool,
-    #[serde(default)]
-    pub dev_perf_console: bool,
-    #[serde(default = "default_dev_perf_console_interval_ms")]
-    pub dev_perf_console_interval_ms: u32,
     /// Dev-only `window_toggle` shortcut override; ignored by release builds.
     #[serde(default)]
     pub dev_window_toggle_override: Option<String>,
@@ -482,9 +473,6 @@ impl Default for Prefs {
             mouse_hidden: false,
             mouse_hide_on_idle: false,
             mouse_idle_seconds: default_mouse_idle_seconds(),
-            dev_perf_enabled: false,
-            dev_perf_console: false,
-            dev_perf_console_interval_ms: default_dev_perf_console_interval_ms(),
             dev_window_toggle_override: None,
             editor_split_type: default_editor_split_type(),
             editor_profile: String::new(),
@@ -1233,33 +1221,11 @@ impl Default for EditorSection {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DevSection {
-    #[serde(default)]
-    pub perf: DevPerfSection,
     /// Dev-only override for the `window_toggle` global shortcut binding.
     /// Lets a dev instance coexist with a running release binary that holds
     /// the standard binding. Ignored by release builds.
     #[serde(default)]
     pub window_toggle_override: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DevPerfSection {
-    #[serde(default)]
-    pub enable: bool,
-    #[serde(default)]
-    pub console: bool,
-    #[serde(default = "default_dev_perf_console_interval_ms")]
-    pub console_interval_ms: u32,
-}
-
-impl Default for DevPerfSection {
-    fn default() -> Self {
-        Self {
-            enable: false,
-            console: false,
-            console_interval_ms: default_dev_perf_console_interval_ms(),
-        }
-    }
 }
 
 // ===========================================================================
@@ -1380,9 +1346,6 @@ impl From<ConfigToml> for Prefs {
             ui_theme: c.theme.active,
             ui_theme_variant: c.theme.variant,
             font_ui: c.font_ui.family,
-            dev_perf_enabled: c.dev.perf.enable,
-            dev_perf_console: c.dev.perf.console,
-            dev_perf_console_interval_ms: c.dev.perf.console_interval_ms,
             dev_window_toggle_override: c.dev.window_toggle_override.clone(),
             editor_split_type: c.editor.split_type,
             editor_profile: c.editor.profile,
@@ -1530,11 +1493,6 @@ impl From<&Prefs> for ConfigToml {
                 family: p.font_ui.clone(),
             },
             dev: DevSection {
-                perf: DevPerfSection {
-                    enable: p.dev_perf_enabled,
-                    console: p.dev_perf_console,
-                    console_interval_ms: p.dev_perf_console_interval_ms,
-                },
                 window_toggle_override: p.dev_window_toggle_override.clone(),
             },
             editor: EditorSection {
@@ -1730,6 +1688,28 @@ mod renderer_config_tests {
 
     fn prefs_from(text: &str) -> Prefs {
         Prefs::from(toml::from_str::<ConfigToml>(text).unwrap())
+    }
+
+    #[test]
+    fn obsolete_metrics_config_is_ignored_without_losing_other_settings() {
+        let prefs = prefs_from(
+            "[font]\nsize = 17.0\n[dev]\nwindow_toggle_override = \"Ctrl+Alt+T\"\n\
+             [dev.perf]\nenable = true\nconsole = true\nconsole_interval_ms = 1000\n",
+        );
+        assert_eq!(prefs.terminal_font_size, 17.0);
+        assert_eq!(
+            prefs.dev_window_toggle_override.as_deref(),
+            Some("Ctrl+Alt+T")
+        );
+        let saved = toml::to_string(&ConfigToml::from(&prefs)).unwrap();
+        assert!(!saved.contains("[dev.perf]"));
+        let ipc = serde_json::to_value(&prefs).unwrap();
+        assert!(
+            ipc.as_object()
+                .unwrap()
+                .keys()
+                .all(|key| !key.starts_with("dev_perf_"))
+        );
     }
 
     #[test]

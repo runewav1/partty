@@ -72,7 +72,6 @@ test("default UI shortcuts run on each press, never on held repeats", async () =
 		"profile_split_right",
 		"profile_split_down",
 		"profile_float_new",
-		"dev_toggle",
 	]) {
 		let runs = 0;
 		for (const repeat of [false, true, true, true, false]) {

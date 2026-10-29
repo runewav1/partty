@@ -20,7 +20,6 @@ import {
 	createCommandPalette,
 	type PaletteCommand,
 } from "./app/commandPalette";
-import type { DevMetricsOverlayApi } from "./app/devMetricsOverlay";
 import { showAlert } from "./app/dialog";
 import { createFindBar, type FindBarApi } from "./app/findBar";
 import { type ShortcutEffect, shortcutRuns } from "./app/modalShortcuts";
@@ -72,7 +71,6 @@ import {
 	resolveProfileShell,
 	resolveSelectionAliases,
 } from "./pty/connectionProfiles";
-import { parttyPerf } from "./pty/perf";
 import {
 	type ActiveProcessEntry,
 	applyShellCommandLine,
@@ -372,15 +370,6 @@ function applyPaneFocusScalePrefs(raw: Partial<ParttyPrefs>): void {
 	);
 }
 
-function configureDevPerfPrefs(raw: Partial<ParttyPrefs>): void {
-	if (!import.meta.env.DEV) return;
-	parttyPerf.configure({
-		enabled: Boolean(raw.dev_perf_enabled),
-		consoleEnabled: Boolean(raw.dev_perf_console),
-		consoleIntervalMs: raw.dev_perf_console_interval_ms ?? 5000,
-	});
-}
-
 function normalizeSplitLayoutStyle(raw: unknown): SplitLayoutStyle {
 	return raw === "dwindle" || raw === "master" ? raw : "balanced";
 }
@@ -410,7 +399,6 @@ type PaneWebglState = {
 };
 type PendingPtyOutput = {
 	chunks: ByteChunkBuffer;
-	eventCount: number;
 	queuedAt: number;
 };
 
@@ -489,8 +477,6 @@ async function boot(): Promise<void> {
 		v: editorConfigFromPrefs(persisted.prefs as Partial<ParttyPrefs>),
 	};
 	syncRuntimeShedFromPrefs(persisted.prefs as ParttyPrefs);
-	configureDevPerfPrefs(persisted.prefs as Partial<ParttyPrefs>);
-	parttyPerf.mark("boot.start");
 	const lp: ParttyLifecyclePrefs = mergeLifecyclePrefs(persisted.prefs);
 	const uiPrefs = pickUiPrefs(persisted.prefs);
 	let currentUiPrefs = uiPrefs;
@@ -996,8 +982,6 @@ async function boot(): Promise<void> {
 			if (isPanePtyStarting(paneId)) continue;
 			pendingPtyWriteByPane.delete(paneId);
 			const data = drainStringChunks(buf);
-			parttyPerf.mark("pty.input.flushes");
-			parttyPerf.mark("pty.input.flush.chars", data.length);
 			void writePtyPayload(paneId, data);
 		}
 	};
@@ -1009,8 +993,6 @@ async function boot(): Promise<void> {
 		if (!buf || buf.totalChars === 0) return;
 		pendingPtyWriteByPane.delete(paneId);
 		const pending = drainStringChunks(buf);
-		parttyPerf.mark("pty.input.flush_pane");
-		parttyPerf.mark("pty.input.flush_pane.chars", pending.length);
 		void writePtyPayload(paneId, pending);
 	};
 
@@ -1080,25 +1062,15 @@ async function boot(): Promise<void> {
 		return next;
 	}
 
-	const perfInputEncoder = import.meta.env.DEV ? new TextEncoder() : null;
-
 	const queuePtyWrite = (
 		paneId: string,
 		data: string,
 		immediate = false,
 	): void => {
 		if (!data) return;
-		if (parttyPerf.enabled && perfInputEncoder) {
-			parttyPerf.recordPtyInputBytes(
-				paneId,
-				perfInputEncoder.encode(data).byteLength,
-			);
-		}
 		// Pastes / large bursts: don't RAF-coalesce into one oversized ConPTY write.
 		if (isBulkPtyInput(data)) {
 			flushPendingPtyWriteForPane(paneId);
-			parttyPerf.mark("pty.input.bulk.calls");
-			parttyPerf.mark("pty.input.bulk.chars", data.length);
 			void writePtyPayload(paneId, data);
 			return;
 		}
@@ -1109,14 +1081,9 @@ async function boot(): Promise<void> {
 		}
 		if (immediate || isLatencySensitiveInput(data)) {
 			flushPendingPtyWriteForPane(paneId);
-			parttyPerf.mark("pty.input.immediate.calls");
-			parttyPerf.mark("pty.input.immediate.chars", data.length);
 			void writePtyPayload(paneId, data);
-			parttyPerf.mark("pty.input.immediate");
 			return;
 		}
-		parttyPerf.mark("pty.input.queued.calls");
-		parttyPerf.mark("pty.input.queued.chars", data.length);
 		appendPendingPtyWrite(paneId, data);
 		if (pendingPtyWriteRaf) return;
 		pendingPtyWriteRaf = requestAnimationFrame(flushPendingPtyWrites);
@@ -1152,40 +1119,15 @@ async function boot(): Promise<void> {
 		pendingShellCommandLine.delete(paneId);
 	}
 
-	function processPtyOutputBatch(
-		paneId: string,
-		data: Uint8Array,
-		eventCount: number,
-		queuedAt: number,
-	): void {
+	function processPtyOutputBatch(paneId: string, data: Uint8Array): void {
 		const pt = getPaneTerminalById(paneId);
 		if (!pt) return;
-		const timing = parttyPerf.enabled;
-		if (timing) {
-			parttyPerf.recordPtyOutputBytes(paneId, data.length);
-			parttyPerf.mark("pty.output.flushes");
-			parttyPerf.mark("pty.output.events", eventCount);
-			parttyPerf.mark("pty.output.chars", data.length);
-			parttyPerf.time("pty.output.queue.ms", performance.now() - queuedAt);
-		}
-		const writeToken = timing
-			? parttyPerf.beginTermWrite(paneId, data.byteLength)
-			: null;
 		// OSC 7 / 133 / 633 are stripped and forwarded as structured `pty-cwd` /
 		// `pty-shell-event` side-channel events by the Rust emitter.  Write the
 		// pre-cleaned bytes directly — no character-by-character JS parsing needed.
 		try {
-			if (writeToken) {
-				const writeStarted = performance.now();
-				pt.term.write(data, () => parttyPerf.finishTermWrite(writeToken));
-				const elapsed = performance.now() - writeStarted;
-				parttyPerf.time("xterm.write.call.ms", elapsed);
-				parttyPerf.paneTime(paneId, "xterm.write.call.ms", elapsed);
-			} else {
-				pt.term.write(data);
-			}
+			pt.term.write(data);
 		} catch (e) {
-			if (writeToken) parttyPerf.cancelTermWrite(writeToken);
 			console.warn("xterm.write", e);
 		}
 	}
@@ -1219,12 +1161,7 @@ async function boot(): Promise<void> {
 				pendingPtyOutputByPane.set(paneId, batch);
 				continue;
 			}
-			processPtyOutputBatch(
-				paneId,
-				drainByteChunks(batch.chunks),
-				batch.eventCount,
-				batch.queuedAt,
-			);
+			processPtyOutputBatch(paneId, drainByteChunks(batch.chunks));
 		}
 		if (pendingPtyOutputByPane.size > 0) schedulePtyOutputFlush();
 	}
@@ -1247,28 +1184,17 @@ async function boot(): Promise<void> {
 			!pendingPtyOutputByPane.has(paneId) &&
 			paneId === paneHost?.getFocusedPaneId()
 		) {
-			parttyPerf.mark("pty.output.immediate.chars", data.length);
-			processPtyOutputBatch(
-				paneId,
-				data,
-				1,
-				parttyPerf.enabled ? performance.now() : 0,
-			);
-			parttyPerf.mark("pty.output.immediate");
+			processPtyOutputBatch(paneId, data);
 			return;
 		}
-		parttyPerf.mark("pty.output.queued.events");
-		parttyPerf.mark("pty.output.queued.chars", data.length);
 		const existing = pendingPtyOutputByPane.get(paneId);
 		if (existing) {
 			pushByteChunk(existing.chunks, data);
-			existing.eventCount++;
 		} else {
 			const chunks = createByteChunkBuffer();
 			pushByteChunk(chunks, data);
 			pendingPtyOutputByPane.set(paneId, {
 				chunks,
-				eventCount: 1,
 				queuedAt: performance.now(),
 			});
 		}
@@ -1613,7 +1539,6 @@ async function boot(): Promise<void> {
 			const pt = ownerHost.getPaneTerminal(id);
 			if (pt) await ptyKillPane(pt.sessionId);
 			if (!ownerHost.removePane(id)) return;
-			parttyPerf.resetPane(id);
 			persistHostLayout(ownerHost);
 			scheduleResizeImmediate();
 		} catch (e) {
@@ -1648,10 +1573,7 @@ async function boot(): Promise<void> {
 	}
 
 	async function closeAllChildPanes(): Promise<void> {
-		const removed = paneHost?.closeAllChildPanes() ?? [];
-		for (const id of removed) {
-			parttyPerf.resetPane(id);
-		}
+		paneHost?.closeAllChildPanes();
 		const r = paneHost?.getRootPaneId();
 		if (r) {
 			const pt = paneHost?.getPaneTerminal(r);
@@ -1666,7 +1588,6 @@ async function boot(): Promise<void> {
 	function disposeWebglForPane(paneId: string): void {
 		const state = paneWebglStates.get(paneId);
 		if (!state) return;
-		const started = performance.now();
 		state.status = "disposed";
 		try {
 			state.contextLossDispose?.dispose();
@@ -1679,9 +1600,6 @@ async function boot(): Promise<void> {
 			/* ignore */
 		}
 		paneWebglStates.delete(paneId);
-		parttyPerf.mark("webgl.dispose");
-		parttyPerf.time("webgl.dispose.ms", performance.now() - started);
-		updateWebglPerfGauges();
 	}
 
 	function shedWebgl(): void {
@@ -1690,20 +1608,6 @@ async function boot(): Promise<void> {
 		disposeWebgpuSession();
 		// Addons, atlas textures and the shared GPU session are now garbage.
 		scheduleReclaim();
-	}
-
-	function updateWebglPerfGauges(): void {
-		let pending = 0;
-		let ready = 0;
-		let failed = 0;
-		for (const state of paneWebglStates.values()) {
-			if (state.status === "pending") pending++;
-			else if (state.status === "ready") ready++;
-			else if (state.status === "failed") failed++;
-		}
-		parttyPerf.gauge("webgl.panes.pending", pending);
-		parttyPerf.gauge("webgl.panes.ready", ready);
-		parttyPerf.gauge("webgl.panes.failed", failed);
 	}
 
 	async function ensureWebglOnPane(paneId: string): Promise<void> {
@@ -1728,15 +1632,12 @@ async function boot(): Promise<void> {
 			generation,
 		};
 		paneWebglStates.set(paneId, state);
-		updateWebglPerfGauges();
-		parttyPerf.mark("webgl.mount.start");
 
 		const delays = [0, 50, 120, 240];
 		for (let i = 0; i < delays.length; i++) {
 			if (delays[i] > 0)
 				await new Promise<void>((r) => setTimeout(r, delays[i]));
 			if (paneWebglStates.get(paneId) !== state) return;
-			const started = performance.now();
 			let addon: TerminalRendererAddon | undefined;
 			try {
 				const useWebgpu = !(persisted.prefs as Partial<ParttyPrefs>).use_webgl;
@@ -1761,7 +1662,6 @@ async function boot(): Promise<void> {
 					);
 				}
 				const failed = () => {
-					parttyPerf.mark("webgl.context_loss");
 					disposeWebglForPane(paneId);
 					void ensureWebglOnPane(paneId);
 				};
@@ -1776,24 +1676,19 @@ async function boot(): Promise<void> {
 				state.addon = addon;
 				state.status = "ready";
 				paneWebglStates.set(paneId, state);
-				updateWebglPerfGauges();
 				pt.term.refresh(0, pt.term.rows - 1);
-				parttyPerf.mark("webgl.mount.ready");
-				parttyPerf.time("webgl.mount.ms", performance.now() - started);
 				return;
 			} catch (e) {
 				addon?.dispose();
 				if (paneWebglStates.get(paneId) !== state) return;
 				state.lastError = e;
 				console.warn("renderer mount failed for pane", paneId, e);
-				parttyPerf.mark("webgl.mount.failure");
 			}
 		}
 
 		state.status = "failed";
 		state.lastFailureAt = Date.now();
 		paneWebglStates.set(paneId, state);
-		updateWebglPerfGauges();
 	}
 
 	/** Remount WebGL on panes in the active tab host (e.g. after hide shed). */
@@ -2336,8 +2231,6 @@ async function boot(): Promise<void> {
 	let pendingSuspendedLayout = false;
 
 	function runLayoutPassForHost(host: PaneHost, forceRefresh = false): void {
-		const passStarted = performance.now();
-		let paneCount = 0;
 		const resizeBatch: Array<{
 			sessionId: string;
 			cols: number;
@@ -2346,10 +2239,7 @@ async function boot(): Promise<void> {
 		const refreshPanes: PaneTerminal[] = [];
 
 		host.forEachPane((paneId, pt) => {
-			paneCount++;
-			const fitStarted = performance.now();
 			pt.fit.fit();
-			parttyPerf.time("layout.fit.ms", performance.now() - fitStarted);
 			const d = ptyDims(pt.fit);
 			if (!d) return;
 			const safe = clampPtyColsRows(d.cols, d.rows);
@@ -2369,33 +2259,17 @@ async function boot(): Promise<void> {
 		});
 
 		if (resizeBatch.length > 0) {
-			parttyPerf.mark("layout.pty_resize");
-			parttyPerf.mark("layout.pty_resize.count", resizeBatch.length);
-			const invokeStarted = performance.now();
 			void ptyResizeBatch(resizeBatch)
 				.then(() => {
-					parttyPerf.time(
-						"layout.pty_resize.invoke.ms",
-						performance.now() - invokeStarted,
-					);
 					for (const pt of refreshPanes) {
 						pt.term.refresh(0, pt.term.rows - 1);
 					}
 				})
 				.catch((e) => console.warn("pty_resize_batch", e));
 		}
-
-		parttyPerf.mark("layout.pass");
-		parttyPerf.gauge("layout.pass.panes", paneCount);
-		parttyPerf.time("layout.pass.ms", performance.now() - passStarted);
 	}
 
 	function runLayoutPass(forceRefresh = false): void {
-		parttyPerf.mark(
-			forceRefresh || layoutForceRefresh
-				? "layout.pass.force"
-				: "layout.pass.normal",
-		);
 		layoutRaf = 0;
 		const shouldForceRefresh = forceRefresh || layoutForceRefresh;
 		layoutForceRefresh = false;
@@ -2414,7 +2288,6 @@ async function boot(): Promise<void> {
 
 	/** PTY + xterm stay aligned after pane/window refocus (TUIs need SIGWINCH-sized PTY + refresh). */
 	function reflowAllPanes(): void {
-		parttyPerf.mark("layout.reflow_all");
 		lastPtyDims.clear();
 		scheduleResizeImmediate(true);
 	}
@@ -2598,7 +2471,6 @@ async function boot(): Promise<void> {
 			globalShell,
 			profilesList,
 		);
-		const ensureStarted = performance.now();
 		const startingSessionId = pt.sessionId;
 		ptyStartingSessions.add(startingSessionId);
 		const outcome = await runPtyStartup({
@@ -2624,14 +2496,10 @@ async function boot(): Promise<void> {
 			onEnsured: (dims) => {
 				pendingPaneSpawnStartup.delete(pt.paneId);
 				lastPtyDims.set(pt.paneId, dims);
-				parttyPerf.mark("pty.ensure.success");
-				parttyPerf.time("pty.ensure.ms", performance.now() - ensureStarted);
 			},
 			onFailure: (lastErr) => {
 				const msg = String(lastErr);
 				console.error("pty_ensure failed:", lastErr);
-				parttyPerf.mark("pty.ensure.failure");
-				parttyPerf.time("pty.ensure.ms", performance.now() - ensureStarted);
 				try {
 					pt.term.write(
 						`\r\n\x1b[31mShell failed after retries.\x1b[0m \x1b[90m${msg}\x1b[0m\r\n`,
@@ -2640,7 +2508,6 @@ async function boot(): Promise<void> {
 					/* ignore */
 				}
 			},
-			onAttemptFailure: () => parttyPerf.mark("pty.ensure.failure"),
 			// Only discard a genuinely orphaned late session. If some other live
 			// terminal has since adopted the same stable id, it owns the process.
 			kill: (sessionId) =>
@@ -3135,7 +3002,6 @@ async function boot(): Promise<void> {
 					});
 					paneLinkProviders.set(id, linkProvider);
 					pt.term.onData((data) => {
-						parttyPerf.recordInputEvent();
 						queuePtyWrite(pt.paneId, data);
 					});
 					const onHostWheel = (ev: WheelEvent) =>
@@ -3211,7 +3077,6 @@ async function boot(): Promise<void> {
 					paneBySessionId.delete(sessionId);
 					paneThemes.delete(pid);
 					cleanupPaneVisualState(pid);
-					parttyPerf.resetPane(pid);
 				},
 				onPaneLayout: () => scheduleResizeImmediate(),
 				onPaneLayoutDrag: (dragging) => {
@@ -4895,7 +4760,6 @@ async function boot(): Promise<void> {
 						settingsPanelEl,
 						async (saved: ParttyPrefs, previous: ParttyPrefs) => {
 							syncRuntimeShedFromPrefs(saved);
-							configureDevPerfPrefs(saved);
 							focusFollowsRef.v = saved.focus_follows_cursor;
 							persisted.prefs = saved as unknown as Record<string, unknown>;
 							editorConfigRef.v = editorConfigFromPrefs(saved);
@@ -6689,12 +6553,7 @@ async function boot(): Promise<void> {
 				const pending = pendingPtyOutputByPane.get(paneId);
 				if (pending) {
 					pendingPtyOutputByPane.delete(paneId);
-					processPtyOutputBatch(
-						paneId,
-						drainByteChunks(pending.chunks),
-						pending.eventCount,
-						pending.queuedAt,
-					);
+					processPtyOutputBatch(paneId, drainByteChunks(pending.chunks));
 				}
 				await ptyAckExit(sessionId);
 				finishActiveProcess(paneId, Date.now());
@@ -6847,40 +6706,6 @@ async function boot(): Promise<void> {
 		reflowAllPanes();
 		getFocusedTerm()?.focus();
 	});
-
-	if (import.meta.env.DEV) {
-		const { createDevMetricsOverlay } = await import("./app/devMetricsOverlay");
-		let devMetricsOverlay: DevMetricsOverlayApi | null = null;
-		const appRoot = document.getElementById("app");
-		const getFocusedPaneId = (): string | null | undefined =>
-			paneHost?.getFocusedPaneId();
-		if (parttyPerf.enabled && appRoot) {
-			devMetricsOverlay = createDevMetricsOverlay({
-				root: appRoot,
-				getFocusedPaneId,
-			});
-		}
-
-		window.addEventListener(
-			"keydown",
-			(e) => {
-				if (!k.match(e, "dev_toggle")) return;
-				const t = e.target as HTMLElement | null;
-				if (t?.closest("#command-palette") || t?.closest("#settings-panel"))
-					return;
-				if (!parttyPerf.enabled) return;
-				if (!consumeSinglePress(e)) return;
-				if (!devMetricsOverlay && appRoot) {
-					devMetricsOverlay = createDevMetricsOverlay({
-						root: appRoot,
-						getFocusedPaneId,
-					});
-				}
-				devMetricsOverlay?.toggle();
-			},
-			true,
-		);
-	}
 
 	window.addEventListener("beforeunload", () => {
 		try {

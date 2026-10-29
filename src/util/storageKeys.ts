@@ -9,10 +9,6 @@ export const THEME_MODAL_POS_KEY = "partty.themeModal.pos";
 export const SETTINGS_PANEL_POS_KEY = "partty.settingsPanel.pos";
 export const HELP_PANEL_POS_KEY = "partty.helpPanel.pos";
 export const COMMAND_PALETTE_POS_KEY = "partty.commandPalette.pos";
-export const DEV_OVERLAY_POS_KEY = "partty.dev-overlay.pos";
-export const PERF_KEY = "partty.perf";
-export const PERF_CONSOLE_KEY = "partty.perf.console";
-export const PERF_INTERVAL_MS_KEY = "partty.perf.intervalMs";
 
 export function tabLayoutKey(tabId: string): string {
 	return `${TAB_LAYOUT_PREFIX}${tabId}`;

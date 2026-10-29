@@ -291,14 +291,6 @@ command = "nvim ~path~"
 | `profile`    | string | `""`    | Profile id; empty → `[profiles].default`                                                                                      |
 | `command`    | string | `""`    | Command template with `~path~`, run at shell startup. Empty → Ctrl+Alt+click disabled                                         |
 
-## `[dev.perf]`
-
-| Key                   | Type | Default | Range          |
-| --------------------- | ---- | ------- | -------------- |
-| `enable`              | bool | `false` |                |
-| `console`             | bool | `false` |                |
-| `console_interval_ms` | u32  | `5000`  | `1000`–`60000` |
-
 ---
 
 ## Minimal Example

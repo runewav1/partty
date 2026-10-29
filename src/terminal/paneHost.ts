@@ -5,7 +5,6 @@ import type { SerializeAddon } from "@xterm/addon-serialize";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { type ITerminalOptions, type ITheme, Terminal } from "@xterm/xterm";
-import { parttyPerf } from "./../pty/perf";
 import {
 	afterAnimationFrames,
 	animateClass,
@@ -2287,7 +2286,6 @@ export class PaneHost {
 				const host = document.createElement("div");
 				host.className = "pane-terminal-host";
 				row.appendChild(host);
-				const createStarted = performance.now();
 				const term = new Terminal({
 					allowProposedApi: true,
 					allowTransparency: false,
@@ -2332,11 +2330,6 @@ export class PaneHost {
 				term.loadAddon(graphemes);
 				// LigaturesAddon must be loaded after open(); SerializeAddon only for hide/stash.
 				term.open(host);
-				parttyPerf.mark("pane.terminal.create");
-				parttyPerf.time(
-					"pane.terminal.create.ms",
-					performance.now() - createStarted,
-				);
 				// Re-hook the persisted PTY association (dismiss→rebuild→summon):
 				// reuse the session id from the previous webview so `pty_ensure`
 				// re-subscribes the live backend session instead of spawning a

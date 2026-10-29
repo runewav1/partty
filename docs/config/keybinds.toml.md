@@ -68,7 +68,6 @@ All configurable actions and their defaults:
 | `terminal_zoom_out`        | `Ctrl+WheelDown`        |
 | `terminal_zoom_all_in`     | `Ctrl+Shift+WheelUp`    |
 | `terminal_zoom_all_out`    | `Ctrl+Shift+WheelDown`  |
-| `dev_toggle`               | `Ctrl+Shift+D`          |
 
 > `terminal_zoom_in` / `terminal_zoom_out` scale the **hovered** terminal's font;
 > `terminal_zoom_all_in` / `terminal_zoom_all_out` scale every **visible**
@@ -82,7 +81,7 @@ All configurable actions and their defaults:
 Array of action names to disable entirely.
 
 ```toml
-unbind = ["pane_close", "dev_toggle"]
+unbind = ["pane_close", "help_toggle"]
 ```
 
 ## Examples

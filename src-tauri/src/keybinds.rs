@@ -65,7 +65,6 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("terminal_zoom_out", "Ctrl+WheelDown"),
     ("terminal_zoom_all_in", "Ctrl+Shift+WheelUp"),
     ("terminal_zoom_all_out", "Ctrl+Shift+WheelDown"),
-    ("dev_toggle", "Ctrl+Shift+D"),
 ];
 
 pub fn keybinds_path() -> Option<std::path::PathBuf> {
@@ -488,7 +487,7 @@ mod keybinds_tests {
     #[test]
     fn partial_toml_merges_defaults_and_honors_unbind() {
         let mut kb: KeybindsFile = toml::from_str(
-            "unbind = [\"dev_toggle\"]\n\n[bind]\nterminal_zoom_in = \"Ctrl+WheelDown\"\n",
+            "unbind = [\"help_toggle\"]\n\n[bind]\nterminal_zoom_in = \"Ctrl+WheelDown\"\n",
         )
         .unwrap();
         merge_defaults(&mut kb);
@@ -510,7 +509,7 @@ mod keybinds_tests {
             kb.bind.get("terminal_zoom_all_out").map(String::as_str),
             Some("Ctrl+Shift+WheelDown")
         );
-        assert!(!kb.bind.contains_key("dev_toggle"));
+        assert!(!kb.bind.contains_key("help_toggle"));
     }
 
     #[test]

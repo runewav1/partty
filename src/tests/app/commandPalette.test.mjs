@@ -2,7 +2,7 @@
  * Behavioral tests for the command palette controller (src/app/commandPalette.ts).
  *
  * Peripherals (motion / cursor / overlay stack) are stub modules loaded through
- * a VM loader (same SourceTextModule pattern as the perf suite), so the palette
+ * a VM loader (SourceTextModule), so the palette
  * runs in isolation. Each test gets a fresh VM and disposes its palette via
  * `t.after`, so module state, timers and the overlay stack never leak.
  *

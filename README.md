@@ -100,10 +100,6 @@ on Zig 0.16.0, counting rendered frames). This translates to about 190FPS vs a n
 Against VSCode's integrated terminal (an existing, battle-tested implementation of xterm.js),
 we beat the DFZ benchmark metrics by about 3-5x.
 
-Using the internal metrics panel on the dev build, input-to-render latency varies between incredibly low values
-(1-5ms) and greater values (10-25ms), but at regular worst-case performance it never exceeds 23ms. This means
-keystrokes remain incredibly responsive, competitive with existing terminal emulators for most use-cases.
-
 ## Installation
 
 Download the binary from the releases page. From here, you can either add it to PATH or start the binary directly.
@@ -122,8 +118,7 @@ To run the dev build, clone the repository; then run:
 > pnpm run tauri dev
 ```
 
-This will run the dev script and start the dev build including the dev metrics panel, which is stubbed
-entirely on release builds. Note you can also override the window show/hide keybind in dev builds during runtime,
+This starts the dev build. You can override the window show/hide keybind in dev builds during runtime,
 which is explicitly introduced to help develop the application while using a release build of Partty simultaneously.
 
 To build the release binary, you can run:
@@ -154,8 +149,7 @@ For changes that span across both the back and front-end:
 > pnpm test
 ```
 
-For the full sweep, including the vendored PTY patch crates and the production
-metrics-isolation check (which builds first):
+For the full sweep, including the vendored PTY patch crates and the production build:
 
 ```shell
 > pnpm test:all

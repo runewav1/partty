@@ -228,8 +228,6 @@ export const DEFAULT_BINDS: Record<string, string> = {
 	terminal_zoom_all_in: "Ctrl+Shift+WheelUp",
 	// biome-ignore lint/security/noSecrets: keybind literal, not a secret
 	terminal_zoom_all_out: "Ctrl+Shift+WheelDown",
-	// biome-ignore lint/security/noSecrets: keybind literal, not a secret
-	dev_toggle: "Ctrl+Shift+D",
 };
 
 /** Wheel actions that scale the hovered/focused terminal. */

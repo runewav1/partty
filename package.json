@@ -14,7 +14,7 @@
 		"test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
 		"test:rust:patches": "cargo test --manifest-path src-tauri/patches/portable-pty/Cargo.toml && cargo test --manifest-path src-tauri/patches/filedescriptor/Cargo.toml",
 		"test:all": "pnpm run test:front && pnpm run test:rust && pnpm run test:rust:patches && pnpm run test:prod",
-		"test:prod": "pnpm run build && node scripts/check-production-metrics.mjs",
+		"test:prod": "pnpm run build",
 		"preview": "vite preview",
 		"tauri": "node scripts/tauri.js",
 		"tauri:dev": "tauri dev",

@@ -101,7 +101,6 @@ export type PtyStartupOptions = {
 	clampDims: (dims: PtyStartupDims) => PtyStartupDims;
 	onEnsured: (dims: PtyStartupDims) => void;
 	onFailure: (error: unknown) => void;
-	onAttemptFailure?: (error: unknown) => void;
 	/** Best-effort kill of a late successful ensure that lost ownership. */
 	kill: (sessionId: string) => Promise<void>;
 };
@@ -148,7 +147,6 @@ export async function runPtyStartup(
 		clampDims,
 		onEnsured,
 		onFailure,
-		onAttemptFailure,
 		kill,
 	} = opts;
 	if (!isOwned()) return "aborted";
@@ -180,7 +178,6 @@ export async function runPtyStartup(
 		} catch (e) {
 			if (!isOwned()) return "aborted";
 			lastErr = e;
-			onAttemptFailure?.(e);
 			if (NON_RETRYABLE_SHELL_ERROR_RE.test(String(e).toLowerCase())) {
 				break;
 			}

@@ -79,16 +79,6 @@
 			}
 		},
 		{
-			"includes": ["src/pty/perf.stub.ts"],
-			"linter": {
-				"rules": {
-					"suspicious": {
-						"noEmptyBlockStatements": "off"
-					}
-				}
-			}
-		},
-		{
 			"includes": ["index.html"],
 			"linter": {
 				"rules": {

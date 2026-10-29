@@ -43,7 +43,6 @@ async function modules(
 		"@xterm/addon-fit": { FitAddon: class {} },
 		"@xterm/addon-unicode11": { Unicode11Addon: class {} },
 		"@xterm/addon-unicode-graphemes": { UnicodeGraphemesAddon: class {} },
-		[resolve(root, "pty/perf.ts")]: { parttyPerf: { mark: noop, time: noop } },
 		[resolve(root, "util/motion.ts")]: {
 			afterAnimationFrames: noop,
 			animateClass: noop,
@@ -1286,7 +1285,6 @@ function ptyStartupHarness(ptyIpc, overrides = {}) {
 		onFailure: (error) => {
 			calls.failure.push(error);
 		},
-		onAttemptFailure: noop,
 		kill: async (sessionId) => {
 			calls.kill.push(sessionId);
 		},
