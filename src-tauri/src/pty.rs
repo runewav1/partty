@@ -1024,10 +1024,6 @@ pub struct PtySession {
     /// Shared-memory output ring. Replaced on each `pty_ensure` so a rebuilt
     /// webview re-subscribes without restarting the reader/emitter threads.
     output_ring: Arc<parking_lot::Mutex<Option<Arc<SharedRing>>>>,
-    /// Emitted on `pty-output` / `pty-exit` for multi-pane routing.
-    /// Stored behind a Mutex so that pre-warmed sessions can be adopted
-    /// by a real pane without restarting the reader/emitter threads.
-    pub session_id: Arc<parking_lot::Mutex<String>>,
     _reader: JoinHandle<()>,
     _emitter: JoinHandle<()>,
     _waiter: JoinHandle<()>,
@@ -1109,8 +1105,6 @@ impl PtySession {
         )));
         let output_ring = Arc::new(parking_lot::Mutex::new(None));
 
-        let session_id_arc = Arc::new(parking_lot::Mutex::new(session_id.clone()));
-
         let (tx, rx) = sync_channel::<Vec<u8>>(48);
         let stop_reader = Arc::clone(&stop);
         let _reader = thread::spawn(move || {
@@ -1138,7 +1132,7 @@ impl PtySession {
         let stop_emitter = Arc::clone(&stop);
         let replay_emitter = Arc::clone(&replay_buffer);
         let app_emit = app.clone();
-        let session_id_emitter = Arc::clone(&session_id_arc);
+        let session_id_emitter = session_id.clone();
         let output_ring_emitter = Arc::clone(&output_ring);
         // OSC 52 replies write back into the PTY through the input queue so
         // they stay ordered with user input.
@@ -1197,7 +1191,7 @@ impl PtySession {
                 }
 
                 // Hold while JS has not finished scrollback restore, or before
-                // the first `pty_ensure` attaches a ring (warm pool).
+                // `pty_ensure` attaches the newly spawned session's output ring.
                 let unlocked = app_emit
                     .state::<crate::AppState>()
                     .pty_output_unlocked
@@ -1211,7 +1205,7 @@ impl PtySession {
                     thread::sleep(Duration::from_millis(20));
                     continue;
                 };
-                let sid = session_id_emitter.lock().clone();
+                let sid = session_id_emitter.clone();
 
                 // Strip OSC 7 / 133 / 633 in Rust; emit side-channel events.
                 // `process` takes ownership of the batch: chunks without OSC
@@ -1335,7 +1329,7 @@ impl PtySession {
             });
         let stop_waiter = Arc::clone(&stop);
         let app_waiter = app.clone();
-        let session_id_waiter = Arc::clone(&session_id_arc);
+        let session_id_waiter = session_id;
         let _waiter = thread::spawn(move || {
             let Some(handle) = exit_handle else {
                 return;
@@ -1346,8 +1340,12 @@ impl PtySession {
             if stop_waiter.load(Ordering::SeqCst) {
                 return;
             }
-            let sid = session_id_waiter.lock().clone();
-            let _ = app_waiter.emit("pty-exit", PtyExitEvent { session_id: sid });
+            let _ = app_waiter.emit(
+                "pty-exit",
+                PtyExitEvent {
+                    session_id: session_id_waiter,
+                },
+            );
         });
 
         Ok(Self {
@@ -1356,7 +1354,6 @@ impl PtySession {
             stop,
             replay_buffer,
             output_ring,
-            session_id: session_id_arc,
             _reader,
             _emitter,
             _waiter,

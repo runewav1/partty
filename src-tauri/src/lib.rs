@@ -25,13 +25,6 @@ use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-/// A fully-spawned PTY session kept ready for instant adoption by the next
-/// `pty_spawn` / `pty_ensure` call with a matching shell identity.
-pub struct WarmPty {
-    pub session: Arc<PtySession>,
-    pub identity: String,
-}
-
 pub struct AppState {
     pub pty_panes: Mutex<HashMap<String, Arc<PtySession>>>,
     pub persisted: Mutex<PersistedState>,
@@ -48,8 +41,6 @@ pub struct AppState {
     /// Incremented whenever a delayed destroy should be invalidated (e.g. window was shown again).
     pub hide_destroy_generation: AtomicU64,
     pub app_session_id: String,
-    /// Pre-warmed PTY session ready for instant pane creation.
-    pub warm_pty: Mutex<Option<WarmPty>>,
     /// SerializeAddon payloads held across destroy-on-hide (process memory only).
     pub terminal_serialize_stash: Mutex<Option<HashMap<String, String>>>,
     /// Cleared on hide; set when JS finishes stash so delayed destroy can proceed.
@@ -447,43 +438,6 @@ fn refresh_window_effects(app: &AppHandle) {
     if state.acrylic_available.swap(available, Ordering::SeqCst) != available {
         let _ = app.emit("acrylic-availability-changed", available);
     }
-}
-
-/// Spawn a background thread that pre-warms a PTY session so the NEXT split
-/// can be served instantly (no shell startup wait).
-fn refill_warm_pty(
-    app: &AppHandle,
-    prefs: &prefs::Prefs,
-    identity: String,
-    profile: Option<profiles::ConnectionProfile>,
-) {
-    let app = app.clone();
-    let prefs = prefs.clone();
-    thread::spawn(move || {
-        let warm_id = "__partty_warm__".to_string();
-        match PtySession::spawn_with_profile(
-            app.clone(),
-            warm_id,
-            80,
-            24,
-            &prefs,
-            None,
-            profile.as_ref(),
-        ) {
-            Ok(session) => {
-                if let Some(state) = app.try_state::<AppState>() {
-                    let mut g = state.warm_pty.lock();
-                    *g = Some(WarmPty {
-                        session: Arc::new(session),
-                        identity,
-                    });
-                }
-            }
-            Err(e) => {
-                eprintln!("partty: warm pty spawn failed: {e}");
-            }
-        }
-    });
 }
 
 fn kill_pane_session(state: &AppState, session_id: &str) {
@@ -965,61 +919,18 @@ fn pty_ensure_blocking(
     }
     state.pty_spawn_identity.lock().remove(&session_id);
 
-    // Only adopt the warm pool for the very first pane after a fresh boot
-    // (empty pool). Splits carry profile and working-directory context from
-    // their parent that the warm session does not have.
-    let first_pane = state.pty_panes.lock().is_empty();
-    let warm = {
-        let mut g = state.warm_pty.lock();
-        if g.as_ref().map(|w| w.identity.as_str()) == Some(want.as_str()) {
-            g.take()
-        } else {
-            None
-        }
-    };
-    let session = if first_pane {
-        match warm {
-            Some(warm) => {
-                *warm.session.session_id.lock() = session_id.clone();
-                let _ = warm.session.resize(cols, rows);
-                warm.session
-            }
-            None => Arc::new(PtySession::spawn_with_profile(
-                app.clone(),
-                session_id.clone(),
-                cols,
-                rows,
-                &spawn_prefs,
-                None,
-                profile.as_ref(),
-            )?),
-        }
-    } else {
-        Arc::new(PtySession::spawn_with_profile(
-            app.clone(),
-            session_id.clone(),
-            cols,
-            rows,
-            &spawn_prefs,
-            None,
-            profile.as_ref(),
-        )?)
-    };
+    let session = Arc::new(PtySession::spawn_with_profile(
+        app.clone(),
+        session_id.clone(),
+        cols,
+        rows,
+        &spawn_prefs,
+        None,
+        profile.as_ref(),
+    )?);
     session.set_output_ring(ring);
     state.pty_panes.lock().insert(session_id.clone(), session);
-    state
-        .pty_spawn_identity
-        .lock()
-        .insert(session_id, want.clone());
-
-    // Prime the warm pool for the first pane split. The warm slot must not
-    // carry per-spawn startup commands — a later adoption would unexpectedly
-    // re-run the editor command.
-    let mut warm_profile = profile.clone();
-    if let Some(sp) = warm_profile.as_mut() {
-        sp.startup_command = None;
-    }
-    refill_warm_pty(app, &spawn_prefs, want, warm_profile);
+    state.pty_spawn_identity.lock().insert(session_id, want);
     Ok(())
 }
 
@@ -1154,8 +1065,6 @@ fn set_prefs(
             }
         }
     }
-    // Invalidate the warm PTY — the shell identity may have changed.
-    *state.warm_pty.lock() = None;
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.set_skip_taskbar(prefs.hidden_from_taskbar);
     }
@@ -1229,7 +1138,6 @@ pub fn run() {
             defer_prepare_show_until_webview_ready: AtomicBool::new(false),
             hide_destroy_generation: AtomicU64::new(0),
             app_session_id: make_app_session_id(),
-            warm_pty: Mutex::new(None),
             terminal_serialize_stash: Mutex::new(None),
             hide_buffers_ready: AtomicBool::new(true),
             pty_output_unlocked: AtomicBool::new(true),
@@ -1294,13 +1202,6 @@ pub fn run() {
 
             register_main_window_events(&handle, &win);
             attach_permission_handler(&win);
-
-            // Eagerly prime the warm PTY on boot so the very first pane
-            // opens instantly instead of paying a cold-shell spawn cost.
-            if st.prefs.preload_pty_on_startup {
-                let default_identity = format!("{}\0{}", "", st.prefs.shell.trim().to_lowercase());
-                refill_warm_pty(&handle, &st.prefs, default_identity, None);
-            }
 
             // Register the summon/dismiss global shortcut from keybinds config.
             let toggle_sc = Shortcut::new(Some(toggle_mods), toggle_code);

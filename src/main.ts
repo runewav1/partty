@@ -1556,7 +1556,7 @@ async function boot(): Promise<void> {
 	 * is pty-exit only.
 	 */
 	async function closePaneOnShellExit(paneId: string): Promise<void> {
-		// Not a live pane (e.g. a parked warm session's shell died) — nothing to close.
+		// A pane may already have been removed by the time its exit event arrives.
 		if (!getPaneHostByPaneId(paneId)) return;
 		let leafCount = 0;
 		for (const [, host] of tabPaneHosts) {
@@ -6673,10 +6673,7 @@ async function boot(): Promise<void> {
 	requestAnimationFrame(() => {
 		scheduleResizeImmediate();
 		// prepare-show ensures PTYs after scrollback restore while booting.
-		if (
-			lp.preload_pty_on_startup &&
-			!document.documentElement.classList.contains("partty-booting")
-		) {
+		if (!document.documentElement.classList.contains("partty-booting")) {
 			paneHost?.forEachPane((id) => {
 				void ensurePtyForPane(id);
 			});

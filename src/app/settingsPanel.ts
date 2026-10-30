@@ -25,7 +25,6 @@ export type ParttyPrefs = {
 	discard_buffer_on_hide: boolean;
 	scrollback_lines: number;
 	snapshot_max_lines: number;
-	preload_pty_on_startup: boolean;
 	preload_webgl_on_startup: boolean;
 	defer_window_show_until_prepared: boolean;
 	destroy_webview_on_hide: boolean;
@@ -378,7 +377,6 @@ export function createSettingsPanel(
 				50,
 				Math.min(50_000, Number.parseInt(g("snapshot_max_lines"), 10) || 2500),
 			),
-			preload_pty_on_startup: gc("preload_pty_on_startup"),
 			preload_webgl_on_startup: gc("preload_webgl_on_startup"),
 			defer_window_show_until_prepared: gc("defer_window_show_until_prepared"),
 			destroy_webview_on_hide: gc("destroy_webview_on_hide"),
@@ -1031,7 +1029,6 @@ export function createSettingsPanel(
 		setChk("always_on_top", p.always_on_top);
 		setChk("webgl_shed_on_hide", p.webgl_shed_on_hide);
 		setChk("discard_buffer_on_hide", p.discard_buffer_on_hide);
-		setChk("preload_pty_on_startup", p.preload_pty_on_startup);
 		setChk("preload_webgl_on_startup", p.preload_webgl_on_startup);
 		setChk(
 			"defer_window_show_until_prepared",

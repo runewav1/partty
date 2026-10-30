@@ -191,7 +191,6 @@ keeps each one's previous value.
 | `shed_on_hide`       | bool | `false` | Kill PTYs on hide                                                                           |
 | `webgl_shed_on_hide` | bool | `true`  | Dispose WebGL on hide                                                                       |
 | `discard_buffer`     | bool | `false` | Skip scrollback snapshot/restore on hide                                                    |
-| `prewarm_pty`        | bool | `true`  |                                                                                             |
 | `prewarm_webgl`      | bool | `true`  |                                                                                             |
 | `defer_show`         | bool | `true`  | Hold window until layout is ready                                                           |
 | `destroy_webview`    | bool | `true`  | Tear down WebView2 on hide; with `discard_buffer = false`, scrollback is restored on summon |

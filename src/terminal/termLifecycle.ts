@@ -8,7 +8,6 @@ export type ParttyLifecyclePrefs = {
 	discard_buffer_on_hide: boolean;
 	scrollback_lines: number;
 	snapshot_max_lines: number;
-	preload_pty_on_startup: boolean;
 	preload_webgl_on_startup: boolean;
 	defer_window_show_until_prepared: boolean;
 	/** Tear down WebView2 after hide (Rust recreates window on next show). */
@@ -22,7 +21,6 @@ const defaultLifecyclePrefs: ParttyLifecyclePrefs = {
 	discard_buffer_on_hide: false,
 	scrollback_lines: 1000,
 	snapshot_max_lines: 2500,
-	preload_pty_on_startup: true,
 	preload_webgl_on_startup: true,
 	defer_window_show_until_prepared: true,
 	destroy_webview_on_hide: true,
@@ -68,10 +66,6 @@ export function mergeLifecyclePrefs(
 					n(raw.snapshot_max_lines, defaultLifecyclePrefs.snapshot_max_lines),
 				),
 			),
-		),
-		preload_pty_on_startup: b(
-			raw.preload_pty_on_startup,
-			defaultLifecyclePrefs.preload_pty_on_startup,
 		),
 		preload_webgl_on_startup: b(
 			raw.preload_webgl_on_startup,

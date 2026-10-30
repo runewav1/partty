@@ -189,8 +189,6 @@ pub struct Prefs {
     #[serde(default = "default_snapshot_max_lines")]
     pub snapshot_max_lines: u32,
     #[serde(default = "default_true")]
-    pub preload_pty_on_startup: bool,
-    #[serde(default = "default_true")]
     pub preload_webgl_on_startup: bool,
     #[serde(default = "default_true")]
     pub defer_window_show_until_prepared: bool,
@@ -391,7 +389,6 @@ impl Default for Prefs {
             discard_buffer_on_hide: false,
             scrollback_lines: 1000,
             snapshot_max_lines: 2500,
-            preload_pty_on_startup: true,
             preload_webgl_on_startup: true,
             defer_window_show_until_prepared: true,
             destroy_webview_on_hide: true,
@@ -1019,8 +1016,6 @@ pub struct LifecycleSection {
     #[serde(default)]
     pub discard_buffer: bool,
     #[serde(default = "default_true")]
-    pub prewarm_pty: bool,
-    #[serde(default = "default_true")]
     pub prewarm_webgl: bool,
     #[serde(default = "default_true")]
     pub defer_show: bool,
@@ -1034,7 +1029,6 @@ impl Default for LifecycleSection {
             shed_on_hide: false,
             webgl_shed_on_hide: true,
             discard_buffer: false,
-            prewarm_pty: true,
             prewarm_webgl: true,
             defer_show: true,
             destroy_webview: true,
@@ -1320,7 +1314,6 @@ impl From<ConfigToml> for Prefs {
             shed_on_hide: c.lifecycle.shed_on_hide,
             webgl_shed_on_hide: c.lifecycle.webgl_shed_on_hide,
             discard_buffer_on_hide: c.lifecycle.discard_buffer,
-            preload_pty_on_startup: c.lifecycle.prewarm_pty,
             preload_webgl_on_startup: c.lifecycle.prewarm_webgl,
             defer_window_show_until_prepared: c.lifecycle.defer_show,
             destroy_webview_on_hide: c.lifecycle.destroy_webview,
@@ -1447,7 +1440,6 @@ impl From<&Prefs> for ConfigToml {
                 shed_on_hide: p.shed_on_hide,
                 webgl_shed_on_hide: p.webgl_shed_on_hide,
                 discard_buffer: p.discard_buffer_on_hide,
-                prewarm_pty: p.preload_pty_on_startup,
                 prewarm_webgl: p.preload_webgl_on_startup,
                 defer_show: p.defer_window_show_until_prepared,
                 destroy_webview: p.destroy_webview_on_hide,
