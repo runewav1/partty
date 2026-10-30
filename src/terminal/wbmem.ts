@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+
 // Coalesce WebView memory reclamation triggered by terminal lifecycle changes.
 // Requests are debounced so the change and its layout/render work settle first,
 // then rate-limited so a forced GC never becomes a periodic loop. The pass itself
@@ -50,7 +52,6 @@ function whenIdle(fn: () => void): void {
 async function run(): Promise<void> {
 	lastAt = performance.now();
 	try {
-		const { invoke } = await import("@tauri-apps/api/core");
 		// The backend returns false where there is no implementation; a rejection
 		// means the runtime refused the hints. Stop asking either way.
 		off = !(await invoke<boolean>("reclaim_wbmem"));

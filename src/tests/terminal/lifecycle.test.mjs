@@ -39,6 +39,7 @@ async function modules(
 ) {
 	const storage = new Map();
 	const mocks = {
+		"@tauri-apps/api/core": { invoke: async () => false },
 		"@xterm/xterm": { Terminal },
 		"@xterm/addon-fit": { FitAddon: class {} },
 		"@xterm/addon-unicode11": { Unicode11Addon: class {} },
