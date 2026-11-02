@@ -1245,7 +1245,7 @@ async function boot(): Promise<void> {
 			return;
 		}
 		ev.preventDefault();
-		ev.stopPropagation();
+		// Let mouseup reach xterm's document listener to finish selection tracking.
 		if (match.kind === "url") {
 			openExternalUrl(match.value);
 			return;
@@ -1263,7 +1263,6 @@ async function boot(): Promise<void> {
 		const url = normalizeExactExternalUrl(uri);
 		if (!url) return;
 		ev.preventDefault();
-		ev.stopPropagation();
 		openExternalUrl(url);
 	};
 
@@ -1283,7 +1282,6 @@ async function boot(): Promise<void> {
 		if (!editor.command) return false;
 		const cwd = paneEffectiveCwd(paneId);
 		ev.preventDefault();
-		ev.stopPropagation();
 
 		const profileId = resolveDefaultProfileId(
 			editor.profile || profileBehaviorRef.v.default_profile_id,
