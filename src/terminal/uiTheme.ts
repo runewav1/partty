@@ -695,12 +695,6 @@ export function ensureCustomThemesLoaded(): Promise<void> {
 	return customThemesReady;
 }
 
-/** Reload disk themes (after save/delete); updates the lazy-load cache. */
-export async function reloadCustomThemesIntoCache(): Promise<void> {
-	customThemesReady = loadCustomThemesIntoCache();
-	await customThemesReady;
-}
-
 export async function loadCustomThemesIntoCache(): Promise<void> {
 	for (const k of Object.keys(customThemeVarsCache)) {
 		delete customThemeVarsCache[k];

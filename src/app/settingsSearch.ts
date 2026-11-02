@@ -31,18 +31,6 @@ export type SettingsItemMeta = {
 
 const SEPARATORS_RE = /[_-]+/g;
 
-/**
- * Fold every searchable field into one lowercase, separator-normalized string.
- * Exposed for tests/debugging; the matcher matches against the same fields.
- */
-export function settingsItemText(item: SettingsItemMeta): string {
-	return [item.pref, item.keywords, item.label, item.desc, item.controlText]
-		.filter((part): part is string => Boolean(part))
-		.join(" ")
-		.toLowerCase()
-		.replace(SEPARATORS_RE, " ");
-}
-
 type WrappedItem<T> = LexicalSearchItem & { item: T };
 
 /**

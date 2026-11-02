@@ -636,11 +636,6 @@ export class PaneHost {
 		return geometries;
 	}
 
-	/** Drop cached leaf rects (call after any layout mutation). */
-	invalidateLeafGeometryCache(): void {
-		this.leafGeometryCache = null;
-	}
-
 	getDirectionalAdjacentLeafId(fromId: string, dir: FocusDir): string | null {
 		if (!findPaneLeaf(this.tree, fromId)) return null;
 		return directionalAdjacentLeafId(this.getLeafGeometries(), fromId, dir);
@@ -1035,18 +1030,6 @@ export class PaneHost {
 		} else {
 			this.updateFocusClass();
 		}
-		return true;
-	}
-
-	receivePane(paneId: string, pt: PaneTerminal, dir: "h" | "v" = "h"): boolean {
-		if (findPaneLeaf(this.tree, paneId)) return false;
-		this.setTerminal(paneId, pt);
-		const inserted = this.insertPaneNearFocused(paneId, dir, false);
-		if (!inserted) {
-			this.terminals.delete(paneId);
-			return false;
-		}
-		this.setFocusedPaneId(paneId);
 		return true;
 	}
 

@@ -14,9 +14,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-const { filterSettingsItems, settingsItemText } = await import(
-	"../../app/settingsSearch.ts"
-);
+const { filterSettingsItems } = await import("../../app/settingsSearch.ts");
 
 const ITEMS = [
 	{ label: "Font size", pref: "terminal_font_size", keywords: "text px" },
@@ -95,18 +93,23 @@ test("an empty or blank query matches every item", () => {
 	assert.equal(filterSettingsItems(ITEMS, "   ").length, ITEMS.length);
 });
 
-test("settingsItemText folds and normalizes every field", () => {
-	const text = settingsItemText({
+test("matches every metadata field through the settings matcher", () => {
+	const item = {
 		label: "Font size",
 		pref: "terminal_font_size",
 		keywords: "text px",
-		desc: "Terminal text",
+		desc: "Adjust glyph dimensions",
 		controlText: "number",
-	});
-	assert.ok(text.includes("font size"));
-	assert.ok(text.includes("terminal font size"));
-	assert.ok(text.includes("text px"));
-	assert.ok(text.includes("terminal text"));
-	assert.ok(text.includes("number"));
-	assert.ok(!text.includes("_"));
+	};
+	for (const query of [
+		"FONT SIZE",
+		"terminal_font_size",
+		"terminal-font-size",
+		"TEXT PX",
+		"GLYPH DIMENSIONS",
+		"NUMBER",
+		"terminal px glyph number",
+	]) {
+		assert.deepEqual(filterSettingsItems([item], query), [item], query);
+	}
 });

@@ -71,7 +71,6 @@ export function displayProcessCommand(command: string): string {
 export const NOTIF_COMMAND_MAX = 50;
 export const NOTIF_PANE_MAX = 40;
 export const NOTIF_CWD_MAX = 60;
-export const NOTIF_DETAIL_MAX = 120;
 
 /** Truncate a single line to `max` chars, appending an ellipsis. */
 export function truncateEnd(text: string, max: number): string {
