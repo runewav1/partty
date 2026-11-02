@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 use tauri::ipc::Response;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -40,7 +40,6 @@ pub struct AppState {
     pub defer_prepare_show_until_webview_ready: AtomicBool,
     /// Incremented whenever a delayed destroy should be invalidated (e.g. window was shown again).
     pub hide_destroy_generation: AtomicU64,
-    pub app_session_id: String,
     /// SerializeAddon payloads held across destroy-on-hide (process memory only).
     pub terminal_serialize_stash: Mutex<Option<HashMap<String, String>>>,
     /// Cleared on hide; set when JS finishes stash so delayed destroy can proceed.
@@ -49,19 +48,6 @@ pub struct AppState {
     pub pty_output_unlocked: AtomicBool,
     /// Current runtime capability; the persisted acrylic preference is kept separately.
     acrylic_available: AtomicBool,
-}
-
-fn make_app_session_id() -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or_default();
-    format!("{:x}-{:x}", std::process::id(), now)
-}
-
-#[tauri::command]
-fn get_app_session_id(state: State<'_, AppState>) -> String {
-    state.app_session_id.clone()
 }
 
 /// Stash pane serialize payloads and release the destroy-on-hide gate.
@@ -92,11 +78,6 @@ fn take_webview_destroyed_for_hide(state: State<'_, AppState>) -> bool {
 #[tauri::command]
 fn set_pty_output_unlocked(state: State<'_, AppState>, unlocked: bool) {
     state.pty_output_unlocked.store(unlocked, Ordering::SeqCst);
-}
-
-#[tauri::command]
-fn detect_shells() -> Vec<pty::DetectedShell> {
-    pty::detect_available_shells()
 }
 
 #[tauri::command]
@@ -498,8 +479,7 @@ fn position_main_at_cursor_if_prefs(app: &AppHandle) {
 }
 
 /// Let the `partty-hide` handler finish serialize+stash IPC, then destroy the
-/// webview from Rust. Avoids `invoke(request_destroy_webview)` from JS, which can tear down the
-/// webview while the IPC promise is still pending (white window, broken show).
+/// webview from Rust so teardown cannot interrupt a pending frontend IPC promise.
 fn schedule_destroy_webview_after_hide(app: &AppHandle) {
     let destroy = app
         .state::<AppState>()
@@ -820,29 +800,6 @@ fn commit_show_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[tauri::command]
-async fn request_destroy_webview_for_hide(app: AppHandle) -> Result<(), String> {
-    let destroy = app
-        .state::<AppState>()
-        .persisted
-        .lock()
-        .prefs
-        .destroy_webview_on_hide;
-    if !destroy {
-        return Ok(());
-    }
-    app.state::<AppState>()
-        .hide_destroy_generation
-        .fetch_add(1, Ordering::SeqCst);
-    app.state::<AppState>()
-        .webview_destroyed_for_hide
-        .store(true, Ordering::SeqCst);
-    match app.get_webview_window("main") {
-        Some(w) => w.destroy().map_err(|e| e.to_string()),
-        None => Ok(()),
-    }
-}
-
 /// Shell spawn (process creation, WSL probing, script writes) runs on the
 /// blocking pool so it never stalls the UI thread that services IPC.
 #[tauri::command]
@@ -983,12 +940,6 @@ fn pty_resize_batch(state: State<'_, AppState>, items: Vec<PtyResizeEntry>) -> R
 }
 
 #[tauri::command]
-fn pty_kill(state: State<'_, AppState>) -> Result<(), String> {
-    clear_pty_session(&state);
-    Ok(())
-}
-
-#[tauri::command]
 fn pty_kill_pane(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     kill_pane_session(&state, &session_id);
     Ok(())
@@ -1022,12 +973,6 @@ fn get_acrylic_available(state: State<'_, AppState>) -> bool {
 fn list_profiles(state: State<'_, AppState>) -> Result<Vec<profiles::ProfileDto>, String> {
     let prefs = state.persisted.lock().prefs.clone();
     profiles::list_profiles(&prefs)
-}
-
-#[tauri::command]
-fn get_profile(id: String) -> Result<profiles::ProfileDto, String> {
-    let p = profiles::get_profile(&id)?;
-    Ok(profiles::ProfileDto::from(&p))
 }
 
 #[tauri::command]
@@ -1137,7 +1082,6 @@ pub fn run() {
             webview_destroyed_for_hide: AtomicBool::new(false),
             defer_prepare_show_until_webview_ready: AtomicBool::new(false),
             hide_destroy_generation: AtomicU64::new(0),
-            app_session_id: make_app_session_id(),
             terminal_serialize_stash: Mutex::new(None),
             hide_buffers_ready: AtomicBool::new(true),
             pty_output_unlocked: AtomicBool::new(true),
@@ -1148,14 +1092,12 @@ pub fn run() {
             pty_write,
             pty_replay_snapshot,
             pty_resize_batch,
-            pty_kill,
             pty_kill_pane,
             pty_ack_exit,
             pty_focus_pane,
             clipboard_read_text,
             get_persisted_state,
             get_acrylic_available,
-            get_app_session_id,
             wbmem::reclaim_wbmem,
             stash_terminal_buffers,
             take_terminal_buffers,
@@ -1163,22 +1105,16 @@ pub fn run() {
             set_pty_output_unlocked,
             theme::list_themes,
             theme::read_theme,
-            theme::write_theme,
-            theme::delete_theme,
-            theme::get_theme_effective_prefs,
             list_profiles,
-            get_profile,
             workspaces::list_workspaces,
             workspaces::read_workspace,
             set_prefs,
             toggle_overlay,
             webview_boot_complete,
             commit_show_window,
-            request_destroy_webview_for_hide,
             keybinds::get_keybinds,
             keybinds::set_keybind,
             keybinds::reset_keybinds,
-            detect_shells,
             open_external_url,
         ])
         .setup(move |app| {

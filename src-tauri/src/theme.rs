@@ -56,29 +56,6 @@ pub fn load_theme(name: &str) -> Result<ThemeToml, String> {
     Ok(t)
 }
 
-pub fn save_theme(
-    name: &str,
-    colors: HashMap<String, String>,
-    prefs: Option<toml::Value>,
-) -> Result<(), String> {
-    prefs::validate_custom_theme_name(name)?;
-    let path = themes_dir()?.join(format!("{name}.toml"));
-    let t = ThemeToml {
-        version: 1,
-        name: name.to_string(),
-        colors,
-        prefs,
-    };
-    let bytes = toml::to_string_pretty(&t).map_err(|e| e.to_string())?;
-    fs::write(path, bytes).map_err(|e| e.to_string())
-}
-
-pub fn remove_theme(name: &str) -> Result<(), String> {
-    prefs::validate_custom_theme_name(name)?;
-    let path = themes_dir()?.join(format!("{name}.toml"));
-    fs::remove_file(path).map_err(|e| e.to_string())
-}
-
 fn merge_toml_values(base: toml::Value, overlay: toml::Value) -> toml::Value {
     match (base, overlay) {
         (toml::Value::Table(mut base_table), toml::Value::Table(overlay_table)) => {
@@ -132,22 +109,6 @@ pub fn read_theme(name: String) -> Result<ThemeInfo, String> {
         colors: theme.colors,
         prefs,
     })
-}
-
-#[tauri::command]
-pub fn write_theme(name: String, colors: HashMap<String, String>) -> Result<(), String> {
-    let existing_prefs = load_theme(&name).ok().and_then(|t| t.prefs);
-    save_theme(&name, colors, existing_prefs)
-}
-
-#[tauri::command]
-pub fn delete_theme(name: String) -> Result<(), String> {
-    remove_theme(&name)
-}
-
-#[tauri::command]
-pub fn get_theme_effective_prefs(theme_name: String) -> Result<Prefs, String> {
-    resolve_theme_prefs(&theme_name)
 }
 
 #[cfg(test)]
