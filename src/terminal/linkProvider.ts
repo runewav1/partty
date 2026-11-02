@@ -124,7 +124,7 @@ export function registerTerminalLinkProvider(
 			return;
 		}
 
-		const linksByRow = new Map<number, CachedLink[]>();
+		let links: CachedLink[] | undefined;
 		const matches = findTerminalLinkMatches(
 			logical.text,
 			options.getCwd(),
@@ -133,24 +133,20 @@ export function registerTerminalLinkProvider(
 		for (const match of matches) {
 			const start = logical.positions[match.start];
 			const end = logical.positions[match.end - 1];
-			if (!(start && end)) continue;
-			const link: CachedLink = {
+			if (!(start && end) || bufferRow < start.y || bufferRow > end.y) continue;
+			links ??= [];
+			links.push({
 				range: {
 					start: { x: start.x + 1, y: start.y + 1 },
 					end: { x: end.x + Math.max(1, end.width), y: end.y + 1 },
 				},
 				match,
-			};
-			for (let row = start.y; row <= end.y; row++) {
-				const links = linksByRow.get(row) ?? [];
-				links.push(link);
-				linksByRow.set(row, links);
-			}
+			});
 		}
 
 		// A window is centred on the requested row; neighbouring rows may need
 		// more context than this window includes.
-		rowCache.set(bufferRow + 1, linksByRow.get(bufferRow));
+		rowCache.set(bufferRow + 1, links);
 	};
 
 	const scanViewport = (): void => {

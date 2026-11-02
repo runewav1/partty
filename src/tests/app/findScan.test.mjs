@@ -22,12 +22,22 @@ function line(cells, isWrapped = false) {
 	return {
 		isWrapped,
 		length: cells.length,
-		getCell: (x) => cells[x],
+		getCell(x, target) {
+			const source = cells[x];
+			if (!source || !target) return source;
+			target.getWidth = source.getWidth;
+			target.getChars = source.getChars;
+			return target;
+		},
 	};
 }
 
 function buffer(lines) {
-	return { length: lines.length, getLine: (y) => lines[y] };
+	return {
+		length: lines.length,
+		getLine: (y) => lines[y],
+		getNullCell: () => cell(""),
+	};
 }
 
 test("finds every occurrence on a single line with cell coordinates", () => {
@@ -94,4 +104,35 @@ test("bounds lines by maxCols so stale resize cells are ignored", () => {
 	const buf = buffer([line(cells)]);
 	assert.equal(scanBuffer(buf, "xxxx", 4).length, 0);
 	assert.equal(scanBuffer(buf, "keep", 4).length, 1);
+});
+
+test("reuses one scratch cell across the whole scan without retaining its contents", () => {
+	const buf = buffer([
+		line([..."foo"].map((c) => cell(c))),
+		line([..."bar"].map((c) => cell(c))),
+	]);
+	const scratch = cell("");
+	let allocations = 0;
+	let reads = 0;
+	buf.getNullCell = () => {
+		allocations++;
+		return scratch;
+	};
+	const getLine = buf.getLine;
+	buf.getLine = (y) => {
+		const source = getLine(y);
+		return {
+			...source,
+			getCell(x, target) {
+				assert.equal(target, scratch);
+				reads++;
+				return source.getCell(x, target);
+			},
+		};
+	};
+	assert.deepEqual(scanBuffer(buf, "foo"), [
+		{ line: 0, segments: [{ line: 0, start: 0, length: 3 }] },
+	]);
+	assert.equal(allocations, 1);
+	assert.equal(reads, 6);
 });

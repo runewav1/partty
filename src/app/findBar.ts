@@ -24,6 +24,7 @@ export type FindBarApi = {
 };
 
 type Match = ScanMatch;
+type Highlight = { marker: IMarker; decoration: IDecoration | undefined };
 
 /** Cap work on pathological scrollbacks; the count still reports the real total. */
 const MAX_DECORATIONS = 400;
@@ -68,16 +69,26 @@ export function createFindBar(options: {
 	let matches: Match[] = [];
 	let activeIndex = 0;
 	let totalMatches = 0;
-	const decorations: IDecoration[] = [];
-	const markers: IMarker[] = [];
+	const backgroundHighlights: Highlight[] = [];
+	const activeHighlights: Highlight[] = [];
+	let highlightTerm: Terminal | null = null;
+	let backgroundTint: FindHighlightColors["match"] | null = null;
 	let writeSub: IDisposable | null = null;
 	let rescanTimer = 0;
 
+	function disposeHighlightList(highlights: Highlight[]): void {
+		for (const { decoration, marker } of highlights) {
+			decoration?.dispose();
+			marker.dispose();
+		}
+		highlights.length = 0;
+	}
+
 	function disposeHighlights(): void {
-		for (const d of decorations) d.dispose();
-		decorations.length = 0;
-		for (const m of markers) m.dispose();
-		markers.length = 0;
+		disposeHighlightList(activeHighlights);
+		disposeHighlightList(backgroundHighlights);
+		highlightTerm = null;
+		backgroundTint = null;
 	}
 
 	function updateCount(): void {
@@ -88,10 +99,13 @@ export function createFindBar(options: {
 		count.textContent = `${activeIndex + 1}/${totalMatches}`;
 	}
 
-	function highlight(): void {
+	function highlight(rebuildBackground = true): void {
 		const term = getTerminal();
-		disposeHighlights();
-		if (!term || matches.length === 0) return;
+		if (!term || matches.length === 0) {
+			disposeHighlights();
+			return;
+		}
+		disposeHighlightList(activeHighlights);
 		// Re-read each pass so a per-pane or custom theme's tints are honored.
 		const { match: matchTint, active: activeTint } = getHighlightColors();
 		const buf = term.buffer.active;
@@ -103,7 +117,6 @@ export function createFindBar(options: {
 		): void => {
 			const marker = term.registerMarker(segment.line - cursorAbsolute);
 			if (!marker) return;
-			markers.push(marker);
 			const decoration = term.registerDecoration({
 				marker,
 				x: segment.start,
@@ -114,18 +127,31 @@ export function createFindBar(options: {
 				foregroundColor: highlight.foreground,
 				layer,
 			});
-			if (decoration) decorations.push(decoration);
+			(layer === "bottom" ? backgroundHighlights : activeHighlights).push({
+				marker,
+				decoration,
+			});
 		};
 		// Cap total decorations, not occurrences: a match that wraps contributes
 		// one decoration per visual line.
-		let budget = MAX_DECORATIONS;
-		for (const match of matches) {
-			for (const segment of match.segments) {
+		if (
+			rebuildBackground ||
+			term !== highlightTerm ||
+			backgroundTint?.background !== matchTint.background ||
+			backgroundTint?.foreground !== matchTint.foreground
+		) {
+			disposeHighlightList(backgroundHighlights);
+			let budget = MAX_DECORATIONS;
+			for (const match of matches) {
+				for (const segment of match.segments) {
+					if (budget <= 0) break;
+					add(segment, matchTint, "bottom");
+					budget--;
+				}
 				if (budget <= 0) break;
-				add(segment, matchTint, "bottom");
-				budget--;
 			}
-			if (budget <= 0) break;
+			highlightTerm = term;
+			backgroundTint = { ...matchTint };
 		}
 		const current = matches[activeIndex];
 		if (current) {
@@ -173,12 +199,12 @@ export function createFindBar(options: {
 
 	/** Called on explicit next/previous: wraps around the match list. */
 	function step(direction: 1 | -1): void {
-		if (matches.length === 0) {
+		if (getTerminal() !== highlightTerm || matches.length === 0) {
 			rescan(false);
 			if (matches.length === 0) return;
 		}
 		activeIndex = (activeIndex + direction + matches.length) % matches.length;
-		highlight();
+		highlight(false);
 		updateCount();
 		reveal(true);
 	}

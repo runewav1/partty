@@ -196,6 +196,17 @@ test("a neighbouring row scan does not poison another row's cache", () => {
 	assert.equal(f.links(3)[0]?.text, "/tmp/abcdefile.txt");
 });
 
+test("a logical window only returns links intersecting the requested row", () => {
+	const f = fixture([["/tmp/a   "], ["/tmp/b   ", true]], 9);
+	for (const row of [1, 2, 1, 2]) {
+		const links = f.links(row);
+		assert.equal(links.length, 1);
+		assert.equal(links[0].text, row === 1 ? "/tmp/a" : "/tmp/b");
+		assert.equal(links[0].range.start.y, row);
+		assert.equal(links[0].range.end.y, row);
+	}
+});
+
 test("write invalidation discards stale path ranges", () => {
 	const f = fixture([["/tmp/a.txt"]], 20);
 	assert.equal(f.links(1).length, 1);

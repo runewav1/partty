@@ -31,12 +31,13 @@ export type ScanCell = { getWidth(): number; getChars(): string };
 export type ScanLine = {
 	readonly isWrapped: boolean;
 	readonly length: number;
-	getCell(x: number): ScanCell | undefined;
+	getCell(x: number, cell?: ScanCell): ScanCell | undefined;
 };
 /** Structural subset of xterm's `IBuffer`. */
 export type ScanBuffer = {
 	readonly length: number;
 	getLine(y: number): ScanLine | undefined;
+	getNullCell(): ScanCell;
 };
 
 type CellRef = { line: number; x: number; width: number; chars: string };
@@ -67,13 +68,14 @@ function scanGroup(
 	needle: string,
 	maxCols: number,
 	out: ScanMatch[],
+	scratchCell: ScanCell,
 ): void {
 	const cells: CellRef[] = [];
 	for (let i = 0; i < group.length; i++) {
 		const line = group[i]!;
 		const end = Math.min(line.length, maxCols);
 		for (let x = 0; x < end; x++) {
-			const cell = line.getCell(x);
+			const cell = line.getCell(x, scratchCell);
 			if (!cell) continue;
 			const width = cell.getWidth();
 			// Width-0 cells are the trailing half of a wide glyph; the glyph's
@@ -122,6 +124,7 @@ export function scanBuffer(
 	const matches: ScanMatch[] = [];
 	const total = buffer.length;
 	const cols = maxCols && maxCols > 0 ? maxCols : Number.POSITIVE_INFINITY;
+	const scratchCell = buffer.getNullCell();
 	let y = 0;
 	while (y < total) {
 		const first = buffer.getLine(y);
@@ -137,7 +140,7 @@ export function scanBuffer(
 			group.push(line);
 			next++;
 		}
-		scanGroup(group, y, needle, cols, matches);
+		scanGroup(group, y, needle, cols, matches, scratchCell);
 		y = next;
 	}
 	return matches;
