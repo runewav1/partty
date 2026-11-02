@@ -22,11 +22,6 @@ export type LexicalSearchItem = {
 	id?: string;
 };
 
-function partMatches(part: string, hay: string, tokens: string[]): boolean {
-	if (hay.includes(part)) return true;
-	return tokens.some((t) => t.startsWith(part));
-}
-
 /**
  * Rank a match so shorter / label-primary hits win.
  * Returns null when the item does not match.
@@ -34,25 +29,23 @@ function partMatches(part: string, hay: string, tokens: string[]): boolean {
 function scoreLexicalMatch(
 	item: LexicalSearchItem,
 	parts: string[],
+	query: string,
 ): number | null {
-	if (parts.length === 0) return 0;
 	const label = item.label.toLowerCase();
 	const keywords = (item.keywords ?? "").toLowerCase();
 	const idTokens = item.id ? tokenize(item.id) : [];
 	const labelTokens = tokenize(label);
 	const keywordTokens = tokenize(keywords);
-	const allTokens = [...labelTokens, ...keywordTokens, ...idTokens];
 	const hay = `${label} ${keywords} ${idTokens.join(" ")}`;
 
-	if (!parts.every((p) => partMatches(p, hay, allTokens))) return null;
+	if (!parts.every((p) => hay.includes(p))) return null;
 
-	const q = parts.join(" ");
 	let score = 0;
 
-	if (label === q) score += 10_000;
-	else if (label.startsWith(q)) score += 5000;
+	if (label === query) score += 10_000;
+	else if (label.startsWith(query)) score += 5000;
 
-	if (parts.every((p) => partMatches(p, label, labelTokens))) {
+	if (parts.every((p) => label.includes(p))) {
 		score += 2000;
 		score += Math.max(0, 400 - labelTokens.length * 80);
 		const covered = labelTokens.filter((w) =>
@@ -80,8 +73,9 @@ export function filterAndRankLexical<T extends LexicalSearchItem>(
 	parts: string[],
 ): T[] {
 	if (parts.length === 0) return [...all];
+	const query = parts.join(" ");
 	return all
-		.map((item) => ({ item, score: scoreLexicalMatch(item, parts) }))
+		.map((item) => ({ item, score: scoreLexicalMatch(item, parts, query) }))
 		.filter((row): row is { item: T; score: number } => row.score !== null)
 		.sort(
 			(a, b) =>

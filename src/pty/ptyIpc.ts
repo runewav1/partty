@@ -178,7 +178,7 @@ export async function runPtyStartup(
 		} catch (e) {
 			if (!isOwned()) return "aborted";
 			lastErr = e;
-			if (NON_RETRYABLE_SHELL_ERROR_RE.test(String(e).toLowerCase())) {
+			if (NON_RETRYABLE_SHELL_ERROR_RE.test(String(e))) {
 				break;
 			}
 			continue;

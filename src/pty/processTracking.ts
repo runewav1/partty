@@ -4,7 +4,6 @@ const CONTROL_CHARACTERS = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
 const QUOTED_COMMAND = /^(['"])(.+?)\1/;
 const COMMAND_TOKEN = /^[^\s|&;<>]+/;
 const WHITESPACE = /\s+/;
-const HAS_WHITESPACE = /\s/;
 const PATH_SEPARATOR = /[\\/]/;
 
 export type ActiveProcessEntry = {
@@ -56,15 +55,12 @@ export function mergeProcessCommand(current: string, incoming: string): string {
 	if (curTokens.some((t) => t.toLowerCase() === incLower)) return cur;
 	if (inc.length < cur.length) return cur;
 
-	return inc.length >= cur.length ? inc : cur;
+	return inc;
 }
 
-/** Label for palette / notifications: full command when sane, else executable name. */
+/** Strip control characters and surrounding whitespace for display. */
 export function displayProcessCommand(command: string): string {
-	const normalized = normalizeCommandLine(command);
-	if (!normalized) return "";
-	if (HAS_WHITESPACE.test(normalized)) return normalized;
-	return normalized;
+	return normalizeCommandLine(command);
 }
 
 /** Per-component truncation thresholds for process-completion notifications. */
