@@ -551,55 +551,6 @@ pub fn resolve_assigned_startup_command(assigned: &ConnectionProfile) -> Option<
         .map(str::to_string)
 }
 
-/// Resolve effective shell for a local profile against global prefs.
-#[allow(dead_code)]
-pub fn resolve_shell(profile: &ConnectionProfile, prefs: &Prefs) -> String {
-    profile
-        .shell
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| prefs.shell.trim())
-        .to_string()
-}
-
-/// Resolve optional initial cwd override from profile (pane cwd still wins when set).
-#[allow(dead_code)]
-pub fn resolve_initial_cwd<'a>(
-    profile: &'a ConnectionProfile,
-    prefs: &'a Prefs,
-) -> Option<&'a str> {
-    profile
-        .initial_cwd
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .or_else(|| {
-            prefs
-                .initial_cwd
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-        })
-}
-
-#[allow(dead_code)]
-pub fn profile_exists(id: &str) -> bool {
-    profile_path(id).map(|p| p.exists()).unwrap_or(false)
-}
-
-#[allow(dead_code)]
-pub fn delete_profile_file(id: &str) -> Result<(), String> {
-    if id == LOCAL_DEFAULT_ID {
-        return Err("cannot delete the built-in local-default profile".into());
-    }
-    let path = profile_path(id)?;
-    if path.exists() {
-        fs::remove_file(&path).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

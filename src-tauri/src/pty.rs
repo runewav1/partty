@@ -1630,13 +1630,6 @@ fn apply_cwd(mut cmd: CommandBuilder, prefs: &Prefs) -> Result<CommandBuilder, S
     Ok(cmd)
 }
 
-/// ConPTY session always starts the Windows host shell (`COMSPEC`, usually `cmd.exe`), then we
-/// launch the resolved interactive shell directly so integration is active on the first prompt.
-#[allow(dead_code)]
-fn shell_command(prefs: &Prefs) -> Result<CommandBuilder, String> {
-    windows_shell_command(prefs, None)
-}
-
 fn profile_startup(profile: Option<&ConnectionProfile>) -> Option<&str> {
     profile?
         .startup_command
