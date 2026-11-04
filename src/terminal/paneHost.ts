@@ -3,7 +3,6 @@ import type { ImageAddon } from "@xterm/addon-image";
 import type { LigaturesAddon } from "@xterm/addon-ligatures";
 import type { SerializeAddon } from "@xterm/addon-serialize";
 import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
-import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { type ITerminalOptions, type ITheme, Terminal } from "@xterm/xterm";
 import {
 	afterAnimationFrames,
@@ -2272,10 +2271,7 @@ export class PaneHost {
 				} as ITerminalOptions);
 				const fit = new FitAddon();
 				term.loadAddon(fit);
-				const unicode11 = new Unicode11Addon();
-				term.loadAddon(unicode11);
-				// Addon only registers the version; activate it explicitly.
-				term.unicode.activeVersion = "11";
+				// Activates its "15-graphemes" provider on load.
 				const graphemes = new UnicodeGraphemesAddon();
 				term.loadAddon(graphemes);
 				// LigaturesAddon must be loaded after open(); SerializeAddon only for hide/stash.

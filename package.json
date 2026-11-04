@@ -29,7 +29,6 @@
 		"@xterm/addon-ligatures": "beta",
 		"@xterm/addon-serialize": "beta",
 		"@xterm/addon-unicode-graphemes": "beta",
-		"@xterm/addon-unicode11": "beta",
 		"@xterm/addon-web-links": "beta",
 		"@xterm/xterm": "npm:@partty/xterm@6.2.4"
 	},

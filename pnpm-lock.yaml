@@ -190,9 +190,6 @@ importers:
       '@xterm/addon-unicode-graphemes':
         specifier: beta
         version: 0.5.0-beta.330(@partty/xterm@6.2.4)
-      '@xterm/addon-unicode11':
-        specifier: beta
-        version: 0.10.0-beta.330(@partty/xterm@6.2.4)
       '@xterm/addon-web-links':
         specifier: beta
         version: 0.13.0-beta.330(@partty/xterm@6.2.4)
@@ -621,11 +618,6 @@ packages:
     peerDependencies:
       '@xterm/xterm': ^6.1.0-beta.336
 
-  '@xterm/addon-unicode11@0.10.0-beta.330':
-    resolution: {integrity: sha512-Tc9R1oYVYvTAUNIsHzcis1J51reG4CHQIYeXiAS+YRMsJe9nnnR2tIW/RHh7MZiMza1w7toAp1SKH+97WgnDaQ==}
-    peerDependencies:
-      '@xterm/xterm': ^6.1.0-beta.336
-
   '@xterm/addon-web-links@0.13.0-beta.330':
     resolution: {integrity: sha512-W7Ty0+ZK6U0Ogfp8AkZDzmQSW9qFVJz9tUGWVULCJ8AfItAkspxPqufGEs54/QNSokY5Xrj/72z7YJlPphWKEw==}
     peerDependencies:
@@ -1036,10 +1028,6 @@ snapshots:
       '@xterm/xterm': '@partty/xterm@6.2.4'
 
   '@xterm/addon-unicode-graphemes@0.5.0-beta.330(@partty/xterm@6.2.4)':
-    dependencies:
-      '@xterm/xterm': '@partty/xterm@6.2.4'
-
-  '@xterm/addon-unicode11@0.10.0-beta.330(@partty/xterm@6.2.4)':
     dependencies:
       '@xterm/xterm': '@partty/xterm@6.2.4'
 

@@ -42,7 +42,6 @@ async function modules(
 		"@tauri-apps/api/core": { invoke: async () => false },
 		"@xterm/xterm": { Terminal },
 		"@xterm/addon-fit": { FitAddon: class {} },
-		"@xterm/addon-unicode11": { Unicode11Addon: class {} },
 		"@xterm/addon-unicode-graphemes": { UnicodeGraphemesAddon: class {} },
 		[resolve(root, "util/motion.ts")]: {
 			afterAnimationFrames: noop,
