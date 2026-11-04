@@ -6,13 +6,17 @@ use filedescriptor::{FileDescriptor, Pipe};
 use std::sync::{Arc, Mutex};
 use windows_sys::Win32::System::Console::COORD;
 
+/// Output pipe buffer. The system default is a few KB, so a flood blocks the
+/// pseudoconsole after every small write and the reader wakes per fragment.
+const OUTPUT_PIPE_BYTES: u32 = 128 * 1024;
+
 #[derive(Default)]
 pub struct ConPtySystem {}
 
 impl PtySystem for ConPtySystem {
     fn openpty(&self, size: PtySize) -> anyhow::Result<PtyPair> {
         let stdin = Pipe::new()?;
-        let stdout = Pipe::new()?;
+        let stdout = Pipe::with_buffer_size(OUTPUT_PIPE_BYTES)?;
 
         let con = PsuedoCon::new(
             COORD {
@@ -77,6 +81,14 @@ pub struct ConPtyMasterPty {
     inner: Arc<Mutex<Inner>>,
 }
 
+impl ConPtyMasterPty {
+    /// The output pipe as a native descriptor, so a reader can drain what is
+    /// already buffered without blocking (`FileDescriptor::bytes_available`).
+    pub fn try_clone_output(&self) -> anyhow::Result<FileDescriptor> {
+        Ok(self.inner.lock().unwrap().readable.try_clone()?)
+    }
+}
+
 pub struct ConPtySlavePty {
     inner: Arc<Mutex<Inner>>,
 }
@@ -93,7 +105,7 @@ impl MasterPty for ConPtyMasterPty {
     }
 
     fn try_clone_reader(&self) -> anyhow::Result<Box<dyn std::io::Read + Send>> {
-        Ok(Box::new(self.inner.lock().unwrap().readable.try_clone()?))
+        Ok(Box::new(self.try_clone_output()?))
     }
 
     fn take_writer(&self) -> anyhow::Result<Box<dyn std::io::Write + Send>> {

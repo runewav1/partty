@@ -398,6 +398,7 @@ type PaneWebglState = {
 	contextLossDispose?: { dispose(): void };
 };
 type PendingPtyOutput = {
+	sessionId: string;
 	chunks: ByteChunkBuffer;
 	queuedAt: number;
 };
@@ -1119,17 +1120,35 @@ async function boot(): Promise<void> {
 		pendingShellCommandLine.delete(paneId);
 	}
 
-	function processPtyOutputBatch(paneId: string, data: Uint8Array): void {
+	function processPtyOutputBatch(
+		paneId: string,
+		sessionId: string,
+		data: Uint8Array,
+	): void {
+		// Reporting parsed bytes is what lets the ring accept more output.
+		const parsed = () => ptyRings?.consumed(sessionId, data.byteLength);
 		const pt = getPaneTerminalById(paneId);
-		if (!pt) return;
+		if (!pt) {
+			parsed();
+			return;
+		}
 		// OSC 7 / 133 / 633 are stripped and forwarded as structured `pty-cwd` /
 		// `pty-shell-event` side-channel events by the Rust emitter.  Write the
 		// pre-cleaned bytes directly — no character-by-character JS parsing needed.
 		try {
-			pt.term.write(data);
+			pt.term.write(data, parsed);
 		} catch (e) {
+			parsed();
 			console.warn("xterm.write", e);
 		}
+	}
+
+	/** Discard a pane's queued output, still crediting it to flow control. */
+	function dropPendingPtyOutput(paneId: string): void {
+		const pending = pendingPtyOutputByPane.get(paneId);
+		if (!pending) return;
+		pendingPtyOutputByPane.delete(paneId);
+		ptyRings?.consumed(pending.sessionId, peekByteChunkBytes(pending.chunks));
 	}
 
 	function clearPtyOutputFlushHandles(): void {
@@ -1161,7 +1180,11 @@ async function boot(): Promise<void> {
 				pendingPtyOutputByPane.set(paneId, batch);
 				continue;
 			}
-			processPtyOutputBatch(paneId, drainByteChunks(batch.chunks));
+			processPtyOutputBatch(
+				paneId,
+				batch.sessionId,
+				drainByteChunks(batch.chunks),
+			);
 		}
 		if (pendingPtyOutputByPane.size > 0) schedulePtyOutputFlush();
 	}
@@ -1178,13 +1201,16 @@ async function boot(): Promise<void> {
 		}
 	}
 
-	function queuePtyOutput(paneId: string, data: Uint8Array): void {
-		if (!data || data.byteLength === 0) return;
+	function queuePtyOutput(
+		paneId: string,
+		sessionId: string,
+		data: Uint8Array,
+	): void {
 		if (
 			!pendingPtyOutputByPane.has(paneId) &&
 			paneId === paneHost?.getFocusedPaneId()
 		) {
-			processPtyOutputBatch(paneId, data);
+			processPtyOutputBatch(paneId, sessionId, data);
 			return;
 		}
 		const existing = pendingPtyOutputByPane.get(paneId);
@@ -1194,6 +1220,7 @@ async function boot(): Promise<void> {
 			const chunks = createByteChunkBuffer();
 			pushByteChunk(chunks, data);
 			pendingPtyOutputByPane.set(paneId, {
+				sessionId,
 				chunks,
 				queuedAt: performance.now(),
 			});
@@ -1213,9 +1240,10 @@ async function boot(): Promise<void> {
 	// it until `set_pty_output_unlocked` after scrollback restore. Route by the
 	// stable session id, never a captured pane id, since pane slots are reused.
 	// Must be listening before the first `pty_ensure` posts a ring.
-	installSharedRings((sessionId, bytes) => {
+	const ptyRings = installSharedRings((sessionId, bytes) => {
 		const pt = paneBySessionId.get(sessionId);
-		if (pt) queuePtyOutput(pt.paneId, bytes);
+		if (pt) queuePtyOutput(pt.paneId, sessionId, bytes);
+		else ptyRings?.consumed(sessionId, bytes.byteLength);
 	});
 
 	async function releasePtyHydrationGate(): Promise<void> {
@@ -1337,7 +1365,7 @@ async function boot(): Promise<void> {
 		lastPtyDims.delete(paneId);
 		pendingPaneSpawnStartup.delete(paneId);
 		pendingPtyWriteByPane.delete(paneId);
-		pendingPtyOutputByPane.delete(paneId);
+		dropPendingPtyOutput(paneId);
 		activeProcesses.delete(paneId);
 		pendingShellCommandLine.delete(paneId);
 		backendReplayRestoredPanes.delete(paneId);
@@ -6495,7 +6523,11 @@ async function boot(): Promise<void> {
 				const pending = pendingPtyOutputByPane.get(paneId);
 				if (pending) {
 					pendingPtyOutputByPane.delete(paneId);
-					processPtyOutputBatch(paneId, drainByteChunks(pending.chunks));
+					processPtyOutputBatch(
+						paneId,
+						pending.sessionId,
+						drainByteChunks(pending.chunks),
+					);
 				}
 				await ptyAckExit(sessionId);
 				finishActiveProcess(paneId, Date.now());
@@ -6508,7 +6540,9 @@ async function boot(): Promise<void> {
 			liveCwd = null;
 			paneCwdHints.clear();
 			paneRemoteIsWindows.clear();
-			pendingPtyOutputByPane.clear();
+			for (const paneId of [...pendingPtyOutputByPane.keys()]) {
+				dropPendingPtyOutput(paneId);
+			}
 			paneHost?.forEachPane((_id, p) => {
 				p.term.reset();
 			});

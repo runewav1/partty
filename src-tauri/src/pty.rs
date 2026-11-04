@@ -3,7 +3,8 @@ use crate::prefs::Prefs;
 use crate::profiles::{ConnectionProfile, ProfileKind};
 use crate::shared_ring::{self, SharedRing};
 use parking_lot::Mutex as ParkingMutex;
-use portable_pty::{Child, CommandBuilder, PtySize, native_pty_system};
+use portable_pty::win::conpty::ConPtyMasterPty;
+use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
@@ -11,9 +12,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{RecvTimeoutError, Sender, channel, sync_channel};
+use std::sync::mpsc::{Sender, channel};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use windows_sys::Win32::Foundation::{DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE};
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, INFINITE, WaitForSingleObject};
@@ -22,7 +23,9 @@ const SHELL_INTEGRATION_PWSH: &str = include_str!("../scripts/shell_int.partty.p
 const SHELL_INTEGRATION_BASH: &str = include_str!("../scripts/shell_int.partty.bash");
 const SHELL_INTEGRATION_ZSH: &str = include_str!("../scripts/shell_int.partty.zsh");
 const PTY_OUTPUT_BATCH_BYTES: usize = 128 * 1024;
-const PTY_OUTPUT_BATCH_MS: u64 = 3;
+/// Blocking read size when the pipe is idle; anything beyond it is drained
+/// in exact-size reads, so only bytes that actually arrived are zero-filled.
+const PTY_READ_BYTES: usize = 16 * 1024;
 const PTY_REPLAY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 
 /// Bounded byte ring. Eviction advances the head rather than moving retained
@@ -161,6 +164,21 @@ enum OscSideEvent {
     Osc52Set(String),
     /// OSC 52 query: selection to echo back in the reply.
     Osc52Query(String),
+}
+
+/// Append up to `max` bytes read from `src` to `buf`; returns 0 at EOF (or on
+/// a read error, which ends the stream the same way).
+fn read_into(src: &mut impl Read, buf: &mut Vec<u8>, max: usize) -> usize {
+    let start = buf.len();
+    buf.resize(start + max, 0);
+    let n = loop {
+        match src.read(&mut buf[start..]) {
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            result => break result.unwrap_or(0),
+        }
+    };
+    buf.truncate(start + n);
+    n
 }
 
 /// Write a whole batch into `ring`, waiting for JS to drain it when full.
@@ -1022,8 +1040,8 @@ pub struct PtySession {
     /// Shared-memory output ring. Replaced on each `pty_ensure` so a rebuilt
     /// webview re-subscribes without restarting the reader/emitter threads.
     output_ring: Arc<parking_lot::Mutex<Option<Arc<SharedRing>>>>,
-    _reader: JoinHandle<()>,
-    /// Parks while output is held; unparked when the hold may have lifted.
+    /// Reads, processes and delivers output. Parks while output is held;
+    /// unparked when the hold may have lifted.
     emitter: JoinHandle<()>,
     _waiter: JoinHandle<()>,
     _input: JoinHandle<()>,
@@ -1063,7 +1081,11 @@ impl PtySession {
         let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
 
         let master = pair.master;
-        let reader = master.try_clone_reader().map_err(|e| e.to_string())?;
+        let output = (&*master as &dyn MasterPty)
+            .downcast_ref::<ConPtyMasterPty>()
+            .ok_or("unexpected PTY backend")?
+            .try_clone_output()
+            .map_err(|e| e.to_string())?;
         let writer = master.take_writer().map_err(|e| e.to_string())?;
 
         let child = Arc::new(parking_lot::Mutex::new(Some(child)));
@@ -1109,30 +1131,6 @@ impl PtySession {
         // held waiting for `pty_ensure` to finish.
         let output_ring = Arc::new(parking_lot::Mutex::new(Some(ring)));
 
-        let (tx, rx) = sync_channel::<Vec<u8>>(48);
-        let stop_reader = Arc::clone(&stop);
-        let _reader = thread::spawn(move || {
-            let mut reader = reader;
-            let mut buf = [0u8; 65536];
-            while !stop_reader.load(Ordering::SeqCst) {
-                match reader.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        let chunk = buf[..n].to_vec();
-                        if tx.send(chunk).is_err() {
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        if e.kind() == std::io::ErrorKind::Interrupted {
-                            continue;
-                        }
-                        break;
-                    }
-                }
-            }
-        });
-
         let stop_emitter = Arc::clone(&stop);
         let replay_emitter = Arc::clone(&replay_buffer);
         let app_emit = app.clone();
@@ -1147,61 +1145,42 @@ impl PtySession {
         // is torn down on hide and rebuilt on summon. The frontend gets a fresh
         // output ring on every `pty_ensure`; while output is gated, `pending`
         // is retained so the session transparently reattaches on resummon.
+        //
+        // One thread owns the whole output path: pipe → batch → OSC strip →
+        // replay → ring. It only reads while it can deliver, so a full ring or
+        // an output hold back-pressures the pipe and, through it, the shell.
         let emitter = thread::spawn(move || {
-            let batch_window = Duration::from_millis(PTY_OUTPUT_BATCH_MS);
-            let mut pending = Vec::<u8>::new();
+            let mut output = output;
+            let mut pending = Vec::with_capacity(PTY_OUTPUT_BATCH_BYTES);
+            let mut eof = false;
             let mut stripper = OscStripper::new();
             let mut alt_detector = AltScreenDetector::new();
             let mut alt_transitions = Vec::new();
             while !stop_emitter.load(Ordering::SeqCst) {
-                if pending.is_empty() {
-                    match rx.recv() {
-                        // Adopt the reader's allocation for the first chunk;
-                        // only additional chunks need copying to form a batch.
-                        Ok(chunk) => pending = chunk,
-                        Err(_) => break,
+                // Block for the next output, then take whatever the pipe
+                // already holds: batches grow with load instead of waiting on
+                // a timer, and a lone keystroke echo is delivered at once.
+                if !eof && pending.is_empty() {
+                    eof = read_into(&mut output, &mut pending, PTY_READ_BYTES) == 0;
+                }
+                while !eof && pending.len() < PTY_OUTPUT_BATCH_BYTES {
+                    let room = PTY_OUTPUT_BATCH_BYTES - pending.len();
+                    match output.bytes_available() {
+                        Ok(0) => break,
+                        Ok(n) => eof = read_into(&mut output, &mut pending, n.min(room)) == 0,
+                        Err(_) => eof = true,
                     }
                 }
-
-                let started = Instant::now();
-                let mut disconnected = false;
-                // Interactive fast-path: probe for queued chunks first. When the
-                // channel is empty (single-chunk echo from a keystroke), flush
-                // immediately instead of waiting out the batch window; once a
-                // second chunk arrives we know it's a stream and fall back to
-                // windowed batching.
-                let mut idle_probe = true;
-                while pending.len() < PTY_OUTPUT_BATCH_BYTES {
-                    let elapsed = started.elapsed();
-                    if elapsed >= batch_window {
+                if pending.is_empty() {
+                    if eof {
                         break;
                     }
-                    let wait = if idle_probe {
-                        Duration::ZERO
-                    } else {
-                        batch_window - elapsed
-                    };
-                    match rx.recv_timeout(wait) {
-                        Ok(chunk) => {
-                            if idle_probe {
-                                // A stream: size the batch once instead of
-                                // regrowing the adopted first chunk.
-                                pending.reserve(PTY_OUTPUT_BATCH_BYTES);
-                                idle_probe = false;
-                            }
-                            pending.extend_from_slice(&chunk);
-                        }
-                        Err(RecvTimeoutError::Timeout) => break,
-                        Err(RecvTimeoutError::Disconnected) => {
-                            disconnected = true;
-                            break;
-                        }
-                    }
+                    continue;
                 }
 
                 // Hold while JS has not finished scrollback restore. Held
-                // output stays bounded: the batch loop above stops reading at
-                // `PTY_OUTPUT_BATCH_BYTES`, back-pressuring the reader.
+                // output stays bounded: reading stops at
+                // `PTY_OUTPUT_BATCH_BYTES`, back-pressuring the pipe.
                 let unlocked = app_emit
                     .state::<crate::AppState>()
                     .pty_output_unlocked
@@ -1303,10 +1282,9 @@ impl PtySession {
                     &stop_emitter,
                     &cleaned_bytes,
                 );
-
-                if disconnected {
-                    break;
-                }
+                // Reuse the batch allocation for the next read.
+                pending = cleaned_bytes;
+                pending.clear();
             }
             if let Some(ring) = output_ring_emitter.lock().take() {
                 shared_ring::close(&app_emit, ring.id());
@@ -1362,7 +1340,6 @@ impl PtySession {
             stop,
             replay_buffer,
             output_ring,
-            _reader,
             emitter,
             _waiter,
             _input,

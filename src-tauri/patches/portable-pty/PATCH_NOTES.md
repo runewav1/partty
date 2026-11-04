@@ -50,6 +50,14 @@ layer (`src/win/mod.rs`, `src/win/psuedocon.rs`) so `RawHandle` values
 flow through the `windows-sys` signatures directly instead of relying
 on cast-driven type inference.
 
+Uncommitted (ParTTY output pipeline): sizes the ConPTY output pipe at
+128 KiB via `Pipe::with_buffer_size` (the default is a few KB, so floods
+blocked the pseudoconsole after every small write) and adds
+`ConPtyMasterPty::try_clone_output`, which returns the output pipe as a
+native `FileDescriptor` so a reader can use `bytes_available`.
+`filedescriptor` is now a path dependency on `../filedescriptor`, so this
+crate builds standalone against the patched copy rather than crates.io.
+
 ## Updating to a new upstream version
 
 ```sh

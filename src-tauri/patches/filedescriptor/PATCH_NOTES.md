@@ -32,6 +32,15 @@ to explicit versions so the crate builds outside the wezterm workspace:
 - `clippy::missing_safety_doc`: added `# Safety` sections to
   `from_raw_file_descriptor` and `from_socket_descriptor`
 
+### Sized pipes and a non-blocking availability probe (Windows)
+
+- `Pipe::with_buffer_size(size)` passes a buffer-size hint to `CreatePipe`
+  (`Pipe::new()` is `with_buffer_size(0)`, the system default). ParTTY uses
+  it for the ConPTY output pipe so bursts land in fewer, larger reads.
+- `FileDescriptor::bytes_available()` wraps `PeekNamedPipe`, letting a
+  reader drain what is already buffered without blocking. ParTTY's PTY
+  output thread uses it to batch by availability instead of by timer.
+
 ## Rationale
 
 The crates.io release `filedescriptor 0.8.3` still depends on `winapi`

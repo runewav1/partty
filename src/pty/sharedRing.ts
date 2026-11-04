@@ -4,12 +4,22 @@
  *
  * Rust posts each ring once per `pty_ensure` via `sharedbufferreceived`, then
  * sends coalesced `{ parttyRings: [[ringId, writePos], ...] }` web messages.
- * Bytes are copied out on notification and acknowledged immediately, so xterm
- * never holds a view into memory Rust may overwrite.
+ * Bytes are copied out on notification, so xterm never holds a view into
+ * memory Rust may overwrite.
+ *
+ * Flow control: acknowledging a read is what frees ring space for Rust. Once
+ * a session has `FLOW_HIGH_BYTES` handed to xterm but not yet parsed,
+ * acknowledgements pause until parsing (reported via `consumed`) brings it
+ * under `FLOW_LOW_BYTES`. The full ring then stalls Rust's reader, the pipe
+ * and finally the shell, instead of xterm's write queue growing unbounded.
  */
 
 /** Notices for rings whose buffer has not arrived yet; bounded against leaks. */
 const MAX_EARLY_NOTICES = 64;
+const FLOW_HIGH_BYTES = 1024 * 1024;
+const FLOW_LOW_BYTES = 256 * 1024;
+/** A hold with no parse progress for this long is assumed lost and lifted. */
+const FLOW_STALL_MS = 1000;
 
 type Ring = {
 	readonly id: number;
@@ -35,9 +45,20 @@ type RingMessage = {
 	parttyRingsClosed?: number[];
 };
 
+type Flow = {
+	/** Bytes handed to `onBytes` that xterm has not reported parsed. */
+	unparsed: number;
+	held: boolean;
+	stall: ReturnType<typeof setTimeout> | undefined;
+};
+
 export type SharedRingRegistry = {
 	receiveBuffer: (buffer: ArrayBuffer, additionalData: unknown) => void;
 	receiveMessage: (data: unknown) => void;
+	/** `bytes` delivered for `sessionId` were parsed (or dropped). */
+	consumed: (sessionId: string, bytes: number) => void;
+	/** Lift every hold, e.g. when the page is hidden and parsing throttles. */
+	releaseAll: () => void;
 	ringCount: () => number;
 };
 
@@ -67,9 +88,9 @@ function openRing(buffer: ArrayBuffer, info: unknown): Ring | null {
 }
 
 /**
- * Copy `[readPos, writePos)` out of the ring and acknowledge it. A position
- * further ahead than the ring can hold means the reader lost sync; skip to it
- * so Rust is never left waiting on a full ring.
+ * Copy `[readPos, writePos)` out of the ring. A position further ahead than
+ * the ring can hold means the reader lost sync; skip to it so Rust is never
+ * left waiting on a full ring.
  */
 function takeRingBytes(ring: Ring, writePos: number): Uint8Array | null {
 	const target = writePos >>> 0;
@@ -84,16 +105,23 @@ function takeRingBytes(ring: Ring, writePos: number): Uint8Array | null {
 		out.set(ring.data.subarray(0, avail - first), first);
 	}
 	ring.readPos = target;
-	Atomics.store(ring.header, 0, target);
 	return out;
+}
+
+/** Free everything read so far for Rust to overwrite. */
+function acknowledge(ring: Ring): void {
+	Atomics.store(ring.header, 0, ring.readPos);
 }
 
 export function createSharedRingRegistry(opts: {
 	onBytes: (sessionId: string, bytes: Uint8Array) => void;
 	release: (buffer: ArrayBuffer) => void;
+	/** False while parsing may be throttled (hidden page): never hold. */
+	flowControl: () => boolean;
 }): SharedRingRegistry {
 	const rings = new Map<number, Ring>();
 	const earlyNotices = new Map<number, number>();
+	const flows = new Map<string, Flow>();
 
 	/** Rust writes to a session's rings strictly in creation order. */
 	const releaseThrough = (sessionId: string, maxId: number): void => {
@@ -105,12 +133,39 @@ export function createSharedRingRegistry(opts: {
 		}
 	};
 
+	const lift = (sessionId: string, flow: Flow): void => {
+		flow.held = false;
+		clearTimeout(flow.stall);
+		for (const ring of rings.values()) {
+			if (ring.sessionId === sessionId) acknowledge(ring);
+		}
+	};
+
+	const armStall = (sessionId: string, flow: Flow): void => {
+		clearTimeout(flow.stall);
+		flow.stall = setTimeout(() => {
+			flow.unparsed = 0;
+			lift(sessionId, flow);
+		}, FLOW_STALL_MS);
+	};
+
 	const applyNotice = (ring: Ring, writePos: number): void => {
 		if (!ring.live) {
 			ring.live = true;
 			releaseThrough(ring.sessionId, ring.id - 1);
 		}
 		const bytes = takeRingBytes(ring, writePos);
+		let flow = flows.get(ring.sessionId);
+		if (!flow) {
+			flow = { unparsed: 0, held: false, stall: undefined };
+			flows.set(ring.sessionId, flow);
+		}
+		if (bytes) flow.unparsed += bytes.length;
+		if (!flow.held && flow.unparsed >= FLOW_HIGH_BYTES && opts.flowControl()) {
+			flow.held = true;
+			armStall(ring.sessionId, flow);
+		}
+		if (!flow.held) acknowledge(ring);
 		if (bytes) opts.onBytes(ring.sessionId, bytes);
 	};
 
@@ -139,7 +194,23 @@ export function createSharedRingRegistry(opts: {
 			for (const ringId of msg.parttyRingsClosed ?? []) {
 				earlyNotices.delete(ringId);
 				const ring = rings.get(ringId);
-				if (ring) releaseThrough(ring.sessionId, ring.id);
+				if (!ring) continue;
+				releaseThrough(ring.sessionId, ring.id);
+				clearTimeout(flows.get(ring.sessionId)?.stall);
+				flows.delete(ring.sessionId);
+			}
+		},
+		consumed(sessionId, bytes) {
+			const flow = flows.get(sessionId);
+			if (!flow) return;
+			flow.unparsed = Math.max(0, flow.unparsed - bytes);
+			if (!flow.held) return;
+			if (flow.unparsed <= FLOW_LOW_BYTES) lift(sessionId, flow);
+			else armStall(sessionId, flow);
+		},
+		releaseAll() {
+			for (const [sessionId, flow] of flows) {
+				if (flow.held) lift(sessionId, flow);
 			}
 		},
 		ringCount: () => rings.size,
@@ -161,16 +232,25 @@ type ChromeWebView = {
 	releaseBuffer(buffer: ArrayBuffer): void;
 };
 
-/** Route ring output to `onBytes`; a no-op outside WebView2. */
+/**
+ * Route ring output to `onBytes`; returns null outside WebView2. The caller
+ * must report every delivered byte through `consumed` once xterm parsed it.
+ */
 export function installSharedRings(
 	onBytes: (sessionId: string, bytes: Uint8Array) => void,
-): void {
+): SharedRingRegistry | null {
 	const webview = (globalThis as { chrome?: { webview?: ChromeWebView } })
 		.chrome?.webview;
-	if (!webview) return;
+	if (!webview) return null;
+	// Hidden pages throttle timers, and with them xterm's parsing: holding
+	// output then would stall background shells, so never hold while hidden.
 	const registry = createSharedRingRegistry({
 		onBytes,
 		release: (buffer) => webview.releaseBuffer(buffer),
+		flowControl: () => !document.hidden,
+	});
+	document.addEventListener("visibilitychange", () => {
+		if (document.hidden) registry.releaseAll();
 	});
 	webview.addEventListener("sharedbufferreceived", (event) =>
 		registry.receiveBuffer(event.getBuffer(), event.additionalData),
@@ -178,4 +258,5 @@ export function installSharedRings(
 	webview.addEventListener("message", (event) =>
 		registry.receiveMessage(event.data),
 	);
+	return registry;
 }

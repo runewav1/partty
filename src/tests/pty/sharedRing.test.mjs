@@ -4,12 +4,13 @@
  *
  * Buffers are built here with the layout Rust writes (read position at word
  * 0, data at `OFFSET`), so the tests pin the reader contract through the
- * registry: wrap-around copies, read acknowledgement, early notices, ring
- * replacement and close. Pure and synchronous.
+ * registry: wrap-around copies, read acknowledgement, flow control, early
+ * notices, ring replacement and close. Synchronous; the stall watchdog runs
+ * on mocked timers.
  */
 
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 
 const { createSharedRingRegistry } = await import("../../pty/sharedRing.ts");
 
@@ -35,15 +36,27 @@ function makeRing(id, sessionId, dataLength = 8) {
 		seek(pos) {
 			write = pos >>> 0;
 		},
+		/** Write `n` bytes without caring about their contents. */
+		advance(n) {
+			write = (write + n) >>> 0;
+			return write;
+		},
 	};
 }
 
-function makeRegistry() {
+const MiB = 1024 * 1024;
+
+function makeRegistry({ flowControl = () => true } = {}) {
 	const delivered = [];
 	const released = [];
 	const registry = createSharedRingRegistry({
-		onBytes: (sessionId, bytes) => delivered.push([sessionId, [...bytes]]),
+		onBytes: (sessionId, bytes) =>
+			delivered.push([
+				sessionId,
+				bytes.length <= 64 ? [...bytes] : bytes.length,
+			]),
 		release: (buffer) => released.push(buffer),
+		flowControl,
 	});
 	const notify = (ringId, pos) =>
 		registry.receiveMessage({ parttyRings: [[ringId, pos]] });
@@ -59,6 +72,61 @@ test("routes bytes to the ring's session and acknowledges them", () => {
 	assert.equal(a.readPos(), 2);
 	notify(1, 2);
 	assert.equal(delivered.length, 1);
+});
+
+function heldSession(opts) {
+	const reg = makeRegistry(opts);
+	const a = makeRing(1, "a", 4 * MiB);
+	reg.registry.receiveBuffer(a.buffer, a.info);
+	reg.notify(1, a.advance(MiB));
+	return { ...reg, a };
+}
+
+test("holds acknowledgements past the high mark until parsing catches up", () => {
+	const { registry, delivered, a } = heldSession();
+	assert.deepEqual(delivered, [["a", MiB]], "bytes are still delivered");
+	assert.equal(a.readPos(), 0, "ring space is not freed while xterm lags");
+	registry.consumed("a", 512 * 1024);
+	assert.equal(a.readPos(), 0, "still above the low mark");
+	registry.consumed("a", 300 * 1024);
+	assert.equal(a.readPos(), MiB, "below the low mark frees everything read");
+});
+
+test("never holds while flow control is off", () => {
+	const { a } = heldSession({ flowControl: () => false });
+	assert.equal(a.readPos(), MiB);
+});
+
+test("releaseAll lifts every hold", () => {
+	const { registry, a } = heldSession();
+	registry.releaseAll();
+	assert.equal(a.readPos(), MiB);
+});
+
+test("a hold without parse progress lifts itself", () => {
+	mock.timers.enable({ apis: ["setTimeout"] });
+	try {
+		const { a } = heldSession();
+		mock.timers.tick(999);
+		assert.equal(a.readPos(), 0);
+		mock.timers.tick(1);
+		assert.equal(a.readPos(), MiB);
+	} finally {
+		mock.timers.reset();
+	}
+});
+
+test("parse progress keeps a legitimate hold armed", () => {
+	mock.timers.enable({ apis: ["setTimeout"] });
+	try {
+		const { registry, a } = heldSession();
+		mock.timers.tick(900);
+		registry.consumed("a", 64 * 1024);
+		mock.timers.tick(900);
+		assert.equal(a.readPos(), 0, "progress re-armed the stall timer");
+	} finally {
+		mock.timers.reset();
+	}
 });
 
 test("copies across the wrap point", () => {

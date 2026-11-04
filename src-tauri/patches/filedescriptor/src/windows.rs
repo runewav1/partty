@@ -25,7 +25,7 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_TYPE_CHAR, FILE_TYPE_DISK, FILE_TYPE_PIPE, GetFileType, ReadFile, WriteFile,
 };
 use windows_sys::Win32::System::Console::{GetStdHandle, SetStdHandle};
-use windows_sys::Win32::System::Pipes::{CreatePipe, GetNamedPipeInfo};
+use windows_sys::Win32::System::Pipes::{CreatePipe, GetNamedPipeInfo, PeekNamedPipe};
 use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
 /// `RawFileDescriptor` is a platform independent type alias for the
@@ -416,8 +416,38 @@ impl io::Write for FileDescriptor {
     }
 }
 
+impl FileDescriptor {
+    /// Bytes buffered in this pipe that `read` can return without blocking.
+    /// Fails with `BrokenPipe` once the write end is closed and drained.
+    pub fn bytes_available(&self) -> std::io::Result<usize> {
+        let mut avail = 0u32;
+        let ok = unsafe {
+            PeekNamedPipe(
+                self.handle.as_raw_handle() as *mut _,
+                ptr::null_mut(),
+                0,
+                ptr::null_mut(),
+                &mut avail,
+                ptr::null_mut(),
+            )
+        };
+        if ok == 0 {
+            Err(IoError::last_os_error())
+        } else {
+            Ok(avail as usize)
+        }
+    }
+}
+
 impl Pipe {
     pub fn new() -> Result<Pipe> {
+        Self::with_buffer_size(0)
+    }
+
+    /// Create a pipe with a `size`-byte buffer hint (0 = system default).
+    /// A larger buffer lets the writer hand over big bursts without
+    /// blocking, so the reader sees fewer, larger reads.
+    pub fn with_buffer_size(size: u32) -> Result<Pipe> {
         let sa = SECURITY_ATTRIBUTES {
             nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
             lpSecurityDescriptor: ptr::null_mut(),
@@ -425,7 +455,7 @@ impl Pipe {
         };
         let mut read: HANDLE = INVALID_HANDLE_VALUE as _;
         let mut write: HANDLE = INVALID_HANDLE_VALUE as _;
-        if unsafe { CreatePipe(&mut read, &mut write, &sa, 0) } == 0 {
+        if unsafe { CreatePipe(&mut read, &mut write, &sa, size) } == 0 {
             Err(Error::Pipe(IoError::last_os_error()))
         } else {
             Ok(Pipe {
