@@ -22,7 +22,6 @@ tauri = { version = "2", default-features = false, features = [
     "wry",
     "compression",
     "common-controls-v6",
-    "dynamic-acl",
 ] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"

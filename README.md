@@ -19,7 +19,6 @@ Take a look:
 
 https://github.com/user-attachments/assets/50b6efde-94e8-49dc-b8a8-38c7b454d877
 
-
 ### Tabs and Panes
 
 - Fast, organic pane splits. Move panes anywhere, resize them however you want. Set them to float.

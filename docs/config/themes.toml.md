@@ -60,6 +60,7 @@ those paths are colors-only (subtractive: `[prefs]` is ignored).
 ## Examples
 
 **Minimal (colors only):**
+
 ```toml
 version = 1
 name = "my-theme"
@@ -73,6 +74,7 @@ name = "my-theme"
 ```
 
 **With preference overrides:**
+
 ```toml
 version = 1
 name = "soft-amber"
