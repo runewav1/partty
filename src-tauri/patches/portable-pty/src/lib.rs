@@ -55,8 +55,6 @@ pub mod unix;
 #[cfg(windows)]
 pub mod win;
 
-pub mod serial;
-
 /// Represents the size of the visible display area in the pty
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde_support", derive(Serialize, Deserialize))]

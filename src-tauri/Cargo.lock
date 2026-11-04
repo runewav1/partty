@@ -2574,7 +2574,6 @@ dependencies = [
  "libc",
  "log",
  "nix",
- "serial2",
  "shell-words",
  "windows-sys 0.61.2",
 ]
@@ -3055,17 +3054,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
-]
-
-[[package]]
-name = "serial2"
-version = "0.2.39"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c924c7ef58d1fb741cfecb65b9b38a9e049841edd1e419544089f0cbb5a127e7"
-dependencies = [
- "cfg-if",
- "libc",
- "windows-sys 0.61.2",
 ]
 
 [[package]]

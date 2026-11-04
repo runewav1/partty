@@ -2,6 +2,7 @@ use crate::clipboard;
 use crate::prefs::Prefs;
 use crate::profiles::{ConnectionProfile, ProfileKind};
 use crate::shared_ring::{self, SharedRing};
+use crate::shell_discovery::resolve_on_path;
 use parking_lot::Mutex as ParkingMutex;
 use portable_pty::win::conpty::ConPtyMasterPty;
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
@@ -1392,11 +1393,6 @@ impl Drop for PtySession {
     }
 }
 
-/// Resolve PowerShell 7+ for GUI apps where `PATH` may omit the install directory.
-fn resolve_pwsh_executable() -> Option<PathBuf> {
-    crate::shell_discovery::resolve_pwsh(false)
-}
-
 /// Standard Git for Windows `bin\bash.exe` locations (not `sh.exe`).
 fn git_bash_standard_paths() -> Vec<PathBuf> {
     let mut v = Vec::new();
@@ -1524,8 +1520,10 @@ fn detect_available_shells_uncached() -> Vec<DetectedShell> {
     let (pwsh_result, powershell_result, cmd_result, bash_result, wsl_result) =
         std::thread::scope(|s| {
             // PowerShell 7 (pwsh)
-            let pwsh =
-                s.spawn(|| resolve_pwsh_executable().map(|p| p.to_string_lossy().into_owned()));
+            let pwsh = s.spawn(|| {
+                crate::shell_discovery::resolve_pwsh(false)
+                    .map(|p| p.to_string_lossy().into_owned())
+            });
 
             // Windows PowerShell (powershell.exe)
             let ps_system_path = PathBuf::from(&sys_root)
@@ -2020,10 +2018,6 @@ fn write_shell_integration_script(name: &str, contents: &str) -> Result<PathBuf,
     Ok(path)
 }
 
-fn resolve_on_path(name: &str) -> Option<PathBuf> {
-    crate::shell_discovery::resolve_on_path(name)
-}
-
 /// Explicit paths take precedence over every automatic resolver, including for
 /// recognized shell kinds. Never silently substitute another shell for a bad path.
 fn configured_shell_path(shell: &str) -> Result<Option<PathBuf>, String> {
@@ -2070,7 +2064,7 @@ fn windows_shell_command(
                 cached_resolve("pwsh-preview", || crate::shell_discovery::resolve_pwsh(true))
                     .ok_or_else(|| "PowerShell Preview not found. Set the profile `shell` to its full executable path.".to_string())?
             } else if matches!(kind, ShellKind::Pwsh) {
-                cached_resolve("pwsh", resolve_pwsh_executable)
+                cached_resolve("pwsh", || crate::shell_discovery::resolve_pwsh(false))
                     .ok_or_else(|| "PowerShell (pwsh) not found in PATH, installer registrations, or known install locations. Set the profile `shell` to its full executable path.".to_string())?
             } else {
                 cached_resolve("powershell", || resolve_on_path("powershell.exe"))

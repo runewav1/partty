@@ -12,7 +12,6 @@ codegen-units = 1
 
 [lib]
 name = "partty_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

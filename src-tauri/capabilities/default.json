@@ -16,9 +16,6 @@
 		"core:window:allow-destroy",
 		"core:event:allow-listen",
 		"core:event:allow-emit",
-		"global-shortcut:allow-register",
-		"global-shortcut:allow-unregister",
-		"global-shortcut:allow-is-registered",
 		"partty-ipc"
 	]
 }

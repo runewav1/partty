@@ -58,6 +58,12 @@ native `FileDescriptor` so a reader can use `bytes_available`.
 `filedescriptor` is now a path dependency on `../filedescriptor`, so this
 crate builds standalone against the patched copy rather than crates.io.
 
+Uncommitted (dependency pruning): removes the serial-port backend
+(`src/serial.rs`, `serial2`), which ParTTY never uses, and moves the
+unix-only `libc`, `nix` and `shell-words` dependencies under
+`cfg(unix)`. `CommandBuilder::as_unix_command_line` (the only
+`shell-words` user) is now `#[cfg(unix)]`.
+
 ## Updating to a new upstream version
 
 ```sh

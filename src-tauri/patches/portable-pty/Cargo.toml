@@ -57,18 +57,8 @@ version = "1.0"
 version = "0.8.3"
 path = "../filedescriptor"
 
-[dependencies.libc]
-version = "0.2"
-
 [dependencies.log]
 version = "0.4"
-
-[dependencies.nix]
-version = "0.28"
-features = [
-    "term",
-    "fs",
-]
 
 [dependencies.serde]
 version = "1.0"
@@ -77,12 +67,6 @@ optional = true
 [dependencies.serde_derive]
 version = "1.0"
 optional = true
-
-[dependencies.serial2]
-version = "0.2"
-
-[dependencies.shell-words]
-version = "1.1"
 
 [dev-dependencies.futures]
 version = "0.3"
@@ -96,6 +80,19 @@ serde_support = [
     "serde",
     "serde_derive",
 ]
+
+[target."cfg(unix)".dependencies.libc]
+version = "0.2"
+
+[target."cfg(unix)".dependencies.nix]
+version = "0.28"
+features = [
+    "term",
+    "fs",
+]
+
+[target."cfg(unix)".dependencies.shell-words]
+version = "1.1"
 
 [target."cfg(windows)".dependencies.windows-sys]
 version = "0.61"

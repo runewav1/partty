@@ -479,6 +479,7 @@ impl CommandBuilder {
 
     /// Return the configured command and arguments as a single string,
     /// quoted per the unix shell conventions.
+    #[cfg(unix)]
     pub fn as_unix_command_line(&self) -> anyhow::Result<String> {
         let mut strs = vec![];
         for arg in &self.args {
