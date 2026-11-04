@@ -75,7 +75,7 @@ https://github.com/user-attachments/assets/50b6efde-94e8-49dc-b8a8-38c7b454d877
 
 ### Command Palette
 
-- Find keybind shortcuts, list running processes, panes, restart your session, quit, and more, from an easily
+- Find keybind shortcuts, list running processes, panes, dismiss the window, quit, and more, from an easily
   accessible command palette.
 
 ### Theming

@@ -1570,19 +1570,6 @@ async function boot(): Promise<void> {
 		await closeFocusedPane(paneId);
 	}
 
-	async function closeAllChildPanes(): Promise<void> {
-		paneHost?.closeAllChildPanes();
-		const r = paneHost?.getRootPaneId();
-		if (r) {
-			const pt = paneHost?.getPaneTerminal(r);
-			if (pt) {
-				pt.term.focus();
-				void ptyFocusPane(pt.sessionId).catch(() => {});
-			}
-		}
-		scheduleResizeImmediate();
-	}
-
 	function disposeWebglForPane(paneId: string): void {
 		const state = paneWebglStates.get(paneId);
 		if (!state) return;
@@ -1694,25 +1681,6 @@ async function boot(): Promise<void> {
 		const ids: string[] = [];
 		paneHost?.forEachPane((id) => ids.push(id));
 		await Promise.all(ids.map((id) => ensureWebglOnPane(id)));
-	}
-
-	async function setBackgroundWorkMode(keepAlive: boolean): Promise<void> {
-		const current = persisted.prefs as Partial<ParttyPrefs>;
-		const next: ParttyPrefs = {
-			...(current as ParttyPrefs),
-			shed_on_hide: !keepAlive,
-			destroy_webview_on_hide: true,
-			webgl_shed_on_hide: true,
-			discard_buffer_on_hide: !keepAlive,
-		};
-		await invoke("set_prefs", { prefs: next });
-		persisted.prefs = next as unknown as Record<string, unknown>;
-		Object.assign(lp, mergeLifecyclePrefs(persisted.prefs));
-	}
-
-	function isBackgroundWorkMode(): boolean {
-		const p = persisted.prefs as Partial<ParttyPrefs>;
-		return p.shed_on_hide !== true && p.discard_buffer_on_hide !== true;
 	}
 
 	function isTerminalVisiblyEmpty(term: Terminal): boolean {
@@ -5704,14 +5672,6 @@ async function boot(): Promise<void> {
 					void beginWorkspacePicker();
 				},
 			},
-			{
-				id: "pane-close-children",
-				label: "Reset layout",
-				keywords: "reset layout keep main root initial close children",
-				run: () => {
-					void closeAllChildPanes();
-				},
-			},
 			// --- View / appearance ---
 			// The hide/show toggle only matters with multiple tabs; a single tab
 			// bar is not worth hiding (and there's always at least one tab).
@@ -5764,20 +5724,6 @@ async function boot(): Promise<void> {
 
 			// --- Terminal / session ---
 			{
-				id: "new-session",
-				label: "Restart session",
-				keywords: "restart shell pty new terminal",
-				run: () => void newTerminalSession(),
-			},
-			{
-				id: "focus-terminal",
-				label: "Focus terminal",
-				keywords: "keyboard input",
-				run: () => {
-					getFocusedTerm()?.focus();
-				},
-			},
-			{
 				id: "find-in-terminal",
 				label: "Find in terminal",
 				keywords: "search locate text scrollback query find",
@@ -5797,15 +5743,14 @@ async function boot(): Promise<void> {
 				keywords: "clipboard context edit",
 				run: () => void pasteFromClipboard(),
 			},
-			{
-				id: "toggle-background-work",
-				label: isBackgroundWorkMode() ? "Shed on hide" : "Keep alive on hide",
-				keywords:
-					"background keep alive pty buffer webview shed hide memory agent logs tui session",
-				run: () => void setBackgroundWorkMode(!isBackgroundWorkMode()),
-			},
 			// --- App ---
-			// Settings and the window operations are keybind-driven (help modal).
+			{
+				id: "dismiss",
+				label: "Dismiss",
+				keywords: "hide window overlay",
+				hotkey: k.label("window_toggle"),
+				run: () => void invoke("toggle_overlay").catch(() => {}),
+			},
 			{
 				id: "help-hotkeys",
 				label: "Shortcuts",
@@ -5907,7 +5852,6 @@ async function boot(): Promise<void> {
 				hotkey: k.label("window_move_prev_monitor"),
 				label: "Window to previous monitor",
 			},
-			{ hotkey: k.label("window_toggle"), label: "Hide / show overlay" },
 			{
 				hotkey: k.label("notification_focus"),
 				label: "Go to finished process",

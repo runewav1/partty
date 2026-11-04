@@ -1331,39 +1331,6 @@ export class PaneHost {
 		return true;
 	}
 
-	closeAllChildPanes(): string[] {
-		const ids: string[] = [];
-		collectLeafIds(this.tree, ids);
-		const removed = ids.filter((id) => id !== this.rootPaneId);
-		if (removed.length === 0) {
-			this.setFocusedPaneId(this.rootPaneId);
-			return removed;
-		}
-		for (const paneId of removed) {
-			if (this.floating.get(paneId)?.follow) this.removeFollowMountLeaf(paneId);
-			const pt = this.terminals.get(paneId);
-			if (pt) {
-				try {
-					pt.fit.dispose();
-					pt.term.dispose();
-					scheduleReclaim();
-				} catch {
-					/* ignore */
-				}
-				this.terminals.delete(paneId);
-				this.opts.onPaneDisposed(paneId, pt.sessionId);
-			}
-		}
-		this.tree = { kind: "leaf", id: this.rootPaneId };
-		this.floating.clear();
-		this.focusedId = this.rootPaneId;
-		this.mountTree();
-		this.opts.onPaneLayout?.();
-		this.updateFocusClass();
-		this.opts.onPaneFocus(this.rootPaneId);
-		return removed;
-	}
-
 	/**
 	 * Swap positions of two leaf panes in the split tree. PTY/xterm instances stay bound to pane ids.
 	 * @returns false if either id is missing or there is only one pane.
