@@ -19,6 +19,8 @@ type Ring = {
 	readonly header: Uint32Array;
 	readonly data: Uint8Array;
 	readPos: number;
+	/** Set on the first notice, once older rings of the session are released. */
+	live: boolean;
 };
 
 type RingAnnouncement = {
@@ -60,6 +62,7 @@ function openRing(buffer: ArrayBuffer, info: unknown): Ring | null {
 		header: new Uint32Array(buffer, 0, 1),
 		data: new Uint8Array(buffer, dataOffset, dataLength),
 		readPos: 0,
+		live: false,
 	};
 }
 
@@ -103,7 +106,10 @@ export function createSharedRingRegistry(opts: {
 	};
 
 	const applyNotice = (ring: Ring, writePos: number): void => {
-		releaseThrough(ring.sessionId, ring.id - 1);
+		if (!ring.live) {
+			ring.live = true;
+			releaseThrough(ring.sessionId, ring.id - 1);
+		}
 		const bytes = takeRingBytes(ring, writePos);
 		if (bytes) opts.onBytes(ring.sessionId, bytes);
 	};

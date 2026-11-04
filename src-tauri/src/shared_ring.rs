@@ -161,9 +161,11 @@ fn create_on_ui(
 /// Ring positions and closures awaiting the next UI-thread flush. Positions
 /// keep first-insertion order so a replaced ring's final position reaches JS
 /// before its successor's first one.
-#[derive(Default)]
+#[derive(Default, serde::Serialize)]
 struct Pending {
+    #[serde(rename = "parttyRings")]
     positions: Vec<(u32, u32)>,
+    #[serde(rename = "parttyRingsClosed")]
     closed: Vec<u32>,
 }
 
@@ -203,11 +205,9 @@ fn schedule_flush(app: &AppHandle) {
             if pending.positions.is_empty() && pending.closed.is_empty() {
                 return;
             }
-            let message = serde_json::json!({
-                "parttyRings": pending.positions,
-                "parttyRingsClosed": pending.closed,
-            })
-            .to_string();
+            let Ok(message) = serde_json::to_string(&pending) else {
+                return;
+            };
             let message = CoTaskMemPWSTR::from(message.as_str());
             unsafe {
                 if let Ok(core) = webview.controller().CoreWebView2() {

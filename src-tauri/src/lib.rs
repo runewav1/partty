@@ -77,7 +77,17 @@ fn take_webview_destroyed_for_hide(state: State<'_, AppState>) -> bool {
 
 #[tauri::command]
 fn set_pty_output_unlocked(state: State<'_, AppState>, unlocked: bool) {
+    set_output_gate(&state, unlocked);
+}
+
+/// Gate PTY output delivery; unlocking wakes emitters holding output.
+fn set_output_gate(state: &AppState, unlocked: bool) {
     state.pty_output_unlocked.store(unlocked, Ordering::SeqCst);
+    if unlocked {
+        for session in state.pty_panes.lock().values() {
+            session.wake_output();
+        }
+    }
 }
 
 #[tauri::command]
@@ -701,7 +711,7 @@ fn toggle_window(app: &AppHandle) {
         if state.persisted.lock().prefs.destroy_webview_on_hide {
             let _ = win.unmaximize();
             state.hide_buffers_ready.store(false, Ordering::SeqCst);
-            state.pty_output_unlocked.store(false, Ordering::SeqCst);
+            set_output_gate(&state, false);
         }
         window_state::snapshot_and_save(app);
         let _ = win.emit("partty-hide", ());
@@ -710,7 +720,7 @@ fn toggle_window(app: &AppHandle) {
     } else {
         // Cancel pending destroy; live xterm still has scrollback.
         state.hide_destroy_generation.fetch_add(1, Ordering::SeqCst);
-        state.pty_output_unlocked.store(true, Ordering::SeqCst);
+        set_output_gate(&state, true);
         let defer = state
             .persisted
             .lock()
@@ -884,8 +894,8 @@ fn pty_ensure_blocking(
         &spawn_prefs,
         None,
         profile.as_ref(),
+        ring,
     )?);
-    session.set_output_ring(ring);
     state.pty_panes.lock().insert(session_id.clone(), session);
     state.pty_spawn_identity.lock().insert(session_id, want);
     Ok(())

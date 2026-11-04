@@ -24,8 +24,6 @@ const SHELL_INTEGRATION_ZSH: &str = include_str!("../scripts/shell_int.partty.zs
 const PTY_OUTPUT_BATCH_BYTES: usize = 128 * 1024;
 const PTY_OUTPUT_BATCH_MS: u64 = 3;
 const PTY_REPLAY_BUFFER_BYTES: usize = 4 * 1024 * 1024;
-/// Cap held PTY bytes while the webview is gone or output is gated for restore.
-const PTY_PENDING_HOLD_MAX_BYTES: usize = 8 * 1024 * 1024;
 
 /// Bounded byte ring. Eviction advances the head rather than moving retained
 /// output; only snapshots need contiguous storage.
@@ -1025,12 +1023,15 @@ pub struct PtySession {
     /// webview re-subscribes without restarting the reader/emitter threads.
     output_ring: Arc<parking_lot::Mutex<Option<Arc<SharedRing>>>>,
     _reader: JoinHandle<()>,
-    _emitter: JoinHandle<()>,
+    /// Parks while output is held; unparked when the hold may have lifted.
+    emitter: JoinHandle<()>,
     _waiter: JoinHandle<()>,
     _input: JoinHandle<()>,
 }
 
 impl PtySession {
+    // Mirrors `pty_ensure`'s spawn inputs plus the session's output ring.
+    #[allow(clippy::too_many_arguments)]
     pub fn spawn_with_profile(
         app: AppHandle,
         session_id: String,
@@ -1039,6 +1040,7 @@ impl PtySession {
         prefs: &Prefs,
         initial_cwd: Option<String>,
         profile: Option<&ConnectionProfile>,
+        ring: Arc<SharedRing>,
     ) -> Result<Self, String> {
         let mut prefs = prefs.clone();
         if let Some(cwd) = initial_cwd {
@@ -1103,7 +1105,9 @@ impl PtySession {
         let replay_buffer = Arc::new(parking_lot::Mutex::new(ReplayBuffer::new(
             PTY_REPLAY_BUFFER_BYTES,
         )));
-        let output_ring = Arc::new(parking_lot::Mutex::new(None));
+        // Attached before the emitter starts so ConPTY's first output is never
+        // held waiting for `pty_ensure` to finish.
+        let output_ring = Arc::new(parking_lot::Mutex::new(Some(ring)));
 
         let (tx, rx) = sync_channel::<Vec<u8>>(48);
         let stop_reader = Arc::clone(&stop);
@@ -1141,9 +1145,9 @@ impl PtySession {
         // NOTE: do NOT capture a `WebviewWindow` here.  When
         // `destroy_webview_on_hide` is enabled (the default), the main webview
         // is torn down on hide and rebuilt on summon. The frontend gets a fresh
-        // output ring on every `pty_ensure`; until one is attached, `pending`
+        // output ring on every `pty_ensure`; while output is gated, `pending`
         // is retained so the session transparently reattaches on resummon.
-        let _emitter = thread::spawn(move || {
+        let emitter = thread::spawn(move || {
             let batch_window = Duration::from_millis(PTY_OUTPUT_BATCH_MS);
             let mut pending = Vec::<u8>::new();
             let mut stripper = OscStripper::new();
@@ -1179,8 +1183,13 @@ impl PtySession {
                     };
                     match rx.recv_timeout(wait) {
                         Ok(chunk) => {
+                            if idle_probe {
+                                // A stream: size the batch once instead of
+                                // regrowing the adopted first chunk.
+                                pending.reserve(PTY_OUTPUT_BATCH_BYTES);
+                                idle_probe = false;
+                            }
                             pending.extend_from_slice(&chunk);
-                            idle_probe = false;
                         }
                         Err(RecvTimeoutError::Timeout) => break,
                         Err(RecvTimeoutError::Disconnected) => {
@@ -1190,22 +1199,21 @@ impl PtySession {
                     }
                 }
 
-                // Hold while JS has not finished scrollback restore, or before
-                // `pty_ensure` attaches the newly spawned session's output ring.
+                // Hold while JS has not finished scrollback restore. Held
+                // output stays bounded: the batch loop above stops reading at
+                // `PTY_OUTPUT_BATCH_BYTES`, back-pressuring the reader.
                 let unlocked = app_emit
                     .state::<crate::AppState>()
                     .pty_output_unlocked
                     .load(Ordering::SeqCst);
                 let ring = output_ring_emitter.lock().clone();
                 let (true, Some(ring)) = (unlocked, ring) else {
-                    if pending.len() > PTY_PENDING_HOLD_MAX_BYTES {
-                        let excess = pending.len() - PTY_PENDING_HOLD_MAX_BYTES;
-                        pending.drain(..excess);
-                    }
-                    thread::sleep(Duration::from_millis(20));
+                    // Unparked by `PtySession::wake_output`; the timeout only
+                    // bounds a missed wake.
+                    thread::park_timeout(Duration::from_millis(20));
                     continue;
                 };
-                let sid = session_id_emitter.clone();
+                let sid = &session_id_emitter;
 
                 // Strip OSC 7 / 133 / 633 in Rust; emit side-channel events.
                 // `process` takes ownership of the batch: chunks without OSC
@@ -1355,7 +1363,7 @@ impl PtySession {
             replay_buffer,
             output_ring,
             _reader,
-            _emitter,
+            emitter,
             _waiter,
             _input,
         })
@@ -1368,10 +1376,15 @@ impl PtySession {
             .map_err(|_| "pty input closed".to_string())
     }
 
-    /// Attach (or replace) the output ring. Called on every `pty_ensure` so a
-    /// freshly built webview re-subscribes.
+    /// Replace the output ring so a freshly built webview re-subscribes.
     pub fn set_output_ring(&self, ring: Arc<SharedRing>) {
         *self.output_ring.lock() = Some(ring);
+        self.wake_output();
+    }
+
+    /// Re-check the output hold now instead of at the next poll.
+    pub fn wake_output(&self) {
+        self.emitter.thread().unpark();
     }
 
     pub fn replay_snapshot(&self) -> Vec<u8> {
