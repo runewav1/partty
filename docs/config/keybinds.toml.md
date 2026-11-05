@@ -32,6 +32,7 @@ All configurable actions and their defaults:
 | Action                     | Default                 |
 | -------------------------- | ----------------------- |
 | `pane_split_down`          | `Alt+H`                 |
+| `pane_toggle_split_orientation` | `Alt+-`             |
 | `pane_split_right`         | `Alt+V`                 |
 | `profile_split_down`       | `Alt+Shift+H`           |
 | `profile_split_right`      | `Alt+Shift+V`           |

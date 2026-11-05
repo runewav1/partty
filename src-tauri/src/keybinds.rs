@@ -28,6 +28,7 @@ fn default_binds_map() -> HashMap<String, String> {
 const DEFAULTS: &[(&str, &str)] = &[
     ("pane_split_down", "Alt+H"),
     ("pane_split_right", "Alt+V"),
+    ("pane_toggle_split_orientation", "Alt+-"),
     ("profile_split_down", "Alt+Shift+H"),
     ("profile_split_right", "Alt+Shift+V"),
     ("pane_close", "Ctrl+Shift+W"),
@@ -448,6 +449,24 @@ mod keybinds_tests {
                 .bind
                 .contains_key("terminal_find")
         );
+    }
+
+    #[test]
+    fn split_orientation_default_override_and_unbind() {
+        let action = "pane_toggle_split_orientation";
+        for (source, expected) in [
+            ("", Some("Alt+-")),
+            (
+                "[bind]\npane_toggle_split_orientation = \"Ctrl+R\"\n",
+                Some("Ctrl+R"),
+            ),
+            ("unbind = [\"pane_toggle_split_orientation\"]\n", None),
+        ] {
+            let mut kb: KeybindsFile = toml::from_str(source).unwrap();
+            merge_defaults(&mut kb);
+            let snapshot = KeybindsSnapshot::from(&kb);
+            assert_eq!(snapshot.bind.get(action).map(String::as_str), expected);
+        }
     }
 
     #[test]

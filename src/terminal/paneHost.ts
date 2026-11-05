@@ -1354,6 +1354,54 @@ export class PaneHost {
 		return true;
 	}
 
+	private hasTiledPane(node: PaneNode): boolean {
+		return node.kind === "leaf"
+			? !this.floating.has(node.id)
+			: this.hasTiledPane(node.a) || this.hasTiledPane(node.b);
+	}
+
+	/** Find the closest split with tiled panes on both sides, in the full tree. */
+	private paneSplitPath(paneId: string): string | null {
+		if (this.floating.has(paneId)) return null;
+		let splitPath: string | null = null;
+		const visit = (node: PaneNode, path: string): boolean => {
+			if (node.kind === "leaf") return node.id === paneId;
+			const inA = visit(node.a, `${path}a`);
+			if (!inA && !visit(node.b, `${path}b`)) return false;
+			// Unwind from the leaf: the first tiled sibling is the closest
+			// visible split. No repeated ancestor searches or pruned-tree copies.
+			if (splitPath === null && this.hasTiledPane(inA ? node.b : node.a)) {
+				splitPath = path;
+			}
+			return true;
+		};
+		visit(this.tree, "");
+		return splitPath;
+	}
+
+	canToggleSplitOrientation(paneId: string): boolean {
+		return this.paneSplitPath(paneId) !== null;
+	}
+
+	/** Rotate only the pane's nearest visible split; terminals/sessions stay put. */
+	toggleSplitOrientation(paneId: string): boolean {
+		const path = this.paneSplitPath(paneId);
+		if (path === null) return false;
+		const split = getNodeByPath(this.tree, path);
+		if (split.kind !== "split") return false;
+		const affected: string[] = [];
+		collectLeafIds(split, affected);
+		const motion = this.capturePaneMotion(affected);
+		this.tree = setNodeByPath(this.tree, path, {
+			...split,
+			dir: split.dir === "h" ? "v" : "h",
+		});
+		this.mountTree();
+		this.playPaneMotion(motion);
+		this.setFocusedPaneId(paneId);
+		return true;
+	}
+
 	private capturePaneMotion(
 		ids = this.getLeafIdsInOrder(),
 	): PaneMotionSnapshot {
@@ -2124,6 +2172,16 @@ export class PaneHost {
 		el: HTMLElement,
 		orig: PaneNode,
 	): PaneNode {
+		// Floating-only branches are collapsed in the DOM, but retained in the
+		// stored tree. Follow the surviving branch before reading its ratio.
+		if (orig.kind === "split") {
+			if (!this.hasTiledPane(orig.a)) {
+				return { ...orig, b: this.syncRatiosWalk(pruned, el, orig.b) };
+			}
+			if (!this.hasTiledPane(orig.b)) {
+				return { ...orig, a: this.syncRatiosWalk(pruned, el, orig.a) };
+			}
+		}
 		if (pruned.kind !== "split" || orig.kind !== "split") return orig;
 		if (!el.classList.contains("pane-split")) return orig;
 		const ratio = Number(el.dataset.ratio ?? "0.5");

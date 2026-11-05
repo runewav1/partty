@@ -169,6 +169,7 @@ export function firstMatchingWheelAction(
 export const DEFAULT_BINDS: Record<string, string> = {
 	pane_split_down: "Alt+H",
 	pane_split_right: "Alt+V",
+	pane_toggle_split_orientation: "Alt+-",
 	profile_split_down: "Alt+Shift+H",
 	profile_split_right: "Alt+Shift+V",
 	// biome-ignore lint/security/noSecrets: keybind literal, not a secret

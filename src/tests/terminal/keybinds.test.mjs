@@ -69,6 +69,7 @@ test("default UI shortcuts run on each press, never on held repeats", async () =
 		"pane_float_toggle",
 		"pane_float_new",
 		"pane_float_follow",
+		"pane_toggle_split_orientation",
 		"profile_split_right",
 		"profile_split_down",
 		"profile_float_new",
@@ -101,6 +102,25 @@ test("configured shortcuts replace defaults and remain single-press", async () =
 		api.match(event(DEFAULT_BINDS.palette_open), "palette_open"),
 		"palette_open",
 	);
+});
+
+test("split orientation labels and matching follow overrides, updates and unbinds", async () => {
+	const action = "pane_toggle_split_orientation";
+	assert.equal(DEFAULT_BINDS[action], "Alt+-");
+	const api = await bindings({ ...DEFAULT_BINDS, [action]: "Ctrl+R" });
+	assert.equal(api.label(action), "Ctrl+R");
+	assert.equal(api.match(event("Alt+-"), action), null);
+	assert.equal(api.match(event("Ctrl+R"), action), action);
+	await api.set(action, "Alt+J");
+	assert.equal(api.label(action), "Alt+J");
+	assert.equal(api.match(event("Ctrl+R"), action), null);
+	assert.equal(api.match(event("Alt+J"), action), action);
+	await api.set(action, "");
+	assert.equal(api.all()[action], "");
+	assert.equal(api.match(event("Alt+J"), action), null);
+	const unbound = await bindings({});
+	assert.equal(unbound.all()[action], undefined);
+	assert.equal(unbound.match(event("Alt+-"), action), null);
 });
 
 test("ordinary keys and every nonmatching modifier combination are untouched", async () => {

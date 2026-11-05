@@ -815,6 +815,100 @@ function leafTarget(leaf) {
 	};
 }
 
+test("split orientation toggles only the nearest visible split without replacing terminals", async () => {
+	const load = await modules({}, { elementClass: FakeElement });
+	const { PaneHost, collectLeafIds } = await load("terminal/paneHost.ts");
+	const leaf = (id) => ({ kind: "leaf", id });
+	const split = (a, b, dir = "h", ratio = 0.6) => ({
+		kind: "split",
+		dir,
+		ratio,
+		a,
+		b,
+	});
+	const floating = { f: { x: 0, y: 0, width: 320, height: 200, z: 1 } };
+	for (const { tree, focus, path, floats } of [
+		{ tree: split(leaf("a"), leaf("b")), focus: "a", path: "" },
+		{
+			tree: split(leaf("a"), split(leaf("b"), leaf("c"), "v")),
+			focus: "b",
+			path: "b",
+		},
+		{
+			tree: split(leaf("a"), split(leaf("b"), leaf("c"), "v")),
+			focus: "a",
+			path: "",
+		},
+		{
+			tree: split(split(leaf("a"), leaf("f")), leaf("b"), "v", 0.7),
+			focus: "a",
+			path: "",
+			floats: floating,
+		},
+		{
+			tree: split(leaf("f"), split(leaf("a"), leaf("b")), "v", 0.7),
+			focus: "a",
+			path: "b",
+			floats: floating,
+		},
+		{
+			tree: split(leaf("a"), leaf("f")),
+			focus: "f",
+			path: null,
+			floats: floating,
+		},
+		{
+			tree: split(leaf("a"), leaf("f")),
+			focus: "a",
+			path: null,
+			floats: floating,
+		},
+		{ tree: leaf("a"), focus: "a", path: null },
+	]) {
+		const created = [];
+		const disposed = [];
+		const host = new PaneHost(
+			new FakeElement(),
+			{
+				rootPaneId: "a",
+				getTheme: () => ({}),
+				onPaneCreated: (id) => created.push(id),
+				onPaneDisposed: (id) => disposed.push(id),
+				onPaneFocus: noop,
+				suppressEnterAnimation: () => true,
+			},
+			{ initialTree: tree, initialFocusedId: focus, initialFloating: floats },
+		);
+		const before = JSON.stringify(host.getTree());
+		const ids = [];
+		collectLeafIds(host.getTree(), ids);
+		const terminals = ids.map((id) => host.getPaneTerminal(id));
+		const sessions = terminals.map((pt) => pt.sessionId);
+		const expected = JSON.parse(before);
+		if (path !== null) {
+			let target = expected;
+			for (const side of path) target = target[side];
+			target.dir = target.dir === "h" ? "v" : "h";
+		}
+		assert.equal(host.canToggleSplitOrientation(focus), path !== null);
+		assert.equal(host.toggleSplitOrientation(focus), path !== null);
+		assert.equal(JSON.stringify(host.getTree()), JSON.stringify(expected));
+		assert.equal(host.getFocusedPaneId(), focus);
+		assert.equal(host.toggleSplitOrientation(focus), path !== null);
+		assert.equal(
+			JSON.stringify(host.getTree()),
+			before,
+			"second toggle restores layout and ratios",
+		);
+		ids.forEach((id, i) => {
+			assert.equal(host.getPaneTerminal(id), terminals[i]);
+			assert.equal(host.getPaneTerminal(id).sessionId, sessions[i]);
+		});
+		assert.equal(created.length, ids.length);
+		assert.deepEqual(disposed, []);
+	}
+});
+
 test("pane host leaf focus keeps one listener across remounts and drops it on dispose", async () => {
 	const load = await modules({}, { elementClass: FakeElement });
 	const { PaneHost } = await load("terminal/paneHost.ts");

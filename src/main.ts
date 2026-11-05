@@ -1505,6 +1505,12 @@ async function boot(): Promise<void> {
 		if (tabId && pl) persistLayoutForTab(tabId, pl);
 	}
 
+	function toggleFocusedSplitOrientation(): void {
+		const id = focusedPaneId();
+		const host = id ? getPaneHostByPaneId(id) : null;
+		if (id && host?.toggleSplitOrientation(id)) persistHostLayout(host);
+	}
+
 	function focusAdjacentPaneByArrow(
 		key: "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown",
 		repeat = false,
@@ -2020,6 +2026,7 @@ async function boot(): Promise<void> {
 				"palette_chord",
 				"pane_split_right",
 				"pane_split_down",
+				"pane_toggle_split_orientation",
 				"profile_split_right",
 				"profile_split_down",
 				"profile_float_new",
@@ -2079,6 +2086,10 @@ async function boot(): Promise<void> {
 					case "pane_split_down":
 						e.preventDefault();
 						if (!e.repeat) splitFocusedWithCwd("v");
+						return false;
+					case "pane_toggle_split_orientation":
+						// The capture-phase window handler owns the action.
+						e.preventDefault();
 						return false;
 					case "profile_split_right":
 					case "profile_split_down":
@@ -4952,6 +4963,7 @@ async function boot(): Promise<void> {
 				"pane_float_new",
 				"pane_float_follow",
 				"settings_open",
+				"pane_toggle_split_orientation",
 			);
 			if (!m) return;
 			const t = e.target as HTMLElement | null;
@@ -4971,6 +4983,9 @@ async function boot(): Promise<void> {
 					break;
 				case "pane_float_follow":
 					toggleFocusedPaneFollow();
+					break;
+				case "pane_toggle_split_orientation":
+					toggleFocusedSplitOrientation();
 					break;
 				case "settings_open":
 					runLazy(ensureSettingsPanel, (api) => api.open());
@@ -5663,6 +5678,8 @@ async function boot(): Promise<void> {
 			return getProfileActionCommands(q);
 		}
 
+		const paneId = focusedPaneId();
+		const ownerHost = paneId ? getPaneHostByPaneId(paneId) : null;
 		const commands: PaletteCommand[] = [
 			// --- Tabs ---
 			{
@@ -5700,6 +5717,18 @@ async function boot(): Promise<void> {
 					void beginWorkspacePicker();
 				},
 			},
+			...(paneId && ownerHost?.canToggleSplitOrientation(paneId)
+				? [
+						{
+							id: "pane-toggle-split-orientation",
+							label: "Toggle split orientation",
+							hotkey: k.all().pane_toggle_split_orientation,
+							keywords:
+								"pane layout rotate horizontal vertical stacked side by side",
+							run: toggleFocusedSplitOrientation,
+						},
+					]
+				: []),
 			// --- View / appearance ---
 			// The hide/show toggle only matters with multiple tabs; a single tab
 			// bar is not worth hiding (and there's always at least one tab).
@@ -5823,6 +5852,11 @@ async function boot(): Promise<void> {
 			if (!hotkey || seen.has(hotkey)) continue;
 			seen.add(hotkey);
 			rows.push({ hotkey, label: cmd.label.replace(/…$/, "") });
+		}
+		// This palette action is contextual, but its shortcut is always discoverable.
+		const orientationKey = kb.pane_toggle_split_orientation;
+		if (orientationKey && !seen.has(orientationKey)) {
+			rows.push({ hotkey: orientationKey, label: "Toggle split orientation" });
 		}
 
 		// Grouped bindings (arrows / digit placeholders) derive their modifier
