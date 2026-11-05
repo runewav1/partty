@@ -121,6 +121,8 @@ async function killLostPty(
 	}
 }
 
+const pendingStartups = new Map<string, Promise<PtyStartupOutcome>>();
+
 /**
  * Run PTY startup for one terminal and abandon it as soon as that terminal
  * loses ownership. A `pty_ensure` that was already in flight may still finish
@@ -131,7 +133,21 @@ async function killLostPty(
  * ownership is retained. A re-key/transfer keeps the same terminal instance
  * and session, so it is not treated as disposal.
  */
-export async function runPtyStartup(
+export function runPtyStartup(
+	opts: PtyStartupOptions,
+): Promise<PtyStartupOutcome> {
+	// Pane creation and tab activation can request startup together. Share the
+	// entire operation so they cannot spawn competing shells/output rings.
+	const pending = pendingStartups.get(opts.sessionId);
+	if (pending !== undefined) return pending;
+	const startup = performPtyStartup(opts).finally(() => {
+		pendingStartups.delete(opts.sessionId);
+	});
+	pendingStartups.set(opts.sessionId, startup);
+	return startup;
+}
+
+async function performPtyStartup(
 	opts: PtyStartupOptions,
 ): Promise<PtyStartupOutcome> {
 	const {

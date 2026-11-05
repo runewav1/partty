@@ -1246,7 +1246,7 @@ async function loadPtyIpc() {
  * reused without the old terminal regaining ownership.
  */
 function ptyStartupHarness(ptyIpc, overrides = {}) {
-	const pt = { sessionId: "sid-1", paneId: "1a" };
+	const pt = { sessionId: overrides.sessionId ?? "sid-1", paneId: "1a" };
 	const paneBySessionId = new Map([[pt.sessionId, pt]]);
 	const calls = {
 		fit: 0,
@@ -1372,31 +1372,50 @@ test("re-key or transfer keeps the same owner and is not cancelled", async () =>
 	assert.equal(ptyIpc.isPtyOwner(paneBySessionId, pt), true);
 });
 
-test("parallel ensure calls for the same live owner do not cancel each other", async () => {
+test("pane creation and tab activation share one startup; later activation can reattach", async () => {
 	const ptyIpc = await loadPtyIpc();
-	const { calls, opts } = ptyStartupHarness(ptyIpc);
-	const firstGate = deferred();
-	const secondGate = deferred();
-	const first = ptyIpc.runPtyStartup({
-		...opts,
-		ensure: async () => {
-			calls.ensure++;
-			await firstGate.promise;
-		},
-	});
-	const second = ptyIpc.runPtyStartup({
-		...opts,
-		ensure: async () => {
-			calls.ensure++;
-			await secondGate.promise;
-		},
-	});
-	assert.equal(calls.ensure, 2);
-	firstGate.resolve();
-	secondGate.resolve();
+	const { calls, ensureGate, opts } = ptyStartupHarness(ptyIpc);
+	const first = ptyIpc.runPtyStartup(opts);
+	const second = ptyIpc.runPtyStartup({ ...opts });
+	assert.equal(first, second);
+	assert.equal(calls.ensure, 1);
+	ensureGate.resolve();
 	assert.deepEqual(await Promise.all([first, second]), ["ensured", "ensured"]);
 	assert.deepEqual(calls.kill, []);
+	assert.equal(calls.replay, 1);
+	assert.equal(calls.ensured.length, 1);
+	assert.equal(await ptyIpc.runPtyStartup(opts), "ensured");
+	assert.equal(calls.ensure, 2);
 	assert.equal(calls.ensured.length, 2);
+});
+
+test("different sessions start independently", async () => {
+	const ptyIpc = await loadPtyIpc();
+	const { calls, ensureGate, opts } = ptyStartupHarness(ptyIpc);
+	const other = ptyStartupHarness(ptyIpc, { sessionId: "sid-2", ensureGate });
+	const first = ptyIpc.runPtyStartup(opts);
+	const second = ptyIpc.runPtyStartup(other.opts);
+	assert.notEqual(first, second);
+	assert.equal(calls.ensure, 1);
+	assert.equal(other.calls.ensure, 1);
+	ensureGate.resolve();
+	assert.deepEqual(await Promise.all([first, second]), ["ensured", "ensured"]);
+});
+
+test("a rejected startup does not block the next attempt", async () => {
+	const ptyIpc = await loadPtyIpc();
+	const { ensureGate, opts } = ptyStartupHarness(ptyIpc);
+	await assert.rejects(
+		ptyIpc.runPtyStartup({
+			...opts,
+			fit: () => {
+				throw new Error("fit failed");
+			},
+		}),
+		{ message: "fit failed" },
+	);
+	ensureGate.resolve();
+	assert.equal(await ptyIpc.runPtyStartup(opts), "ensured");
 });
 
 test("still-owned retryable ensure failure retries and succeeds", async () => {
