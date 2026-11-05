@@ -212,6 +212,7 @@ export const DEFAULT_BINDS: Record<string, string> = {
 	// biome-ignore lint/security/noSecrets: keybind literal, not a secret
 	palette_chord: "Ctrl+Shift+P",
 	help_toggle: "Ctrl+Shift+/",
+	theme_family_cycle: "Alt+T",
 	// biome-ignore lint/security/noSecrets: keybind literal, not a secret
 	terminal_find: "Ctrl+Shift+F",
 	notification_focus: "Ctrl+N",

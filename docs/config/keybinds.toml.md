@@ -33,6 +33,7 @@ All configurable actions and their defaults:
 | -------------------------- | ----------------------- |
 | `pane_split_down`          | `Alt+H`                 |
 | `pane_toggle_split_orientation` | `Alt+-`             |
+| `theme_family_cycle`       | `Alt+T` (hold for family picker) |
 | `pane_split_right`         | `Alt+V`                 |
 | `profile_split_down`       | `Alt+Shift+H`           |
 | `profile_split_right`      | `Alt+Shift+V`           |

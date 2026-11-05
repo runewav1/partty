@@ -55,6 +55,7 @@ const DEFAULTS: &[(&str, &str)] = &[
     ("palette_open", "Ctrl+Shift+P"),
     ("palette_chord", "Ctrl+Shift+P"),
     ("help_toggle", "Ctrl+Shift+/"),
+    ("theme_family_cycle", "Alt+T"),
     ("terminal_find", "Ctrl+Shift+F"),
     ("notification_focus", "Ctrl+N"),
     ("terminal_newline", "Shift+Enter"),

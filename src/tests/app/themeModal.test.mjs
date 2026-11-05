@@ -9,6 +9,7 @@ test("theme choices require installed files, refresh on open, and never cascade 
 	const installed = new Map();
 	const previews = [];
 	const saved = [];
+	let stateReads = 0;
 	let shown;
 	let closed;
 	const prefs = {
@@ -40,8 +41,14 @@ test("theme choices require installed files, refresh on open, and never cascade 
 				invoke: async (command, args) => {
 					if (command === "list_themes") return [...installed.keys()];
 					if (command === "read_theme") return installed.get(args.name);
-					if (command === "get_persisted_state") return { prefs };
-					if (command === "set_prefs") saved.push(args.prefs);
+					if (command === "get_persisted_state") {
+						stateReads++;
+						return { prefs };
+					}
+					if (command === "set_prefs") {
+						saved.push(args.prefs);
+						Object.assign(prefs, args.prefs);
+					}
 				},
 			},
 			[resolve(rootPath, "util/motion.ts")]: {
@@ -63,11 +70,11 @@ test("theme choices require installed files, refresh on open, and never cascade 
 		(preview) => previews.push(preview),
 		() => closed?.(),
 	);
-	const open = async () => {
+	const open = async (options = {}) => {
 		const ready = new Promise((resolve) => {
 			shown = resolve;
 		});
-		modal.open({ initialPrefs: prefs });
+		modal.open({ initialPrefs: { ...prefs }, ...options });
 		await ready;
 	};
 	await open();
@@ -95,6 +102,58 @@ test("theme choices require installed files, refresh on open, and never cascade 
 	assert.equal(saved[0].ui_theme, "custom:example");
 	assert.equal(saved[0].font_size, 17);
 	assert.equal(saved[0].pane_gap, 9);
+	installed.set("example", {
+		name: "Example",
+		family: "favorites",
+		colors: {},
+		prefs: null,
+		variants: ["warm", "cool"].map((id) => ({
+			id,
+			name: id,
+			colors: { "--term-bg": "#161616" },
+			prefs: null,
+		})),
+	});
+	installed.set("extra", {
+		name: "Extra",
+		family: "favorites",
+		colors: {},
+		prefs: null,
+	});
+	installed.set("other", {
+		name: "Other",
+		family: "other",
+		colors: {},
+		prefs: null,
+	});
+	await open();
+	assert.deepEqual(
+		root
+			.querySelectorAll(".theme-modal-item-label")
+			.map((row) => row.textContent),
+		["Partty", "Example — warm", "Example — cool", "Extra", "Other"],
+	);
+	modal.close();
+	const beforeCycle = stateReads;
+	await modal.cycleFamily();
+	assert.equal(stateReads, beforeCycle + 1, "one state snapshot per cycle");
+	assert.equal(prefs.ui_theme_variant, "cool");
+	await Promise.all([modal.cycleFamily(), modal.cycleFamily()]);
+	assert.equal(prefs.ui_theme, "custom:example");
+	assert.equal(
+		prefs.ui_theme_variant,
+		"warm",
+		"cycles across files and wraps, in order",
+	);
+	await open({ family: "favorites" });
+	assert.equal(root.querySelectorAll(".theme-modal-item").length, 3);
+	assert.equal(
+		root
+			.querySelectorAll(".theme-modal-item-label")
+			.some((row) => row.textContent === "Other"),
+		false,
+	);
+	modal.close();
 	installed.clear();
 	await open();
 	assert.equal(root.querySelectorAll(".theme-modal-item").length, 0);

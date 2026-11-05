@@ -28,6 +28,7 @@ const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 const resources = new URL("../../../resources/themes/", import.meta.url);
 const presets = {};
+const themeFiles = {};
 const resourceFiles = await readdir(resources);
 for (const file of resourceFiles.filter((name) => name.endsWith(".toml"))) {
 	// biome-ignore lint/performance/noAwaitInLoops: Small, fixed resource fixtures loaded once for the suite.
@@ -35,13 +36,35 @@ for (const file of resourceFiles.filter((name) => name.endsWith(".toml"))) {
 	// Generated presets use only quoted string pairs in [colors]. Rust tests
 	// independently parse these same files with the production TOML parser.
 	assert.equal(text.includes("[prefs"), false);
-	presets[file.slice(0, -5)] = Object.fromEntries(
-		text
-			.split("[colors]\n")[1]
-			.trim()
-			.split("\n")
-			.map((line) => line.split(" = ").map(JSON.parse)),
-	);
+	const slug = file.slice(0, -5);
+	const info = {
+		name: slug,
+		family: slug,
+		colors: {},
+		prefs: null,
+		variants: [],
+	};
+	let target = info;
+	let colors = false;
+	for (const line of text.split("\n").map((line) => line.trim())) {
+		if (!line || line.startsWith("#")) continue;
+		if (line === "[[variants]]") {
+			target = { id: "", name: "", colors: {}, prefs: null };
+			info.variants.push(target);
+			colors = false;
+		} else if (line.startsWith("[")) {
+			colors = true;
+		} else {
+			const [key, value] = line.split(" = ");
+			if (colors) target.colors[JSON.parse(key)] = JSON.parse(value);
+			else target[key] = JSON.parse(value);
+		}
+	}
+	themeFiles[slug] = info;
+	if (info.variants.length) {
+		for (const variant of info.variants)
+			presets[`${slug}-${variant.id}`] = variant.colors;
+	} else presets[slug] = info.colors;
 }
 const css = new Map();
 const root = {
@@ -61,9 +84,8 @@ const loader = createVmLoader({
 	stubs: {
 		"@tauri-apps/api/core": {
 			invoke: async (command, args) => {
-				if (command === "list_themes") return Object.keys(presets);
-				if (command === "read_theme")
-					return { colors: presets[args.name], prefs: null };
+				if (command === "list_themes") return Object.keys(themeFiles);
+				if (command === "read_theme") return themeFiles[args.name];
 			},
 		},
 	},
@@ -74,6 +96,37 @@ const { buildXtermThemeFromPrefs, terminalFindColors, themeCssVarsForPrefs } =
 	api;
 const deriveFindHighlightColors = (...args) =>
 	JSON.parse(JSON.stringify(api.deriveFindHighlightColors(...args)));
+
+test("concurrent theme loads share one snapshot and explicit refresh updates readiness", async () => {
+	let complete;
+	let lists = 0;
+	const gate = new Promise((resolve) => {
+		complete = resolve;
+	});
+	const isolated = createVmLoader({
+		root: new URL("../../", import.meta.url),
+		stubs: {
+			"@tauri-apps/api/core": {
+				invoke: async () => {
+					lists++;
+					await gate;
+					return [];
+				},
+			},
+		},
+	});
+	const themes = await isolated.api("terminal/uiTheme.ts");
+	const first = themes.loadCustomThemesIntoCache();
+	assert.equal(themes.ensureCustomThemesLoaded(), first);
+	assert.equal(themes.loadCustomThemesIntoCache(), first);
+	complete();
+	await first;
+	assert.equal(lists, 1);
+	const refreshed = themes.loadCustomThemesIntoCache();
+	assert.equal(themes.ensureCustomThemesLoaded(), refreshed);
+	await refreshed;
+	assert.equal(lists, 2);
+});
 
 test("all 31 extracted UI/ANSI palettes match the original built-ins exactly", () => {
 	const stable = Object.keys(presets)
@@ -91,11 +144,13 @@ test("all 31 extracted UI/ANSI palettes match the original built-ins exactly", (
 });
 
 function presetPrefs(theme, variant) {
-	const id =
-		theme === "partty" || theme.startsWith("custom:")
-			? theme
-			: `custom:${theme}${variant === "default" ? "" : `-${variant.replaceAll("_", "-")}`}`;
-	return { ui_theme: id, ui_theme_variant: "default" };
+	return {
+		ui_theme:
+			theme === "partty" || theme.startsWith("custom:")
+				? theme
+				: `custom:${theme}`,
+		ui_theme_variant: variant.replaceAll("_", "-"),
+	};
 }
 
 function vars(theme, variant) {
@@ -290,13 +345,14 @@ test("unknown and retired IDs fall back to Partty without resolving installed pr
 		"vscode-light",
 		"missing",
 		"custom:missing",
+		"custom:catppuccin",
 	]) {
 		const prefs = { ui_theme: id, ui_theme_variant: "light" };
 		assert.equal(api.normalizePaneThemePrefs(prefs).ui_theme, id);
 		assert.deepEqual({ ...themeCssVarsForPrefs(prefs) }, { ...fallback });
 	}
 	assert.notDeepEqual(
-		{ ...vars("github-dark", "default") },
+		{ ...vars("github", "dark") },
 		{ ...fallback },
 		"only an explicit custom ID resolves the installed file",
 	);
@@ -364,8 +420,8 @@ test("terminal find colors are theme-aware per pane", () => {
 		ui_theme_variant: "default",
 	});
 	const latte = terminalFindColors({
-		ui_theme: "custom:catppuccin-latte",
-		ui_theme_variant: "default",
+		ui_theme: "custom:catppuccin",
+		ui_theme_variant: "latte",
 	});
 	assert.notDeepEqual(
 		tokyo,
@@ -389,7 +445,7 @@ test("Partty is Carbonfox; explicit file colors survive app/pane rendering and s
 	assert.equal(api.pickUiPrefs({}).ui_theme, "partty");
 	assert.equal(api.pickUiPrefs({ ui_theme: "system" }).ui_theme, "system");
 	css.set("--term-pad-x", "23px");
-	for (const theme of ["solarized-light", "catppuccin-latte", "partty"]) {
+	for (const theme of ["solarized/light", "catppuccin/latte", "partty"]) {
 		const prefs = {
 			...api.parseProfileThemeRef(theme),
 			font_terminal: "",

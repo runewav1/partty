@@ -14,6 +14,29 @@ pub struct ThemeToml {
     pub colors: HashMap<String, String>,
     #[serde(default)]
     pub prefs: Option<toml::Value>,
+    #[serde(default)]
+    pub family: String,
+    #[serde(default)]
+    pub variants: Vec<ThemeVariant>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeVariant {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub colors: HashMap<String, String>,
+    #[serde(default)]
+    pub prefs: Option<toml::Value>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ThemeVariantInfo {
+    pub id: String,
+    pub name: String,
+    pub colors: HashMap<String, String>,
+    pub prefs: Option<Prefs>,
 }
 
 fn default_version() -> u32 {
@@ -23,8 +46,10 @@ fn default_version() -> u32 {
 #[derive(Debug, Clone, Serialize)]
 pub struct ThemeInfo {
     pub name: String,
+    pub family: String,
     pub colors: HashMap<String, String>,
     pub prefs: Option<Prefs>,
+    pub variants: Vec<ThemeVariantInfo>,
 }
 
 fn themes_dir() -> Result<std::path::PathBuf, String> {
@@ -75,12 +100,8 @@ fn merge_toml_values(base: toml::Value, overlay: toml::Value) -> toml::Value {
     }
 }
 
-pub fn resolve_theme_prefs(theme_name: &str) -> Result<Prefs, String> {
-    let theme = load_theme(theme_name)?;
-    let Some(overlay_val) = theme.prefs else {
-        return Ok(prefs::load_prefs());
-    };
-    let base_config = ConfigToml::from(&prefs::load_prefs());
+fn resolve_theme_prefs(base: &Prefs, overlay_val: toml::Value) -> Result<Prefs, String> {
+    let base_config = ConfigToml::from(base);
     let base_val = toml::Value::try_from(&base_config).map_err(|e| e.to_string())?;
     let merged_val = merge_toml_values(base_val, overlay_val);
     let merged_config: ConfigToml = toml::Value::try_into(merged_val).map_err(|e| e.to_string())?;
@@ -99,15 +120,49 @@ pub fn list_themes() -> Result<Vec<String>, String> {
 #[tauri::command]
 pub fn read_theme(name: String) -> Result<ThemeInfo, String> {
     let theme = load_theme(&name)?;
-    let prefs = if theme.prefs.is_some() {
-        Some(resolve_theme_prefs(&name)?)
-    } else {
-        None
-    };
+    resolve_theme_info(&name, theme, &prefs::load_prefs())
+}
+
+fn resolve_theme_info(slug: &str, theme: ThemeToml, base: &Prefs) -> Result<ThemeInfo, String> {
+    let mut ids = std::collections::HashSet::new();
+    let mut variants = Vec::with_capacity(theme.variants.len());
+    for variant in theme.variants {
+        prefs::validate_custom_theme_name(&variant.id)?;
+        if !ids.insert(variant.id.clone()) {
+            return Err(format!("duplicate theme variant: {}", variant.id));
+        }
+        let mut colors = theme.colors.clone();
+        colors.extend(variant.colors);
+        let overlay = match (theme.prefs.clone(), variant.prefs) {
+            (Some(base), Some(overlay)) => Some(merge_toml_values(base, overlay)),
+            (base, overlay) => overlay.or(base),
+        };
+        variants.push(ThemeVariantInfo {
+            id: variant.id.clone(),
+            name: if variant.name.is_empty() {
+                variant.id
+            } else {
+                variant.name
+            },
+            colors,
+            prefs: overlay
+                .map(|overlay| resolve_theme_prefs(base, overlay))
+                .transpose()?,
+        });
+    }
     Ok(ThemeInfo {
         name: theme.name,
+        family: if theme.family.trim().is_empty() {
+            slug.to_string()
+        } else {
+            theme.family
+        },
         colors: theme.colors,
-        prefs,
+        prefs: theme
+            .prefs
+            .map(|overlay| resolve_theme_prefs(base, overlay))
+            .transpose()?,
+        variants,
     })
 }
 
@@ -129,26 +184,39 @@ mod tests {
             let theme: super::ThemeToml = toml::from_str(&text).unwrap();
             let value: Value = toml::from_str(&text).unwrap();
             assert!(
-                value
-                    .as_table()
-                    .unwrap()
-                    .keys()
-                    .all(|k| matches!(k.as_str(), "version" | "name" | "colors")),
+                value.as_table().unwrap().keys().all(|k| matches!(
+                    k.as_str(),
+                    "version" | "name" | "colors" | "family" | "variants"
+                )),
                 "{}",
                 path.display()
             );
             assert_eq!(theme.version, 1);
             assert!(theme.prefs.is_none());
-            assert!(theme.colors.contains_key("--term-bg"));
-            assert_eq!(
-                theme
-                    .colors
-                    .keys()
-                    .filter(|k| k.starts_with("--term-ansi-"))
-                    .count(),
-                16
-            );
-            count += 1;
+            let info =
+                super::resolve_theme_info("fixture", theme, &super::Prefs::default()).unwrap();
+            let palettes: Vec<_> = if info.variants.is_empty() {
+                vec![&info.colors]
+            } else {
+                info.variants
+                    .iter()
+                    .map(|v| {
+                        assert!(v.prefs.is_none());
+                        &v.colors
+                    })
+                    .collect()
+            };
+            for colors in palettes {
+                assert!(colors.contains_key("--term-bg"));
+                assert_eq!(
+                    colors
+                        .keys()
+                        .filter(|k| k.starts_with("--term-ansi-"))
+                        .count(),
+                    16
+                );
+                count += 1;
+            }
         }
         assert_eq!(count, 31);
         assert_eq!(super::Prefs::default().ui_theme, "partty");
@@ -156,6 +224,51 @@ mod tests {
 
     fn parse(text: &str) -> Value {
         toml::from_str::<Value>(text).unwrap()
+    }
+
+    #[test]
+    fn family_variants_keep_order_and_inherit_colors_and_prefs() {
+        let theme = toml::from_str::<super::ThemeToml>(
+            r##"
+name = "Favorites"
+family = "favorites"
+[colors]
+"--term-bg" = "#161616"
+[prefs.font]
+size = 17.0
+[[variants]]
+id = "warm"
+name = "Warm"
+[variants.colors]
+"--term-fg" = "#ffffff"
+[[variants]]
+id = "cool"
+[variants.colors]
+"--term-bg" = "#000000"
+[variants.prefs.font]
+size = 19.0
+"##,
+        )
+        .unwrap();
+        let info =
+            super::resolve_theme_info("test", theme.clone(), &super::Prefs::default()).unwrap();
+        assert_eq!(info.family, "favorites");
+        assert_eq!(info.variants[0].id, "warm");
+        assert_eq!(info.variants[1].id, "cool");
+        assert_eq!(info.variants[0].colors["--term-bg"], "#161616");
+        assert_eq!(info.variants[1].colors["--term-bg"], "#000000");
+        assert!(info.variants[0].prefs.is_some());
+        assert_eq!(
+            info.variants[0].prefs.as_ref().unwrap().terminal_font_size,
+            17.0
+        );
+        assert_eq!(
+            info.variants[1].prefs.as_ref().unwrap().terminal_font_size,
+            19.0
+        );
+        let mut duplicate = theme;
+        duplicate.variants[1].id = "warm".into();
+        assert!(super::resolve_theme_info("test", duplicate, &super::Prefs::default()).is_err());
     }
 
     #[test]

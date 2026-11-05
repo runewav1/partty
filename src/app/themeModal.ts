@@ -1,12 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
 	DEFAULT_THEME_ID,
-	getCustomThemeNames,
-	getThemePrefsCache,
+	ensureCustomThemesLoaded,
+	getThemeOptions,
 	loadCustomThemesIntoCache,
-	normalizePaneThemePrefs,
 	pickUiPrefs,
+	resolveThemeOption,
 	themeCssVarsForPrefs,
+	themeFamilyOptions,
 	type UiThemePrefs,
 } from "./../terminal/uiTheme";
 import {
@@ -26,12 +27,15 @@ export type ThemeModalApi = {
 	open(options?: ThemeModalOpenOptions): void;
 	close(): void;
 	isOpen(): boolean;
+	cycleFamily(): Promise<void>;
 };
 
 export type ThemeModalOpenOptions = {
 	title?: string;
 	initialPrefs?: UiThemePrefs;
 	onCommit?: (prefs: UiThemePrefs) => void | Promise<void>;
+	/** Restrict the picker to a registered family (used by hold-to-choose). */
+	family?: string;
 };
 
 type FlatThemeRow = LexicalSearchItem & {
@@ -53,6 +57,8 @@ export function createThemeModal(
 	let selectedFlat = 0;
 	let allFlat: FlatThemeRow[] = [];
 	let flat: FlatThemeRow[] = [];
+	let familyFilter: string | undefined;
+	let cycleTail = Promise.resolve();
 
 	function applyFilter(): void {
 		flat = filterAndRankLexical(allFlat, normalizeQuery(searchInput.value));
@@ -113,30 +119,15 @@ export function createThemeModal(
 
 	async function refreshFlatAndList(): Promise<void> {
 		await loadCustomThemesIntoCache();
-		const names = getCustomThemeNames();
-		// No choices until users install a file. Once they do, include Partty
-		// so they can return to the app's only embedded theme.
-		allFlat =
-			names.length > 0
-				? [
-						{
-							themeId: DEFAULT_THEME_ID,
-							variantId: "default",
-							label: "Partty",
-							id: DEFAULT_THEME_ID,
-							keywords: "partty default",
-						},
-					]
-				: [];
-		for (const name of names) {
-			allFlat.push({
-				themeId: `custom:${name}`,
-				variantId: "default",
-				label: `Custom — ${name}`,
-				id: `custom ${name}`,
-				keywords: `custom ${name}`,
-			});
-		}
+		allFlat = getThemeOptions()
+			.filter((theme) => !familyFilter || theme.family === familyFilter)
+			.map(({ themeId, variantId, label, family }) => ({
+				themeId,
+				variantId,
+				label,
+				id: `${themeId}/${variantId}`,
+				keywords: `${label} ${family} ${themeId} ${variantId}`,
+			}));
 		applyFilter();
 	}
 
@@ -182,9 +173,9 @@ export function createThemeModal(
 	});
 
 	function indexForPrefs(p: UiThemePrefs): number {
-		const n = normalizePaneThemePrefs(p);
+		const n = resolveThemeOption(p);
 		const idx = flat.findIndex(
-			(r) => r.themeId === n.ui_theme && r.variantId === n.ui_theme_variant,
+			(r) => r.themeId === n.themeId && r.variantId === n.variantId,
 		);
 		return Math.max(idx, 0);
 	}
@@ -208,6 +199,44 @@ export function createThemeModal(
 		active?.scrollIntoView({ block: "nearest" });
 	}
 
+	async function saveAppTheme(
+		picked: UiThemePrefs,
+		previous?: Persisted,
+	): Promise<void> {
+		const data = previous ?? (await invoke<Persisted>("get_persisted_state"));
+		const next = {
+			...data.prefs,
+			...resolveThemeOption(picked).prefs,
+			ui_theme: picked.ui_theme,
+			ui_theme_variant: picked.ui_theme_variant,
+		} as ParttyPrefs;
+		await invoke("set_prefs", { prefs: next });
+		onPreview(pickUiPrefs(next as unknown as Record<string, unknown>), next);
+	}
+
+	async function cycleFamily(): Promise<void> {
+		await ensureCustomThemesLoaded();
+		const data = await invoke<Persisted>("get_persisted_state");
+		const current = pickUiPrefs(data.prefs);
+		const family = themeFamilyOptions(current);
+		if (family.length < 2) return;
+		const active = resolveThemeOption(current);
+		const index = family.findIndex(
+			(theme) =>
+				theme.themeId === active.themeId &&
+				theme.variantId === active.variantId,
+		);
+		const next = family[(index + 1) % family.length];
+		await saveAppTheme(
+			{
+				...current,
+				ui_theme: next.themeId,
+				ui_theme_variant: next.variantId,
+			},
+			data,
+		);
+	}
+
 	async function commitAt(i: number): Promise<void> {
 		const row = flat[i];
 		if (!row) return;
@@ -225,23 +254,8 @@ export function createThemeModal(
 				close();
 				return;
 			}
-			const data = await invoke<Persisted>("get_persisted_state");
-			const prev = data.prefs as ParttyPrefs;
-			let next: ParttyPrefs = {
-				...prev,
-				ui_theme: row.themeId,
-				ui_theme_variant: row.variantId,
-			};
-			if (row.themeId.startsWith("custom:")) {
-				const slug = row.themeId.slice(7);
-				const tprefs = getThemePrefsCache()[slug];
-				if (tprefs) {
-					next = { ...next, ...tprefs } as ParttyPrefs;
-				}
-			}
-			await invoke("set_prefs", { prefs: next });
+			await saveAppTheme(picked);
 			initial = null;
-			onPreview(picked, next);
 			close();
 		} catch (e) {
 			// biome-ignore lint/suspicious/noConsole: Theme commit failures must remain visible during development.
@@ -323,11 +337,19 @@ export function createThemeModal(
 	return {
 		open: (options?: ThemeModalOpenOptions) => {
 			if (open) return;
+			panel.setAttribute(
+				"aria-label",
+				options?.title ??
+					(options?.family
+						? `Choose theme — ${options.family}`
+						: "Choose theme"),
+			);
 			open = true;
 			overlay = pushOverlay(close);
 			island?.present("theme");
 			mouseCursorForceVisible(true);
 			commitOverride = options?.onCommit ?? null;
+			familyFilter = options?.family;
 			window.addEventListener("keydown", onKey, true);
 			void (async () => {
 				try {
@@ -369,5 +391,10 @@ export function createThemeModal(
 		},
 		close,
 		isOpen: () => open,
+		cycleFamily: () => {
+			const result = cycleTail.then(cycleFamily);
+			cycleTail = result.catch(() => {});
+			return result;
+		},
 	};
 }

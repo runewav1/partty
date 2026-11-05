@@ -41,6 +41,7 @@ import {
 	initTabBar,
 	type TabRenderModel,
 } from "./app/tabBar";
+import { createThemeFamilyShortcut } from "./app/themeFamilyShortcut";
 import type { ThemeModalApi } from "./app/themeModal";
 import { createTooltipController } from "./app/tooltips";
 import {
@@ -200,6 +201,7 @@ import {
 	prefsNeedCustomThemes,
 	terminalFindColors,
 	themeCssVarsForPrefs,
+	themeFamilyOptions,
 	type UiThemePrefs,
 	uiPrefsChanged,
 } from "./terminal/uiTheme";
@@ -2024,6 +2026,7 @@ async function boot(): Promise<void> {
 				"terminal_copy",
 				"terminal_paste",
 				"palette_chord",
+				"theme_family_cycle",
 				"pane_split_right",
 				"pane_split_down",
 				"pane_toggle_split_orientation",
@@ -2077,6 +2080,7 @@ async function boot(): Promise<void> {
 						void pasteFromClipboard();
 						return false;
 					case "palette_chord":
+					case "theme_family_cycle":
 						e.preventDefault();
 						return false;
 					case "pane_split_right":
@@ -4730,6 +4734,60 @@ async function boot(): Promise<void> {
 				})
 			: Promise.resolve(null);
 
+	async function cycleAppThemeFamily(): Promise<void> {
+		if (themeModalLazy.get()?.isOpen()) return;
+		themeTargetPaneId = null;
+		paneThemeRestore = null;
+		await (await ensureThemeModal())?.cycleFamily();
+	}
+	const themeFamilyShortcut = createThemeFamilyShortcut(
+		cycleAppThemeFamily,
+		async (isCurrent) => {
+			const tm = await ensureThemeModal();
+			await ensureCustomThemesLoaded();
+			const target = document.activeElement as HTMLElement | null;
+			if (
+				!isCurrent() ||
+				!tm ||
+				tm.isOpen() ||
+				!shortcutRuns("mutation", target) ||
+				!shortcutRuns("surface", target)
+			)
+				return;
+			const family = themeFamilyOptions(currentUiPrefs);
+			if (family.length < 2) return;
+			themeTargetPaneId = null;
+			paneThemeRestore = null;
+			tm.open({ family: family[0].family, initialPrefs: currentUiPrefs });
+		},
+		(error) => console.error("theme family cycle", error),
+	);
+	window.addEventListener(
+		"keydown",
+		(e) => {
+			if (!k.match(e, "theme_family_cycle")) return;
+			const target = e.target as HTMLElement | null;
+			if (
+				!shortcutRuns("mutation", target) ||
+				!shortcutRuns("surface", target) ||
+				themeModalLazy.get()?.isOpen()
+			)
+				return;
+			if (!consumeSinglePress(e)) return;
+			themeFamilyShortcut.press(e.code || e.key);
+		},
+		true,
+	);
+	window.addEventListener(
+		"keyup",
+		(e) => {
+			const modifier = ["Alt", "Control", "Shift", "Meta"].includes(e.key);
+			themeFamilyShortcut.release(modifier ? undefined : e.code || e.key);
+		},
+		true,
+	);
+	window.addEventListener("blur", () => themeFamilyShortcut.cancel());
+
 	function openFocusedPaneTheme(): void {
 		const paneId = paneHost?.getFocusedPaneId();
 		if (!paneId) return;
@@ -5780,6 +5838,17 @@ async function boot(): Promise<void> {
 				label: "Pane theme",
 				keywords: "theme pane appearance colors focused local override",
 				run: () => openFocusedPaneTheme(),
+			},
+			{
+				id: "theme-family-cycle",
+				label: "Cycle theme family (hold for picker)",
+				keywords: "theme variant next family hold picker",
+				hotkey: k.all().theme_family_cycle,
+				run: () => {
+					void cycleAppThemeFamily().catch((error) =>
+						console.error("theme family cycle", error),
+					);
+				},
 			},
 
 			// --- Terminal / session ---

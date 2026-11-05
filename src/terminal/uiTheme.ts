@@ -58,18 +58,41 @@ const PARTTY_COLORS: ThemeCssVars = {
 export function normalizePaneThemePrefs(prefs: PaneThemePrefs): PaneThemePrefs {
 	return {
 		ui_theme: prefs.ui_theme || DEFAULT_THEME_ID,
-		ui_theme_variant: "default",
+		ui_theme_variant: prefs.ui_theme_variant || "default",
 	};
 }
 
 type ThemeInfo = {
 	name: string;
+	family: string;
+	colors: ThemeCssVars;
+	prefs: Record<string, unknown> | null;
+	variants?: {
+		id: string;
+		name: string;
+		colors: ThemeCssVars;
+		prefs: Record<string, unknown> | null;
+	}[];
+};
+export type ThemeOption = {
+	themeId: string;
+	variantId: string;
+	family: string;
+	label: string;
 	colors: ThemeCssVars;
 	prefs: Record<string, unknown> | null;
 };
-const customThemeVarsCache: Record<string, ThemeCssVars> = {};
-const themePrefsCache: Record<string, Record<string, unknown>> = {};
+let customThemes: ThemeOption[] = [];
+const PARTTY_OPTION: ThemeOption = {
+	themeId: DEFAULT_THEME_ID,
+	variantId: "default",
+	family: DEFAULT_THEME_ID,
+	label: "Partty",
+	colors: PARTTY_COLORS,
+	prefs: null,
+};
 let customThemesReady: Promise<void> | null = null;
+let customThemesLoading: Promise<void> | null = null;
 
 export function prefsNeedCustomThemes(
 	uiPrefs: UiThemePrefs,
@@ -84,38 +107,79 @@ export function prefsNeedCustomThemes(
 }
 
 export function ensureCustomThemesLoaded(): Promise<void> {
-	customThemesReady ??= loadCustomThemesIntoCache();
-	return customThemesReady;
+	return customThemesReady ?? loadCustomThemesIntoCache();
 }
 
-export async function loadCustomThemesIntoCache(): Promise<void> {
-	for (const k of Object.keys(customThemeVarsCache))
-		delete customThemeVarsCache[k];
-	for (const k of Object.keys(themePrefsCache)) delete themePrefsCache[k];
+export function loadCustomThemesIntoCache(): Promise<void> {
+	if (customThemesLoading !== null) return customThemesLoading;
+	customThemesLoading = readCustomThemes().finally(() => {
+		customThemesLoading = null;
+	});
+	customThemesReady = customThemesLoading;
+	return customThemesLoading;
+}
+
+async function readCustomThemes(): Promise<void> {
 	try {
 		const names = await invoke<string[]>("list_themes");
-		await Promise.all(
+		const files = await Promise.all(
 			names.map(async (name) => {
 				try {
 					const info = await invoke<ThemeInfo>("read_theme", { name });
-					if (info.colors) customThemeVarsCache[name] = info.colors;
-					if (info.prefs) themePrefsCache[name] = info.prefs;
+					const variants = info.variants?.length
+						? info.variants
+						: [
+								{
+									id: "default",
+									name: "",
+									colors: info.colors,
+									prefs: info.prefs,
+								},
+							];
+					return variants.map(
+						(variant): ThemeOption => ({
+							themeId: `custom:${name}`,
+							variantId: variant.id,
+							family: info.family || name,
+							label: variant.name
+								? `${info.name || name} — ${variant.name}`
+								: info.name || name,
+							colors: variant.colors,
+							prefs: variant.prefs,
+						}),
+					);
 				} catch {
 					// One malformed file must not hide other installed themes.
+					return [];
 				}
 			}),
 		);
+		customThemes = files.flat();
 	} catch {
+		customThemes = [];
 		/* No readable theme directory: Partty remains available. */
 	}
 }
 
-export function getThemePrefsCache(): Record<string, Record<string, unknown>> {
-	return themePrefsCache;
+export function getThemeOptions(): ThemeOption[] {
+	return customThemes.length ? [PARTTY_OPTION, ...customThemes] : [];
 }
 
-export function getCustomThemeNames(): string[] {
-	return Object.keys(customThemeVarsCache).sort();
+export function resolveThemeOption(prefs: PaneThemePrefs): ThemeOption {
+	const normalized = normalizePaneThemePrefs(prefs);
+	return (
+		customThemes.find(
+			(theme) =>
+				theme.themeId === normalized.ui_theme &&
+				(normalized.ui_theme_variant === "default" ||
+					theme.variantId === normalized.ui_theme_variant),
+		) ?? PARTTY_OPTION
+	);
+}
+
+export function themeFamilyOptions(prefs: PaneThemePrefs): ThemeOption[] {
+	const family = resolveThemeOption(prefs).family;
+	return getThemeOptions().filter((theme) => theme.family === family);
 }
 
 export function pickUiPrefs(prefs: Record<string, unknown>): UiThemePrefs {
@@ -144,11 +208,7 @@ export function uiPrefsChanged(a: UiThemePrefs, b: UiThemePrefs): boolean {
 }
 
 export function themeCssVarsForPrefs(prefs: PaneThemePrefs): ThemeCssVars {
-	const { ui_theme: id } = normalizePaneThemePrefs(prefs);
-	return {
-		...((id.startsWith("custom:") ? customThemeVarsCache[id.slice(7)] : null) ??
-			PARTTY_COLORS),
-	};
+	return { ...resolveThemeOption(prefs).colors };
 }
 
 const HEX_COLOR_RE = /^#([0-9a-fA-F]{6})$/;
@@ -496,11 +556,11 @@ export function applyUiTheme(prefs: UiThemePrefs): void {
 export function parseProfileThemeRef(ref: string): PaneThemePrefs | null {
 	const raw = ref.trim();
 	if (!raw) return null;
+	const slash = raw.lastIndexOf("/");
+	const id = slash > 0 ? raw.slice(0, slash).trim() : raw;
 	return normalizePaneThemePrefs({
 		ui_theme:
-			raw === DEFAULT_THEME_ID || raw.startsWith("custom:")
-				? raw
-				: `custom:${raw}`,
-		ui_theme_variant: "default",
+			id === DEFAULT_THEME_ID || id.startsWith("custom:") ? id : `custom:${id}`,
+		ui_theme_variant: slash > 0 ? raw.slice(slash + 1).trim() : "default",
 	});
 }

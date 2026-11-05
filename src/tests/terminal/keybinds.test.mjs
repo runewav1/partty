@@ -59,6 +59,7 @@ test("default UI shortcuts run on each press, never on held repeats", async () =
 	for (const action of [
 		"palette_open",
 		"help_toggle",
+		"theme_family_cycle",
 		"settings_open",
 		"terminal_find",
 		"window_toggle",
@@ -121,6 +122,18 @@ test("split orientation labels and matching follow overrides, updates and unbind
 	const unbound = await bindings({});
 	assert.equal(unbound.all()[action], undefined);
 	assert.equal(unbound.match(event("Alt+-"), action), null);
+});
+
+test("theme family binding uses the configured chord and label, including unbinds", async () => {
+	const action = "theme_family_cycle";
+	assert.equal(DEFAULT_BINDS[action], "Alt+T");
+	const api = await bindings({ ...DEFAULT_BINDS, [action]: "Ctrl+J" });
+	assert.equal(api.label(action), "Ctrl+J");
+	assert.equal(api.match(event("Ctrl+J"), action), action);
+	assert.equal(api.match(event("Alt+T"), action), null);
+	await api.set(action, "");
+	assert.equal(api.all()[action], "");
+	assert.equal(api.match(event("Ctrl+J"), action), null);
 });
 
 test("ordinary keys and every nonmatching modifier combination are untouched", async () => {

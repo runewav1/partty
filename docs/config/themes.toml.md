@@ -8,8 +8,9 @@ The only embedded theme is **Partty** (the former Carbonfox palette). Optional
 presets live in [`resources/themes/`](../../resources/themes/); copy the files
 you want into the path above. Nothing is installed automatically. With no
 installed files, the theme picker offers no changes. With installed files, it
-also offers Partty to return to the default. Every former variant has its own
-file. These presets are colors-only and never override configuration.
+also offers Partty to return to the default. Presets with several variants are
+organized into one file per family. These resources are colors-only and never
+override configuration. There is no migration of old theme IDs.
 
 ## Sections
 
@@ -20,6 +21,71 @@ Always `1`.
 ### `name`
 
 Display name (cosmetic, defaults to filename stem).
+
+### `family`
+
+Optional family ID, defaulting to the filename stem. Give multiple files the
+same `family` to include them in one cycle. Membership is explicit: palettes
+do not need to look alike. The picker uses display names, without a “Custom”
+prefix. Files are ordered by filename, variants by declaration order.
+
+### `[[variants]]`
+
+Optional ordered variants within a file. Each has a unique `id`, an optional
+display `name` (defaults to its ID), `[variants.colors]`, and optional
+`[variants.prefs]`. Variant colors override shared root `[colors]`; variant
+preferences overlay root `[prefs]`. A file without variants is a single theme.
+With variants, the root is shared data, not an extra picker entry.
+
+```toml
+version = 1
+name = "Catppuccin"
+family = "catppuccin" # optional; also the filename in this example
+
+[[variants]]
+id = "mocha"
+name = "Mocha"
+[variants.colors]
+"--term-bg" = "#1e1e2e"
+"--term-fg" = "#cdd6f4"
+
+[[variants]]
+id = "latte"
+name = "Latte"
+[variants.colors]
+"--term-bg" = "#eff1f5"
+"--term-fg" = "#4c4f69"
+```
+
+Select it in `config.toml` with:
+
+```toml
+[theme]
+active = "custom:catppuccin"
+variant = "latte"
+```
+
+`variant = "default"` (or omitted) selects the first declared variant.
+An unknown explicit variant or missing theme falls back to Partty. Profiles
+may use `theme = "catppuccin/latte"`; pane/profile themes never apply `[prefs]`.
+
+A separate `favorite.toml` can join this family with `family = "catppuccin"`
+and its own `name` and `[colors]`, without nesting any variants. It is selected
+as `active = "custom:favorite"`, `variant = "default"`.
+
+### Family shortcut
+
+`Alt+T` (`theme_family_cycle` in `keybinds.toml`) selects the next member of the
+**active app theme's family** when released within 350 ms, wrapping at the end.
+Holding for 350 ms instead opens the theme picker restricted to that family,
+without cycling first. Repeated keydown events do nothing. Release after a hold
+leaves the picker open; Escape restores the original theme. Losing window focus
+cancels an unfinished gesture. A family with fewer than two members does nothing.
+
+Families group installed files only. Nothing is installed automatically, and
+Windows light/dark preference matching is not implemented yet.
+The built-in Partty theme belongs to family `partty`; a separate file can use
+`family = "partty"` to cycle alongside the built-in default.
 
 ### `[colors]`
 
