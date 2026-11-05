@@ -58,7 +58,7 @@ fn default_snapshot_max_lines() -> u32 {
     2500
 }
 fn default_ui_theme() -> String {
-    "system".to_string()
+    "partty".to_string()
 }
 fn default_ui_theme_variant() -> String {
     "default".to_string()

@@ -253,7 +253,7 @@ Workspace files themselves live under `~/.partty/workspaces/` — see [workspace
 
 | Key       | Type   | Default     |
 | --------- | ------ | ----------- |
-| `active`  | string | `"system"`  |
+| `active`  | string | `"partty"`  |
 | `variant` | string | `"default"` |
 
 ## `[font_terminal]`

@@ -2908,7 +2908,10 @@ async function boot(): Promise<void> {
 	): void {
 		if (paneThemes.has(paneId)) return;
 		const prefs = themePrefsFromProfileId(profileId);
-		if (prefs) paneThemes.set(paneId, prefs);
+		if (prefs) {
+			paneThemes.set(paneId, prefs);
+			scheduleDeferredCustomThemes();
+		}
 	}
 
 	function createPaneHost(

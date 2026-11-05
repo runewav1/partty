@@ -33,10 +33,10 @@
 	--font-ui: "Segoe UI", system-ui, sans-serif;
 
 	/* ===== Terminal Core Colors ===== */
-	--term-bg: #2e2e32;
-	--term-fg: #d4d4d8;
-	--term-cursor: #e8e8ec;
-	--term-selection-bg: #6b6b7866;
+	--term-bg: #161616;
+	--term-fg: #f2f4f8;
+	--term-cursor: #f2f4f8;
+	--term-selection-bg: #2a2a2a88;
 
 	/* ===== Layout ===== */
 	--term-pad-x: 16px;
@@ -427,24 +427,6 @@ html[data-motion-style="bouncy"] {
 	--motion-ease-out: cubic-bezier(0.34, 1.56, 0.64, 1);
 	--motion-ease-emphasized: cubic-bezier(0.22, 1.61, 0.36, 1);
 	--motion-ease-standard: cubic-bezier(0.34, 1.4, 0.64, 1);
-}
-
-/* System theme: chrome derives from terminal surface */
-html[data-theme="system"] {
-	--panel-bg: color-mix(in srgb, var(--term-bg) 82%, #ffffff 18%);
-	--panel-border: color-mix(in srgb, var(--term-fg) 16%, transparent);
-	--panel-shadow: rgba(0, 0, 0, 0.45);
-	--ui-gray-800: color-mix(in srgb, var(--term-bg) 92%, #000 8%);
-	--ui-gray-700: color-mix(in srgb, var(--term-bg) 78%, var(--term-fg) 22%);
-	--backdrop-darkest: color-mix(
-		in srgb,
-		var(--term-bg) 40%,
-		rgba(0, 0, 0, 0.55)
-	);
-	--input-bg: var(--term-bg);
-	--input-border: color-mix(in srgb, var(--term-fg) 22%, transparent);
-	--pane-divider: color-mix(in srgb, var(--term-fg) 22%, transparent);
-	--pane-divider-hover: color-mix(in srgb, var(--term-fg) 38%, transparent);
 }
 
 html,
@@ -2485,6 +2467,13 @@ html.tabs-hidden #main-workspace {
 	);
 	box-shadow: 0 0 0 2px
 		color-mix(in srgb, var(--accent-primary) 18%, transparent);
+}
+
+.theme-modal-empty {
+	margin: 16px 12px;
+	color: var(--ui-chrome-muted);
+	font-size: 13px;
+	line-height: 1.5;
 }
 
 .theme-modal-list {

@@ -79,7 +79,7 @@ https://github.com/user-attachments/assets/50b6efde-94e8-49dc-b8a8-38c7b454d877
 
 ### Theming
 
-- Theme your application using several built in themes, fork an existing theme or build your own.
+- Theme your application with opt-in [preset files](resources/themes/), fork a preset or build your own.
 - Set the theme of a specific pane to differentiate it, while keeping the rest of the app with the global theme.
 
 - Create complex theme presets using their `.toml` config files to set different cascading preferences for different

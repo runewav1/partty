@@ -79,10 +79,10 @@ test("seeds normalized pane themes and raw profile ids, skipping cwds when disab
 		{ seedCwds: false },
 	);
 
-	// Real normalizePaneThemePrefs migrates the deprecated id.
+	// Theme IDs are preserved, not migrated to preset filenames.
 	assert.deepEqual(
 		{ ...maps.paneThemes.get("1a") },
-		{ ui_theme: "github", ui_theme_variant: "dark" },
+		{ ui_theme: "github-dark", ui_theme_variant: "default" },
 	);
 	assert.equal(maps.paneProfileIds.get("1b"), "ssh-prod");
 	assert.equal(maps.paneCwdHints.size, 0);

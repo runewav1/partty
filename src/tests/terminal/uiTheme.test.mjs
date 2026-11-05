@@ -1,10 +1,10 @@
 /**
- * Regression tests for bundled theme palettes (src/terminal/uiTheme.ts).
+ * Regression tests for optional theme files and src/terminal/uiTheme.ts.
  *
  * Guards the canonical background/foreground/cursor/accent anchors and the
- * per-theme terminal ANSI palettes against drift. The module is pure at the
- * surfaces under test (themeCssVarsForPrefs / buildXtermThemeFromPrefs), so
- * node --experimental-strip-types can import it directly.
+ * per-theme terminal ANSI palettes against drift. The real module loads the
+ * resource files through a stubbed IPC boundary; no themes remain embedded
+ * except Partty. A golden checksum pins the full pre-extraction palette data.
  *
  * Authoritative sources:
  * - Catppuccin palette.json (catppuccin/palette) — latte text/mauve/rosewater + ansiColors
@@ -15,31 +15,95 @@
  * - SynthWave '84 (robb0wen/synthwave-vscode) — bg #262335, fg #ffffff, accent #ff7edb
  * - Tokyo Night (folke/tokyonight.nvim) — selection #283457, cyan #7dcfff
  *
- * Run: node --experimental-strip-types --test src/tests/terminal/uiTheme.test.mjs
+ * Run: node --experimental-vm-modules --experimental-strip-types --test src/tests/terminal/uiTheme.test.mjs
  */
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
 import { test } from "node:test";
+import { createVmLoader } from "../support/vm.mjs";
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
-const {
-	buildXtermThemeFromPrefs,
-	deriveFindHighlightColors,
-	terminalFindColors,
-	themeCssVarsForPrefs,
-	themeUsesCanonicalTerminalColors,
-} = await import("../../terminal/uiTheme.ts");
+const resources = new URL("../../../resources/themes/", import.meta.url);
+const presets = {};
+const resourceFiles = await readdir(resources);
+for (const file of resourceFiles.filter((name) => name.endsWith(".toml"))) {
+	// biome-ignore lint/performance/noAwaitInLoops: Small, fixed resource fixtures loaded once for the suite.
+	const text = await readFile(new URL(file, resources), "utf8");
+	// Generated presets use only quoted string pairs in [colors]. Rust tests
+	// independently parse these same files with the production TOML parser.
+	assert.equal(text.includes("[prefs"), false);
+	presets[file.slice(0, -5)] = Object.fromEntries(
+		text
+			.split("[colors]\n")[1]
+			.trim()
+			.split("\n")
+			.map((line) => line.split(" = ").map(JSON.parse)),
+	);
+}
+const css = new Map();
+const root = {
+	dataset: {},
+	style: {
+		setProperty: (key, value) => css.set(key, value),
+		removeProperty: (key) => css.delete(key),
+		getPropertyValue: (key) => css.get(key) ?? "",
+	},
+};
+const loader = createVmLoader({
+	root: new URL("../../", import.meta.url),
+	globals: {
+		document: { documentElement: root },
+		getComputedStyle: () => root.style,
+	},
+	stubs: {
+		"@tauri-apps/api/core": {
+			invoke: async (command, args) => {
+				if (command === "list_themes") return Object.keys(presets);
+				if (command === "read_theme")
+					return { colors: presets[args.name], prefs: null };
+			},
+		},
+	},
+});
+const api = await loader.api("terminal/uiTheme.ts");
+await api.ensureCustomThemesLoaded();
+const { buildXtermThemeFromPrefs, terminalFindColors, themeCssVarsForPrefs } =
+	api;
+const deriveFindHighlightColors = (...args) =>
+	JSON.parse(JSON.stringify(api.deriveFindHighlightColors(...args)));
+
+test("all 31 extracted UI/ANSI palettes match the original built-ins exactly", () => {
+	const stable = Object.keys(presets)
+		.sort()
+		.map((slug) => [
+			slug,
+			Object.entries(presets[slug]).sort(([a], [b]) => a.localeCompare(b)),
+		]);
+	assert.equal(stable.length, 31);
+	assert.equal(
+		createHash("sha256").update(JSON.stringify(stable)).digest("hex"),
+		// biome-ignore lint/security/noSecrets: Golden checksum of the original palette data.
+		"b8f9aafd8b1dabdee58965f22a542b044ae3b7597169db26b07c5edd4b4ed9fe",
+	);
+});
+
+function presetPrefs(theme, variant) {
+	const id =
+		theme === "partty" || theme.startsWith("custom:")
+			? theme
+			: `custom:${theme}${variant === "default" ? "" : `-${variant.replaceAll("_", "-")}`}`;
+	return { ui_theme: id, ui_theme_variant: "default" };
+}
 
 function vars(theme, variant) {
-	return themeCssVarsForPrefs({ ui_theme: theme, ui_theme_variant: variant });
+	return themeCssVarsForPrefs(presetPrefs(theme, variant));
 }
 
 function ansi(theme, variant) {
-	return buildXtermThemeFromPrefs({
-		ui_theme: theme,
-		ui_theme_variant: variant,
-	});
+	return buildXtermThemeFromPrefs(presetPrefs(theme, variant));
 }
 
 test("every preset variant exposes readable term/foreground and accent anchors", () => {
@@ -204,8 +268,9 @@ test("Light/dark named variants resolve to their own ANSI, not the generic remap
 	);
 });
 
-test("system/custom/matrix fall back to the generic dark/light ANSI remap", () => {
-	for (const themeId of ["custom:does-not-exist", "matrix"]) {
+test("missing files fall back to Partty; Matrix retains its original generic ANSI", () => {
+	assert.equal(ansi("custom:does-not-exist", "default").red, "#fa4d56");
+	for (const themeId of ["matrix"]) {
 		const theme = ansi(themeId, "default");
 		assert.equal(
 			theme.black,
@@ -216,14 +281,24 @@ test("system/custom/matrix fall back to the generic dark/light ANSI remap", () =
 	}
 });
 
-test("normalizePaneThemePrefs keeps deprecated ids resolving to canonical variants", () => {
-	assert.deepEqual(
+test("unknown and retired IDs fall back to Partty without resolving installed presets", () => {
+	const fallback = vars("partty", "default");
+	for (const id of [
+		"system",
+		"tokyonight",
+		"github-dark",
+		"vscode-light",
+		"missing",
+		"custom:missing",
+	]) {
+		const prefs = { ui_theme: id, ui_theme_variant: "light" };
+		assert.equal(api.normalizePaneThemePrefs(prefs).ui_theme, id);
+		assert.deepEqual({ ...themeCssVarsForPrefs(prefs) }, { ...fallback });
+	}
+	assert.notDeepEqual(
 		{ ...vars("github-dark", "default") },
-		{ ...vars("github", "dark") },
-	);
-	assert.deepEqual(
-		{ ...vars("vscode-light", "default") },
-		{ ...vars("vscode", "light") },
+		{ ...fallback },
+		"only an explicit custom ID resolves the installed file",
 	);
 });
 
@@ -285,12 +360,12 @@ test("find highlights derive from bg + accent and honor explicit overrides", () 
 
 test("terminal find colors are theme-aware per pane", () => {
 	const tokyo = terminalFindColors({
-		ui_theme: "tokyonight",
+		ui_theme: "custom:tokyonight",
 		ui_theme_variant: "default",
 	});
 	const latte = terminalFindColors({
-		ui_theme: "catppuccin",
-		ui_theme_variant: "latte",
+		ui_theme: "custom:catppuccin-latte",
+		ui_theme_variant: "default",
 	});
 	assert.notDeepEqual(
 		tokyo,
@@ -309,31 +384,22 @@ test("terminal find colors are theme-aware per pane", () => {
 	}
 });
 
-test("named themes keep canonical terminal colors; system/custom get contrast fallback", () => {
-	// Regression: syncTerminalFgContrast used to rewrite canonical foregrounds
-	// (e.g. Solarized light #657b83) at a 7:1 threshold, making the document
-	// chrome diverge from the pane's xterm theme. Named themes must opt out.
-	for (const id of [
-		"tokyonight",
-		"ayu",
-		"catppuccin",
-		"gruvbox",
-		"solarized",
-		"synthwave-84",
-		"matrix",
-		"github-dark",
-	]) {
-		assert.equal(
-			themeUsesCanonicalTerminalColors(id),
-			true,
-			`${id} must keep canonical terminal colors`,
+test("Partty is Carbonfox; explicit file colors survive app/pane rendering and switching", () => {
+	assert.deepEqual({ ...vars("partty", "default") }, presets.carbonfox);
+	assert.equal(api.pickUiPrefs({}).ui_theme, "partty");
+	assert.equal(api.pickUiPrefs({ ui_theme: "system" }).ui_theme, "system");
+	css.set("--term-pad-x", "23px");
+	for (const theme of ["solarized-light", "catppuccin-latte", "partty"]) {
+		const prefs = {
+			...api.parseProfileThemeRef(theme),
+			font_terminal: "",
+			font_ui: "",
+		};
+		api.applyUiTheme(prefs);
+		assert.deepEqual(
+			{ ...api.buildXtermThemeFromDocument() },
+			{ ...buildXtermThemeFromPrefs(prefs) },
 		);
-	}
-	for (const id of ["system", "custom:my-theme", ""]) {
-		assert.equal(
-			themeUsesCanonicalTerminalColors(id),
-			false,
-			`${id} must use the contrast fallback`,
-		);
+		assert.equal(css.get("--term-pad-x"), "23px");
 	}
 });

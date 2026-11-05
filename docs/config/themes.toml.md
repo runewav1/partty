@@ -4,6 +4,13 @@
 **Format:** TOML
 **Creation:** manually authored
 
+The only embedded theme is **Partty** (the former Carbonfox palette). Optional
+presets live in [`resources/themes/`](../../resources/themes/); copy the files
+you want into the path above. Nothing is installed automatically. With no
+installed files, the theme picker offers no changes. With installed files, it
+also offers Partty to return to the default. Every former variant has its own
+file. These presets are colors-only and never override configuration.
+
 ## Sections
 
 ### `version`
@@ -34,6 +41,8 @@ Common keys:
 | `--term-fg`                    | Terminal foreground                                                              |
 | `--term-cursor`                | Cursor color                                                                     |
 | `--term-selection-bg`          | Selection background                                                             |
+| `--term-ansi-black` … `--term-ansi-white` | The eight ordinary terminal ANSI colors |
+| `--term-ansi-bright-black` … `--term-ansi-bright-white` | The eight bright terminal ANSI colors |
 | `--term-find-match-bg`         | Find-in-terminal match tint (defaults to a `--term-bg`→`--accent-primary` blend) |
 | `--term-find-match-fg`         | Match text color (defaults to a legible contrast color)                          |
 | `--term-find-match-active-bg`  | Active find-in-terminal match tint (defaults to a stronger blend)                |
@@ -47,6 +56,11 @@ Common keys:
 | `--input-border`               | Input borders                                                                    |
 | `--pane-divider`               | Pane divider                                                                     |
 | `--pane-divider-hover`         | Pane divider hover                                                               |
+
+Explicit terminal foreground/cursor and ANSI colors are used unchanged for both
+app and pane themes. Missing ANSI entries use the generic dark/light terminal
+palette. Select an installed file with `[theme] active = "custom:<filename>"`;
+use `active = "partty"` for the embedded default.
 
 ### `[prefs]`
 

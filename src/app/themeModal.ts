@@ -1,10 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
-	ensureCustomThemesLoaded,
+	DEFAULT_THEME_ID,
+	getCustomThemeNames,
 	getThemePrefsCache,
+	loadCustomThemesIntoCache,
 	normalizePaneThemePrefs,
 	pickUiPrefs,
-	THEME_OPTIONS,
 	themeCssVarsForPrefs,
 	type UiThemePrefs,
 } from "./../terminal/uiTheme";
@@ -36,7 +37,6 @@ export type ThemeModalOpenOptions = {
 type FlatThemeRow = LexicalSearchItem & {
 	themeId: string;
 	variantId: string;
-	builtin: boolean;
 };
 
 export function createThemeModal(
@@ -51,21 +51,8 @@ export function createThemeModal(
 	let commitOverride: ThemeModalOpenOptions["onCommit"] | null = null;
 	let fontBase = { font_terminal: "", font_ui: "" };
 	let selectedFlat = 0;
-	const builtinFlat: FlatThemeRow[] = [];
-	for (const t of THEME_OPTIONS) {
-		for (const v of t.variants) {
-			builtinFlat.push({
-				themeId: t.id,
-				variantId: v.id,
-				label: `${t.label} — ${v.label}`,
-				id: `${t.id} ${v.id}`,
-				keywords: `${t.label} ${t.description} ${v.label} ${t.id} ${v.id}`,
-				builtin: true,
-			});
-		}
-	}
-	let allFlat: FlatThemeRow[] = [...builtinFlat];
-	let flat: FlatThemeRow[] = [...builtinFlat];
+	let allFlat: FlatThemeRow[] = [];
+	let flat: FlatThemeRow[] = [];
 
 	function applyFilter(): void {
 		flat = filterAndRankLexical(allFlat, normalizeQuery(searchInput.value));
@@ -76,6 +63,7 @@ export function createThemeModal(
 
 	function rebuildListDom(): void {
 		list.replaceChildren();
+		emptyMessage.hidden = allFlat.length > 0;
 		for (let i = 0; i < flat.length; i++) {
 			const row = flat[i]!;
 			const li = document.createElement("li");
@@ -124,14 +112,22 @@ export function createThemeModal(
 	}
 
 	async function refreshFlatAndList(): Promise<void> {
-		await ensureCustomThemesLoaded();
-		let names: string[] = [];
-		try {
-			names = await invoke<string[]>("list_themes");
-		} catch {
-			names = [];
-		}
-		allFlat = [...builtinFlat];
+		await loadCustomThemesIntoCache();
+		const names = getCustomThemeNames();
+		// No choices until users install a file. Once they do, include Partty
+		// so they can return to the app's only embedded theme.
+		allFlat =
+			names.length > 0
+				? [
+						{
+							themeId: DEFAULT_THEME_ID,
+							variantId: "default",
+							label: "Partty",
+							id: DEFAULT_THEME_ID,
+							keywords: "partty default",
+						},
+					]
+				: [];
 		for (const name of names) {
 			allFlat.push({
 				themeId: `custom:${name}`,
@@ -139,7 +135,6 @@ export function createThemeModal(
 				label: `Custom — ${name}`,
 				id: `custom ${name}`,
 				keywords: `custom ${name}`,
-				builtin: false,
 			});
 		}
 		applyFilter();
@@ -168,12 +163,17 @@ export function createThemeModal(
 
 	const list = document.createElement("ul");
 	list.className = "theme-modal-list";
+	const emptyMessage = document.createElement("p");
+	emptyMessage.className = "theme-modal-empty";
+	emptyMessage.textContent =
+		"No theme files installed. Add presets to ~/.partty/themes/ to choose a theme.";
 
 	rebuildListDom();
 
 	panel.appendChild(head);
 	panel.appendChild(searchInput);
 	panel.appendChild(list);
+	panel.appendChild(emptyMessage);
 
 	root.appendChild(panel);
 
@@ -263,7 +263,7 @@ export function createThemeModal(
 		if (e.key === "ArrowDown") {
 			e.preventDefault();
 			e.stopImmediatePropagation();
-			selectedFlat = Math.min(flat.length - 1, selectedFlat + 1);
+			selectedFlat = Math.max(0, Math.min(flat.length - 1, selectedFlat + 1));
 			updateSelection();
 			previewAt(selectedFlat);
 			return;
@@ -343,7 +343,7 @@ export function createThemeModal(
 					};
 				} catch {
 					initial = {
-						ui_theme: "system",
+						ui_theme: DEFAULT_THEME_ID,
 						ui_theme_variant: "default",
 						font_terminal: "",
 						font_ui: "",

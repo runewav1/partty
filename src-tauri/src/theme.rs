@@ -116,6 +116,44 @@ mod tests {
     use super::merge_toml_values;
     use toml::Value;
 
+    #[test]
+    fn resource_presets_are_valid_colors_only_themes() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../resources/themes");
+        let mut count = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|s| s.to_str()) != Some("toml") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            let theme: super::ThemeToml = toml::from_str(&text).unwrap();
+            let value: Value = toml::from_str(&text).unwrap();
+            assert!(
+                value
+                    .as_table()
+                    .unwrap()
+                    .keys()
+                    .all(|k| matches!(k.as_str(), "version" | "name" | "colors")),
+                "{}",
+                path.display()
+            );
+            assert_eq!(theme.version, 1);
+            assert!(theme.prefs.is_none());
+            assert!(theme.colors.contains_key("--term-bg"));
+            assert_eq!(
+                theme
+                    .colors
+                    .keys()
+                    .filter(|k| k.starts_with("--term-ansi-"))
+                    .count(),
+                16
+            );
+            count += 1;
+        }
+        assert_eq!(count, 31);
+        assert_eq!(super::Prefs::default().ui_theme, "partty");
+    }
+
     fn parse(text: &str) -> Value {
         toml::from_str::<Value>(text).unwrap()
     }
