@@ -213,8 +213,8 @@ Terminal session behavior (tabs/layouts in localStorage, copy/paste). Not the sa
 | `auto_copy`            | bool   | `false`  | copy terminal selection on change                                                                                                                           |
 | `right_click_paste`    | bool   | `true`   | right-click in a terminal pane pastes from the clipboard                                                                                                    |
 | `osc52`                | bool   | `true`   | allow remote programs (e.g. over SSH) to read and write the local clipboard via OSC 52 — disable if you don't want remote processes touching your clipboard |
-| `bell`                 | bool   | `true`   | play a native Windows sound on terminal BEL (ASCII 7) |
-| `bell_sound`           | string | `""`     | optional absolute path to a WAV file; empty uses Windows' Critical Stop sound, matching Windows Terminal |
+| `bell`                 | bool   | `true`   | play a native Windows sound on terminal BEL (ASCII 7)                                                                                                       |
+| `bell_sound`           | string | `""`     | optional absolute path to a WAV file; empty uses Windows' Critical Stop sound, matching Windows Terminal                                                    |
 | `retain_session_state` | bool   | `true`   | keep pane layouts and working directories across restarts                                                                                                   |
 
 Bell settings apply to newly started sessions. Playback is asynchronous and limited
