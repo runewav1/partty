@@ -179,7 +179,7 @@ fn resolve_spawn(
     shell: Option<&str>,
     initial_cwd: Option<String>,
     startup_override: Option<&str>,
-) -> Result<(prefs::Prefs, Option<profiles::ConnectionProfile>, String), String> {
+) -> (prefs::Prefs, Option<profiles::ConnectionProfile>, String) {
     let assigned = match profile_id.map(str::trim).filter(|s| !s.is_empty()) {
         Some(id) => match profiles::get_profile(id) {
             Ok(p) => Some(p),
@@ -227,11 +227,7 @@ fn resolve_spawn(
     }
 
     let mut cwd = initial_cwd;
-    if cwd
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .is_none()
+    if cwd.as_deref().is_none_or(|s| s.trim().is_empty())
         && let Some(pc) = assigned
             .as_ref()
             .and_then(|p| p.initial_cwd.as_deref())
@@ -262,7 +258,7 @@ fn resolve_spawn(
         .map(str::to_string)
         .or(shell_from_profile);
 
-    let spawn_prefs = prefs_for_spawn(base, shell_override.as_deref(), cwd.clone());
+    let spawn_prefs = prefs_for_spawn(base, shell_override.as_deref(), cwd);
 
     let backend_key = match spawn_profile.as_ref() {
         Some(p) if matches!(p.kind, profiles::ProfileKind::Wsl) => {
@@ -293,11 +289,11 @@ fn resolve_spawn(
     // (restored paneCwds ≠ spawn-time cwd → false mismatch → kill+respawn).
     let want = format!(
         "{}\0{}",
-        assigned.as_ref().map(|p| p.id.as_str()).unwrap_or(""),
+        assigned.as_ref().map_or("", |p| p.id.as_str()),
         backend_key,
     );
 
-    Ok((spawn_prefs, spawn_for_pty, want))
+    (spawn_prefs, spawn_for_pty, want)
 }
 
 /// Parse a `#rrggbb` tint string into (r, g, b); malformed input falls back to black.
@@ -400,7 +396,7 @@ fn apply_window_effects(
                 ((prefs.window_effect_acrylic_tint_alpha.clamp(0.0, 1.0)) * 255.0).round() as u32;
             // Acrylic rejects a zero-alpha gradient; clamp to the smallest allowed.
             let a = a.max(1);
-            let gradient = (a << 24) | ((b as u32) << 16) | ((g as u32) << 8) | r as u32;
+            let gradient = (a << 24) | (u32::from(b) << 16) | (u32::from(g) << 8) | u32::from(r);
             set_window_accent(win, 4, gradient) // ACCENT_ENABLE_ACRYLICBLURBEHIND
         } else {
             set_window_accent(win, 0, 0); // ACCENT_DISABLED
@@ -433,7 +429,8 @@ fn refresh_window_effects(app: &AppHandle) {
 }
 
 fn kill_pane_session(state: &AppState, session_id: &str) {
-    if let Some(s) = state.pty_panes.lock().remove(session_id) {
+    let session = state.pty_panes.lock().remove(session_id);
+    if let Some(s) = session {
         s.kill();
     }
     state.pty_spawn_identity.lock().remove(session_id);
@@ -600,7 +597,7 @@ fn attach_permission_handler(win: &tauri::WebviewWindow) {
 #[cfg(not(windows))]
 fn attach_permission_handler(_win: &tauri::WebviewWindow) {}
 
-async fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
+fn recreate_main_window(app: &AppHandle) -> Result<(), String> {
     let cfg = app
         .config()
         .app
@@ -656,7 +653,7 @@ fn spawn_show_main_window(app: AppHandle) {
                 .defer_prepare_show_until_webview_ready
                 .store(true, Ordering::SeqCst);
         }
-        if let Err(e) = recreate_main_window(&app).await {
+        if let Err(e) = recreate_main_window(&app) {
             eprintln!("partty: recreate main window: {e}");
             if defer_prep {
                 app.state::<AppState>()
@@ -862,13 +859,13 @@ fn pty_ensure_blocking(
         shell.as_deref(),
         initial_cwd,
         startup_command.as_deref(),
-    )?;
+    );
     let ring = shared_ring::create(app, &session_id)?;
     let existing = {
         let panes = state.pty_panes.lock();
         let ids = state.pty_spawn_identity.lock();
         if panes.get(&session_id).is_some()
-            && ids.get(&session_id).map(|x| x.as_str()) == Some(want.as_str())
+            && ids.get(&session_id).map(String::as_str) == Some(want.as_str())
         {
             panes.get(&session_id).cloned()
         } else {
@@ -882,7 +879,8 @@ fn pty_ensure_blocking(
         let _ = session.resize(cols, rows);
         return Ok(());
     }
-    if let Some(old) = state.pty_panes.lock().remove(&session_id) {
+    let old = state.pty_panes.lock().remove(&session_id);
+    if let Some(old) = old {
         old.kill();
     }
     state.pty_spawn_identity.lock().remove(&session_id);
@@ -1160,7 +1158,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            if let RunEvent::Resumed = event {
+            if matches!(event, RunEvent::Resumed) {
                 refresh_window_effects(app);
             }
             if let RunEvent::ExitRequested { api, .. } = event {

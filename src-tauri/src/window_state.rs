@@ -18,8 +18,7 @@ static SUPPRESS_SNAPSHOT_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 /// Ignore move/resize snapshots briefly after programmatic reposition (e.g. summon-at-cursor).
@@ -134,10 +133,8 @@ pub fn debounced_snapshot_to_memory(app: &AppHandle, last_snapshot: &Mutex<Optio
     let state = app.state::<crate::AppState>();
     let now = Instant::now();
     let mut last = last_snapshot.lock();
-    let should_snap = match *last {
-        None => true,
-        Some(t) => now.duration_since(t).as_millis() > MEMORY_SNAPSHOT_DEBOUNCE_MS,
-    };
+    let should_snap =
+        last.is_none_or(|t| now.duration_since(t).as_millis() > MEMORY_SNAPSHOT_DEBOUNCE_MS);
     if should_snap {
         let mut persisted = state.persisted.lock();
         snapshot_window_into(&mut persisted, &win);

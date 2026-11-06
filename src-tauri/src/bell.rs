@@ -9,7 +9,9 @@ pub fn ring(path: &str) {
     };
 
     static LAST: Mutex<Option<Instant>> = Mutex::new(None);
-    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    let mut last = LAST
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let now = Instant::now();
     if last.is_some_and(|t| now.duration_since(t) < Duration::from_millis(200)) {
         return;

@@ -39,7 +39,7 @@ pub struct ThemeVariantInfo {
     pub prefs: Option<Prefs>,
 }
 
-fn default_version() -> u32 {
+const fn default_version() -> u32 {
     1
 }
 

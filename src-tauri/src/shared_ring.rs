@@ -64,7 +64,7 @@ impl SharedRing {
         })
     }
 
-    pub fn id(&self) -> u32 {
+    pub const fn id(&self) -> u32 {
         self.id
     }
 

@@ -14,7 +14,7 @@ pub struct KeybindsFile {
     pub bind: HashMap<String, String>,
 }
 
-fn default_version() -> u32 {
+const fn default_version() -> u32 {
     1
 }
 

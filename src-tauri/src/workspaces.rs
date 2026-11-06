@@ -49,8 +49,8 @@ enum PaneNodeFile {
     Split {
         dir: String,
         ratio: f64,
-        a: Box<PaneNodeFile>,
-        b: Box<PaneNodeFile>,
+        a: Box<Self>,
+        b: Box<Self>,
     },
 }
 
@@ -104,8 +104,8 @@ pub enum PaneNodeDto {
     Split {
         dir: String,
         ratio: f64,
-        a: Box<PaneNodeDto>,
-        b: Box<PaneNodeDto>,
+        a: Box<Self>,
+        b: Box<Self>,
     },
 }
 

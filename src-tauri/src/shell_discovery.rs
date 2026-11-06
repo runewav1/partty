@@ -167,8 +167,7 @@ fn registered_pwsh() -> Vec<(PathBuf, bool)> {
                         let path = expand_path(&path).join("pwsh.exe");
                         let preview = install
                             .string("SemanticVersion")
-                            .map(|v| v.contains('-'))
-                            .unwrap_or_else(|| preview_path(&path));
+                            .map_or_else(|| preview_path(&path), |v| v.contains('-'));
                         paths.push((path, preview));
                     }
                 }
@@ -396,17 +395,15 @@ pub fn resolve_git_bash() -> Option<PathBuf> {
         }
     }
     // A Git installation can have any directory name. Identify it by its layout.
-    resolve_on_path("git.exe").and_then(|git| {
-        let root = git.parent()?.parent()?;
-        let bash = root.join("bin/bash.exe");
-        executable_exists(&bash).then_some(bash)
-    })
+    let git = resolve_on_path("git.exe")?;
+    let root = git.parent()?.parent()?;
+    let bash = root.join("bin/bash.exe");
+    executable_exists(&bash).then_some(bash)
 }
 
 pub fn resolve_wsl() -> Option<PathBuf> {
-    let root = std::env::var_os("SystemRoot")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+    let root =
+        std::env::var_os("SystemRoot").map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
     // Sysnative bypasses WOW64 redirection when running a 32-bit process.
     [
         root.join("Sysnative/wsl.exe"),

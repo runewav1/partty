@@ -33,28 +33,28 @@ impl Default for WindowState {
 // Default helpers (unchanged)
 // ---------------------------------------------------------------------------
 
-fn default_true() -> bool {
+const fn default_true() -> bool {
     true
 }
-fn default_pane_blur_radius() -> f64 {
+const fn default_pane_blur_radius() -> f64 {
     1.6
 }
-fn default_pane_opacity_focused() -> f64 {
+const fn default_pane_opacity_focused() -> f64 {
     1.0
 }
-fn default_pane_opacity_unfocused() -> f64 {
+const fn default_pane_opacity_unfocused() -> f64 {
     1.0
 }
-fn default_pane_focus_scale_intensity() -> f64 {
+const fn default_pane_focus_scale_intensity() -> f64 {
     0.45
 }
-fn default_terminal_backspace_delete_selection() -> bool {
+const fn default_terminal_backspace_delete_selection() -> bool {
     true
 }
-fn default_scrollback_lines() -> u32 {
+const fn default_scrollback_lines() -> u32 {
     1000
 }
-fn default_snapshot_max_lines() -> u32 {
+const fn default_snapshot_max_lines() -> u32 {
     2500
 }
 fn default_ui_theme() -> String {
@@ -85,25 +85,25 @@ fn default_workspace_open_mode() -> String {
 fn default_default_profile_id() -> String {
     "local-default".to_string()
 }
-fn default_terminal_pane_gap() -> f64 {
+const fn default_terminal_pane_gap() -> f64 {
     6.0
 }
-fn default_terminal_sandbox_padding() -> f64 {
+const fn default_terminal_sandbox_padding() -> f64 {
     0.0
 }
 fn default_window_effect_mode() -> String {
     "transparent".to_string()
 }
-fn default_window_effect_opacity() -> f64 {
+const fn default_window_effect_opacity() -> f64 {
     0.0
 }
 fn default_window_effect_acrylic_tint() -> String {
     "#1e1e1e".to_string()
 }
-fn default_window_effect_acrylic_tint_alpha() -> f64 {
+const fn default_window_effect_acrylic_tint_alpha() -> f64 {
     0.55
 }
-fn default_pane_corner_radius() -> f64 {
+const fn default_pane_corner_radius() -> f64 {
     6.0
 }
 fn default_cursor_style() -> String {
@@ -112,31 +112,31 @@ fn default_cursor_style() -> String {
 fn default_cursor_inactive_style() -> String {
     "outline".to_string()
 }
-fn default_cursor_width() -> f64 {
+const fn default_cursor_width() -> f64 {
     1.0
 }
-fn default_cursor_trail() -> f64 {
+const fn default_cursor_trail() -> f64 {
     0.0
 }
-fn default_cursor_trail_decay() -> [f64; 2] {
+const fn default_cursor_trail_decay() -> [f64; 2] {
     [0.1, 0.4]
 }
-fn default_cursor_trail_start_threshold() -> CursorTrailThreshold {
+const fn default_cursor_trail_start_threshold() -> CursorTrailThreshold {
     CursorTrailThreshold::Single(2.0)
 }
 fn default_cursor_trail_color() -> String {
     "none".to_string()
 }
-fn default_font_size() -> f64 {
+const fn default_font_size() -> f64 {
     12.0
 }
 const FONT_ZOOM_STEP_MIN: f64 = 0.05;
 const FONT_ZOOM_STEP_MAX: f64 = 2.0;
-fn default_font_zoom_step() -> f64 {
+const fn default_font_zoom_step() -> f64 {
     0.25
 }
 /// Clamp a Ctrl+wheel font-size zoom step (CSS px) into its valid range.
-fn normalize_font_zoom_step(v: f64) -> f64 {
+const fn normalize_font_zoom_step(v: f64) -> f64 {
     if !v.is_finite() {
         return default_font_zoom_step();
     }
@@ -148,25 +148,25 @@ fn default_font_weight() -> String {
 fn default_font_weight_bold() -> String {
     "bold".to_string()
 }
-fn default_line_height() -> f64 {
+const fn default_line_height() -> f64 {
     1.0
 }
-fn default_letter_spacing() -> f64 {
+const fn default_letter_spacing() -> f64 {
     0.0
 }
-fn default_scroll_sensitivity() -> f64 {
+const fn default_scroll_sensitivity() -> f64 {
     1.0
 }
-fn default_fast_scroll_sensitivity() -> f64 {
+const fn default_fast_scroll_sensitivity() -> f64 {
     5.0
 }
-fn default_process_notification_threshold() -> f64 {
+const fn default_process_notification_threshold() -> f64 {
     5.0
 }
-fn default_process_notification_show_for() -> f64 {
+const fn default_process_notification_show_for() -> f64 {
     5000.0
 }
-fn default_mouse_idle_seconds() -> f64 {
+const fn default_mouse_idle_seconds() -> f64 {
     3.0
 }
 
@@ -606,24 +606,24 @@ impl Default for CursorSection {
     }
 }
 
-fn cursor_trail_finite(v: f64, fallback: f64) -> f64 {
+const fn cursor_trail_finite(v: f64, fallback: f64) -> f64 {
     if v.is_finite() { v } else { fallback }
 }
 
 /// Floor a value to a non-negative count, falling back for non-finite input.
 /// Mirrors the xterm.js core sanitizer.
-fn cursor_trail_floor_non_negative(v: f64, fallback: f64) -> f64 {
+const fn cursor_trail_floor_non_negative(v: f64, fallback: f64) -> f64 {
     cursor_trail_finite(v, fallback).max(0.0).floor()
 }
 
 /// `cursor_trail`: whole non-negative milliseconds (`0` disables).
-fn normalize_cursor_trail(v: f64) -> f64 {
+const fn normalize_cursor_trail(v: f64) -> f64 {
     cursor_trail_floor_non_negative(v, default_cursor_trail())
 }
 
 /// `cursor_trail_decay`: `[fast, slow]` seconds, non-negative, with `slow`
 /// lifted to at least `fast`. Non-finite values fall back to the kitty default.
-fn normalize_cursor_trail_decay(v: [f64; 2]) -> [f64; 2] {
+const fn normalize_cursor_trail_decay(v: [f64; 2]) -> [f64; 2] {
     let d = default_cursor_trail_decay();
     let fast = cursor_trail_finite(v[0], d[0]).max(0.0);
     let slow = cursor_trail_finite(v[1], d[1]).max(0.0);
@@ -644,7 +644,7 @@ fn cursor_trail_decay_from_vec(v: Option<Vec<f64>>) -> [f64; 2] {
 }
 
 /// `cursor_trail_start_threshold`: floor each axis to a non-negative cell count.
-fn normalize_cursor_trail_threshold(t: CursorTrailThreshold) -> CursorTrailThreshold {
+const fn normalize_cursor_trail_threshold(t: CursorTrailThreshold) -> CursorTrailThreshold {
     let fallback = match default_cursor_trail_start_threshold() {
         CursorTrailThreshold::Single(v) => v,
         CursorTrailThreshold::Pair(p) => p[0],
@@ -1243,23 +1243,24 @@ impl From<ConfigToml> for Prefs {
         let shell = resolve_config_shell(&c.profiles);
         let initial_cwd = resolve_config_initial_dir(&c.profiles);
 
-        let trail = match c.cursor.trail {
-            Some(v) => normalize_cursor_trail(v),
-            None => default_cursor_trail(),
-        };
+        let trail = c
+            .cursor
+            .trail
+            .map_or_else(default_cursor_trail, normalize_cursor_trail);
         let trail_decay = if c.cursor.trail_decay.is_some() {
             cursor_trail_decay_from_vec(c.cursor.trail_decay.clone())
         } else {
             default_cursor_trail_decay()
         };
-        let trail_start_threshold = match c.cursor.trail_start_threshold.clone() {
-            Some(t) => normalize_cursor_trail_threshold(t),
-            None => default_cursor_trail_start_threshold(),
-        };
-        let trail_color = match c.cursor.trail_color.as_deref() {
-            Some(s) => normalize_cursor_trail_color(s),
-            None => default_cursor_trail_color(),
-        };
+        let trail_start_threshold = c.cursor.trail_start_threshold.clone().map_or_else(
+            default_cursor_trail_start_threshold,
+            normalize_cursor_trail_threshold,
+        );
+        let trail_color = c
+            .cursor
+            .trail_color
+            .as_deref()
+            .map_or_else(default_cursor_trail_color, normalize_cursor_trail_color);
 
         Self {
             shell,

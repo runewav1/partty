@@ -276,11 +276,11 @@ impl OscStripper {
 
     /// Test-only hook counting bytes copied into the pending buffer.
     #[cfg(test)]
-    fn note_partial_copy(&mut self, n: usize) {
+    const fn note_partial_copy(&mut self, n: usize) {
         self.partial_copies += n;
     }
     #[cfg(not(test))]
-    fn note_partial_copy(&mut self, _n: usize) {}
+    const fn note_partial_copy(&mut self, _n: usize) {}
 
     /// Takes ownership so chunks without OSC introducers or BEL pass through untouched.
     fn process(&mut self, input: Vec<u8>) -> (Vec<u8>, Vec<OscSideEvent>) {
@@ -549,10 +549,7 @@ impl OscStripper {
             Ok(s) => s,
             Err(_) => return false,
         };
-        let (osc_num, rest) = match s.find(';') {
-            Some(pos) => (&s[..pos], &s[pos + 1..]),
-            None => (s, ""),
-        };
+        let (osc_num, rest) = s.split_once(';').unwrap_or((s, ""));
         match osc_num {
             "0" | "1" | "2" => {
                 let title = rest.trim().to_string();
@@ -587,9 +584,7 @@ impl OscStripper {
     }
 
     fn handle_shell_integration(&mut self, rest: &str, events: &mut Vec<OscSideEvent>) {
-        let sep = rest.find(';');
-        let letter = sep.map(|p| &rest[..p]).unwrap_or(rest);
-        let data = sep.map(|p| &rest[p + 1..]).unwrap_or("");
+        let (letter, data) = rest.split_once(';').unwrap_or((rest, ""));
 
         match letter {
             "A" => events.push(OscSideEvent::PromptStart),
@@ -807,8 +802,7 @@ fn csi_is_final(b: u8) -> bool {
 /// number (`1049`, or the legacy `1047` / `47` aliases).
 fn params_include_alt_screen(params: &[u8]) -> bool {
     std::str::from_utf8(params)
-        .map(|s| s.split(';').any(|p| matches!(p, "1049" | "1047" | "47")))
-        .unwrap_or(false)
+        .is_ok_and(|s| s.split(';').any(|p| matches!(p, "1049" | "1047" | "47")))
 }
 
 /// Index just past an OSC terminator (BEL or `ESC \`) starting at `from`, or
@@ -873,7 +867,7 @@ fn osc_unescape(s: &str) -> String {
     while let Some(c) = chars.next() {
         if c == '\\' {
             match chars.peek().copied() {
-                Some('x') | Some('X') => {
+                Some('x' | 'X') => {
                     chars.next();
                     let h1 = chars.next().and_then(|c| c.to_digit(16));
                     let h2 = chars.next().and_then(|c| c.to_digit(16));
@@ -917,12 +911,12 @@ fn osc7_parse_cwd(payload: &str) -> Option<String> {
                 decoded.replace('/', "\\")
             } else {
                 // POSIX absolute
-                format!("/{}", decoded)
+                format!("/{decoded}")
             }
         } else {
             // file://server/share  →  UNC
             let decoded = percent_decode(rest)?;
-            format!("\\\\{}", decoded).replace('/', "\\")
+            format!("\\\\{decoded}").replace('/', "\\")
         }
     } else {
         raw.to_string()
@@ -969,9 +963,8 @@ fn osc633_normalize_cwd(value: &str, is_windows: Option<&str>) -> String {
     if raw.is_empty() {
         return String::new();
     }
-    let is_windows = is_windows
-        .map(|v| v.eq_ignore_ascii_case("true"))
-        .unwrap_or(true); // default to Windows since that's the target platform
+    // Default to Windows since that's the target platform.
+    let is_windows = is_windows.is_none_or(|v| v.eq_ignore_ascii_case("true"));
 
     if !is_windows {
         return raw.to_string();
@@ -1104,7 +1097,7 @@ impl PtySession {
 
         let (input_tx, input_rx) = channel::<PtyInput>();
         let stop_input = Arc::clone(&stop);
-        let _input = thread::spawn(move || {
+        let input_thread = thread::spawn(move || {
             let mut writer = writer;
             while let Ok(cmd) = input_rx.recv() {
                 if stop_input.load(Ordering::SeqCst) {
@@ -1152,7 +1145,7 @@ impl PtySession {
         let input_osc = input_tx.clone();
         let osc52 = prefs.osc52;
         let bell = prefs.bell;
-        let bell_sound = prefs.bell_sound.clone();
+        let bell_sound = prefs.bell_sound;
         // NOTE: do NOT capture a `WebviewWindow` here.  When
         // `destroy_webview_on_hide` is enabled (the default), the main webview
         // is torn down on hide and rebuilt on summon. The frontend gets a fresh
@@ -1256,10 +1249,10 @@ impl PtySession {
                         OscSideEvent::PromptEnd => shell_event(ShellEventKind::PromptEnd),
                         OscSideEvent::PreExec => shell_event(ShellEventKind::PreExec),
                         OscSideEvent::CommandDone(exit_code) => {
-                            shell_event(ShellEventKind::CommandDone { exit_code })
+                            shell_event(ShellEventKind::CommandDone { exit_code });
                         }
                         OscSideEvent::CommandLine(text) => {
-                            shell_event(ShellEventKind::CommandLine { text })
+                            shell_event(ShellEventKind::CommandLine { text });
                         }
                         OscSideEvent::Osc52Set(payload) if osc52 => {
                             if let Some(decoded) = clipboard::base64_decode(&payload) {
@@ -1304,7 +1297,8 @@ impl PtySession {
                 pending = cleaned_bytes;
                 pending.clear();
             }
-            if let Some(ring) = output_ring_emitter.lock().take() {
+            let ring = output_ring_emitter.lock().take();
+            if let Some(ring) = ring {
                 shared_ring::close(&app_emit, ring.id());
             }
         });
@@ -1332,9 +1326,9 @@ impl PtySession {
                 (ok != 0).then(|| unsafe { OwnedHandle::from_raw_handle(dup) })
             });
         let stop_waiter = Arc::clone(&stop);
-        let app_waiter = app.clone();
+        let app_waiter = app;
         let session_id_waiter = session_id;
-        let _waiter = thread::spawn(move || {
+        let waiter = thread::spawn(move || {
             let Some(handle) = exit_handle else {
                 return;
             };
@@ -1359,8 +1353,8 @@ impl PtySession {
             replay_buffer,
             output_ring,
             emitter,
-            _waiter,
-            _input,
+            _waiter: waiter,
+            _input: input_thread,
         })
     }
 
@@ -1395,7 +1389,8 @@ impl PtySession {
 
     pub fn kill(&self) {
         self.stop.store(true, Ordering::SeqCst);
-        if let Some(mut c) = self.child.lock().take() {
+        let child = self.child.lock().take();
+        if let Some(mut c) = child {
             let _ = c.kill();
         }
         // The emitter holds a sender for OSC 52 replies, so the queue never
@@ -1464,7 +1459,10 @@ fn resolve_bash_executable(prefs: &Prefs) -> Result<CommandBuilder, String> {
     let trimmed = prefs.shell.trim().trim_matches(|c| c == '"' || c == '\'');
     if !trimmed.is_empty() {
         let path = Path::new(trimmed);
-        if (trimmed.contains('\\') || trimmed.contains('/') || trimmed.ends_with(".exe"))
+        if (trimmed.contains(['\\', '/'])
+            || path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("exe")))
             && is_bash_executable_path(path)
         {
             return Ok(CommandBuilder::new(path));
@@ -1607,7 +1605,10 @@ fn normalize_shell_token(raw: &str) -> String {
 }
 
 fn strip_exe_suffix(s: &mut String) {
-    if s.len() > 4 && s.ends_with(".exe") {
+    if s.len() > 4
+        && s.get(s.len() - 4..)
+            .is_some_and(|ext| ext.eq_ignore_ascii_case(".exe"))
+    {
         s.truncate(s.len() - 4);
     }
 }
@@ -1626,13 +1627,13 @@ fn is_pwsh_alias(shell: &str) -> bool {
     )
 }
 
-fn apply_cwd(mut cmd: CommandBuilder, prefs: &Prefs) -> Result<CommandBuilder, String> {
+fn apply_cwd(mut cmd: CommandBuilder, prefs: &Prefs) -> CommandBuilder {
     if let Some(dir) = prefs.initial_cwd.as_deref()
         && Path::new(dir).is_dir()
     {
         cmd.cwd(dir);
     }
-    Ok(cmd)
+    cmd
 }
 
 fn profile_startup(profile: Option<&ConnectionProfile>) -> Option<&str> {
@@ -1810,9 +1811,8 @@ fn detect_wsl_login_shell_uncached(distro: &str) -> WslLoginShell {
         .unwrap_or(shell)
         .to_ascii_lowercase();
     match base.as_str() {
-        "bash" => WslLoginShell::Bash,
         "zsh" => WslLoginShell::Zsh,
-        "sh" | "dash" => WslLoginShell::Bash, // inject via bash
+        "bash" | "sh" | "dash" => WslLoginShell::Bash, // inject via bash
         "fish" | "csh" | "tcsh" | "ksh" | "pwsh" => WslLoginShell::Other,
         _ => WslLoginShell::Unknown,
     }
@@ -2015,7 +2015,7 @@ fn ssh_profile_command(profile: &ConnectionProfile) -> Result<CommandBuilder, St
     Ok(c)
 }
 
-fn windows_host_shell(prefs: &Prefs) -> Result<CommandBuilder, String> {
+fn windows_host_shell(prefs: &Prefs) -> CommandBuilder {
     let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into());
     let c = CommandBuilder::new(comspec);
     apply_cwd(c, prefs)
@@ -2103,7 +2103,7 @@ fn windows_shell_command(
             c.env("TERM_PROGRAM", "partty");
             c.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
             c.env("PARTTY_SHELL_INTEGRATION", "1");
-            apply_cwd(c, prefs)
+            Ok(apply_cwd(c, prefs))
         }
         ShellKind::Bash => {
             let bash = if let Some(path) = configured {
@@ -2127,7 +2127,7 @@ fn windows_shell_command(
             c.env("TERM_PROGRAM", "partty");
             c.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
             c.env("PARTTY_SHELL_INTEGRATION", "1");
-            apply_cwd(c, prefs)
+            Ok(apply_cwd(c, prefs))
         }
         ShellKind::Zsh => {
             let script =
@@ -2147,7 +2147,7 @@ fn windows_shell_command(
             c.env("TERM_PROGRAM", "partty");
             c.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
             c.env("PARTTY_SHELL_INTEGRATION", "1");
-            apply_cwd(c, prefs)
+            Ok(apply_cwd(c, prefs))
         }
         ShellKind::Cmd => {
             if let Some(path) = configured {
@@ -2155,41 +2155,42 @@ fn windows_shell_command(
                 if let Some(cmd) = startup {
                     c.args(["/k", cmd]);
                 }
-                return apply_cwd(c, prefs);
+                return Ok(apply_cwd(c, prefs));
             }
             if let Some(cmd) = startup {
                 let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into());
                 let mut c = CommandBuilder::new(comspec);
                 c.arg("/k");
                 c.arg(cmd);
-                return apply_cwd(c, prefs);
+                return Ok(apply_cwd(c, prefs));
             }
-            windows_host_shell(prefs)
+            Ok(windows_host_shell(prefs))
         }
         ShellKind::Other => {
             let trimmed = prefs.shell.trim().trim_matches(|c| c == '"' || c == '\'');
             if trimmed.is_empty() {
-                return windows_host_shell(prefs);
+                return Ok(windows_host_shell(prefs));
             }
             let path_candidate = Path::new(trimmed);
             let mut builder = if let Some(path) = configured {
                 CommandBuilder::new(path)
-            } else if (trimmed.contains('\\') || trimmed.contains('/') || trimmed.ends_with(".exe"))
+            } else if (trimmed.contains(['\\', '/'])
+                || path_candidate
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("exe")))
                 && path_candidate.is_file()
             {
                 CommandBuilder::new(path_candidate)
+            } else if let Some(exe) = resolve_on_path(trimmed) {
+                CommandBuilder::new(exe)
             } else {
-                if let Some(exe) = resolve_on_path(trimmed) {
-                    CommandBuilder::new(exe)
-                } else {
-                    return windows_host_shell(prefs);
-                }
+                return Ok(windows_host_shell(prefs));
             };
             if let Some(startup_cmd) = startup {
                 builder.arg("-c");
                 builder.arg(startup_cmd);
             }
-            apply_cwd(builder, prefs)
+            Ok(apply_cwd(builder, prefs))
         }
     }
 }
@@ -2212,7 +2213,11 @@ fn detect_shell_kind(prefs: &Prefs) -> ShellKind {
         return ShellKind::Cmd;
     }
     let path_candidate = Path::new(trimmed);
-    let name = if trimmed.contains('\\') || trimmed.contains('/') || trimmed.ends_with(".exe") {
+    let name = if trimmed.contains(['\\', '/'])
+        || path_candidate
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+    {
         path_candidate
             .file_name()
             .and_then(|s| s.to_str())
@@ -2244,11 +2249,13 @@ fn detect_shell_kind(prefs: &Prefs) -> ShellKind {
 /// non-ASCII) passes through verbatim as its original char.
 #[cfg(test)]
 fn shell_escape(s: &str) -> String {
+    use std::fmt::Write;
+
     let mut out = String::with_capacity(s.len() + 8);
     for c in s.chars() {
         let code = c as u32;
         if code < 0x20 || code == 0x3B || code == 0x5C || code == 0x7F {
-            out.push_str(&format!("\\x{:02x}", code));
+            let _ = write!(out, "\\x{code:02x}");
         } else {
             out.push(c);
         }
@@ -3288,6 +3295,42 @@ mod tests {
         split_commandline, windows_path_to_wsl_mnt, windows_shell_command,
     };
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn exe_suffix_is_case_insensitive_and_unicode_safe() {
+        for (input, expected) in [
+            ("pwsh.exe", "pwsh"),
+            ("pwsh.EXE", "pwsh"),
+            ("pwsh.ExE", "pwsh"),
+            ("日本語.EXE", "日本語"),
+            ("日本語", "日本語"),
+            ("pwsh.exe.bak", "pwsh.exe.bak"),
+            (".exe", ".exe"),
+            ("", ""),
+        ] {
+            let mut token = input.to_string();
+            super::strip_exe_suffix(&mut token);
+            assert_eq!(token, expected);
+        }
+    }
+
+    #[test]
+    fn shell_detection_accepts_mixed_case_executable_extensions() {
+        for (shell, expected) in [
+            ("PWSH.EXE", super::ShellKind::Pwsh),
+            ("powershell.ExE", super::ShellKind::PowerShell),
+            ("BASH.EXE", super::ShellKind::Bash),
+            ("cmd.ExE", super::ShellKind::Cmd),
+            (r"C:\Portable Shells\ZSH.EXE", super::ShellKind::Zsh),
+            ("custom.EXE", super::ShellKind::Other),
+        ] {
+            let prefs = Prefs {
+                shell: shell.to_string(),
+                ..Prefs::default()
+            };
+            assert_eq!(super::detect_shell_kind(&prefs), expected, "{shell}");
+        }
+    }
 
     #[test]
     fn split_ssh_commandline() {

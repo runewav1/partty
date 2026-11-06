@@ -77,7 +77,7 @@ pub struct ConnectionProfile {
     pub builtin: bool,
 }
 
-fn default_version() -> u32 {
+const fn default_version() -> u32 {
     1
 }
 
