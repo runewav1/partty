@@ -1,4 +1,5 @@
 mod backdrop;
+mod bell;
 mod clipboard;
 mod keybinds;
 mod prefs;

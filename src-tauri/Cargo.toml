@@ -47,6 +47,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Memory",
     "Win32_System_LibraryLoader",
     "Win32_Media",
+    "Win32_Media_Audio",
 ] }
 
 [patch.crates-io]

@@ -154,6 +154,7 @@ pub struct PtyAltScreenEvent {
 const MAX_OSC_LEN: usize = 256 * 1024;
 
 enum OscSideEvent {
+    Bell,
     Cwd(String),
     Title(String),
     PromptStart,
@@ -281,14 +282,16 @@ impl OscStripper {
     #[cfg(not(test))]
     fn note_partial_copy(&mut self, _n: usize) {}
 
-    /// Takes ownership so chunks without OSC introducers pass through untouched.
+    /// Takes ownership so chunks without OSC introducers or BEL pass through untouched.
     fn process(&mut self, input: Vec<u8>) -> (Vec<u8>, Vec<OscSideEvent>) {
         // CSI and other escapes need no output reconstruction. A trailing ESC
         // must still be deferred in case the next chunk starts with `]`.
         if !self.discarding
             && self.partial.is_empty()
             && input.last() != Some(&0x1b)
-            && memchr::memmem::find(&input, b"\x1b]").is_none()
+            && (memchr::memchr2(0x1b, 0x07, &input).is_none()
+                || (memchr::memchr(0x07, &input).is_none()
+                    && memchr::memmem::find(&input, b"\x1b]").is_none()))
         {
             return (input, Vec::new());
         }
@@ -312,11 +315,18 @@ impl OscStripper {
         let mut search_from = 0;
 
         while search_from < buf.len() {
-            let Some(esc) = memchr::memchr(0x1b, &buf[search_from..]) else {
+            let Some(esc) = memchr::memchr2(0x1b, 0x07, &buf[search_from..]) else {
                 break;
             };
             let esc = search_from + esc;
             self.scratch.extend_from_slice(&buf[run_start..esc]);
+
+            if buf[esc] == 0x07 {
+                events.push(OscSideEvent::Bell);
+                run_start = esc + 1;
+                search_from = run_start;
+                continue;
+            }
 
             if esc + 1 < buf.len() && buf[esc + 1] == 0x5d {
                 match osc_scan(buf, esc + 2, MAX_OSC_LEN) {
@@ -1141,6 +1151,8 @@ impl PtySession {
         // they stay ordered with user input.
         let input_osc = input_tx.clone();
         let osc52 = prefs.osc52;
+        let bell = prefs.bell;
+        let bell_sound = prefs.bell_sound.clone();
         // NOTE: do NOT capture a `WebviewWindow` here.  When
         // `destroy_webview_on_hide` is enabled (the default), the main webview
         // is torn down on hide and rebuilt on summon. The frontend gets a fresh
@@ -1197,7 +1209,7 @@ impl PtySession {
 
                 // Strip OSC 7 / 133 / 633 in Rust; emit side-channel events.
                 // `process` takes ownership of the batch: chunks without OSC
-                // introducers come back untouched (zero-copy fast path).
+                // introducers or BEL come back untouched (zero-copy fast path).
                 let (cleaned_bytes, osc_events) = stripper.process(std::mem::take(&mut pending));
 
                 let shell_event = |event| {
@@ -1211,6 +1223,11 @@ impl PtySession {
                 };
                 for ev in osc_events {
                     match ev {
+                        OscSideEvent::Bell => {
+                            if bell {
+                                crate::bell::ring(&bell_sound);
+                            }
+                        }
                         OscSideEvent::Cwd(cwd) => {
                             let remote_is_windows = stripper
                                 .properties
@@ -2351,8 +2368,8 @@ mod stripper_tests {
         STRIPPED_OSC_NUMBERS.contains(&number) || number.is_empty()
     }
 
-    /// Whole-stream reference: kept bytes plus the payloads of every OSC the
-    /// stripper must remove, in stream order.
+    /// Whole-stream reference: kept bytes plus stripped OSC payloads and
+    /// standalone BEL markers, in stream order.
     fn oracle_strip(stream: &[u8]) -> (Vec<u8>, Vec<&[u8]>) {
         let mut out = Vec::with_capacity(stream.len());
         let mut stripped_payloads = Vec::new();
@@ -2374,7 +2391,11 @@ mod stripper_tests {
                 i = seq_end;
                 continue;
             }
-            out.push(stream[i]);
+            if stream[i] == 0x07 {
+                stripped_payloads.push(&stream[i..i + 1]);
+            } else {
+                out.push(stream[i]);
+            }
             i += 1;
         }
         (out, stripped_payloads)
@@ -2384,6 +2405,7 @@ mod stripper_tests {
 
     fn event_key(ev: &OscSideEvent) -> String {
         match ev {
+            OscSideEvent::Bell => "Bell".into(),
             OscSideEvent::Cwd(s) => format!("Cwd({s})"),
             OscSideEvent::Title(s) => format!("Title({s})"),
             OscSideEvent::PromptStart => "PromptStart".into(),
@@ -2413,6 +2435,23 @@ mod stripper_tests {
         }
         acc.extend_from_slice(&s.partial);
         (acc, keys)
+    }
+
+    #[test]
+    fn bells_exclude_osc_terminators_at_every_split() {
+        let input = b"a\x07\x1b]2;title\x07\x1b]8;;https://x\x07link\x07";
+        let expected = run_impl(&[input]);
+        assert_eq!(expected.0, b"a\x1b]8;;https://x\x07link");
+        assert_eq!(expected.1, ["Bell", "Title(title)", "Bell"]);
+        for split in 0..=input.len() {
+            assert_eq!(run_impl(&[&input[..split], &input[split..]]), expected);
+        }
+        let mut stripper = OscStripper::new();
+        let oversized = format!("\x1b]2;{}", "x".repeat(MAX_OSC_LEN));
+        stripper.process(oversized.into_bytes());
+        let (bytes, events) = stripper.process(b"\x07x\x07".to_vec());
+        assert_eq!(bytes, b"x");
+        assert_eq!(events.iter().map(event_key).collect::<Vec<_>>(), ["Bell"]);
     }
 
     // ─── Properties ─────────────────────────────────────────────────────────
@@ -2575,6 +2614,10 @@ mod stripper_tests {
         let mut oracle_stripper = OscStripper::new();
         let mut expected_keys = Vec::new();
         for payload in &expected_payloads {
+            if *payload == b"\x07" {
+                expected_keys.push("Bell".into());
+                continue;
+            }
             let mut evs = Vec::new();
             let stripped = oracle_stripper.dispatch_osc(payload, &mut evs);
             assert!(

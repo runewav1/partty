@@ -220,6 +220,10 @@ pub struct Prefs {
     #[serde(default = "default_true")]
     pub osc52: bool,
     #[serde(default = "default_true")]
+    pub bell: bool,
+    #[serde(default)]
+    pub bell_sound: String,
+    #[serde(default = "default_true")]
     pub retain_session_state: bool,
     #[serde(default = "default_session_shed_on_exit")]
     pub session_shed_on_exit: String,
@@ -403,6 +407,8 @@ impl Default for Prefs {
             auto_copy_selection: false,
             right_click_paste: true,
             osc52: true,
+            bell: true,
+            bell_sound: String::new(),
             retain_session_state: true,
             session_shed_on_exit: "keep".to_string(),
             workspace_open_mode: default_workspace_open_mode(),
@@ -1067,6 +1073,10 @@ pub struct SessionSection {
     #[serde(default = "default_true")]
     pub osc52: bool,
     #[serde(default = "default_true")]
+    pub bell: bool,
+    #[serde(default)]
+    pub bell_sound: String,
+    #[serde(default = "default_true")]
     pub retain_session_state: bool,
 }
 
@@ -1077,6 +1087,8 @@ impl Default for SessionSection {
             auto_copy: false,
             right_click_paste: true,
             osc52: true,
+            bell: true,
+            bell_sound: String::new(),
             retain_session_state: true,
         }
     }
@@ -1326,6 +1338,8 @@ impl From<ConfigToml> for Prefs {
             auto_copy_selection: c.session.auto_copy,
             right_click_paste: c.session.right_click_paste,
             osc52: c.session.osc52,
+            bell: c.session.bell,
+            bell_sound: c.session.bell_sound,
             retain_session_state: c.session.retain_session_state,
             process_notification_threshold: c.notifications.command_threshold_secs,
             process_notification_show_for: c.notifications.toast_duration_ms,
@@ -1454,6 +1468,8 @@ impl From<&Prefs> for ConfigToml {
                 auto_copy: p.auto_copy_selection,
                 right_click_paste: p.right_click_paste,
                 osc52: p.osc52,
+                bell: p.bell,
+                bell_sound: p.bell_sound.clone(),
                 retain_session_state: p.retain_session_state,
             },
             workspaces: WorkspacesSection {
@@ -1772,6 +1788,18 @@ mod renderer_config_tests {
             let back = Prefs::from(toml::from_str::<ConfigToml>(&text).unwrap());
             assert_eq!(back.use_webgl, use_webgl);
         }
+    }
+
+    #[test]
+    fn bell_defaults_and_custom_sound_roundtrip() {
+        let defaults = prefs_from("");
+        assert!(defaults.bell);
+        assert!(defaults.bell_sound.is_empty());
+        let custom = prefs_from("[session]\nbell = false\nbell_sound = 'C:\\Sounds\\pop.wav'\n");
+        let text = toml::to_string(&ConfigToml::from(&custom)).unwrap();
+        let back = prefs_from(&text);
+        assert!(!back.bell);
+        assert_eq!(back.bell_sound, r"C:\Sounds\pop.wav");
     }
 
     #[test]
