@@ -5841,7 +5841,7 @@ async function boot(): Promise<void> {
 			},
 			{
 				id: "theme-family-cycle",
-				label: "Cycle theme family (hold for picker)",
+				label: "Cycle theme family",
 				keywords: "theme variant next family hold picker",
 				hotkey: k.all().theme_family_cycle,
 				run: () => {
