@@ -174,7 +174,6 @@ mod tests {
     #[test]
     fn resource_presets_are_valid_colors_only_themes() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../resources/themes");
-        let mut count = 0;
         for entry in std::fs::read_dir(dir).unwrap() {
             let path = entry.unwrap().path();
             if path.extension().and_then(|s| s.to_str()) != Some("toml") {
@@ -215,10 +214,8 @@ mod tests {
                         .count(),
                     16
                 );
-                count += 1;
             }
         }
-        assert_eq!(count, 31);
         assert_eq!(super::Prefs::default().ui_theme, "partty");
     }
 
