@@ -21,8 +21,8 @@
 		"tauri:build": "tauri build"
 	},
 	"dependencies": {
-		"@partty/addon-webgl": "0.20.5",
-		"@partty/addon-webgpu": "0.1.8",
+		"@partty/addon-webgl": "0.20.6",
+		"@partty/addon-webgpu": "0.1.9",
 		"@tauri-apps/api": "^2.12.4",
 		"@xterm/addon-fit": "beta",
 		"@xterm/addon-image": "beta",
@@ -30,7 +30,7 @@
 		"@xterm/addon-serialize": "beta",
 		"@xterm/addon-unicode-graphemes": "beta",
 		"@xterm/addon-web-links": "beta",
-		"@xterm/xterm": "npm:@partty/xterm@6.2.4"
+		"@xterm/xterm": "npm:@partty/xterm@6.2.5"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.6.7",
