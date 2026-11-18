@@ -3,7 +3,7 @@
 	"private": true,
 	"version": "0.6.0",
 	"type": "module",
-	"packageManager": "pnpm@12.21.0",
+	"packageManager": "pnpm@12.22.0",
 	"scripts": {
 		"dev": "vite",
 		"build": "tsc && vite build",
@@ -23,7 +23,7 @@
 	"dependencies": {
 		"@partty/addon-webgl": "0.20.6",
 		"@partty/addon-webgpu": "0.1.9",
-		"@tauri-apps/api": "^2.12.4",
+		"@tauri-apps/api": "^2.12.5",
 		"@xterm/addon-fit": "beta",
 		"@xterm/addon-image": "beta",
 		"@xterm/addon-ligatures": "beta",
@@ -33,8 +33,8 @@
 		"@xterm/xterm": "npm:@partty/xterm@6.2.5"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.6.7",
-		"@tauri-apps/cli": "^2.12.4",
+		"@biomejs/biome": "^2.6.8",
+		"@tauri-apps/cli": "^2.12.5",
 		"typescript": "~7.0.2",
 		"vite": "^8.3.8"
 	}
