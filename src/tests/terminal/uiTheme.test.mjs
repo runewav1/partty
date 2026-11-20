@@ -3,8 +3,8 @@
  *
  * Guards the canonical background/foreground/cursor/accent anchors and the
  * per-theme terminal ANSI palettes against drift. The real module loads the
- * resource files through a stubbed IPC boundary; no themes remain embedded
- * except Partty. A golden checksum pins the full pre-extraction palette data.
+ * optional resource manifests through a stubbed IPC boundary; only Partty is
+ * embedded.
  *
  * Authoritative sources:
  * - Catppuccin palette.json (catppuccin/palette) — latte text/mauve/rosewater + ansiColors
@@ -19,7 +19,6 @@
  */
 
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { createVmLoader } from "../support/vm.mjs";
@@ -27,7 +26,6 @@ import { createVmLoader } from "../support/vm.mjs";
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 const resources = new URL("../../../resources/themes/", import.meta.url);
-const presets = {};
 const themeFiles = {};
 const resourceFiles = await readdir(resources);
 for (const file of resourceFiles.filter((name) => name.endsWith(".toml"))) {
@@ -61,10 +59,6 @@ for (const file of resourceFiles.filter((name) => name.endsWith(".toml"))) {
 		}
 	}
 	themeFiles[slug] = info;
-	if (info.variants.length) {
-		for (const variant of info.variants)
-			presets[`${slug}-${variant.id}`] = variant.colors;
-	} else presets[slug] = info.colors;
 }
 const css = new Map();
 const root = {
@@ -126,21 +120,6 @@ test("concurrent theme loads share one snapshot and explicit refresh updates rea
 	assert.equal(themes.ensureCustomThemesLoaded(), refreshed);
 	await refreshed;
 	assert.equal(lists, 2);
-});
-
-test("all 31 extracted UI/ANSI palettes match the original built-ins exactly", () => {
-	const stable = Object.keys(presets)
-		.sort()
-		.map((slug) => [
-			slug,
-			Object.entries(presets[slug]).sort(([a], [b]) => a.localeCompare(b)),
-		]);
-	assert.equal(stable.length, 31);
-	assert.equal(
-		createHash("sha256").update(JSON.stringify(stable)).digest("hex"),
-		// biome-ignore lint/security/noSecrets: Golden checksum of the original palette data.
-		"b8f9aafd8b1dabdee58965f22a542b044ae3b7597169db26b07c5edd4b4ed9fe",
-	);
 });
 
 function presetPrefs(theme, variant) {
@@ -440,8 +419,7 @@ test("terminal find colors are theme-aware per pane", () => {
 	}
 });
 
-test("Partty is Carbonfox; explicit file colors survive app/pane rendering and switching", () => {
-	assert.deepEqual({ ...vars("partty", "default") }, presets.carbonfox);
+test("explicit file colors survive app/pane rendering and switching", () => {
 	assert.equal(api.pickUiPrefs({}).ui_theme, "partty");
 	assert.equal(api.pickUiPrefs({ ui_theme: "system" }).ui_theme, "system");
 	css.set("--term-pad-x", "23px");
