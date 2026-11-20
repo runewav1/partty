@@ -205,7 +205,11 @@ import {
 	type UiThemePrefs,
 	uiPrefsChanged,
 } from "./terminal/uiTheme";
-import { scheduleReclaim } from "./terminal/wbmem";
+import {
+	cancelReclaim,
+	noteReclaimActivity,
+	scheduleReclaim,
+} from "./terminal/wbmem";
 import { registerWebLinksProvider } from "./terminal/webLinks";
 import { nextZoomFontSize, normalizeZoomStep } from "./terminal/zoomStep";
 import {
@@ -1127,6 +1131,7 @@ async function boot(): Promise<void> {
 		sessionId: string,
 		data: Uint8Array,
 	): void {
+		noteReclaimActivity();
 		// Reporting parsed bytes is what lets the ring accept more output.
 		const parsed = () => ptyRings?.consumed(sessionId, data.byteLength);
 		const pt = getPaneTerminalById(paneId);
@@ -1623,12 +1628,12 @@ async function boot(): Promise<void> {
 		paneWebglStates.delete(paneId);
 	}
 
-	function shedWebgl(): void {
+	function shedWebgl(reclaim = true): void {
 		for (const paneId of [...paneWebglStates.keys()])
 			disposeWebglForPane(paneId);
 		disposeWebgpuSession();
 		// Addons, atlas textures and the shared GPU session are now garbage.
-		scheduleReclaim();
+		if (reclaim) scheduleReclaim();
 	}
 
 	async function ensureWebglOnPane(paneId: string): Promise<void> {
@@ -3016,6 +3021,13 @@ async function boot(): Promise<void> {
 					pt.term.onData((data) => {
 						queuePtyWrite(pt.paneId, data);
 					});
+					let wasAlternate = pt.term.buffer.active.type === "alternate";
+					const bufferChange = pt.term.buffer.onBufferChange((buffer) => {
+						const alternate = buffer.type === "alternate";
+						// xterm releases the old alternate screen when a TUI exits.
+						if (wasAlternate && !alternate) scheduleReclaim();
+						wasAlternate = alternate;
+					});
 					const onHostWheel = (ev: WheelEvent) =>
 						handlePaneHostWheel(pt.paneId, ev);
 					// xterm's inner scrollable element handles wheel before the
@@ -3039,6 +3051,7 @@ async function boot(): Promise<void> {
 							pt.host.removeEventListener("wheel", onHostWheelCapture, true),
 						() => pt.host.removeEventListener("wheel", onHostWheel),
 						() => onSelDispose.dispose(),
+						() => bufferChange.dispose(),
 					]);
 					if (lp.preload_webgl_on_startup) void ensureWebglOnPane(id);
 					const explicitProfile =
@@ -6656,13 +6669,14 @@ async function boot(): Promise<void> {
 			scheduleReclaim();
 		}),
 		listen("partty-hide", () => {
+			cancelReclaim();
 			void (async () => {
 				if (paneHost && lp.destroy_webview_on_hide) {
 					for (const host of tabPaneHosts.values()) persistHostLayout(host);
 				}
 				await persistTerminalBuffersForHide();
 				if (lp.webgl_shed_on_hide) {
-					shedWebgl();
+					shedWebgl(false);
 				}
 				// WebView teardown waits for stash (see schedule_destroy_webview_after_hide).
 			})().catch((e) => {
@@ -6728,6 +6742,15 @@ async function boot(): Promise<void> {
 	});
 
 	window.addEventListener("resize", () => scheduleResizeDebounced());
+	for (const event of ["keydown", "pointerdown", "wheel"] as const) {
+		window.addEventListener(event, noteReclaimActivity, {
+			capture: true,
+			passive: true,
+		});
+	}
+	document.addEventListener("visibilitychange", () => {
+		if (document.hidden) cancelReclaim();
+	});
 	void appWindow.onResized(() => scheduleResizeImmediate());
 	void appWindow.onScaleChanged(() => scheduleResizeImmediate());
 	if (terminalContent && typeof ResizeObserver !== "undefined") {

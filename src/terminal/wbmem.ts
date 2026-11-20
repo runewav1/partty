@@ -1,66 +1,118 @@
 import { invoke } from "@tauri-apps/api/core";
 
-// Coalesce WebView memory reclamation triggered by terminal lifecycle changes.
-// Requests are debounced so the change and its layout/render work settle first,
-// then rate-limited so a forced GC never becomes a periodic loop. The pass itself
-// runs at an idle moment because the renderer GC is stop-the-world and shares a
-// thread with xterm parsing, input and rendering.
+// Whole-page GC is a last step after a known disposal, never a periodic
+// response to high memory or terminal repainting. Retained hidden windows
+// use the native WebView2 memory policy instead.
 const SETTLE_MS = 2_000;
-const MIN_GAP_MS = 10_000;
+const MIN_GAP_MS = 30_000;
+const FAILURE_GAP_MS = 120_000;
+const MAX_DEFER_MS = 45_000;
 const IDLE_TIMEOUT_MS = 1_500;
+const MIN_IDLE_BUDGET_MS = 8;
+
 let timer: number | undefined;
-let lastAt = Number.NEGATIVE_INFINITY;
-let queued = false;
+let idle: number | undefined;
+let expiresAt: number | undefined;
+let quietAt = 0;
+let nextAt = 0;
 let running = false;
 let off = false;
+let warned = false;
 
-/** Ask for one reclamation pass once the current change has settled. */
+export function cancelReclaim(): void {
+	expiresAt = undefined;
+	if (timer !== undefined) window.clearTimeout(timer);
+	if (idle !== undefined) window.cancelIdleCallback(idle);
+	timer = undefined;
+	idle = undefined;
+}
+
+/** Cheap activity signal; no timers or IPC on the terminal's hot path. */
+export function noteReclaimActivity(): void {
+	if (expiresAt !== undefined) quietAt = performance.now() + SETTLE_MS;
+}
+
+/** Reclaim once after a burst of actual resource disposal. */
 export function scheduleReclaim(): void {
 	if (
 		off ||
 		typeof window === "undefined" ||
-		!("__TAURI_INTERNALS__" in window)
+		!("__TAURI_INTERNALS__" in window) ||
+		document.hidden ||
+		typeof window.requestIdleCallback !== "function"
 	) {
 		return;
 	}
-	queued = true;
-	if (!running) arm();
+	const now = performance.now();
+	expiresAt ??= Math.max(now, nextAt) + MAX_DEFER_MS;
+	quietAt = now + SETTLE_MS;
+	arm();
 }
 
 function arm(): void {
-	if (timer !== undefined) window.clearTimeout(timer);
-	const wait = Math.max(SETTLE_MS, MIN_GAP_MS - (performance.now() - lastAt));
-	timer = window.setTimeout(() => {
-		timer = undefined;
-		// Commit this pass and reserve; later triggers only queue a follow-up.
-		queued = false;
-		running = true;
-		whenIdle(() => void run());
-	}, wait);
+	if (running || timer !== undefined || idle !== undefined) return;
+	if (expiresAt === undefined) return;
+	const earliest = Math.max(quietAt, nextAt);
+	if (document.hidden || earliest >= expiresAt) {
+		cancelReclaim();
+		return;
+	}
+	timer = window.setTimeout(
+		() => {
+			timer = undefined;
+			if (expiresAt === undefined) return;
+			const now = performance.now();
+			if (document.hidden || now >= expiresAt) {
+				cancelReclaim();
+			} else if (now < Math.max(quietAt, nextAt)) {
+				arm();
+			} else {
+				idle = window.requestIdleCallback(onIdle, { timeout: IDLE_TIMEOUT_MS });
+			}
+		},
+		Math.max(0, earliest - performance.now()),
+	);
 }
 
-// Prefer an idle moment so the forced GC does not land mid-keystroke. The timeout
-// keeps it bounded when the page never reports idle.
-function whenIdle(fn: () => void): void {
-	if (typeof window.requestIdleCallback === "function") {
-		window.requestIdleCallback(() => fn(), { timeout: IDLE_TIMEOUT_MS });
+function onIdle(deadline: IdleDeadline): void {
+	idle = undefined;
+	if (expiresAt === undefined) return;
+	const now = performance.now();
+	if (document.hidden || now >= expiresAt) {
+		cancelReclaim();
+	} else if (
+		deadline.didTimeout ||
+		deadline.timeRemaining() < MIN_IDLE_BUDGET_MS
+	) {
+		// A timeout is a chance to reconsider, not permission to force GC.
+		quietAt = Math.max(quietAt, now + SETTLE_MS);
+		arm();
+	} else if (now < Math.max(quietAt, nextAt)) {
+		arm();
 	} else {
-		fn();
+		void run();
 	}
 }
 
 async function run(): Promise<void> {
-	lastAt = performance.now();
+	expiresAt = undefined;
+	running = true;
+	nextAt = performance.now() + MIN_GAP_MS;
 	try {
-		// The backend returns false where there is no implementation; a rejection
-		// means the runtime refused the hints. Stop asking either way.
 		off = !(await invoke<boolean>("reclaim_wbmem"));
 	} catch (error) {
-		off = true;
-		// biome-ignore lint/suspicious/noConsole: Report a capability failure once per webview.
-		console.warn("WebView memory reclamation unavailable:", error);
+		// A transient renderer failure should not disable reclaim for the
+		// lifetime of the WebView. Retry only after a new disposal and backoff.
+		nextAt = performance.now() + FAILURE_GAP_MS;
+		cancelReclaim();
+		if (!warned) {
+			warned = true;
+			// biome-ignore lint/suspicious/noConsole: Report a runtime failure once per WebView.
+			console.warn("WebView memory reclamation failed:", error);
+		}
 	} finally {
 		running = false;
-		if (queued && !off) arm();
+		if (off) cancelReclaim();
+		else arm();
 	}
 }

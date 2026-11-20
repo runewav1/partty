@@ -2567,6 +2567,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-single-instance",
+ "tokio",
  "toml 1.2.1+spec-1.1.0",
  "webview2-com",
  "windows-core",

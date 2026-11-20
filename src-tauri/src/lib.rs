@@ -706,18 +706,22 @@ fn toggle_window(app: &AppHandle) {
         // When destroying the webview on hide, un-maximize before saving
         // so the persisted dimensions reflect the normal rect. The window is
         // recreated from these dimensions on next summon, then maximized after show.
-        if state.persisted.lock().prefs.destroy_webview_on_hide {
+        let destroy = state.persisted.lock().prefs.destroy_webview_on_hide;
+        if destroy {
             let _ = win.unmaximize();
             state.hide_buffers_ready.store(false, Ordering::SeqCst);
             set_output_gate(&state, false);
         }
         window_state::snapshot_and_save(app);
         let _ = win.emit("partty-hide", ());
-        let _ = win.hide();
+        if win.hide().is_ok() {
+            wbmem::hidden(&win, !destroy);
+        }
         schedule_destroy_webview_after_hide(app);
     } else {
         // Cancel pending destroy; live xterm still has scrollback.
         state.hide_destroy_generation.fetch_add(1, Ordering::SeqCst);
+        wbmem::showing(&win);
         set_output_gate(&state, true);
         let defer = state
             .persisted
@@ -1060,6 +1064,7 @@ pub fn run() {
             // `AppState` is not available until after `.manage()`; this callback can run earlier.
             let defer_prep = load_persisted().prefs.defer_window_show_until_prepared;
             if let Some(w) = app.get_webview_window("main") {
+                wbmem::showing(&w);
                 if defer_prep {
                     let _ = w.emit("partty-prepare-show", ());
                 } else {
