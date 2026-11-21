@@ -38,6 +38,12 @@ export type PtyResizeEntry = {
 	rows: number;
 };
 
+/** Resolved OSC 9;4 progress; the backend handles defaults and retention. */
+export type PtyProgress = {
+	state: "clear" | "normal" | "error" | "indeterminate" | "paused";
+	value: number;
+};
+
 export function ptyResizeBatch(
 	items: ReadonlyArray<PtyResizeEntry>,
 ): Promise<void> {

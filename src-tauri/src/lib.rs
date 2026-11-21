@@ -880,12 +880,14 @@ fn pty_ensure_blocking(
         // Session already live (resummon after webview rebuild): re-subscribe
         // the output ring and resize.
         session.set_output_ring(ring);
+        session.emit_progress(app, &session_id);
         let _ = session.resize(cols, rows);
         return Ok(());
     }
     let old = state.pty_panes.lock().remove(&session_id);
     if let Some(old) = old {
         old.kill();
+        old.clear_progress(app, &session_id);
     }
     state.pty_spawn_identity.lock().remove(&session_id);
 

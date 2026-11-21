@@ -2,6 +2,7 @@
  * Lightweight command palette: filter + list render batched in rAF, small static command set.
  */
 
+import type { PtyProgress } from "../pty/ptyIpc";
 import {
 	filterAndRankLexical,
 	type LexicalSearchItem,
@@ -21,6 +22,8 @@ export type PaletteCommand = {
 	hotkey?: string;
 	/** Rich HTML label (optional). When set, innerHTML is used instead of textContent. */
 	labelHtml?: string;
+	/** Null reserves a hidden indicator for rows that can receive progress. */
+	progress?: PtyProgress | null;
 	run: () => void | Promise<void>;
 	remove?: () => void | Promise<void>;
 	removeLabel?: string;
@@ -60,6 +63,38 @@ export type CommandPaletteOpenOptions = {
 };
 
 type RankedCommand = PaletteCommand & LexicalSearchItem;
+
+function updateProgressRing(
+	row: HTMLElement,
+	ring: HTMLElement,
+	progress: PtyProgress | null | undefined,
+): void {
+	const state = progress?.state ?? "clear";
+	const value =
+		state === "clear" || state === "indeterminate" ? 0 : (progress?.value ?? 0);
+	const signature = `${state}:${value}`;
+	if (ring.dataset.progress === signature) return;
+	ring.dataset.progress = signature;
+	ring.dataset.state = state;
+	ring.hidden = state === "clear";
+	if (state === "indeterminate") ring.removeAttribute("style");
+	else ring.setAttribute("style", `--progress-fill: ${value}%`);
+	if (state === "clear") {
+		row.removeAttribute("aria-description");
+		ring.title = "";
+		return;
+	}
+	const description =
+		state === "indeterminate"
+			? "In progress"
+			: state === "paused"
+				? `Paused at ${value}%`
+				: state === "error"
+					? `Error at ${value}%`
+					: `${value}% complete`;
+	row.setAttribute("aria-description", description);
+	ring.title = description;
+}
 
 /** Keep failed palette actions observable without blocking the terminal with a modal. */
 function reportPaletteError(context: string, err: unknown): void {
@@ -101,6 +136,8 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 	let pendingOpen: CommandPaletteOpenOptions | null = null;
 	let overlay: OverlayHandle | null = null;
 	let lastRenderSignature: string | null = null;
+	const progressRows: { index: number; row: HTMLElement; ring: HTMLElement }[] =
+		[];
 
 	/** Ordered, collision-free fingerprint of the rows the DOM should show. */
 	function commandRowSignature(rows: readonly PaletteCommand[]): string {
@@ -109,6 +146,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 				cmd.id,
 				cmd.label,
 				cmd.labelHtml ?? null,
+				cmd.progress !== undefined,
 				cmd.hotkey ?? null,
 				cmd.remove ? 1 : 0,
 				cmd.removeLabel ?? null,
@@ -136,6 +174,9 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 			// active class + aria because an input may have reset `selected` and
 			// its filter frame may not have run yet.
 			updateSelectionClassesOnly();
+			for (const { index, row, ring } of progressRows) {
+				updateProgressRing(row, ring, filtered[index]?.progress);
+			}
 			return;
 		}
 		renderList();
@@ -151,6 +192,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 	}
 
 	function renderList(): void {
+		progressRows.length = 0;
 		const frag = document.createDocumentFragment();
 		for (let i = 0; i < filtered.length; i++) {
 			const cmd = filtered[i]!;
@@ -162,6 +204,14 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 			li.dataset.index = String(i);
 			const row = document.createElement("div");
 			row.className = "command-palette-item-row";
+			if (cmd.progress !== undefined) {
+				const ring = document.createElement("span");
+				ring.className = "command-palette-progress";
+				ring.setAttribute("aria-hidden", "true");
+				updateProgressRing(li, ring, cmd.progress);
+				progressRows.push({ index: i, row: li, ring });
+				row.appendChild(ring);
+			}
 			const lab = document.createElement("span");
 			lab.className = "command-palette-item-label";
 			if (cmd.labelHtml) {
@@ -290,6 +340,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 		if (!skipFocus) onClosed?.();
 		hideSurface(root, "command-palette--hidden", () => {
 			list.replaceChildren();
+			progressRows.length = 0;
 			lastRenderSignature = null;
 		});
 	}

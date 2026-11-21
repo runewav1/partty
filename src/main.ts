@@ -88,6 +88,7 @@ import {
 } from "./pty/processTracking";
 import {
 	isPtyOwner,
+	type PtyProgress,
 	ptyAckExit,
 	ptyEnsure,
 	ptyFocusPane,
@@ -542,6 +543,7 @@ async function boot(): Promise<void> {
 	/** Stable sessionId → live terminal. PTY association keys on `sessionId`;
 	 * `pt.paneId` is read at use-time so it tracks re-keys. */
 	const paneBySessionId = new Map<string, PaneTerminal>();
+	const ptyProgressBySession = new Map<string, PtyProgress>();
 	const pendingNewPaneCwd = { v: null as string | null };
 	const pendingPaneSpawnCwd = new Map<string, string>();
 	const pendingNewPaneProfile = { v: null as string | null };
@@ -3100,6 +3102,7 @@ async function boot(): Promise<void> {
 				onPaneDisposed: (pid, sessionId) => {
 					void ptyKillPane(sessionId).catch(() => {});
 					paneBySessionId.delete(sessionId);
+					ptyProgressBySession.delete(sessionId);
 					paneThemes.delete(pid);
 					cleanupPaneVisualState(pid);
 				},
@@ -5297,6 +5300,11 @@ async function boot(): Promise<void> {
 		return `<span class="cp-label-prefix">${prefix}</span><span class="cp-label-name">${escapeHtml(headline)}</span>${subHtml}${suffix}`;
 	}
 
+	function paneProgress(paneId: string): PtyProgress | null {
+		const sessionId = getPaneTerminalById(paneId)?.sessionId;
+		return sessionId ? (ptyProgressBySession.get(sessionId) ?? null) : null;
+	}
+
 	function getPaneTargetCommands(query: string): PaletteCommand[] {
 		const afterTag = query.slice(6);
 		const spaceIdx = afterTag.indexOf(" ");
@@ -5330,6 +5338,7 @@ async function boot(): Promise<void> {
 							suffix,
 						),
 						keywords: paneQueryHaystack(p) + ` ${command}`,
+						progress: paneProgress(p.paneId),
 						run: () => dispatchPaneCommand(p.paneId, query),
 					},
 				];
@@ -5347,6 +5356,7 @@ async function boot(): Promise<void> {
 				label: `@pane:${headline}`,
 				labelHtml: panePaletteHtml(p, indexed, "@pane:", headline),
 				keywords: paneQueryHaystack(p),
+				progress: paneProgress(p.paneId),
 				run: () => dispatchPaneCommand(p.paneId, query),
 			});
 		}
@@ -5500,6 +5510,7 @@ async function boot(): Promise<void> {
 					panePaletteHtml(p, showIndex.has(leafId), "@proc:", headline) +
 					` <span style="color:var(--ui-chrome-muted);margin-left:0.4em">${dur}s</span>`,
 				keywords: `@proc proc ${paneQueryHaystack(p)} ${displayCmd}`,
+				progress: paneProgress(leafId),
 				run: () => {
 					navigateToPane(leafId);
 				},
@@ -6578,6 +6589,13 @@ async function boot(): Promise<void> {
 			refreshTabLabelForPane(paneId);
 		}),
 
+		listen<PtyProgress & { sessionId: string }>("pty-progress", (event) => {
+			const { sessionId, state, value } = event.payload;
+			if (!paneBySessionId.has(sessionId)) return;
+			if (state === "clear") ptyProgressBySession.delete(sessionId);
+			else ptyProgressBySession.set(sessionId, { state, value });
+		}),
+
 		listen<{
 			sessionId: string;
 			kind: string;
@@ -6637,6 +6655,7 @@ async function boot(): Promise<void> {
 		listen<PtyExitEvent>("pty-exit", (event) => {
 			void (async () => {
 				const { sessionId } = event.payload;
+				ptyProgressBySession.delete(sessionId);
 				const paneId = paneBySessionId.get(sessionId)?.paneId;
 				if (!paneId) return;
 				const pending = pendingPtyOutputByPane.get(paneId);
@@ -6657,6 +6676,7 @@ async function boot(): Promise<void> {
 		}),
 		listen("pty-session-shed", () => {
 			liveCwd = null;
+			ptyProgressBySession.clear();
 			paneCwdHints.clear();
 			paneRemoteIsWindows.clear();
 			for (const paneId of [...pendingPtyOutputByPane.keys()]) {

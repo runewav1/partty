@@ -116,6 +116,80 @@ pub struct PtyTitleEvent {
     pub title: String,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+enum ProgressState {
+    #[default]
+    Clear,
+    Normal,
+    Error,
+    Indeterminate,
+    Paused,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
+struct PtyProgress {
+    state: ProgressState,
+    value: u8,
+}
+
+impl PtyProgress {
+    /// ConEmu OSC 9;4, as interpreted by Windows Terminal.
+    fn parse<'a>(mut fields: impl Iterator<Item = &'a str>) -> Option<Self> {
+        fn decimal(s: &str) -> Option<u32> {
+            s.bytes().try_fold(0u32, |n, b| {
+                b.is_ascii_digit()
+                    .then(|| n.saturating_mul(10).saturating_add(u32::from(b - b'0')))
+            })
+        }
+
+        let state = match decimal(fields.next().unwrap_or_default())? {
+            0 => ProgressState::Clear,
+            1 => ProgressState::Normal,
+            2 => ProgressState::Error,
+            3 => ProgressState::Indeterminate,
+            4 => ProgressState::Paused,
+            _ => return None,
+        };
+        let value = decimal(fields.next().unwrap_or_default())?.min(100) as u8;
+        Some(Self { state, value })
+    }
+
+    fn apply(&mut self, update: Self) {
+        use ProgressState::*;
+        self.value = match update.state {
+            Clear => 0,
+            Indeterminate => self.value,
+            Error | Paused if update.value == 0 => {
+                if self.value == 0 {
+                    10
+                } else {
+                    self.value
+                }
+            }
+            _ => update.value,
+        };
+        self.state = update.state;
+    }
+
+    fn emit(self, app: &AppHandle, session_id: &str) {
+        #[derive(Clone, serde::Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Event<'a> {
+            session_id: &'a str,
+            #[serde(flatten)]
+            progress: PtyProgress,
+        }
+        let _ = app.emit(
+            "pty-progress",
+            Event {
+                session_id,
+                progress: self,
+            },
+        );
+    }
+}
+
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PtyShellEvent {
@@ -135,10 +209,10 @@ pub struct PtyAltScreenEvent {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Rust-side OSC stripper: strips OSC 7 (cwd), 133/633 (shell integration),
-// and dead/legacy numbers (50, 1337-1339) from the PTY stream, emitting
-// structured side-channel events instead so the frontend skips JS parsing
-// for them. Everything else passes through for xterm.js. OSCs whose tracked
+// Rust-side OSC stripper: handles titles, cwd, progress, clipboard and shell
+// integration; it also drops legacy OSCs 50 and 1337-1339. Handled sequences
+// emit structured side-channel events instead of reaching xterm.js.
+// Everything else passes through for xterm.js. OSCs whose tracked
 // span exceeds `MAX_OSC_LEN` are dropped, not buffered: once the cap is hit
 // the stripper discards until the next BEL/ST, so a runaway unterminated
 // OSC can never grow memory without bound.
@@ -157,6 +231,7 @@ enum OscSideEvent {
     Bell,
     Cwd(String),
     Title(String),
+    Progress(PtyProgress),
     PromptStart,
     PromptEnd,
     PreExec,
@@ -570,6 +645,19 @@ impl OscStripper {
             }
             "52" => {
                 self.handle_osc52(rest, events);
+                true
+            }
+            _ if osc_num.trim_start_matches('0') == "9" => {
+                let mut fields = rest.split(';');
+                if !fields
+                    .next()
+                    .is_some_and(|action| action.trim_start_matches('0') == "4")
+                {
+                    return false;
+                }
+                if let Some(progress) = PtyProgress::parse(fields) {
+                    events.push(OscSideEvent::Progress(progress));
+                }
                 true
             }
             // Dead/legacy sequences xterm.js would parse and discard: strip
@@ -1041,6 +1129,7 @@ pub struct PtySession {
     child: Arc<parking_lot::Mutex<Option<Box<dyn Child + Send + Sync>>>>,
     stop: Arc<AtomicBool>,
     replay_buffer: Arc<parking_lot::Mutex<ReplayBuffer>>,
+    progress: Arc<ParkingMutex<PtyProgress>>,
     /// Shared-memory output ring. Replaced on each `pty_ensure` so a rebuilt
     /// webview re-subscribes without restarting the reader/emitter threads.
     output_ring: Arc<parking_lot::Mutex<Option<Arc<SharedRing>>>>,
@@ -1131,6 +1220,8 @@ impl PtySession {
         let replay_buffer = Arc::new(parking_lot::Mutex::new(ReplayBuffer::new(
             PTY_REPLAY_BUFFER_BYTES,
         )));
+        let progress = Arc::new(ParkingMutex::new(PtyProgress::default()));
+        let progress_emitter = Arc::clone(&progress);
         // Attached before the emitter starts so ConPTY's first output is never
         // held waiting for `pty_ensure` to finish.
         let output_ring = Arc::new(parking_lot::Mutex::new(Some(ring)));
@@ -1200,7 +1291,7 @@ impl PtySession {
                 };
                 let sid = &session_id_emitter;
 
-                // Strip OSC 7 / 133 / 633 in Rust; emit side-channel events.
+                // Strip handled OSCs in Rust; emit side-channel events.
                 // `process` takes ownership of the batch: chunks without OSC
                 // introducers or BEL come back untouched (zero-copy fast path).
                 let (cleaned_bytes, osc_events) = stripper.process(std::mem::take(&mut pending));
@@ -1244,6 +1335,16 @@ impl PtySession {
                                     title,
                                 },
                             );
+                        }
+                        OscSideEvent::Progress(update) => {
+                            let mut progress = progress_emitter.lock();
+                            if !stop_emitter.load(Ordering::SeqCst) {
+                                let before = *progress;
+                                progress.apply(update);
+                                if *progress != before {
+                                    progress.emit(&app_emit, sid);
+                                }
+                            }
                         }
                         OscSideEvent::PromptStart => shell_event(ShellEventKind::PromptStart),
                         OscSideEvent::PromptEnd => shell_event(ShellEventKind::PromptEnd),
@@ -1351,6 +1452,7 @@ impl PtySession {
             child,
             stop,
             replay_buffer,
+            progress,
             output_ring,
             emitter,
             _waiter: waiter,
@@ -1369,6 +1471,20 @@ impl PtySession {
     pub fn set_output_ring(&self, ring: Arc<SharedRing>) {
         *self.output_ring.lock() = Some(ring);
         self.wake_output();
+    }
+
+    /// Progress OSCs are stripped from replay, so resubscribe with a snapshot.
+    /// Emit under the same lock as live updates to preserve their ordering.
+    pub fn emit_progress(&self, app: &AppHandle, session_id: &str) {
+        let progress = self.progress.lock();
+        progress.emit(app, session_id);
+    }
+
+    /// Called after stopping this PTY, before its stable ID is reused.
+    pub fn clear_progress(&self, app: &AppHandle, session_id: &str) {
+        let mut progress = self.progress.lock();
+        *progress = PtyProgress::default();
+        progress.emit(app, session_id);
     }
 
     /// Re-check the output hold now instead of at the next poll.
@@ -2371,7 +2487,15 @@ mod stripper_tests {
         let Ok(s) = std::str::from_utf8(payload) else {
             return false;
         };
-        let number = s.split(';').next().unwrap_or("");
+        let mut fields = s.split(';');
+        let number = fields.next().unwrap_or("");
+        if number.trim_start_matches('0') == "9"
+            && fields
+                .next()
+                .is_some_and(|s| s.trim_start_matches('0') == "4")
+        {
+            return true;
+        }
         STRIPPED_OSC_NUMBERS.contains(&number) || number.is_empty()
     }
 
@@ -2415,6 +2539,7 @@ mod stripper_tests {
             OscSideEvent::Bell => "Bell".into(),
             OscSideEvent::Cwd(s) => format!("Cwd({s})"),
             OscSideEvent::Title(s) => format!("Title({s})"),
+            OscSideEvent::Progress(p) => format!("Progress({:?}, {})", p.state, p.value),
             OscSideEvent::PromptStart => "PromptStart".into(),
             OscSideEvent::PromptEnd => "PromptEnd".into(),
             OscSideEvent::PreExec => "PreExec".into(),
@@ -2423,6 +2548,60 @@ mod stripper_tests {
             OscSideEvent::Osc52Set(s) => format!("Osc52Set({s})"),
             OscSideEvent::Osc52Query(s) => format!("Osc52Query({s})"),
         }
+    }
+
+    #[test]
+    fn osc_progress_strips_bel_and_st_at_every_chunk_boundary() {
+        let stream = b"a\x1b]9;4;1;42\x07b\x1b]09;04;3\x1b\\c\x1b]9;9;path\x07";
+        for cut in 0..=stream.len() {
+            let (clean, events) = run_impl(&[&stream[..cut], &stream[cut..]]);
+            assert_eq!(clean, b"abc\x1b]9;9;path\x07", "split at {cut}");
+            assert_eq!(
+                events,
+                ["Progress(Normal, 42)", "Progress(Indeterminate, 0)"]
+            );
+        }
+    }
+
+    #[test]
+    fn osc_progress_matches_windows_terminal_transitions() {
+        use ProgressState::*;
+        let mut stripper = OscStripper::new();
+        let mut progress = PtyProgress::default();
+        for (params, state, value, valid) in [
+            ("1;50", Normal, 50, true),
+            ("5;50", Normal, 50, false),
+            ("1;abc", Normal, 50, false),
+            ("+1;20", Normal, 50, false),
+            ("3; 20", Normal, 50, false),
+            ("1;999", Normal, 100, true),
+            ("1;80;ignored", Normal, 80, true),
+            ("2;", Error, 80, true),
+            ("3;75", Indeterminate, 80, true),
+            ("4;0", Paused, 80, true),
+            ("4;2", Paused, 2, true),
+            ("0;50", Clear, 0, true),
+            ("2", Error, 10, true),
+            (";25", Clear, 0, true),
+            ("4", Paused, 10, true),
+            ("1", Normal, 0, true),
+        ] {
+            let (clean, events) = stripper.process(format!("\x1b]9;4;{params}\x07").into_bytes());
+            assert!(clean.is_empty(), "{params}");
+            match events.as_slice() {
+                [OscSideEvent::Progress(update)] if valid => progress.apply(*update),
+                [] if !valid => {}
+                _ => panic!("unexpected events for {params}"),
+            }
+            assert_eq!(progress, PtyProgress { state, value }, "{params}");
+        }
+        let (clean, events) = stripper.process(b"\x1b]9;4\x1b\\".to_vec());
+        assert!(clean.is_empty());
+        let [OscSideEvent::Progress(update)] = events.as_slice() else {
+            panic!("bare OSC 9;4 must clear");
+        };
+        progress.apply(*update);
+        assert_eq!(progress, PtyProgress::default());
     }
 
     /// Feed `chunks` through the real stripper and return the fully flushed

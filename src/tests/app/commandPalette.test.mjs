@@ -218,6 +218,53 @@ async function flushAsync() {
 	await Promise.resolve();
 }
 
+test("progress rings update and clear without replacing palette rows", async (t) => {
+	let progress = null;
+	const h = await setup(t, {
+		commands: () => [
+			{ id: "pane", label: "Pane", progress },
+			{ id: "proc", label: "Process", progress },
+			{ id: "action", label: "Action" },
+		],
+		refreshMs: 500,
+	});
+	const [pane, proc, action] = h.rows();
+	const rings = [pane, proc].map((row) =>
+		row.querySelector(".command-palette-progress"),
+	);
+	assert.ok(rings.every((ring) => ring.hidden));
+	assert.equal(action.querySelector(".command-palette-progress"), null);
+	fire(h.input, "keydown", key("ArrowDown"));
+	const active = h.list.getAttribute("aria-activedescendant");
+	const renderCount = h.replaceCount();
+
+	for (const [state, value, description] of [
+		["normal", 0, "0% complete"],
+		["normal", 65, "65% complete"],
+		["indeterminate", 65, "In progress"],
+		["paused", 65, "Paused at 65%"],
+		["error", 65, "Error at 65%"],
+		["clear", 0, null],
+	]) {
+		progress = { state, value };
+		h.env.tickIntervals();
+		for (const [index, ring] of rings.entries()) {
+			assert.equal(ring.hidden, state === "clear");
+			assert.equal(ring.dataset.state, state);
+			assert.equal(
+				ring.getAttribute("style"),
+				state === "indeterminate" ? null : `--progress-fill: ${value}%`,
+			);
+			assert.equal(
+				h.rows()[index].getAttribute("aria-description"),
+				description,
+			);
+		}
+		assert.equal(h.replaceCount(), renderCount);
+		assert.equal(h.list.getAttribute("aria-activedescendant"), active);
+	}
+});
+
 test("input is batched into one render per animation frame", async (t) => {
 	const commands = [
 		{ id: "a", label: "Alpha", keywords: "first" },

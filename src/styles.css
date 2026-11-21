@@ -1637,6 +1637,43 @@ html.tabs-hidden #main-workspace {
 	color: var(--ui-chrome-fg);
 }
 
+.command-palette-progress {
+	--progress-color: var(--accent-primary);
+	--progress-fill: 0%;
+	flex: 0 0 15px;
+	height: 15px;
+	border-radius: 50%;
+	background: conic-gradient(
+		var(--progress-color) 0 var(--progress-fill),
+		color-mix(in srgb, currentColor 25%, transparent) var(--progress-fill) 100%
+	);
+	mask-image: radial-gradient(transparent 48%, black 56%);
+}
+
+.command-palette-progress[data-state="error"] {
+	--progress-color: var(--color-error);
+}
+
+.command-palette-progress[data-state="paused"] {
+	--progress-color: var(--color-warning);
+}
+
+.command-palette-progress[data-state="indeterminate"] {
+	--progress-fill: 25%;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+	.command-palette-progress[data-state="indeterminate"] {
+		animation: command-palette-progress-spin 0.9s linear infinite;
+	}
+}
+
+@keyframes command-palette-progress-spin {
+	to {
+		transform: rotate(1turn);
+	}
+}
+
 .cp-label-prefix {
 	color: color-mix(in srgb, var(--accent-primary) 72%, var(--ui-chrome-fg));
 	font-weight: 600;
