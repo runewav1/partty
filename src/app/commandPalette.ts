@@ -2,7 +2,7 @@
  * Lightweight command palette: filter + list render batched in rAF, small static command set.
  */
 
-import type { PtyProgress } from "../pty/ptyIpc";
+import type { PtyProgress } from "../pty/ptyProgress";
 import {
 	filterAndRankLexical,
 	type LexicalSearchItem,
@@ -12,6 +12,7 @@ import { hideSurface, showSurface } from "./../util/motion.ts";
 import type { CommandIslandApi } from "./commandIsland";
 import { mouseCursorForceVisible } from "./mouseCursor.ts";
 import { type OverlayHandle, pushOverlay } from "./overlayStack.ts";
+import { createProgressRing, updateProgressRing } from "./progressRing.ts";
 
 export type PaletteCommand = {
 	id: string;
@@ -24,6 +25,9 @@ export type PaletteCommand = {
 	labelHtml?: string;
 	/** Null reserves a hidden indicator for rows that can receive progress. */
 	progress?: PtyProgress | null;
+	appearance?: "workspace-tab" | "workspace-pane" | "workspace-remote";
+	/** Live trailing text (e.g. elapsed time); patched in place on refresh. */
+	status?: string;
 	run: () => void | Promise<void>;
 	remove?: () => void | Promise<void>;
 	removeLabel?: string;
@@ -34,11 +38,16 @@ export type CommandPaletteMount = {
 	input: HTMLInputElement;
 	list: HTMLElement;
 	getCommands: () => readonly PaletteCommand[];
+	/** Optional prefiltered view whose order must not be changed by the ranker. */
+	getFilteredCommands?: (
+		query: string,
+	) => readonly PaletteCommand[] | undefined;
+	filteredEmptyText?: string;
 	/** Load persisted / refresh before showing (e.g. custom commands). */
 	onBeforeOpen?: () => Promise<void>;
 	/** Called after close (success or cancel) so host can refocus terminal */
 	onClosed?: () => void;
-	/** If set, Tab triggers pane-name autocomplete for @pane: syntax.
+	/** If set, Tab can complete or change the current query.
 	 *  Receives the current input value and the currently selected command;
 	 *  returns the new input value or null to do nothing. */
 	onTabComplete?: (
@@ -64,38 +73,6 @@ export type CommandPaletteOpenOptions = {
 
 type RankedCommand = PaletteCommand & LexicalSearchItem;
 
-function updateProgressRing(
-	row: HTMLElement,
-	ring: HTMLElement,
-	progress: PtyProgress | null | undefined,
-): void {
-	const state = progress?.state ?? "clear";
-	const value =
-		state === "clear" || state === "indeterminate" ? 0 : (progress?.value ?? 0);
-	const signature = `${state}:${value}`;
-	if (ring.dataset.progress === signature) return;
-	ring.dataset.progress = signature;
-	ring.dataset.state = state;
-	ring.hidden = state === "clear";
-	if (state === "indeterminate") ring.removeAttribute("style");
-	else ring.setAttribute("style", `--progress-fill: ${value}%`);
-	if (state === "clear") {
-		row.removeAttribute("aria-description");
-		ring.title = "";
-		return;
-	}
-	const description =
-		state === "indeterminate"
-			? "In progress"
-			: state === "paused"
-				? `Paused at ${value}%`
-				: state === "error"
-					? `Error at ${value}%`
-					: `${value}% complete`;
-	row.setAttribute("aria-description", description);
-	ring.title = description;
-}
-
 /** Keep failed palette actions observable without blocking the terminal with a modal. */
 function reportPaletteError(context: string, err: unknown): void {
 	// biome-ignore lint/suspicious/noConsole: Palette failures would otherwise disappear; a modal would steal focus from the terminal.
@@ -120,6 +97,8 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 		input,
 		list,
 		getCommands,
+		getFilteredCommands,
+		filteredEmptyText,
 		onBeforeOpen,
 		onClosed,
 		onTabComplete,
@@ -136,8 +115,10 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 	let pendingOpen: CommandPaletteOpenOptions | null = null;
 	let overlay: OverlayHandle | null = null;
 	let lastRenderSignature: string | null = null;
+	let emptyMessage = "";
 	const progressRows: { index: number; row: HTMLElement; ring: HTMLElement }[] =
 		[];
+	const statusRows: { index: number; element: HTMLElement }[] = [];
 
 	/** Ordered, collision-free fingerprint of the rows the DOM should show. */
 	function commandRowSignature(rows: readonly PaletteCommand[]): string {
@@ -147,6 +128,8 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 				cmd.label,
 				cmd.labelHtml ?? null,
 				cmd.progress !== undefined,
+				cmd.appearance ?? null,
+				cmd.status !== undefined,
 				cmd.hotkey ?? null,
 				cmd.remove ? 1 : 0,
 				cmd.removeLabel ?? null,
@@ -163,11 +146,21 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 	}
 
 	function applyFilter(skipUnchanged = false): void {
-		const parts = normalizeQuery(input.value);
-		const all = getCommands();
-		filtered = filterAndRankCommands(all, parts);
-		selected = Math.min(selected, Math.max(0, filtered.length - 1));
-		const signature = commandRowSignature(filtered);
+		const selectedId =
+			skipUnchanged && !filterRaf ? filtered[selected]?.id : undefined;
+		const custom = getFilteredCommands?.(input.value);
+		filtered =
+			custom ??
+			filterAndRankCommands(getCommands(), normalizeQuery(input.value));
+		emptyMessage = custom && !filtered.length ? (filteredEmptyText ?? "") : "";
+		const retained = selectedId
+			? filtered.findIndex((cmd) => cmd.id === selectedId)
+			: -1;
+		selected =
+			retained >= 0
+				? retained
+				: Math.min(selected, Math.max(0, filtered.length - 1));
+		const signature = emptyMessage || commandRowSignature(filtered);
 		if (skipUnchanged && signature === lastRenderSignature) {
 			// Rows already match, so skip node reconstruction (which would drop
 			// hover state and could swallow a click mid-press). Re-derive the
@@ -176,6 +169,10 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 			updateSelectionClassesOnly();
 			for (const { index, row, ring } of progressRows) {
 				updateProgressRing(row, ring, filtered[index]?.progress);
+			}
+			for (const { index, element } of statusRows) {
+				const status = filtered[index]?.status ?? "";
+				if (element.textContent !== status) element.textContent = status;
 			}
 			return;
 		}
@@ -193,21 +190,29 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 
 	function renderList(): void {
 		progressRows.length = 0;
+		statusRows.length = 0;
 		const frag = document.createDocumentFragment();
+		if (emptyMessage) {
+			const empty = document.createElement("li");
+			empty.className = "command-palette-empty";
+			empty.setAttribute("role", "presentation");
+			empty.textContent = emptyMessage;
+			frag.appendChild(empty);
+		}
 		for (let i = 0; i < filtered.length; i++) {
 			const cmd = filtered[i]!;
 			const li = document.createElement("li");
 			li.setAttribute("role", "option");
 			li.id = `palette-opt-${cmd.id}`;
 			li.className = "command-palette-item";
+			if (cmd.appearance)
+				li.classList.add(`command-palette-item--${cmd.appearance}`);
 			if (i === selected) li.classList.add("command-palette-item--active");
 			li.dataset.index = String(i);
 			const row = document.createElement("div");
 			row.className = "command-palette-item-row";
 			if (cmd.progress !== undefined) {
-				const ring = document.createElement("span");
-				ring.className = "command-palette-progress";
-				ring.setAttribute("aria-hidden", "true");
+				const ring = createProgressRing();
 				updateProgressRing(li, ring, cmd.progress);
 				progressRows.push({ index: i, row: li, ring });
 				row.appendChild(ring);
@@ -220,6 +225,13 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 				lab.textContent = cmd.label;
 			}
 			row.appendChild(lab);
+			if (cmd.status !== undefined) {
+				const status = document.createElement("span");
+				status.className = "command-palette-item-status";
+				status.textContent = cmd.status;
+				statusRows.push({ index: i, element: status });
+				row.appendChild(status);
+			}
 			if (cmd.remove) {
 				const index = i;
 				const del = document.createElement("button");
@@ -341,6 +353,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 		hideSurface(root, "command-palette--hidden", () => {
 			list.replaceChildren();
 			progressRows.length = 0;
+			statusRows.length = 0;
 			lastRenderSignature = null;
 		});
 	}

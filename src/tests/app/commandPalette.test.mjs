@@ -166,6 +166,8 @@ function makeHarness(env, options) {
 			getCalls += 1;
 			return options.commands();
 		},
+		getFilteredCommands: options.getFilteredCommands,
+		filteredEmptyText: options.filteredEmptyText,
 		onClosed: options.onClosed,
 		onBeforeOpen: options.onBeforeOpen,
 		onTabComplete: options.onTabComplete,
@@ -229,11 +231,9 @@ test("progress rings update and clear without replacing palette rows", async (t)
 		refreshMs: 500,
 	});
 	const [pane, proc, action] = h.rows();
-	const rings = [pane, proc].map((row) =>
-		row.querySelector(".command-palette-progress"),
-	);
+	const rings = [pane, proc].map((row) => row.querySelector(".progress-ring"));
 	assert.ok(rings.every((ring) => ring.hidden));
-	assert.equal(action.querySelector(".command-palette-progress"), null);
+	assert.equal(action.querySelector(".progress-ring"), null);
 	fire(h.input, "keydown", key("ArrowDown"));
 	const active = h.list.getAttribute("aria-activedescendant");
 	const renderCount = h.replaceCount();
@@ -263,6 +263,52 @@ test("progress rings update and clear without replacing palette rows", async (t)
 		assert.equal(h.replaceCount(), renderCount);
 		assert.equal(h.list.getAttribute("aria-activedescendant"), active);
 	}
+});
+
+test("prefiltered workspace rows keep their order and update status in place", async (t) => {
+	let elapsed = "6s";
+	let picked = "";
+	const h = await setup(t, {
+		commands: () => [],
+		getFilteredCommands: (query) => {
+			if (query === ":miss") return [];
+			if (query !== ":build") return undefined;
+			return [
+				{ id: "tab", label: "Tools", appearance: "workspace-tab" },
+				{
+					id: "pane",
+					label: "build",
+					appearance: "workspace-remote",
+					status: elapsed,
+					run: () => {
+						picked = "pane";
+					},
+				},
+			];
+		},
+		filteredEmptyText: "No matching tabs or panes",
+		refreshMs: 500,
+	});
+	h.input.value = ":miss";
+	fire(h.input, "input");
+	h.env.advanceRaf();
+	assert.equal(h.list.getAttribute("aria-activedescendant"), null);
+	assert.equal(h.rows()[0].textContent, "No matching tabs or panes");
+
+	h.input.value = ":build";
+	fire(h.input, "input");
+	h.env.advanceRaf();
+	assert.deepEqual(h.labels(), ["Tools", "build"]);
+	const pane = h.rows()[1];
+	const status = pane.querySelector(".command-palette-item-status");
+	assert.equal(status.textContent, "6s");
+	fire(h.input, "keydown", key("ArrowDown"));
+	elapsed = "7s";
+	h.env.tickIntervals();
+	assert.equal(h.rows()[1], pane);
+	assert.equal(status.textContent, "7s");
+	fire(h.input, "keydown", key("Enter"));
+	assert.equal(picked, "pane");
 });
 
 test("input is batched into one render per animation frame", async (t) => {

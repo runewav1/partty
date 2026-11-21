@@ -74,8 +74,10 @@ https://github.com/user-attachments/assets/50b6efde-94e8-49dc-b8a8-38c7b454d877
 
 ### Command Palette
 
-- Find keybind shortcuts, list running processes, panes, dismiss the window, quit, and more, from an easily
-  accessible command palette.
+- Find shortcuts and run app actions from the command palette. Type `:` to
+  browse or search tabs and their panes, see running commands or idle panes, and
+  jump to a result. Programs that emit terminal progress also show a ring in
+  the palette and on their tab.
 
 ### Theming
 

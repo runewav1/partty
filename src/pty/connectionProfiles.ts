@@ -4,9 +4,6 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-const PROFILE_QUERY_REGEX =
-	/^@profile:(new-tab|split-h|split-v|float)(?:\s+(.*))?$/i;
-
 export const LOCAL_DEFAULT_PROFILE_ID = "local-default";
 
 export type ProfileKind = "local" | "wsl" | "ssh";
@@ -23,6 +20,8 @@ export type ConnectionProfile = {
 	wslDistro?: string | null;
 	sshHost?: string | null;
 	sshUser?: string | null;
+	/** Display-only SSH address. */
+	sshIp?: string | null;
 	sshPort?: number | null;
 	sshIdentityFile?: string | null;
 	sshArgs?: string[];
@@ -115,6 +114,7 @@ function normalizeProfile(raw: unknown): ConnectionProfile | null {
 		wslDistro: typeof o.wslDistro === "string" ? o.wslDistro : undefined,
 		sshHost: typeof o.sshHost === "string" ? o.sshHost : undefined,
 		sshUser: typeof o.sshUser === "string" ? o.sshUser : undefined,
+		sshIp: readOptionalString(o, "sshIp", "ssh_ip"),
 		sshPort: typeof o.sshPort === "number" ? o.sshPort : undefined,
 		sshIdentityFile:
 			typeof o.sshIdentityFile === "string" ? o.sshIdentityFile : undefined,
@@ -186,7 +186,7 @@ export function getProfileById(
 	return profiles.find((p) => p.id === id) ?? null;
 }
 
-function resolveEffectiveSpawnProfile(
+export function resolveEffectiveSpawnProfile(
 	profileId: string,
 	profiles: readonly ConnectionProfile[],
 ): ConnectionProfile | null {
@@ -239,20 +239,6 @@ export function profileActionForPaletteCommandId(
 	)
 		return "float";
 	return null;
-}
-
-export function parseProfilePickerQuery(
-	query: string,
-): { action: ProfilePaletteAction; filter: string } | null {
-	const m = query.trimStart().match(PROFILE_QUERY_REGEX);
-	if (!m) return null;
-	const action = m[1]!.toLowerCase() as ProfilePaletteAction;
-	return { action, filter: (m[2] ?? "").trim() };
-}
-
-export function isProfilePickerAliasContext(query: string): boolean {
-	const parsed = parseProfilePickerQuery(query);
-	return parsed != null && parsed.filter.length === 0;
 }
 
 export function resolveSelectionAliases(

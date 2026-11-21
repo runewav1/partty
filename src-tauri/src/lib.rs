@@ -932,6 +932,21 @@ fn pty_replay_snapshot(state: State<'_, AppState>, session_id: String) -> Result
     ))
 }
 
+/// Refresh progress for deferred panes without reattaching their output rings.
+#[tauri::command(async)]
+fn pty_resend_progress(app: AppHandle, state: State<'_, AppState>, session_ids: Vec<String>) {
+    let sessions = {
+        let panes = state.pty_panes.lock();
+        session_ids
+            .into_iter()
+            .filter_map(|id| panes.get(&id).cloned().map(|session| (id, session)))
+            .collect::<Vec<_>>()
+    };
+    for (id, session) in sessions {
+        session.emit_progress(&app, &id);
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct PtyResizeEntry {
     #[serde(rename = "sessionId")]
@@ -1107,6 +1122,7 @@ pub fn run() {
             pty_ensure,
             pty_write,
             pty_replay_snapshot,
+            pty_resend_progress,
             pty_resize_batch,
             pty_kill_pane,
             pty_ack_exit,

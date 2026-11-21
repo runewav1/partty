@@ -1,0 +1,135 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+	sshPaneTarget,
+	workspacePaletteCommands,
+	workspaceSearchQuery,
+} from "../../app/workspacePalette.ts";
+import { selectTabProgress } from "../../pty/ptyProgress.ts";
+
+const progress = { state: "normal", value: 42 };
+const noop = () => {};
+const tabs = [
+	{
+		id: "work",
+		index: 1,
+		label: "Zeta <work>",
+		progress,
+		run: noop,
+		panes: [
+			{
+				paneId: "1:a",
+				profileName: "PowerShell",
+				cwd: "C:\\code\\app",
+				progress: null,
+				run: noop,
+			},
+			{
+				paneId: "1:b",
+				profileName: "Production",
+				remote: sshPaneTarget("prod.example.test", "deploy", "192.0.2.7"),
+				processLabel: "build <main>",
+				startedAt: 4000,
+				progress,
+				run: noop,
+			},
+		],
+	},
+	{
+		id: "spare",
+		index: 2,
+		label: "Alpha",
+		progress: null,
+		panes: [],
+		run: noop,
+	},
+];
+
+test("only a leading colon activates workspace search", () => {
+	assert.equal(workspaceSearchQuery("  :"), "");
+	assert.equal(workspaceSearchQuery(" :deploy build "), "deploy build");
+	assert.equal(workspaceSearchQuery(": deploy@host"), "deploy@host");
+	assert.equal(workspaceSearchQuery("@"), undefined);
+	assert.equal(workspaceSearchQuery("@profile:float"), undefined);
+	assert.equal(workspaceSearchQuery("deploy:build"), undefined);
+});
+
+test("workspace results retain tab and pane order and combine tab and pane terms", () => {
+	const ids = (query) =>
+		workspacePaletteCommands(tabs, query, 6100).map((c) => c.id);
+	assert.deepEqual(ids(""), [
+		"workspace-tab-work",
+		"workspace-pane-work-1:a",
+		"workspace-pane-work-1:b",
+		"workspace-tab-spare",
+	]);
+	assert.deepEqual(ids("zeta deploy 192.0.2.7"), [
+		"workspace-tab-work",
+		"workspace-pane-work-1:b",
+	]);
+	assert.deepEqual(ids("zeta"), ids("1"));
+	assert.deepEqual(ids("tab 2"), ["workspace-tab-spare"]);
+	assert.deepEqual(ids("idle"), [
+		"workspace-tab-work",
+		"workspace-pane-work-1:a",
+	]);
+	assert.deepEqual(ids("unknown"), []);
+});
+
+test("remote rows expose command, elapsed time, escaped identity, and progress", () => {
+	const [tab, idle, running] = workspacePaletteCommands(tabs, "", 6100);
+	assert.equal(tab.progress, progress);
+	assert.ok(tab.labelHtml.includes("Zeta &lt;work&gt;"));
+	assert.equal(idle.status, "Idle");
+	assert.equal(running.status, "2s");
+	assert.equal(running.appearance, "workspace-remote");
+	assert.equal(running.progress, progress);
+	assert.ok(running.labelHtml.includes("build &lt;main&gt;"));
+	assert.ok(running.labelHtml.includes("deploy@prod.example.test · 192.0.2.7"));
+	assert.deepEqual(sshPaneTarget("admin@host", "unused", ""), {
+		target: "admin@host",
+		ip: undefined,
+	});
+	assert.deepEqual(sshPaneTarget("", "admin", "2001:db8::2"), {
+		target: "admin@2001:db8::2",
+		ip: undefined,
+	});
+	assert.equal(sshPaneTarget("", "", ""), undefined);
+});
+
+test("tab progress is scoped to the current layout and follows Windows Terminal priority", () => {
+	const states = {
+		a: { state: "indeterminate", value: 0 },
+		b: progress,
+		c: { state: "paused", value: 31 },
+		d: { state: "error", value: 9 },
+		e: { state: "error", value: 11 },
+		cleared: { state: "clear", value: 0 },
+	};
+	const get = (id) => states[id] ?? null;
+	assert.equal(selectTabProgress(["cleared", "missing"], get), null);
+	assert.equal(selectTabProgress(["a", "b"], get), states.b);
+	assert.equal(selectTabProgress(["a", "b", "c"], get), states.c);
+	assert.equal(selectTabProgress(["a", "b", "c", "d", "e"], get), states.d);
+	assert.equal(selectTabProgress(["e", "d"], get), states.e);
+	assert.equal(selectTabProgress(["a"], get), states.a);
+});
+
+test("OSC-only panes are not labeled idle and keep their stable row id", () => {
+	const pane = {
+		paneId: "old",
+		sessionId: "session-a",
+		profileName: "SSH profile",
+		remote: { target: "SSH profile" },
+		progress,
+		run: noop,
+	};
+	const first = workspacePaletteCommands([{ ...tabs[0], panes: [pane] }], "");
+	const second = workspacePaletteCommands(
+		[{ ...tabs[1], panes: [{ ...pane, paneId: "moved" }] }],
+		"remote",
+	);
+	assert.equal(first[1].status, "Progress");
+	assert.equal(second[1].id, first[1].id);
+	assert.equal(second[1].label, "SSH profile");
+});

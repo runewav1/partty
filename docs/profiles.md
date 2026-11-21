@@ -157,6 +157,7 @@ Used when `commandline` is unset:
 | `ssh_host`          | string   | Host, `user@host`, or `~/.ssh/config` Host alias                                                                                   |
 | `ssh_user`          | string   | Optional if not in `ssh_host` / config                                                                                             |
 | `ssh_port`          | u16      | Optional (`-p`)                                                                                                                    |
+| `ssh_ip`            | string   | Optional display address for workspace search; does not affect the SSH connection                                                  |
 | `ssh_identity_file` | string   | Private key path (`-i`). OpenSSH formats only (e.g. ed25519, RSA, PEM)                                                             |
 | `ssh_args`          | string[] | Extra client args                                                                                                                  |
 | `integration`       | bool     | Default `false`. Set `true` when the remote shell has loaded a Partty remote integration script (enables live remote CWD tracking) |
@@ -168,11 +169,16 @@ name = "Prod"
 kind = "ssh"
 ssh_host = "prod.example.com"
 ssh_user = "deploy"
+ssh_ip = "192.0.2.10"
 ssh_port = 22
 ssh_identity_file = "C:\\Users\\you\\.ssh\\id_ed25519"
 ssh_args = ["-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes"]
 integration = true
 ```
+
+`ssh_ip` is optional and display-only. The `:` workspace search shows the SSH
+user, host, and IP when configured, or the profile name if no target details
+are present. It does not resolve hostnames or change the connection target.
 
 ### Shell integration (SSH)
 
@@ -198,7 +204,8 @@ integration = true
 
 ### `commandline` override
 
-When set, structured `ssh_*` fields are ignored. Full OpenSSH (or other) command:
+When set, structured `ssh_*` fields are ignored for spawning, but can still
+describe the remote in workspace search. Full OpenSSH (or other) command:
 
 ```toml
 version = 1
@@ -255,13 +262,13 @@ A = "local-pwsh"
 s = "ssh-prod"
 ```
 
-Picker: empty field, placeholder **Profile**; type to filter (case-insensitive). Hotkeys: [`profile_split_right` / `profile_split_down`](config/keybinds.toml.md).
+Type into the empty picker field to filter (case-insensitive). Hotkeys: [`profile_split_right` / `profile_split_down`](config/keybinds.toml.md).
 
 ## Opening profiles
 
 | Method         | How                                                                                     |
 | -------------- | --------------------------------------------------------------------------------------- |
-| Palette        | `@profile:new-tab` / `@profile:split-h` / `@profile:split-v`, or Tab on New tab / Split |
+| Palette        | Select New tab, Split, or New floating pane, then press Tab to open the profile picker |
 | Split keybinds | `Alt+Shift+V` (right) / `Alt+Shift+H` (down) → picker                                   |
 | Alias          | With empty filter, press the configured character                                       |
 

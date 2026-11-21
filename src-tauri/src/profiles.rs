@@ -44,6 +44,9 @@ pub struct ConnectionProfile {
     pub ssh_host: Option<String>,
     #[serde(default)]
     pub ssh_user: Option<String>,
+    /// Optional address shown in the workspace palette; never used for spawn.
+    #[serde(default)]
+    pub ssh_ip: Option<String>,
     #[serde(default)]
     pub ssh_port: Option<u16>,
     #[serde(default)]
@@ -94,6 +97,7 @@ pub struct ProfileDto {
     pub wsl_distro: Option<String>,
     pub ssh_host: Option<String>,
     pub ssh_user: Option<String>,
+    pub ssh_ip: Option<String>,
     pub ssh_port: Option<u16>,
     pub ssh_identity_file: Option<String>,
     pub ssh_args: Vec<String>,
@@ -125,6 +129,7 @@ impl From<&ConnectionProfile> for ProfileDto {
             wsl_distro: p.wsl_distro.clone(),
             ssh_host: p.ssh_host.clone(),
             ssh_user: p.ssh_user.clone(),
+            ssh_ip: p.ssh_ip.clone(),
             ssh_port: p.ssh_port,
             ssh_identity_file: p.ssh_identity_file.clone(),
             ssh_args: p.ssh_args.clone(),
@@ -576,11 +581,17 @@ id = "ssh-prod"
 name = "Prod"
 kind = "ssh"
 ssh_host = "prod.example.com"
+ssh_user = "deploy"
+ssh_ip = "192.0.2.10"
 integration = true
 "#;
         let p: ConnectionProfile = toml::from_str(with_flag).unwrap();
         assert!(p.integration);
         assert!(ProfileDto::from(&p).integration);
+        assert_eq!(
+            serde_json::to_value(ProfileDto::from(&p)).unwrap()["sshIp"],
+            "192.0.2.10"
+        );
         assert_eq!(
             serde_json::to_value(ProfileDto::from(&p)).unwrap()["integration"],
             true

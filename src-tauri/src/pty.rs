@@ -1477,7 +1477,9 @@ impl PtySession {
     /// Emit under the same lock as live updates to preserve their ordering.
     pub fn emit_progress(&self, app: &AppHandle, session_id: &str) {
         let progress = self.progress.lock();
-        progress.emit(app, session_id);
+        if !self.stop.load(Ordering::SeqCst) {
+            progress.emit(app, session_id);
+        }
     }
 
     /// Called after stopping this PTY, before its stable ID is reused.

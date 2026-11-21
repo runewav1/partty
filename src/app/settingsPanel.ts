@@ -90,7 +90,7 @@ export type ParttyPrefs = {
 	new_tab_uses_default_profile: boolean;
 	/** Profile ids hidden from pickers (`[profiles].omit`). */
 	profile_omit?: string[];
-	/** Show icons in the `@profile` palette (`[profiles].palette_icons`). */
+	/** Show icons in the profile picker (`[profiles].palette_icons`). */
 	palette_profile_icons?: boolean;
 	/** Config-only `[profiles.selection_aliases]` — preserved on Settings save. */
 	profile_selection_aliases?: Record<string, string>;

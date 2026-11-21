@@ -30,6 +30,7 @@ import {
 	mouseCursorForceVisible,
 } from "./app/mouseCursor";
 import { type OverlayHandle, pushOverlay } from "./app/overlayStack";
+import { createProgressRing, updateProgressRing } from "./app/progressRing";
 import { initParttyScrollFade } from "./app/scrollChrome";
 import type {
 	ParttyPrefs,
@@ -44,6 +45,11 @@ import {
 import { createThemeFamilyShortcut } from "./app/themeFamilyShortcut";
 import type { ThemeModalApi } from "./app/themeModal";
 import { createTooltipController } from "./app/tooltips";
+import {
+	sshPaneTarget,
+	workspacePaletteCommands,
+	workspaceSearchQuery,
+} from "./app/workspacePalette";
 import {
 	type ByteChunkBuffer,
 	createByteChunkBuffer,
@@ -60,15 +66,14 @@ import {
 	DEFAULT_PROFILE_BEHAVIOR,
 	fetchProfiles,
 	getProfileById,
-	isProfilePickerAliasContext,
 	LOCAL_DEFAULT_PROFILE_ID,
 	type ProfileBehaviorPrefs,
 	type ProfilePaletteAction,
-	parseProfilePickerQuery,
 	profileActionForPaletteCommandId,
 	profileHasRemoteIntegration,
 	profileIdAliasMap,
 	resolveDefaultProfileId,
+	resolveEffectiveSpawnProfile,
 	resolveProfileShell,
 	resolveSelectionAliases,
 } from "./pty/connectionProfiles";
@@ -88,7 +93,6 @@ import {
 } from "./pty/processTracking";
 import {
 	isPtyOwner,
-	type PtyProgress,
 	ptyAckExit,
 	ptyEnsure,
 	ptyFocusPane,
@@ -98,6 +102,7 @@ import {
 	ptyWrite,
 	runPtyStartup,
 } from "./pty/ptyIpc";
+import { type PtyProgress, selectTabProgress } from "./pty/ptyProgress";
 import {
 	getSessionShedOnExitMode,
 	shedSessionLocalState,
@@ -111,10 +116,7 @@ import {
 	autoTabNameFromPane,
 	tabDisplayName as formatTabDisplayName,
 	type PaneNameParts,
-	paneCollisionKey,
 	paneHeadline,
-	paneSubline,
-	procPaletteHeadline,
 } from "./tabs/displayNames";
 import {
 	type DeferredTabInit,
@@ -544,6 +546,11 @@ async function boot(): Promise<void> {
 	 * `pt.paneId` is read at use-time so it tracks re-keys. */
 	const paneBySessionId = new Map<string, PaneTerminal>();
 	const ptyProgressBySession = new Map<string, PtyProgress>();
+	const tabProgressRings = new Map<
+		string,
+		{ tab: HTMLElement; ring: HTMLElement }
+	>();
+	let tabProgressRaf = 0;
 	const pendingNewPaneCwd = { v: null as string | null };
 	const pendingPaneSpawnCwd = new Map<string, string>();
 	const pendingNewPaneProfile = { v: null as string | null };
@@ -1109,7 +1116,7 @@ async function boot(): Promise<void> {
 		// record point for an atuin-style history DB (command, cwd, exit, duration).
 		const command = displayProcessCommand(entry.command);
 		const durMs = processDurationMs(entry, endedAt);
-		if (durMs / 1000 >= processNotificationThresholdRef.v) {
+		if (command && durMs / 1000 >= processNotificationThresholdRef.v) {
 			if (!processNotificationEnabledRef.v) {
 				activeProcesses.delete(paneId);
 				return;
@@ -1443,9 +1450,6 @@ async function boot(): Promise<void> {
 	}
 
 	function paneNameParts(paneId: string): PaneNameParts {
-		const host = getPaneHostByPaneId(paneId);
-		const tabId = host ? tabIdForPaneHost(host) : null;
-		const tab = tabId ? tabsState.tabs.find((t) => t.id === tabId) : undefined;
 		const proc = activeProcesses.get(paneId);
 		return {
 			paneId,
@@ -1453,7 +1457,6 @@ async function boot(): Promise<void> {
 			cwd: paneCwdForIdentity(paneId),
 			oscTitle: paneProgramNames.get(paneId) ?? null,
 			processLabel: proc ? displayProcessCommand(proc.command) : null,
-			tabName: tab?.userName ?? "",
 		};
 	}
 
@@ -3102,11 +3105,14 @@ async function boot(): Promise<void> {
 				onPaneDisposed: (pid, sessionId) => {
 					void ptyKillPane(sessionId).catch(() => {});
 					paneBySessionId.delete(sessionId);
-					ptyProgressBySession.delete(sessionId);
+					if (ptyProgressBySession.delete(sessionId)) scheduleTabProgress();
 					paneThemes.delete(pid);
 					cleanupPaneVisualState(pid);
 				},
-				onPaneLayout: () => scheduleResizeImmediate(),
+				onPaneLayout: () => {
+					scheduleResizeImmediate();
+					scheduleTabProgress();
+				},
 				onPaneLayoutDrag: (dragging) => {
 					setTerminalLayoutSuspended(dragging);
 					mouseCursorDragRef.suppress?.(dragging);
@@ -3613,6 +3619,7 @@ async function boot(): Promise<void> {
 			hasLiveHost: Boolean(h),
 			maps: { paneThemes, paneProfileIds, paneCwdHints },
 			killSession: (sessionId) => {
+				if (ptyProgressBySession.delete(sessionId)) scheduleTabProgress();
 				void ptyKillPane(sessionId).catch(() => {});
 			},
 		});
@@ -4278,10 +4285,76 @@ async function boot(): Promise<void> {
 		};
 	}
 
+	function tabPaneIds(tabId: string): string[] {
+		const live = tabPaneHosts.get(tabId);
+		if (live) return live.getLeafIdsInOrder();
+		const deferred = deferredTabInits.get(tabId);
+		const ids: string[] = [];
+		if (deferred?.init.initialTree)
+			collectLeafIds(deferred.init.initialTree, ids);
+		else if (deferred) ids.push(deferred.rootPaneId);
+		return ids;
+	}
+
+	function tabPaneSessionId(tabId: string, paneId: string): string | undefined {
+		return (
+			tabPaneHosts.get(tabId)?.getPaneTerminal(paneId)?.sessionId ??
+			deferredTabInits.get(tabId)?.init.initialSessionIds?.[paneId]
+		);
+	}
+
+	function tabProgress(tabId: string, paneIds?: string[]): PtyProgress | null {
+		if (!ptyProgressBySession.size) return null;
+		return selectTabProgress(paneIds ?? tabPaneIds(tabId), (paneId) =>
+			sessionProgress(tabPaneSessionId(tabId, paneId)),
+		);
+	}
+
+	function refreshTabProgress(): boolean {
+		let visibilityChanged = false;
+		let anyVisible = false;
+		for (const [id, { tab, ring }] of tabProgressRings) {
+			const wasHidden = ring.hidden;
+			updateProgressRing(tab, ring, tabProgress(id));
+			visibilityChanged ||= wasHidden !== ring.hidden;
+			anyVisible ||= !ring.hidden;
+		}
+		document.documentElement.classList.toggle(
+			"term-tabs-have-progress",
+			anyVisible,
+		);
+		return visibilityChanged;
+	}
+
+	function scheduleTabProgress(): void {
+		if (tabProgressRaf || !tabProgressRings.size) return;
+		tabProgressRaf = requestAnimationFrame(() => {
+			tabProgressRaf = 0;
+			if (refreshTabProgress()) syncTabIndicator();
+		});
+	}
+
+	function syncTabIndicator(): void {
+		const strip = document.getElementById("term-tabs-strip");
+		const activeTab = strip?.querySelector<HTMLElement>(".term-tab--active");
+		if (!strip || !activeTab) return;
+		const stripRect = strip.getBoundingClientRect();
+		const activeRect = activeTab.getBoundingClientRect();
+		strip.style.setProperty(
+			"--tab-indicator-width",
+			`${Math.max(8, activeRect.width - 20)}px`,
+		);
+		strip.style.setProperty(
+			"--tab-indicator-x",
+			`${activeRect.left - stripRect.left + strip.scrollLeft + 10}px`,
+		);
+	}
+
 	function renderTabsBar(): void {
 		const strip = document.getElementById("term-tabs-strip");
 		if (!strip) return;
 		strip.replaceChildren();
+		tabProgressRings.clear();
 		const mult = tabsState.tabs.length > 1;
 		document.documentElement.classList.toggle("term-tabs-multiple", mult);
 		// One tab (or fewer) isn't worth a tab bar — collapse it so it doesn't eat
@@ -4508,6 +4581,9 @@ async function boot(): Promise<void> {
 				label.textContent = tabDisplayName(tab.id);
 				btn.appendChild(label);
 			}
+			const ring = createProgressRing();
+			btn.prepend(ring);
+			tabProgressRings.set(tab.id, { tab: btn, ring });
 
 			if (tabsState.tabs.length > 1 && !tabBar.layout().omitDefaultClose) {
 				const closeHit = document.createElement("span");
@@ -4547,19 +4623,8 @@ async function boot(): Promise<void> {
 			strip.appendChild(btn);
 		}
 
-		const activeTab = strip.querySelector<HTMLElement>(".term-tab--active");
-		if (activeTab) {
-			const stripRect = strip.getBoundingClientRect();
-			const activeRect = activeTab.getBoundingClientRect();
-			strip.style.setProperty(
-				"--tab-indicator-width",
-				`${Math.max(8, activeRect.width - 20)}px`,
-			);
-			strip.style.setProperty(
-				"--tab-indicator-x",
-				`${activeRect.left - stripRect.left + strip.scrollLeft + 10}px`,
-			);
-		}
+		refreshTabProgress();
+		syncTabIndicator();
 
 		tabBar.afterStripRender();
 		tabBar.notifyChanged();
@@ -5211,156 +5276,69 @@ async function boot(): Promise<void> {
 		});
 	}
 
-	function getTabPaletteCommands(): PaletteCommand[] {
-		return visibleTabsInOrder().map((tab, index) => {
-			const host = tabPaneHosts.get(tab.id);
-			const leafIds = host?.getLeafIdsInOrder() ?? [];
-			const paneKeywords: string[] = [];
-			for (const lid of leafIds) {
-				const parts = paneNameParts(lid);
-				paneKeywords.push(parts.profileName.toLowerCase());
-				if (parts.oscTitle) {
-					for (const word of parts.oscTitle.split(/\s+/)) {
-						const w = word.toLowerCase();
-						if (w) paneKeywords.push(w);
-					}
-				}
-				if (parts.processLabel) {
-					for (const word of parts.processLabel.split(/\s+/)) {
-						const w = word.toLowerCase();
-						if (w) paneKeywords.push(w);
-					}
-				}
-				const cwd = parts.cwd;
-				if (cwd) {
-					const segs = cwd.replace(/\\/g, "/").split("/").filter(Boolean);
-					for (const part of segs) paneKeywords.push(part.toLowerCase());
-				}
-				paneKeywords.push(lid.toLowerCase());
-			}
-			const extra = [...new Set(paneKeywords)].slice(0, 32).join(" ");
-			const label = tabDisplayName(tab.id);
-			return {
-				id: `tab-switch-${tab.id}`,
-				label: `: ${label}`,
-				keywords: `tab workspace ${tab.name} ${label} ${extra} alt ${index + 1}`,
-				hotkey:
-					index < 9 ? `Alt+${index + 1}` : index === 9 ? "Alt+0" : undefined,
-				run: () => switchToTab(tab.id),
-			};
-		});
-	}
-
-	function allPaneNameParts(): PaneNameParts[] {
-		const out: PaneNameParts[] = [];
-		for (const host of tabPaneHosts.values()) {
-			for (const id of host.getLeafIdsInOrder()) out.push(paneNameParts(id));
-		}
-		return out;
-	}
-
-	function paneIndexFlags(parts: PaneNameParts[]): Set<string> {
-		const counts = new Map<string, number>();
-		for (const p of parts) {
-			const key = paneCollisionKey(p);
-			counts.set(key, (counts.get(key) ?? 0) + 1);
-		}
-		const show = new Set<string>();
-		for (const p of parts) {
-			if ((counts.get(paneCollisionKey(p)) ?? 0) > 1) show.add(p.paneId);
-		}
-		return show;
-	}
-
-	function paneQueryHaystack(p: PaneNameParts): string {
-		return [
-			p.paneId,
-			p.profileName,
-			p.cwd ?? "",
-			p.oscTitle ?? "",
-			p.processLabel ?? "",
-			p.tabName,
-			paneHeadline(p),
-		]
-			.join(" ")
-			.toLowerCase();
-	}
-
-	function panePaletteHtml(
-		p: PaneNameParts,
-		showIndex: boolean,
-		prefix: "@pane:" | "@proc:",
-		headline: string,
-		suffix = "",
-	): string {
-		const sub = paneSubline(p, headline, showIndex);
-		const subHtml = sub
-			? ` <span class="cp-label-tab">${escapeHtml(sub)}</span>`
-			: "";
-		return `<span class="cp-label-prefix">${prefix}</span><span class="cp-label-name">${escapeHtml(headline)}</span>${subHtml}${suffix}`;
-	}
-
-	function paneProgress(paneId: string): PtyProgress | null {
-		const sessionId = getPaneTerminalById(paneId)?.sessionId;
+	function sessionProgress(sessionId: string | undefined): PtyProgress | null {
 		return sessionId ? (ptyProgressBySession.get(sessionId) ?? null) : null;
 	}
 
-	function getPaneTargetCommands(query: string): PaletteCommand[] {
-		const afterTag = query.slice(6);
-		const spaceIdx = afterTag.indexOf(" ");
-		const panePart = (spaceIdx === -1 ? afterTag : afterTag.slice(0, spaceIdx))
-			.trimStart()
-			.toLowerCase();
-		const all = allPaneNameParts();
-		const showIndex = paneIndexFlags(all);
-
-		if (spaceIdx !== -1 && panePart) {
-			const command = afterTag.slice(spaceIdx + 1).trim();
-			for (const p of all) {
-				const headline = paneHeadline(p);
-				if (
-					p.paneId.toLowerCase() !== panePart &&
-					headline.toLowerCase() !== panePart
-				)
-					continue;
-				const suffix = command
-					? ` <span class="cp-label-prefix" style="font-weight:400">→</span> ${escapeHtml(command)}`
-					: "";
-				return [
-					{
-						id: `pane-dispatch-${p.paneId}`,
-						label: `@pane:${headline}${command ? ` → ${command}` : ""}`,
-						labelHtml: panePaletteHtml(
-							p,
-							showIndex.has(p.paneId),
-							"@pane:",
-							headline,
-							suffix,
-						),
-						keywords: paneQueryHaystack(p) + ` ${command}`,
-						progress: paneProgress(p.paneId),
-						run: () => dispatchPaneCommand(p.paneId, query),
-					},
-				];
-			}
-			return [];
-		}
-
-		const items: PaletteCommand[] = [];
-		for (const p of all) {
-			if (panePart && !paneQueryHaystack(p).includes(panePart)) continue;
-			const headline = paneHeadline(p);
-			const indexed = showIndex.has(p.paneId);
-			items.push({
-				id: `pane-target-${p.paneId}`,
-				label: `@pane:${headline}`,
-				labelHtml: panePaletteHtml(p, indexed, "@pane:", headline),
-				keywords: paneQueryHaystack(p),
-				progress: paneProgress(p.paneId),
-				run: () => dispatchPaneCommand(p.paneId, query),
-			});
-		}
-		return items;
+	function getWorkspacePaletteCommands(
+		raw: string,
+	): PaletteCommand[] | undefined {
+		if (profilePickerSession || workspacePickerOpen) return undefined;
+		const query = workspaceSearchQuery(raw);
+		if (query === undefined) return undefined;
+		return workspacePaletteCommands(
+			tabsInIndexOrder().map((tab, index) => {
+				const paneIds = tabPaneIds(tab.id);
+				return {
+					id: tab.id,
+					index: index + 1,
+					label: tabDisplayName(tab.id),
+					progress: tabProgress(tab.id, paneIds),
+					run: () => switchToTab(tab.id),
+					panes: paneIds.map((paneId) => {
+						const sessionId = tabPaneSessionId(tab.id, paneId);
+						const parts = paneNameParts(paneId);
+						const profile = resolvePaneProfile(paneId);
+						const spawn =
+							profile &&
+							(resolveEffectiveSpawnProfile(profile.id, profilesList) ??
+								profile);
+						const remote =
+							spawn?.kind === "ssh"
+								? (sshPaneTarget(
+										profile?.sshHost ?? spawn.sshHost,
+										profile?.sshUser ?? spawn.sshUser,
+										profile?.sshIp ?? spawn.sshIp,
+									) ?? { target: parts.profileName })
+								: undefined;
+						return {
+							...parts,
+							sessionId,
+							remote,
+							startedAt: activeProcesses.get(paneId)?.startedAt,
+							progress: sessionProgress(sessionId),
+							run: () => {
+								const live = sessionId
+									? paneBySessionId.get(sessionId)
+									: undefined;
+								const target = live?.paneId ?? paneId;
+								const host = live ? getPaneHostByPaneId(target) : null;
+								const owner = (host && tabIdForPaneHost(host)) || tab.id;
+								switchToTab(owner);
+								const nextHost = tabPaneHosts.get(owner);
+								if (
+									!sessionId ||
+									nextHost?.getPaneTerminal(target)?.sessionId === sessionId
+								) {
+									nextHost?.setFocusedPaneId(target);
+								}
+							},
+						};
+					}),
+				};
+			}),
+			query,
+		);
 	}
 
 	let processToastTimer = 0;
@@ -5468,86 +5446,6 @@ async function boot(): Promise<void> {
 		}
 	});
 
-	function getProcCommands(query: string): PaletteCommand[] {
-		const afterTag = query
-			.slice(query.startsWith("@proc:") ? 6 : 5)
-			.trimStart();
-		const words = afterTag ? afterTag.split(/\s+/) : [];
-		const prefix = words.join(" ").toLowerCase();
-
-		if (activeProcesses.size === 0)
-			return [
-				{
-					id: "proc-none",
-					label: "No active processes",
-					keywords: "@proc proc process",
-					run: () => {},
-				},
-			];
-
-		const items: PaletteCommand[] = [];
-		const all = allPaneNameParts();
-		const showIndex = paneIndexFlags(all);
-		for (const [leafId, proc] of activeProcesses) {
-			const displayCmd = displayProcessCommand(proc.command);
-			if (
-				prefix &&
-				!displayCmd.toLowerCase().startsWith(prefix) &&
-				!displayCmd.toLowerCase().includes(prefix)
-			)
-				continue;
-			const p = paneNameParts(leafId);
-			const headline = procPaletteHeadline(p);
-			const shortDisplayCmd =
-				displayCmd.length > 50
-					? displayCmd.slice(0, 47) + "\u2026"
-					: displayCmd;
-			const dur = ((Date.now() - proc.startedAt) / 1000).toFixed(0);
-			items.push({
-				id: `proc-${leafId}`,
-				label: `@proc:${shortDisplayCmd}  ${dur}s`,
-				labelHtml:
-					panePaletteHtml(p, showIndex.has(leafId), "@proc:", headline) +
-					` <span style="color:var(--ui-chrome-muted);margin-left:0.4em">${dur}s</span>`,
-				keywords: `@proc proc ${paneQueryHaystack(p)} ${displayCmd}`,
-				progress: paneProgress(leafId),
-				run: () => {
-					navigateToPane(leafId);
-				},
-			});
-		}
-		return items.length > 0
-			? items
-			: [
-					{
-						id: "proc-none",
-						label: prefix
-							? `No process matching "${prefix}"`
-							: "No active processes",
-						keywords: "@proc proc process",
-						run: () => {},
-					},
-				];
-	}
-
-	function dispatchPaneCommand(targetPaneId: string, query: string): void {
-		const tagIdx = query.indexOf("@pane:");
-		if (tagIdx === -1) return;
-		const afterTagStart = tagIdx + 6;
-		const spaceIdx = query.indexOf(" ", afterTagStart);
-		const command = spaceIdx === -1 ? "" : query.slice(spaceIdx + 1).trim();
-		if (!command) {
-			// No command — switch to the pane's tab and focus it.
-			navigateToPane(targetPaneId);
-			return;
-		}
-		const targetSessionId = getPaneTerminalById(targetPaneId)?.sessionId;
-		if (!targetSessionId) return;
-		void ptyWrite(targetSessionId, `${command}\r`).catch((e) =>
-			console.warn("pty_write @pane:", e),
-		);
-	}
-
 	async function toggleMouseHidden(): Promise<void> {
 		mouseHiddenRef.v = !mouseHiddenRef.v;
 		try {
@@ -5593,7 +5491,7 @@ async function boot(): Promise<void> {
 		float: "New floating pane",
 	};
 
-	/** Active profile-picker session (hotkey / Tab). Input is filter-only; no `@profile:` prefix. */
+	/** Active profile-picker session (hotkey / Tab). Input is filter-only. */
 	let profilePickerSession: ProfilePaletteAction | null = null;
 
 	/** Active workspace-picker session. Input is filter-only over workspace ids. */
@@ -5683,30 +5581,11 @@ async function boot(): Promise<void> {
 						(showDetail
 							? ` <span class="cp-label-cwd">${escapeHtml(showDetail)}</span>`
 							: ""),
-					keywords: `@profile:${action} ${p.name} ${p.kind} ${p.id} ${sshDetail} ${p.shell ?? ""} ${p.wslDistro ?? ""} ${actionLabel}`,
+					keywords: `${p.name} ${p.kind} ${p.id} ${sshDetail} ${p.shell ?? ""} ${p.wslDistro ?? ""} ${actionLabel}`,
 					hotkey: alias ?? undefined,
 					run: () => runWithProfile(action, p.id),
 				};
 			});
-	}
-
-	function getProfileActionCommands(query: string): PaletteCommand[] {
-		const parsed = parseProfilePickerQuery(query);
-		if (!parsed) {
-			return [
-				{
-					id: "profile-picker-hint",
-					label: "Select a profile",
-					labelHtml:
-						`<span class="cp-label-prefix">@profile:</span>` +
-						`<span class="cp-label-name">new-tab</span>` +
-						`<span class="cp-label-kind"> · split-h · split-v · float</span>`,
-					keywords: "@profile new-tab split-h split-v float",
-					run: () => {},
-				},
-			];
-		}
-		return listProfileCommands(parsed.action, parsed.filter);
 	}
 
 	function openProfileSplitPicker(action: "split-h" | "split-v"): void {
@@ -5721,15 +5600,8 @@ async function boot(): Promise<void> {
 		key: string,
 		currentInput: string,
 	): PaletteCommand | null {
-		if (key.length !== 1) return null;
-		let action: ProfilePaletteAction | null = profilePickerSession;
-		if (action) {
-			if (currentInput.trim().length > 0) return null;
-		} else {
-			if (!isProfilePickerAliasContext(currentInput)) return null;
-			action = parseProfilePickerQuery(currentInput)?.action ?? null;
-		}
-		if (!action) return null;
+		const action = profilePickerSession;
+		if (key.length !== 1 || !action || currentInput.trim()) return null;
 		const profileId = profileBehaviorRef.v.profile_selection_aliases[key];
 		if (!profileId) return null;
 		const profile = getProfileById(profileId, profilesList);
@@ -5737,7 +5609,7 @@ async function boot(): Promise<void> {
 		return {
 			id: `profile-run-${action}-${profile.id}`,
 			label: profile.name,
-			run: () => runWithProfile(action!, profile.id),
+			run: () => runWithProfile(action, profile.id),
 		};
 	}
 
@@ -5747,20 +5619,6 @@ async function boot(): Promise<void> {
 		}
 		if (workspacePickerOpen) {
 			return getWorkspaceCommands(query.trim());
-		}
-		const q = query.trimStart();
-		if (q.startsWith(":")) {
-			return getTabPaletteCommands();
-		}
-
-		if (q.startsWith("@pane:")) {
-			return getPaneTargetCommands(q);
-		}
-		if (q.startsWith("@proc")) {
-			return getProcCommands(q);
-		}
-		if (q.startsWith("@profile")) {
-			return getProfileActionCommands(q);
 		}
 
 		const paneId = focusedPaneId();
@@ -5967,8 +5825,8 @@ async function boot(): Promise<void> {
 		rows.push(
 			{ hotkey: "Tab", label: "New tab / Split → pick profile" },
 			{
-				hotkey: "@profile",
-				label: "New tab or split with a profile",
+				hotkey: ":",
+				label: "Search tabs and panes in the palette",
 			},
 			{
 				hotkey: "a / A",
@@ -6062,6 +5920,8 @@ async function boot(): Promise<void> {
 					input: cpInput,
 					list: cpList,
 					getCommands: () => getMergedPaletteCommands(cpInput?.value ?? ""),
+					getFilteredCommands: getWorkspacePaletteCommands,
+					filteredEmptyText: "No matching tabs or panes",
 					onBeforeOpen: async () => {
 						closeHelpPanel();
 						// Don't block open on profile re-detection (shell/WSL probes).
@@ -6074,22 +5934,7 @@ async function boot(): Promise<void> {
 						workspacePickerIds = [];
 						getFocusedTerm()?.focus();
 					},
-					onTabComplete: (currentInput: string, selected) => {
-						if (
-							currentInput.startsWith("@pane:") &&
-							selected?.id.startsWith("pane-target-")
-						) {
-							return `@pane:${selected.id.slice("pane-target-".length)} `;
-						}
-						if (
-							(currentInput.startsWith("@proc:") || currentInput === "@proc") &&
-							selected &&
-							selected.id.startsWith("proc-")
-						) {
-							const leafId = selected.id.slice(5);
-							const proc = activeProcesses.get(leafId);
-							if (proc) return `@proc:${displayProcessCommand(proc.command)} `;
-						}
+					onTabComplete: (_currentInput, selected) => {
 						if (profileBehaviorRef.v.palette_tab_profile_picker) {
 							const action = profileActionForPaletteCommandId(selected?.id);
 							if (action) {
@@ -6591,9 +6436,16 @@ async function boot(): Promise<void> {
 
 		listen<PtyProgress & { sessionId: string }>("pty-progress", (event) => {
 			const { sessionId, state, value } = event.payload;
-			if (!paneBySessionId.has(sessionId)) return;
+			if (
+				!paneBySessionId.has(sessionId) &&
+				![...deferredTabInits.values()].some(({ init }) =>
+					Object.values(init.initialSessionIds ?? {}).includes(sessionId),
+				)
+			)
+				return;
 			if (state === "clear") ptyProgressBySession.delete(sessionId);
 			else ptyProgressBySession.set(sessionId, { state, value });
+			scheduleTabProgress();
 		}),
 
 		listen<{
@@ -6622,10 +6474,8 @@ async function boot(): Promise<void> {
 				case "preExec": {
 					let entry = activeProcesses.get(paneId);
 					if (!entry) {
-						const cmd = pendingShellCommandLine.get(paneId);
-						if (!cmd) break;
 						entry = createActiveProcessEntry(
-							cmd,
+							pendingShellCommandLine.get(paneId) ?? "",
 							paneCwdHints.get(paneId) || "",
 						);
 						activeProcesses.set(paneId, entry);
@@ -6655,7 +6505,7 @@ async function boot(): Promise<void> {
 		listen<PtyExitEvent>("pty-exit", (event) => {
 			void (async () => {
 				const { sessionId } = event.payload;
-				ptyProgressBySession.delete(sessionId);
+				if (ptyProgressBySession.delete(sessionId)) scheduleTabProgress();
 				const paneId = paneBySessionId.get(sessionId)?.paneId;
 				if (!paneId) return;
 				const pending = pendingPtyOutputByPane.get(paneId);
@@ -6676,7 +6526,10 @@ async function boot(): Promise<void> {
 		}),
 		listen("pty-session-shed", () => {
 			liveCwd = null;
+			activeProcesses.clear();
+			pendingShellCommandLine.clear();
 			ptyProgressBySession.clear();
+			scheduleTabProgress();
 			paneCwdHints.clear();
 			paneRemoteIsWindows.clear();
 			for (const paneId of [...pendingPtyOutputByPane.keys()]) {
@@ -6751,6 +6604,17 @@ async function boot(): Promise<void> {
 			});
 		}),
 	]);
+
+	// Deferred tabs keep their PTYs but don't run pty_ensure until selected.
+	// Restore their progress without starting terminals or replaying output.
+	const deferredSessions = [...deferredTabInits.values()].flatMap(({ init }) =>
+		Object.values(init.initialSessionIds ?? {}),
+	);
+	if (deferredSessions.length) {
+		void invoke("pty_resend_progress", { sessionIds: deferredSessions }).catch(
+			() => {},
+		);
+	}
 
 	// After destroy+recreate, Rust no longer emits `partty-prepare-show` until we signal listeners exist.
 	await invoke("webview_boot_complete").catch(() => {
@@ -6844,6 +6708,7 @@ async function boot(): Promise<void> {
 		paneHost = null;
 		findBar?.dispose();
 		commandPalette?.dispose();
+		if (tabProgressRaf) cancelAnimationFrame(tabProgressRaf);
 		commandIsland?.dispose();
 	});
 }
