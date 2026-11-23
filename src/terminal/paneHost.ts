@@ -432,6 +432,8 @@ export class PaneHost {
 	private focusedId: string;
 	private rootPaneId: string;
 	private readonly terminals = new Map<string, PaneTerminal>();
+	private readonly container: HTMLElement;
+	private readonly opts: PaneHostOptions;
 	private readonly initialSessionIds: Map<string, string>;
 	private readonly root: HTMLElement;
 	private readonly floating = new Map<string, FloatingPaneState>();
@@ -488,10 +490,12 @@ export class PaneHost {
 	};
 
 	constructor(
-		private readonly container: HTMLElement,
-		private readonly opts: PaneHostOptions,
+		container: HTMLElement,
+		opts: PaneHostOptions,
 		init?: PaneHostInit,
 	) {
+		this.container = container;
+		this.opts = opts;
 		this.initialSessionIds = new Map(
 			Object.entries(init?.initialSessionIds ?? {}),
 		);

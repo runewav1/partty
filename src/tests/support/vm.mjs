@@ -59,7 +59,7 @@ export function createVmLoader({ root, globals = {}, stubs = {} }) {
 			);
 		}
 		const raw = await readFile(key, "utf8");
-		const source = stripTypeScriptTypes(raw, { mode: "transform" });
+		const source = stripTypeScriptTypes(raw, { mode: "strip" });
 		return new SourceTextModule(source, {
 			context,
 			identifier: key,
