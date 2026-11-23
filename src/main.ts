@@ -29,7 +29,11 @@ import {
 	type MouseCursorController,
 	mouseCursorForceVisible,
 } from "./app/mouseCursor";
-import { type OverlayHandle, pushOverlay } from "./app/overlayStack";
+import {
+	hasOpenOverlay,
+	type OverlayHandle,
+	pushOverlay,
+} from "./app/overlayStack";
 import { createProgressRing, updateProgressRing } from "./app/progressRing";
 import { initParttyScrollFade } from "./app/scrollChrome";
 import type {
@@ -1551,7 +1555,7 @@ async function boot(): Promise<void> {
 		const currentId = host.getFocusedPaneId();
 		if (!currentId) return false;
 		const swapped = host.swapPaneWithAdjacent(currentId, key);
-		if (swapped) {
+		if (swapped && focusedPaneId() === currentId) {
 			scheduleCursorWarpToPane(currentId, {
 				force: true,
 				delayMs: motionDurationMs("medium"),
@@ -1560,7 +1564,7 @@ async function boot(): Promise<void> {
 		return swapped;
 	}
 
-	async function closeFocusedPane(paneId?: string): Promise<void> {
+	function closeFocusedPane(paneId?: string): void {
 		const id = paneId ?? focusedPaneId();
 		if (!id) return;
 		const ownerHost = getPaneHostByPaneId(id);
@@ -1576,19 +1580,7 @@ async function boot(): Promise<void> {
 			return;
 		}
 
-		const treeIds: string[] = [];
-		collectLeafIds(ownerHost.getTree(), treeIds);
-		if (treeIds.length <= 1) return;
-
-		try {
-			const pt = ownerHost.getPaneTerminal(id);
-			if (pt) await ptyKillPane(pt.sessionId);
-			if (!ownerHost.removePane(id)) return;
-			persistHostLayout(ownerHost);
-			scheduleResizeImmediate();
-		} catch (e) {
-			console.warn("pty_kill_pane", e);
-		}
+		ownerHost.removePane(id, { onRemoved: () => persistHostLayout(ownerHost) });
 	}
 
 	let quitOnShellExitPending = false;
@@ -1600,7 +1592,7 @@ async function boot(): Promise<void> {
 	 * Ctrl+Shift+W keybind still refuses to close the final pane; this path
 	 * is pty-exit only.
 	 */
-	async function closePaneOnShellExit(paneId: string): Promise<void> {
+	function closePaneOnShellExit(paneId: string): void {
 		// A pane may already have been removed by the time its exit event arrives.
 		if (!getPaneHostByPaneId(paneId)) return;
 		let leafCount = 0;
@@ -1614,7 +1606,7 @@ async function boot(): Promise<void> {
 			void appWindow.destroy().catch(() => {});
 			return;
 		}
-		await closeFocusedPane(paneId);
+		closeFocusedPane(paneId);
 	}
 
 	function disposeWebglForPane(paneId: string): void {
@@ -2145,7 +2137,7 @@ async function boot(): Promise<void> {
 						);
 					case "pane_close":
 						e.preventDefault();
-						if (!e.repeat) void closeFocusedPane(getPaneId());
+						if (!e.repeat) closeFocusedPane(getPaneId());
 						return false;
 					case "terminal_zoom_in":
 					case "terminal_zoom_out":
@@ -2772,8 +2764,10 @@ async function boot(): Promise<void> {
 		return geometries;
 	}
 
-	function focusPaneGlobal(paneId: string): void {
-		const owner = getPaneHostByPaneId(paneId);
+	function focusPaneGlobal(
+		paneId: string,
+		owner = hostForPaneId(paneId),
+	): void {
 		if (!owner) return;
 		if (owner.isPaneFollowing(paneId)) {
 			owner.focusPane(paneId, { retainHostFocus: true });
@@ -2783,45 +2777,51 @@ async function boot(): Promise<void> {
 	}
 
 	let pointerFocusRaf = 0;
-	let pendingPointerFocusId: string | null = null;
 	let lastPointerPos: { x: number; y: number } | null = null;
 
-	function focusPaneUnderPointer(): void {
-		if (!(focusFollowsRef.v && lastPointerPos)) return;
+	function focusPaneUnderPointer(refocus = false): boolean {
+		if (!(focusFollowsRef.v && lastPointerPos) || hasOpenOverlay())
+			return false;
+		for (const host of tabPaneHosts.values()) {
+			if (host.isPaneInteractionActive()) return false;
+		}
 		const leaf = document
 			.elementFromPoint(lastPointerPos.x, lastPointerPos.y)
 			?.closest(".pane-leaf") as HTMLElement | null;
 		const id = leaf?.dataset.paneId;
-		if (id && getPaneHostByPaneId(id) && id !== focusedPaneId()) {
-			focusPaneGlobal(id);
+		if (!id) return false;
+		const owner = hostForPaneId(id);
+		if (
+			!owner?.canFocusPane(id) ||
+			(owner !== paneHost && !owner.isPaneFollowing(id))
+		) {
+			return false;
 		}
+		if (refocus || id !== focusedPaneId()) focusPaneGlobal(id, owner);
+		return true;
+	}
+
+	function schedulePointerFocus(): void {
+		if (!focusFollowsRef.v || pointerFocusRaf) return;
+		pointerFocusRaf = requestAnimationFrame(() => {
+			pointerFocusRaf = 0;
+			focusPaneUnderPointer();
+		});
 	}
 
 	function installPointerFocusFollow(): void {
-		const onMove = (ev: PointerEvent): void => {
+		const trackPointer = (ev: PointerEvent): void => {
+			if (ev.pointerType === "touch") return;
 			lastPointerPos = { x: ev.clientX, y: ev.clientY };
-			if (!focusFollowsRef.v) return;
-			for (const host of tabPaneHosts.values()) {
-				if (host.isPaneInteractionActive()) return;
-			}
-			const leaf = document
-				.elementFromPoint(ev.clientX, ev.clientY)
-				?.closest(".pane-leaf") as HTMLElement | null;
-			const id = leaf?.dataset.paneId;
-			if (!(id && getPaneHostByPaneId(id))) return;
-			const current = focusedPaneId();
-			if (id === current) return;
-			pendingPointerFocusId = id;
-			if (pointerFocusRaf) return;
-			pointerFocusRaf = requestAnimationFrame(() => {
-				pointerFocusRaf = 0;
-				const nextId = pendingPointerFocusId;
-				pendingPointerFocusId = null;
-				if (!nextId || nextId === focusedPaneId()) return;
-				focusPaneGlobal(nextId);
-			});
+			schedulePointerFocus();
 		};
-		terminalPaneRoot.addEventListener("pointermove", onMove, true);
+		const clearPointer = (): void => {
+			lastPointerPos = null;
+		};
+		terminalPaneRoot.addEventListener("pointermove", trackPointer, true);
+		terminalPaneRoot.addEventListener("pointerdown", trackPointer, true);
+		terminalPaneRoot.addEventListener("pointerleave", clearPointer);
+		window.addEventListener("blur", clearPointer);
 	}
 
 	type CursorWarpOptions = {
@@ -2845,6 +2845,7 @@ async function boot(): Promise<void> {
 
 		const run = (): void => {
 			afterAnimationFrames(() => {
+				if (paneId && paneId !== focusedPaneId()) return;
 				void warpCursorToPane(paneId);
 			});
 		};
@@ -2976,6 +2977,18 @@ async function boot(): Promise<void> {
 				followMount: floatFollowLayer,
 				applyPaneFocusClasses: syncGlobalPaneFocus,
 				getGlobalFocusedPaneId: focusedPaneId,
+				resolveFocusAfterLayout: (fallback) => {
+					// Resolve against the new layout before FLIP transforms start.
+					if (pointerFocusRaf) cancelAnimationFrame(pointerFocusRaf);
+					pointerFocusRaf = 0;
+					if (focusPaneUnderPointer(true)) return true;
+					const owner = hostForPaneId(fallback);
+					if (owner && owner !== paneHost && !owner.isPaneFollowing(fallback)) {
+						paneHost?.setFocusedPaneId(paneHost.getFocusedPaneId());
+						return true;
+					}
+					return false;
+				},
 				suppressEnterAnimation: () =>
 					document.documentElement.classList.contains("partty-booting"),
 				onPaneFocus: (id) => {
@@ -2985,7 +2998,7 @@ async function boot(): Promise<void> {
 					// Fit / WebGL / CWD are coalesced to the next frame
 					// so Ctrl+Arrow hops stay visually instant.
 					if (pt) {
-						pt.term.focus();
+						if (!hasOpenOverlay()) pt.term.focus();
 						paneLinkProviders.get(id)?.scheduleViewportPrewarm();
 						requestAnimationFrame(() => {
 							const tr = pt.term.buffer.active.cursorY;
@@ -3299,7 +3312,7 @@ async function boot(): Promise<void> {
 		// When focus-follows-cursor is on, refocus to whichever pane the
 		// mouse is already hovering over after the tab switch. Defer one
 		// frame so the incoming tab's DOM is laid out and visible.
-		requestAnimationFrame(() => focusPaneUnderPointer());
+		schedulePointerFocus();
 
 		if (nextShell) {
 			nextShell.classList.remove("term-tab-pane-shell--hidden");
@@ -3531,7 +3544,9 @@ async function boot(): Promise<void> {
 			}
 		} else if (quietPaneDeferralRef.v) {
 			renderTabsBar();
-			sourceHost.getPaneTerminal(sourceHost.getFocusedPaneId())?.term.focus();
+			if (!focusPaneUnderPointer(true)) {
+				sourceHost.setFocusedPaneId(sourceHost.getFocusedPaneId());
+			}
 		} else {
 			switchToTab(targetTabId);
 		}
@@ -3655,6 +3670,11 @@ async function boot(): Promise<void> {
 		};
 		saveTabsState(tabsState);
 		disposeTabPaneHost(tabId);
+		if (paneHost && !getPaneTerminalById(lastFocusedPaneId)) {
+			lastFocusedPaneId = paneHost.getFocusedPaneId();
+			syncGlobalPaneFocus(lastFocusedPaneId);
+			schedulePointerFocus();
+		}
 		try {
 			localStorage.removeItem(tabLayoutKey(tabId));
 		} catch {
@@ -6525,8 +6545,10 @@ async function boot(): Promise<void> {
 					);
 				}
 				await ptyAckExit(sessionId);
-				finishActiveProcess(paneId, Date.now());
-				await closePaneOnShellExit(paneId);
+				const currentId = paneBySessionId.get(sessionId)?.paneId;
+				if (!currentId) return;
+				finishActiveProcess(currentId, Date.now());
+				closePaneOnShellExit(currentId);
 			})().catch((e) => {
 				console.error("pty-exit", e);
 			});
@@ -6550,6 +6572,7 @@ async function boot(): Promise<void> {
 		}),
 		listen("partty-hide", () => {
 			cancelReclaim();
+			lastPointerPos = null;
 			flushPendingPaneZoom();
 			void (async () => {
 				if (paneHost && lp.destroy_webview_on_hide) {

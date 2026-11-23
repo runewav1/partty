@@ -22,6 +22,7 @@ class Terminal {
 	loadAddon = noop;
 	open = noop;
 	refresh = noop;
+	dispose = noop;
 	constructor(options = {}) {
 		// Mirror xterm.js: constructor options seed `term.options` (shallow copy).
 		this.options = { ...options };
@@ -41,7 +42,11 @@ async function modules(
 	const mocks = {
 		"@tauri-apps/api/core": { invoke: async () => false },
 		"@xterm/xterm": { Terminal },
-		"@xterm/addon-fit": { FitAddon: class {} },
+		"@xterm/addon-fit": {
+			FitAddon: class {
+				dispose = noop;
+			},
+		},
 		"@xterm/addon-unicode-graphemes": { UnicodeGraphemesAddon: class {} },
 		[resolve(root, "util/motion.ts")]: {
 			afterAnimationFrames: noop,
@@ -154,6 +159,83 @@ test("dismiss/rebuild preserves each PTY and zoom through storage, tab rekey and
 	});
 	assert.equal(invalid.getPaneTerminal("1a").term.options.fontSize, 12);
 	assert.equal(invalid.getPaneTerminal("1b").term.options.fontSize, 12);
+});
+
+test("pane removal follows the remounted pointer hit or the nearest surviving split", async () => {
+	const exits = [];
+	const load = await modules({
+		[resolve(root, "util/motion.ts")]: {
+			afterAnimationFrames: noop,
+			animateClass: (_el, _className, finish) => exits.push(finish),
+			motionDisabled: () => true,
+		},
+	});
+	const { PaneHost, collectLeafIds } = await load("terminal/paneHost.ts");
+	PaneHost.prototype.mountTree = function () {
+		const ids = [];
+		collectLeafIds(this.getTree(), ids);
+		for (const id of ids) this.renderNode({ kind: "leaf", id });
+	};
+	PaneHost.prototype.leafEl = () => new Element();
+	const leaf = (id) => ({ kind: "leaf", id });
+	const split = (a, b) => ({ kind: "split", dir: "h", ratio: 0.5, a, b });
+	const tree = split(
+		leaf("root"),
+		split(leaf("left"), split(leaf("center"), leaf("right"))),
+	);
+	let focus = "right";
+	let hovered = null;
+	let nextId = 0;
+	const transitions = [];
+	const fallbacks = [];
+	const host = new PaneHost(
+		new Element(),
+		{
+			rootPaneId: "root",
+			allocPaneId: () => `new-${++nextId}`,
+			getTheme: () => ({}),
+			suppressEnterAnimation: () => true,
+			onPaneCreated: noop,
+			onPaneDisposed: noop,
+			onPaneFocus: (id) => {
+				focus = id;
+				transitions.push(id);
+			},
+			getGlobalFocusedPaneId: () => focus,
+			resolveFocusAfterLayout: (fallback) => {
+				fallbacks.push(fallback);
+				if (!hovered) return false;
+				assert.ok(host.getPaneTerminal(hovered));
+				host.setFocusedPaneId(hovered);
+				return true;
+			},
+		},
+		{ initialTree: tree, initialFocusedId: focus },
+	);
+
+	assert.equal(host.removePane("right"), true);
+	assert.equal(host.removePane("right"), false);
+	assert.equal(host.canFocusPane("right"), false);
+	assert.equal(focus, "right"); // No jump during the exit animation.
+	exits.shift()();
+	assert.deepEqual(transitions, ["center"]); // Not the unrelated root pane.
+
+	hovered = "root";
+	assert.equal(host.removePane("center"), true);
+	exits.shift()();
+	assert.deepEqual(transitions, ["center", "root"]); // No intermediate fallback focus.
+	assert.deepEqual(fallbacks, ["center", "left"]);
+
+	assert.equal(host.removePane("left"), true);
+	assert.equal(host.removePane("root"), false); // Keep one live pane.
+	exits.shift()();
+	assert.deepEqual(transitions, ["center", "root"]); // Background removal preserves focus.
+
+	assert.equal(host.splitFocused("h"), "new-1");
+	assert.equal(focus, "root"); // Opening a pane keeps focus under a stationary pointer.
+	hovered = null;
+	assert.equal(host.splitFocused("h"), "new-2");
+	assert.equal(focus, "new-2"); // Without a hit, use the action's normal focus target.
 });
 
 function deferred() {
@@ -494,6 +576,7 @@ function createMotionPaneHost(PaneHost, events) {
 			suppressEnterAnimation: () => true,
 		},
 		{
+			preloadedPanes: { "1a": {}, "1b": {} },
 			initialTree: {
 				kind: "split",
 				dir: "h",

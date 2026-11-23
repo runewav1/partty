@@ -149,6 +149,8 @@ export type PaneHostOptions = {
 	applyPaneFocusClasses?: (focusedId: string) => void;
 	/** Global keyboard/visual focus (may differ from host `focusedId` when follow is on). */
 	getGlobalFocusedPaneId?: () => string | null;
+	/** Give the app first choice of focus after a pane layout action. */
+	resolveFocusAfterLayout?: (fallback: string) => boolean;
 	/** Root leaf id (per workspace tab). Defaults to `"main"`. */
 	rootPaneId?: string;
 	/** Allocate a live pane id (`{tab}{slot}` / `*{slot}`). */
@@ -440,6 +442,7 @@ export class PaneHost {
 	private readonly opts: PaneHostOptions;
 	private readonly initialSessionIds: Map<string, string>;
 	private readonly initialZoomFontSizes?: Map<string, number>;
+	private readonly closingPanes = new Set<PaneTerminal>();
 	private readonly root: HTMLElement;
 	private readonly floating = new Map<string, FloatingPaneState>();
 	private readonly justFloated = new Set<string>();
@@ -822,12 +825,25 @@ export class PaneHost {
 		this.focusPane(id);
 	}
 
+	private focusAfterLayout(fallback: string, retainHostFocus = false): void {
+		if (!this.opts.resolveFocusAfterLayout?.(fallback))
+			this.focusPane(
+				fallback,
+				retainHostFocus ? { retainHostFocus } : undefined,
+			);
+	}
+
+	canFocusPane(id: string): boolean {
+		const pt = this.terminals.get(id);
+		return pt !== undefined && !this.closingPanes.has(pt);
+	}
+
 	/**
 	 * Focus a pane. When `retainHostFocus` is set (following float), the tab
 	 * host keeps its tiled focus anchor while global styling targets `paneId`.
 	 */
 	focusPane(paneId: string, opts?: { retainHostFocus?: boolean }): void {
-		if (!findPaneLeaf(this.tree, paneId)) return;
+		if (!this.canFocusPane(paneId)) return;
 		if (!opts?.retainHostFocus) {
 			const prev = this.focusedId;
 			if (paneId !== prev) {
@@ -864,7 +880,8 @@ export class PaneHost {
 	 * still call this with h/v — those act as hints only outside balanced.
 	 */
 	splitFocused(dir: "h" | "v"): string | null {
-		if (this.floating.has(this.focusedId)) return null;
+		if (this.floating.has(this.focusedId) || !this.canFocusPane(this.focusedId))
+			return null;
 		const newId = this.opts.allocPaneId?.() ?? crypto.randomUUID();
 		return this.insertPaneNearFocused(newId, dir, true);
 	}
@@ -879,7 +896,7 @@ export class PaneHost {
 		this.floating.set(paneId, { x, y, width, height, z: this.floatingZ++ });
 		this.justFloated.add(paneId);
 		this.mountTree();
-		this.setFocusedPaneId(paneId);
+		this.focusAfterLayout(paneId);
 		this.opts.onPaneLayout?.();
 		this.opts.onPaneReorder?.();
 		return paneId;
@@ -889,14 +906,11 @@ export class PaneHost {
 	private tiledInsertAnchor(): string {
 		if (
 			!this.floating.has(this.focusedId) &&
-			findPaneLeaf(this.tree, this.focusedId)
+			this.canFocusPane(this.focusedId)
 		) {
 			return this.focusedId;
 		}
-		for (const id of this.getLeafIdsInOrder()) {
-			if (!this.floating.has(id)) return id;
-		}
-		return this.rootPaneId;
+		return this.firstTiledPane(this.tree) ?? this.rootPaneId;
 	}
 
 	private defaultFloatingGeometry(): {
@@ -957,7 +971,7 @@ export class PaneHost {
 		opts?: { saveRollback?: boolean },
 	): PaneTerminal | null {
 		const pt = this.terminals.get(paneId);
-		if (!pt) return null;
+		if (!pt || this.closingPanes.has(pt)) return null;
 		if (opts?.saveRollback) {
 			this.paneMoveRollback = {
 				tree: structuredClone(this.tree),
@@ -968,22 +982,15 @@ export class PaneHost {
 				),
 			};
 		}
-		if (!this.detachLeafFromTree(paneId)) {
+		const fallback = this.detachLeafFromTree(paneId);
+		if (!fallback) {
 			if (opts?.saveRollback) this.paneMoveRollback = null;
 			return null;
 		}
 		this.terminals.delete(paneId);
 		this.floating.delete(paneId);
 		this.removeFollowMountLeaf(paneId);
-		this.mountTree();
-		this.opts.onPaneLayout?.();
-		if (this.focusedId === paneId) {
-			const rest: string[] = [];
-			collectLeafIds(this.tree, rest);
-			this.setFocusedPaneId(rest[0] ?? this.rootPaneId);
-		} else {
-			this.updateFocusClass();
-		}
+		this.mountAfterPaneDetach(paneId, fallback);
 		return pt;
 	}
 
@@ -1242,9 +1249,9 @@ export class PaneHost {
 		if (style === "master" && this.insertIntoMasterStack(paneId)) {
 			// New windows join the stack (Hyprland master default).
 			this.mountTree();
+			this.focusAfterLayout(paneId);
 			this.playPaneMotion(motion);
 			this.opts.onPaneLayout?.();
-			this.setFocusedPaneId(paneId);
 			return createTerminal || this.terminals.has(paneId) ? paneId : null;
 		}
 
@@ -1261,97 +1268,112 @@ export class PaneHost {
 		if (!next) return null;
 		this.tree = next;
 		this.mountTree();
+		this.focusAfterLayout(paneId);
 		this.playPaneMotion(motion);
 		this.opts.onPaneLayout?.();
-		this.setFocusedPaneId(paneId);
 		return createTerminal || this.terminals.has(paneId) ? paneId : null;
 	}
 
-	private successorRootId(removingId: string): string | null {
-		const ids: string[] = [];
-		collectLeafIds(this.tree, ids);
-		for (const id of ids) {
-			if (id !== removingId) return id;
+	private firstTiledPane(node: PaneNode): string | null {
+		if (node.kind === "leaf") {
+			return !this.floating.has(node.id) && this.canFocusPane(node.id)
+				? node.id
+				: null;
 		}
-		return null;
+		return this.firstTiledPane(node.a) ?? this.firstTiledPane(node.b);
 	}
 
-	/** Remove a leaf from the tree; promote the next tree-order leaf when the root is removed. */
-	private detachLeafFromTree(paneId: string): boolean {
-		const ids: string[] = [];
-		collectLeafIds(this.tree, ids);
-		if (ids.length <= 1) return false;
-		if (!findPaneLeaf(this.tree, paneId)) return false;
-
-		let promotedRoot: string | null = null;
-		if (paneId === this.rootPaneId) {
-			promotedRoot = this.successorRootId(paneId);
-			if (!promotedRoot) return false;
-		}
-
-		const disposeBranch = (node: PaneNode): PaneNode | null => {
-			if (node.kind === "leaf") return node.id === paneId ? null : node;
-			const a = disposeBranch(node.a);
-			const b = disposeBranch(node.b);
-			if (a == null) return b;
-			if (b == null) return a;
-			return { ...node, a, b };
+	/** Keep root promotion in tree order, but prefer the nearest tiled sibling for focus. */
+	private detachLeafFromTree(paneId: string): string | null {
+		const path = getPathToLeaf(this.tree, paneId);
+		if (!path) return null;
+		let fallback: string | null = null;
+		const branch = (node: PaneNode, depth: number): PaneNode | null => {
+			if (node.kind === "leaf") return null;
+			const side = path[depth] === "a" ? "a" : "b";
+			const sibling = node[side === "a" ? "b" : "a"];
+			const remaining = branch(node[side], depth + 1);
+			fallback ??= this.firstTiledPane(sibling);
+			return remaining ? { ...node, [side]: remaining } : sibling;
 		};
-		const next = disposeBranch(this.tree);
-		if (!next) return false;
+		const next = branch(this.tree, 0);
+		if (!next) return null;
 		this.tree = next;
-		if (promotedRoot) this.rootPaneId = promotedRoot;
-		return true;
+		if (this.rootPaneId === paneId) {
+			let first = next;
+			while (first.kind === "split") first = first.a;
+			this.rootPaneId = first.id;
+		}
+		if (fallback) return fallback;
+		for (const id of this.getLeafIdsInOrder()) {
+			if (this.canFocusPane(id)) return id;
+		}
+		return this.rootPaneId;
 	}
 
-	removePane(paneId: string, opts?: { notifyDisposed?: boolean }): boolean {
-		const ids: string[] = [];
-		collectLeafIds(this.tree, ids);
-		if (ids.length <= 1) return false;
-		if (!findPaneLeaf(this.tree, paneId)) return false;
+	private mountAfterPaneDetach(paneId: string, fallback: string): void {
+		const globalId = this.opts.getGlobalFocusedPaneId?.() ?? this.focusedId;
+		const focused = this.terminals.get(globalId);
+		const restoreFocus =
+			document.activeElement && focused?.row.contains(document.activeElement);
+		if (this.focusedId === paneId) this.focusedId = fallback;
+		this.mountTree();
+		if (globalId === paneId) {
+			this.focusAfterLayout(fallback);
+		} else if (restoreFocus) {
+			focused?.term.focus();
+		}
+	}
 
+	removePane(
+		paneId: string,
+		opts?: { notifyDisposed?: boolean; onRemoved?: () => void },
+	): boolean {
+		const pt = this.terminals.get(paneId);
+		if (
+			!pt ||
+			this.closingPanes.has(pt) ||
+			this.terminals.size - this.closingPanes.size <= 1
+		)
+			return false;
+		this.closingPanes.add(pt);
 		const leafEl = this.leafEl(paneId);
-		const motion = this.capturePaneMotion(ids.filter((id) => id !== paneId));
-
-		const notifyDisposed = opts?.notifyDisposed !== false;
 		const run = (): void => {
-			if (!this.detachLeafFromTree(paneId)) return;
-			this.floating.delete(paneId);
-			this.removeFollowMountLeaf(paneId);
-			const pt = this.terminals.get(paneId);
-			if (pt) {
-				try {
-					pt.fit.dispose();
-					pt.term.dispose();
-					scheduleReclaim();
-				} catch {
-					/* ignore */
-				}
-				this.terminals.delete(paneId);
-				if (notifyDisposed) this.opts.onPaneDisposed(paneId, pt.sessionId);
+			this.closingPanes.delete(pt);
+			// A rekey may have happened while the exit animation was running.
+			const id = pt.paneId;
+			if (this.terminals.get(id) !== pt) return;
+			const motion = this.capturePaneMotion(
+				this.getLeafIdsInOrder().filter((leafId) => leafId !== id),
+			);
+			const fallback = this.detachLeafFromTree(id);
+			if (!fallback) {
+				if (leafEl) leafEl.style.pointerEvents = "";
+				return;
 			}
-			this.mountTree();
+			this.floating.delete(id);
+			this.removeFollowMountLeaf(id);
+			try {
+				pt.fit.dispose();
+				pt.term.dispose();
+				scheduleReclaim();
+			} catch {
+				/* ignore */
+			}
+			this.terminals.delete(id);
+			if (opts?.notifyDisposed !== false)
+				this.opts.onPaneDisposed(id, pt.sessionId);
+			this.mountAfterPaneDetach(id, fallback);
 			this.playPaneMotion(motion);
-			this.opts.onPaneLayout?.();
-			const globalId = this.opts.getGlobalFocusedPaneId?.();
-			if (globalId === paneId || this.focusedId === paneId) {
-				const rest: string[] = [];
-				collectLeafIds(this.tree, rest);
-				this.setFocusedPaneId(rest[0] ?? this.rootPaneId);
-			} else if (this.opts.applyPaneFocusClasses && globalId) {
-				this.opts.applyPaneFocusClasses(globalId);
-			} else {
-				this.updateFocusClass();
-			}
+			opts?.onRemoved?.();
 		};
 
 		if (leafEl) {
 			leafEl.style.pointerEvents = "none";
 			animateClass(leafEl, "pane-leaf--leaving", run);
-			return true;
+		} else {
+			run();
 		}
-
-		run();
 		return true;
 	}
 
@@ -1362,20 +1384,16 @@ export class PaneHost {
 	swapPanes(idA: string, idB: string): boolean {
 		if (idA === idB) return false;
 		if (this.floating.has(idA) || this.floating.has(idB)) return false;
-		if (!(findPaneLeaf(this.tree, idA) && findPaneLeaf(this.tree, idB)))
-			return false;
-		const ids: string[] = [];
-		collectLeafIds(this.tree, ids);
-		if (ids.length < 2) return false;
+		if (!this.canFocusPane(idA) || !this.canFocusPane(idB)) return false;
 		const motion = this.capturePaneMotion([idA, idB]);
 		const next = swapLeafNodesInTree(this.tree, idA, idB);
 		if (!next) return false;
 		this.tree = next;
 		this.mountTree();
+		this.focusAfterLayout(idA);
 		this.playPaneMotion(motion);
 		this.opts.onPaneLayout?.();
 		this.opts.onPaneReorder?.();
-		this.setFocusedPaneId(idA);
 		return true;
 	}
 
@@ -1410,6 +1428,7 @@ export class PaneHost {
 
 	/** Rotate only the pane's nearest visible split; terminals/sessions stay put. */
 	toggleSplitOrientation(paneId: string): boolean {
+		if (!this.canFocusPane(paneId)) return false;
 		const path = this.paneSplitPath(paneId);
 		if (path === null) return false;
 		const split = getNodeByPath(this.tree, path);
@@ -1422,8 +1441,8 @@ export class PaneHost {
 			dir: split.dir === "h" ? "v" : "h",
 		});
 		this.mountTree();
+		this.focusAfterLayout(paneId);
 		this.playPaneMotion(motion);
-		this.setFocusedPaneId(paneId);
 		return true;
 	}
 
@@ -1490,6 +1509,7 @@ export class PaneHost {
 	}
 
 	togglePaneFollow(paneId: string): boolean {
+		if (!this.canFocusPane(paneId)) return false;
 		const state = this.floating.get(paneId);
 		if (!state) return false;
 		const leaf = this.floatingLeafEl(paneId);
@@ -1503,9 +1523,7 @@ export class PaneHost {
 			state.x = from.left - to.left;
 			state.y = from.top - to.top;
 			state.follow = true;
-			const fallback = this.getLeafIdsInOrder().find(
-				(id) => id !== paneId && !this.floating.has(id),
-			);
+			const fallback = this.firstTiledPane(this.tree);
 			if (fallback && this.focusedId === paneId) {
 				this.focusedId = fallback;
 			}
@@ -1521,20 +1539,20 @@ export class PaneHost {
 			? "pane-leaf--floating-enter"
 			: "pane-leaf--floating-return";
 		if (reparented) animateClass(reparented, settleClass);
-		this.focusPane(paneId, { retainHostFocus: next });
+		this.focusAfterLayout(paneId, next);
 		this.opts.onPaneReorder?.();
 		return true;
 	}
 
 	togglePaneFloating(paneId: string): boolean {
-		if (!findPaneLeaf(this.tree, paneId)) return false;
+		if (!this.canFocusPane(paneId)) return false;
 		if (this.floating.has(paneId)) {
 			const motion = this.capturePaneMotion();
 			this.floating.delete(paneId);
 			this.justTiled.add(paneId);
 			this.mountTree();
+			this.focusAfterLayout(paneId);
 			this.playPaneMotion(motion);
-			this.setFocusedPaneId(paneId);
 			this.opts.onPaneLayout?.();
 			this.opts.onPaneReorder?.();
 			return true;
@@ -1576,8 +1594,8 @@ export class PaneHost {
 		this.floating.set(paneId, { x, y, width, height, z: this.floatingZ++ });
 		this.justFloated.add(paneId);
 		this.mountTree();
+		this.focusAfterLayout(paneId);
 		this.playPaneMotion(motion);
-		this.setFocusedPaneId(paneId);
 		this.opts.onPaneLayout?.();
 		this.opts.onPaneReorder?.();
 		return true;
@@ -1699,6 +1717,7 @@ export class PaneHost {
 			this.opts.onPaneDisposed(id, pt.sessionId);
 		}
 		this.terminals.clear();
+		this.closingPanes.clear();
 		this.root.remove();
 		scheduleReclaim();
 	}
@@ -2389,6 +2408,7 @@ export class PaneHost {
 				scheduleReclaim();
 			}
 			this.applyLeafTheme(wrap, node.id, pt);
+			if (this.closingPanes.has(pt)) wrap.style.pointerEvents = "none";
 			wrap.appendChild(pt.row);
 			if (this.justTiled.delete(node.id)) {
 				animateClass(wrap, "pane-leaf--floating-return");

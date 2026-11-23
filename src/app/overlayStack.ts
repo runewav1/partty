@@ -19,6 +19,10 @@ type OverlayEntry = {
 const stack: OverlayEntry[] = [];
 let listenerInstalled = false;
 
+export function hasOpenOverlay(): boolean {
+	return stack.length > 0;
+}
+
 function onGlobalKeydown(e: KeyboardEvent): void {
 	if (e.key !== "Escape") return;
 	const top = stack[stack.length - 1];
