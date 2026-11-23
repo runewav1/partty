@@ -1,7 +1,7 @@
 /**
  * Deterministic unit tests for the split wheel-zoom keybinding core
- * (keybindCore.ts). No browser, no Tauri: the module is pure, so
- * node --experimental-strip-types can import it directly.
+ * (keybindCore.ts). No browser, no Tauri: the module is pure, so Node can
+ * import it directly.
  *
  * Asserts exact-modifier matching (so a `Ctrl+WheelUp` hovered binding never
  * fires for `Ctrl+Shift+WheelUp` and vice-versa), wheel-direction handling
@@ -9,7 +9,7 @@
  * action → direction / scope helpers. Combos are built from token parts so the
  * tests exercise parsing rather than echoing config literals.
  *
- * Run: node --experimental-strip-types --test src/tests/terminal/keybindCore.test.mjs
+ * Run: node --test src/tests/terminal/keybindCore.test.mjs
  */
 
 import assert from "node:assert/strict";

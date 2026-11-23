@@ -7,7 +7,7 @@
  * lexical semantics (case-insensitive, separator-normalized, substring or
  * token-prefix, multi-token AND) so settings behave like the command palette.
  *
- * Kept DOM-free so it can be unit tested under node --experimental-strip-types.
+ * Kept DOM-free so it can be unit tested under Node's native type stripping.
  */
 
 import {

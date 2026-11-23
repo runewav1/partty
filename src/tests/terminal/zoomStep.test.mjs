@@ -1,11 +1,11 @@
 /**
  * Deterministic unit tests for the Ctrl+wheel zoom step math (zoomStep.ts).
  *
- * No browser and no DOM: the module is pure, so node --experimental-strip-types
- * can import it directly. Asserts fractional (non-truncated) step application,
- * direction, font-size bounds, and zoom-step setting validation/clamping.
+ * No browser and no DOM: the module is pure, so Node can import it directly.
+ * Asserts fractional (non-truncated) step application, direction, font-size
+ * bounds, and zoom-step setting validation/clamping.
  *
- * Run: node --experimental-strip-types --test src/tests/terminal/zoomStep.test.mjs
+ * Run: node --test src/tests/terminal/zoomStep.test.mjs
  */
 
 import assert from "node:assert/strict";

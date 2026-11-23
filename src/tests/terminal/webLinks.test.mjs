@@ -6,7 +6,7 @@
  * terminal/buffer good enough for WebLinkProvider's boundary scan; no xterm
  * instance, DOM or private internals are involved.
  *
- * Run: node --experimental-strip-types --test src/tests/terminal/webLinks.test.mjs
+ * Run: node --test src/tests/terminal/webLinks.test.mjs
  */
 
 import assert from "node:assert/strict";

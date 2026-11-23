@@ -9,7 +9,7 @@
  * Blocking dialogs suppress settings/help switching. These rules are pure, so they are
  * exercised directly with minimal fake targets.
  *
- * Run: node --experimental-strip-types --test src/tests/app/modalShortcuts.test.mjs
+ * Run: node --test src/tests/app/modalShortcuts.test.mjs
  */
 
 import assert from "node:assert/strict";

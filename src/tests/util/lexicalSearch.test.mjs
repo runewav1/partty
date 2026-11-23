@@ -7,7 +7,7 @@
  * ranking tie-breaks. They are the safety net for the palette's filtering/order
  * characterization because the palette renders exactly this function's output.
  *
- * Run: node --experimental-strip-types --test src/tests/util/lexicalSearch.test.mjs
+ * Run: node --test src/tests/util/lexicalSearch.test.mjs
  */
 
 import assert from "node:assert/strict";

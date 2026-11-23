@@ -7,7 +7,7 @@
  * boundary so a schemed URL is never re-detected as a URL or misread as a
  * drive path (`s://`).
  *
- * Run: node --experimental-strip-types --test src/tests/util/linkExtraction.test.mjs
+ * Run: node --test src/tests/util/linkExtraction.test.mjs
  */
 
 import assert from "node:assert/strict";

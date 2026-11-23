@@ -15,7 +15,7 @@
  * - SynthWave '84 (robb0wen/synthwave-vscode) — bg #262335, fg #ffffff, accent #ff7edb
  * - Tokyo Night (folke/tokyonight.nvim) — selection #283457, cyan #7dcfff
  *
- * Run: node --experimental-vm-modules --experimental-strip-types --test src/tests/terminal/uiTheme.test.mjs
+ * Run: node --experimental-vm-modules --disable-warning=ExperimentalWarning --test src/tests/terminal/uiTheme.test.mjs
  */
 
 import assert from "node:assert/strict";

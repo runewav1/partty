@@ -6,7 +6,7 @@
  * correct cell columns, and matches spanning a soft-wrapped logical line must be
  * found and split into per-visual-line segments.
  *
- * Run: node --experimental-strip-types --test src/tests/app/findScan.test.mjs
+ * Run: node --test src/tests/app/findScan.test.mjs
  */
 
 import assert from "node:assert/strict";

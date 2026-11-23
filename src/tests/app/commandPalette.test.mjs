@@ -6,7 +6,7 @@
  * runs in isolation. Each test gets a fresh VM and disposes its palette via
  * `t.after`, so module state, timers and the overlay stack never leak.
  *
- * Run: node --experimental-vm-modules --experimental-strip-types --test src/tests/app/commandPalette.test.mjs
+ * Run: node --experimental-vm-modules --disable-warning=ExperimentalWarning --test src/tests/app/commandPalette.test.mjs
  */
 
 import assert from "node:assert/strict";

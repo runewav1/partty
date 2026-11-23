@@ -2,13 +2,13 @@
  * Deterministic unit tests for the cursor trail preference adapter
  * (src/terminal/cursorTrail.ts).
  *
- * The module has no runtime xterm dependency, so node --experimental-strip-types
- * can import it directly. These tests pin the kitty defaults, the
+ * The module has no runtime xterm dependency, so Node can import it directly.
+ * These tests pin the kitty defaults, the
  * validation/clamping that must match the xterm.js core sanitizers, the
  * snake_case -> camelCase mapping used to propagate the option to panes, and
  * the color canonicalization (including fully transparent colors).
  *
- * Run: node --experimental-strip-types --test src/tests/terminal/cursorTrail.test.mjs
+ * Run: node --test src/tests/terminal/cursorTrail.test.mjs
  */
 
 import assert from "node:assert/strict";

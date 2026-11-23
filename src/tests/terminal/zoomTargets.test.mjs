@@ -1,13 +1,13 @@
 /**
  * Deterministic unit tests for all-visible zoom target selection
- * (zoomTargets.ts). No browser, no Tauri: the module is pure, so
- * node --experimental-strip-types can import it directly.
+ * (zoomTargets.ts). No browser, no Tauri: the module is pure, so Node can
+ * import it directly.
  *
  * Mirrors the production wiring in main.ts: panes are described by host
  * (active vs not), follow status, and liveness; the helper returns the
  * order-preserving, dedup'd "currently visible" set that the wheel batch feeds.
  *
- * Run: node --experimental-strip-types --test src/tests/terminal/zoomTargets.test.mjs
+ * Run: node --test src/tests/terminal/zoomTargets.test.mjs
  */
 
 import assert from "node:assert/strict";

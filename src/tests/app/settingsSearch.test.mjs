@@ -8,7 +8,7 @@
  * multi-token AND, description/option matches surfacing the parent item,
  * pref-name hits, keyword synonyms, and separator/case normalization.
  *
- * Run: node --experimental-strip-types --test src/tests/app/settingsSearch.test.mjs
+ * Run: node --test src/tests/app/settingsSearch.test.mjs
  */
 
 import assert from "node:assert/strict";

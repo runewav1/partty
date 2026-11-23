@@ -7,7 +7,7 @@
  * closes the previous view, and dismissing the active view hides the host only
  * once nothing is open.
  *
- * Run: node --experimental-strip-types --test src/tests/app/commandIsland.test.mjs
+ * Run: node --test src/tests/app/commandIsland.test.mjs
  */
 
 import assert from "node:assert/strict";
