@@ -25,6 +25,10 @@ export function normalizeZoomStep(value: number): number {
 	return Math.max(ZOOM_STEP_MIN, Math.min(ZOOM_STEP_MAX, value));
 }
 
+export function clampZoomFontSize(value: number): number {
+	return Math.max(ZOOM_FONT_MIN, Math.min(ZOOM_FONT_MAX, value));
+}
+
 /**
  * Fold a signed px delta into the next zoomed font size. Fractional deltas are
  * preserved (never truncated to integers) and the result is clamped to the
@@ -34,5 +38,5 @@ export function nextZoomFontSize(current: number, deltaPx: number): number {
 	const base = Number.isFinite(current) ? current : 12;
 	const next =
 		Math.round((base + deltaPx) * FONT_SIZE_QUANTUM) / FONT_SIZE_QUANTUM;
-	return Math.max(ZOOM_FONT_MIN, Math.min(ZOOM_FONT_MAX, next));
+	return clampZoomFontSize(next);
 }

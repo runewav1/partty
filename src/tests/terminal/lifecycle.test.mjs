@@ -76,27 +76,29 @@ async function modules(
 	return api;
 }
 
-test("dismiss/rebuild preserves each PTY through storage, tab rekey and hydration", async () => {
+test("dismiss/rebuild preserves each PTY and zoom through storage, tab rekey and hydration", async () => {
 	const load = await modules();
 	const { PaneHost, collectLeafIds } = await load("terminal/paneHost.ts");
 	const tabs = await load("tabs/tabsSession.ts");
 	const { mapLayoutToTabKey } = await load("terminal/paneIds.ts");
+	const { paneHostInitFromLayout } = await load("terminal/paneLayout.ts");
 	// Exercise real terminal allocation, replacing only unrelated DOM layout work.
 	PaneHost.prototype.mountTree = function () {
 		const ids = [];
 		collectLeafIds(this.getTree(), ids);
 		for (const id of ids) this.renderNode({ kind: "leaf", id });
 	};
-	const createHost = (tree, sessions) =>
+	const createHost = (layout) =>
 		new PaneHost(
 			new Element(),
 			{
-				rootPaneId: tree.kind === "leaf" ? tree.id : tree.a.id,
+				rootPaneId: layout.tree.a.id,
 				getTheme: () => ({}),
+				fontSize: 12,
 				onPaneCreated: noop,
 				suppressEnterAnimation: () => true,
 			},
-			{ initialTree: tree, initialSessionIds: sessions },
+			paneHostInitFromLayout(layout),
 		);
 	const tree = {
 		kind: "split",
@@ -105,31 +107,53 @@ test("dismiss/rebuild preserves each PTY through storage, tab rekey and hydratio
 		a: { kind: "leaf", id: "1a" },
 		b: { kind: "leaf", id: "1b" },
 	};
-	const original = createHost(tree);
+	const layout = { v: 1, tree, focusedId: "1b" };
+	const original = createHost(layout);
+	original.getPaneTerminal("1a").fit.fit = noop;
+	original.getPaneTerminal("1b").fit.fit = noop;
+	original.setPaneFontSize("1a", 16.25);
+	original.setPaneFontSize("1b", 9.5);
 	const sessions = {};
+	const zooms = {};
 	original.forEachPane((id, pt) => {
 		sessions[id] = pt.sessionId;
+		zooms[id] = pt.zoomFontSize;
 	});
 	assert.notEqual(sessions["1a"], sessions["1b"]);
 	tabs.persistLayoutForTab("tab-1", {
-		v: 1,
-		tree,
-		focusedId: "1b",
+		...layout,
 		paneSessionIds: sessions,
+		paneZoomFontSizes: zooms,
 	});
 	const saved = tabs.initialLayoutForTab("tab-1", false);
 	const restored = mapLayoutToTabKey(saved, "2", new Set()).layout;
-	const rebuilt = createHost(restored.tree, restored.paneSessionIds);
+	const rebuilt = createHost(restored);
 	assert.equal(rebuilt.getPaneTerminal("2a").sessionId, sessions["1a"]);
 	assert.equal(rebuilt.getPaneTerminal("2b").sessionId, sessions["1b"]);
-	// Reusing a pane slot after closing must not reuse its old process.
+	assert.equal(rebuilt.getPaneTerminal("2a").term.options.fontSize, 16.25);
+	assert.equal(rebuilt.getPaneTerminal("2b").term.options.fontSize, 9.5);
+	// Reusing a pane slot after closing must not inherit its process or zoom.
 	rebuilt.terminals.delete("2a");
 	rebuilt.renderNode({ kind: "leaf", id: "2a" });
 	assert.notEqual(rebuilt.getPaneTerminal("2a").sessionId, sessions["1a"]);
+	assert.equal(rebuilt.getPaneTerminal("2a").term.options.fontSize, 12);
+	rebuilt.setBaseFontSize(14);
+	assert.equal(rebuilt.getPaneTerminal("2a").term.options.fontSize, 14);
+	assert.equal(rebuilt.getPaneTerminal("2b").term.options.fontSize, 9.5);
+	rebuilt.getPaneTerminal("2b").fit.fit = noop;
+	rebuilt.setPaneFontSize("2b", 14);
+	assert.equal(rebuilt.getPaneTerminal("2b").zoomFontSize, undefined);
 	const duplicate = tabs.duplicateTabLayout(saved, "3", new Set());
-	const copied = createHost(duplicate.tree, duplicate.paneSessionIds);
+	const copied = createHost(duplicate);
 	assert.notEqual(copied.getPaneTerminal("3a").sessionId, sessions["1a"]);
 	assert.notEqual(copied.getPaneTerminal("3b").sessionId, sessions["1b"]);
+	assert.equal(copied.getPaneTerminal("3a").term.options.fontSize, 16.25);
+	const invalid = createHost({
+		...layout,
+		paneZoomFontSizes: { "1a": 200, "1b": "17" },
+	});
+	assert.equal(invalid.getPaneTerminal("1a").term.options.fontSize, 12);
+	assert.equal(invalid.getPaneTerminal("1b").term.options.fontSize, 12);
 });
 
 function deferred() {
@@ -241,6 +265,7 @@ test("first tab rehydrates the per-tab layout (with session ids) even when a leg
 			v: 1,
 			tree: { kind: "leaf", id: "main" },
 			focusedId: "main",
+			paneZoomFontSizes: { main: 17.25 },
 		}),
 	);
 	const migrated = freshTabs.initialLayoutForTab("tab-1", true);
@@ -252,6 +277,7 @@ test("first tab rehydrates the per-tab layout (with session ids) even when a leg
 	).layout;
 	assert.equal(reconciled.tree.id, "1a");
 	assert.equal(reconciled.focusedId, "1a");
+	assert.equal(reconciled.paneZoomFontSizes["1a"], 17.25);
 });
 
 test("renderer creation is shared and a late completion cannot survive hide", async () => {

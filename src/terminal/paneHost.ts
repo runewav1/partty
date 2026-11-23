@@ -11,6 +11,7 @@ import {
 } from "./../util/motion";
 import type { CursorTrailOptions } from "./cursorTrail";
 import { scheduleReclaim } from "./wbmem";
+import { clampZoomFontSize } from "./zoomStep";
 
 const MAIN_PANE_ID = "main";
 
@@ -53,6 +54,8 @@ export type PaneTerminal = {
 	 * pane is re-keyed or moved between tabs, so the session always resolves to
 	 * the same process deterministically. */
 	sessionId: string;
+	/** Absent when this terminal follows the global font size. */
+	zoomFontSize?: number;
 };
 
 /** Monotonic component so ids never recur, even within the same millisecond. */
@@ -423,6 +426,7 @@ export type PaneHostInit = {
 	initialFocusedId?: string;
 	initialFloating?: Record<string, FloatingPaneState>;
 	initialSessionIds?: Record<string, string>;
+	initialZoomFontSizes?: Record<string, number>;
 	/** Terminals moved from another tab/host — mounted without calling `onPaneCreated`. */
 	preloadedPanes?: Record<string, PaneTerminal>;
 };
@@ -435,6 +439,7 @@ export class PaneHost {
 	private readonly container: HTMLElement;
 	private readonly opts: PaneHostOptions;
 	private readonly initialSessionIds: Map<string, string>;
+	private readonly initialZoomFontSizes?: Map<string, number>;
 	private readonly root: HTMLElement;
 	private readonly floating = new Map<string, FloatingPaneState>();
 	private readonly justFloated = new Set<string>();
@@ -499,6 +504,11 @@ export class PaneHost {
 		this.initialSessionIds = new Map(
 			Object.entries(init?.initialSessionIds ?? {}),
 		);
+		if (init?.initialZoomFontSizes) {
+			this.initialZoomFontSizes = new Map(
+				Object.entries(init.initialZoomFontSizes),
+			);
+		}
 		this.rootPaneId = opts.rootPaneId ?? MAIN_PANE_ID;
 		this.tree = { kind: "leaf", id: this.rootPaneId };
 		this.focusedId = this.rootPaneId;
@@ -702,11 +712,22 @@ export class PaneHost {
 
 	setPaneFontSize(paneId: string, fontSize: number): boolean {
 		const pt = this.terminals.get(paneId);
-		if (!pt) return false;
-		pt.term.options.fontSize = Math.max(6, Math.min(32, fontSize));
+		if (!pt || !Number.isFinite(fontSize)) return false;
+		const size = clampZoomFontSize(fontSize);
+		pt.zoomFontSize = size === this.opts.fontSize ? undefined : size;
+		pt.term.options.fontSize = size;
 		pt.fit.fit();
 		this.opts.onPaneLayout?.();
 		return true;
+	}
+
+	/** Global preference changes still apply to every pane following the default. */
+	setBaseFontSize(fontSize: number): void {
+		if (fontSize === this.opts.fontSize) return;
+		this.opts.fontSize = fontSize;
+		for (const pt of this.terminals.values()) {
+			if (pt.zoomFontSize === undefined) pt.term.options.fontSize = fontSize;
+		}
 	}
 
 	setScrollbackLines(lines: number): void {
@@ -2297,6 +2318,13 @@ export class PaneHost {
 				const host = document.createElement("div");
 				host.className = "pane-terminal-host";
 				row.appendChild(host);
+				const restoredZoom = this.initialZoomFontSizes?.get(node.id);
+				this.initialZoomFontSizes?.delete(node.id);
+				const zoomFontSize =
+					typeof restoredZoom === "number" &&
+					restoredZoom === clampZoomFontSize(restoredZoom)
+						? restoredZoom
+						: undefined;
 				const term = new Terminal({
 					allowProposedApi: true,
 					allowTransparency: false,
@@ -2312,7 +2340,7 @@ export class PaneHost {
 					drawBoldTextInBrightColors: this.opts.drawBoldTextInBrightColors,
 					fastScrollSensitivity: this.opts.fastScrollSensitivity ?? 5,
 					fontFamily: this.opts.fontStack,
-					fontSize: this.opts.fontSize,
+					fontSize: zoomFontSize ?? this.opts.fontSize,
 					fontWeight: (this.opts.fontWeight ?? "normal") as XtermFontWeight,
 					fontWeightBold: (this.opts.fontWeightBold ??
 						"bold") as XtermFontWeight,
@@ -2352,6 +2380,7 @@ export class PaneHost {
 					row,
 					paneId: node.id,
 					sessionId: persistedSessionId || createSessionId(),
+					zoomFontSize,
 				};
 				scheduleLigaturesAddon(pt);
 				scheduleImageAddon(pt, this.opts.sideloadOpenconsole);

@@ -1,5 +1,5 @@
 import { PANE_LAYOUT_KEY } from "./../util/storageKeys";
-import type { FloatingPaneState, PaneNode } from "./paneHost";
+import type { FloatingPaneState, PaneHostInit, PaneNode } from "./paneHost";
 import { findPaneLeaf } from "./paneHost";
 import type { PaneThemePrefs } from "./uiTheme";
 
@@ -14,7 +14,21 @@ export type PersistedPaneLayout = {
 	paneProfileIds?: Record<string, string>;
 	/** Stable PTY associations, retained across webview destruction. */
 	paneSessionIds?: Record<string, string>;
+	/** Explicit per-pane zoom in CSS pixels; absent panes use the global font size. */
+	paneZoomFontSizes?: Record<string, number>;
 };
+
+export function paneHostInitFromLayout(
+	layout: PersistedPaneLayout,
+): PaneHostInit {
+	return {
+		initialTree: layout.tree,
+		initialFocusedId: layout.focusedId,
+		initialFloating: layout.floating,
+		initialSessionIds: layout.paneSessionIds,
+		initialZoomFontSizes: layout.paneZoomFontSizes,
+	};
+}
 
 /** True when the tree contains at least one leaf pane. */
 function hasLeafNodes(tree: PaneNode): boolean {
@@ -57,6 +71,7 @@ export function loadPaneLayout(): PersistedPaneLayout | null {
 			paneCwds: parsed.paneCwds,
 			paneProfileIds: parsed.paneProfileIds,
 			paneSessionIds: parsed.paneSessionIds,
+			paneZoomFontSizes: parsed.paneZoomFontSizes,
 		};
 	} catch {
 		return null;

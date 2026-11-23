@@ -180,6 +180,7 @@ import {
 	clearPaneLayout,
 	isLayoutValidForRoot,
 	type PersistedPaneLayout,
+	paneHostInitFromLayout,
 } from "./terminal/paneLayout";
 import { serializeReplayMouseEncoding } from "./terminal/replayModes";
 import {
@@ -1907,7 +1908,9 @@ async function boot(): Promise<void> {
 	let zoomRaf = 0;
 
 	function flushPendingPaneZoom(): void {
+		if (zoomRaf) cancelAnimationFrame(zoomRaf);
 		zoomRaf = 0;
+		if (!pendingZoomByPane.size) return;
 		const entries = [...pendingZoomByPane.entries()];
 		pendingZoomByPane.clear();
 		const step = zoomStepRef.v;
@@ -2675,6 +2678,7 @@ async function boot(): Promise<void> {
 						focusedId: deferred.init.initialFocusedId ?? "",
 						floating: deferred.init.initialFloating,
 						paneSessionIds: deferred.init.initialSessionIds,
+						paneZoomFontSizes: deferred.init.initialZoomFontSizes,
 					},
 					tabKey,
 					followUsed,
@@ -2682,10 +2686,7 @@ async function boot(): Promise<void> {
 				for (const [from, to] of mapped.idMap) {
 					if (from !== to) plannedDeferredMaps.push({ from, to });
 				}
-				deferred.init.initialTree = mapped.layout.tree;
-				deferred.init.initialFocusedId = mapped.layout.focusedId;
-				deferred.init.initialFloating = mapped.layout.floating;
-				deferred.init.initialSessionIds = mapped.layout.paneSessionIds;
+				deferred.init = paneHostInitFromLayout(mapped.layout);
 				deferred.rootPaneId = resolveTabRootPaneId(mapped.layout);
 				continue;
 			}
@@ -3164,12 +3165,7 @@ async function boot(): Promise<void> {
 				layout = emptyTabLayout(tabKey);
 			}
 			applyTabLayoutMetadata(layout);
-			const init: PaneHostInit = {
-				initialTree: layout.tree,
-				initialFocusedId: layout.focusedId,
-				initialFloating: layout.floating,
-				initialSessionIds: layout.paneSessionIds,
-			};
+			const init = paneHostInitFromLayout(layout);
 			const rootId = resolveTabRootPaneId(layout);
 			if (tab.id === activeTabId || layoutNeedsLiveHost(layout)) {
 				createTabPaneShellAndHost(tab.id, init, rootId);
@@ -3217,8 +3213,13 @@ async function boot(): Promise<void> {
 		if (!(tree && findPaneLeaf(tree, rid))) return null;
 		const panes = host.getPaneDescriptors();
 		const paneSessionIds: Record<string, string> = {};
+		let paneZoomFontSizes: Record<string, number> | undefined;
 		host.forEachPane((id, pt) => {
 			paneSessionIds[id] = pt.sessionId;
+			if (pt.zoomFontSize !== undefined) {
+				paneZoomFontSizes ??= {};
+				paneZoomFontSizes[id] = pt.zoomFontSize;
+			}
 		});
 		return {
 			v: 1,
@@ -3231,6 +3232,7 @@ async function boot(): Promise<void> {
 				: undefined,
 			paneProfileIds: paneMapSubset(panes, paneProfileIds),
 			paneSessionIds,
+			paneZoomFontSizes,
 		};
 	}
 
@@ -3564,7 +3566,11 @@ async function boot(): Promise<void> {
 	function duplicateTab(fromTabId: string): void {
 		persistCurrentTabLayout();
 		const tabKey = String(tabsInIndexOrder().length + 1);
-		const raw = loadLayoutForTab(fromTabId) ?? emptyTabLayout(tabKey);
+		const sourceHost = tabPaneHosts.get(fromTabId);
+		const raw =
+			(sourceHost && layoutForPaneHost(sourceHost)) ??
+			loadLayoutForTab(fromTabId) ??
+			emptyTabLayout(tabKey);
 		const newId = crypto.randomUUID();
 		const dup = duplicateTabLayout(raw, tabKey, followSlotsInUse());
 		persistLayoutForTab(newId, dup);
@@ -3601,6 +3607,7 @@ async function boot(): Promise<void> {
 		createTabPaneShellAndHost(newId, {
 			initialTree: dup.tree,
 			initialFocusedId: dup.focusedId,
+			initialZoomFontSizes: dup.paneZoomFontSizes,
 		});
 		switchToTab(newId);
 	}
@@ -5223,13 +5230,13 @@ async function boot(): Promise<void> {
 	 *  re-fit every pane and repaint it immediately. */
 	const applyTerminalDisplayOptions = (): void => {
 		for (const host of tabPaneHosts.values()) {
+			host.setBaseFontSize(fontSizeRef.v);
 			host.forEachPane((_leafId, pt) => {
 				const t = pt.term;
 				t.options.cursorBlink = cursorBlinkRef.v;
 				t.options.cursorInactiveStyle = cursorInactiveStyleRef.v;
 				t.options.cursorWidth = cursorWidthRef.v;
 				t.options.altClickMovesCursor = altClickCursorRef.v;
-				t.options.fontSize = fontSizeRef.v;
 				t.options.fontWeight = fontWeightRef.v as XtermFontWeight;
 				t.options.fontWeightBold = fontWeightBoldRef.v as XtermFontWeight;
 				t.options.lineHeight = lineHeightRef.v;
@@ -6543,6 +6550,7 @@ async function boot(): Promise<void> {
 		}),
 		listen("partty-hide", () => {
 			cancelReclaim();
+			flushPendingPaneZoom();
 			void (async () => {
 				if (paneHost && lp.destroy_webview_on_hide) {
 					for (const host of tabPaneHosts.values()) persistHostLayout(host);

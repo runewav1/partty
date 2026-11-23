@@ -189,6 +189,7 @@ function migrateLayoutFromLegacyMain(
 		paneCwds: remapRecordKeys(layout.paneCwds, mapMain),
 		paneProfileIds: remapRecordKeys(layout.paneProfileIds, mapMain),
 		paneSessionIds: remapRecordKeys(layout.paneSessionIds, mapMain),
+		paneZoomFontSizes: remapRecordKeys(layout.paneZoomFontSizes, mapMain),
 	};
 }
 
@@ -268,6 +269,7 @@ export function loadLayoutForTab(tabId: string): PersistedPaneLayout | null {
 			paneCwds: p.paneCwds,
 			paneProfileIds: p.paneProfileIds,
 			paneSessionIds: p.paneSessionIds,
+			paneZoomFontSizes: p.paneZoomFontSizes,
 		};
 	} catch {
 		return null;
