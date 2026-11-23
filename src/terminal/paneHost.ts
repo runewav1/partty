@@ -131,7 +131,7 @@ export type PaneHostOptions = {
 	getPaneCssVars?: (paneId: string) => Record<string, string> | null;
 	getSplitLayoutStyle?: () => SplitLayoutStyle;
 	focusFollowsCursor: () => boolean;
-	onPaneFocus: (paneId: string) => void;
+	onPaneFocus: (paneId: string, created?: boolean) => void;
 	onPaneSwapAdjacent?: (paneId: string, dir: "h" | "v") => boolean;
 	onPaneCreated: (paneId: string, pt: PaneTerminal) => void;
 	onPaneDisposed: (paneId: string, sessionId: string) => void;
@@ -842,7 +842,10 @@ export class PaneHost {
 	 * Focus a pane. When `retainHostFocus` is set (following float), the tab
 	 * host keeps its tiled focus anchor while global styling targets `paneId`.
 	 */
-	focusPane(paneId: string, opts?: { retainHostFocus?: boolean }): void {
+	focusPane(
+		paneId: string,
+		opts?: { retainHostFocus?: boolean; created?: boolean },
+	): void {
 		if (!this.canFocusPane(paneId)) return;
 		if (!opts?.retainHostFocus) {
 			const prev = this.focusedId;
@@ -858,7 +861,7 @@ export class PaneHost {
 		} else if (opts?.retainHostFocus) {
 			this.updateFocusClass(undefined, paneId);
 		}
-		this.opts.onPaneFocus(paneId);
+		this.opts.onPaneFocus(paneId, opts?.created);
 		if (this.floating.has(paneId)) this.bringFloatingPaneToFront(paneId);
 	}
 
@@ -883,7 +886,7 @@ export class PaneHost {
 		if (this.floating.has(this.focusedId) || !this.canFocusPane(this.focusedId))
 			return null;
 		const newId = this.opts.allocPaneId?.() ?? crypto.randomUUID();
-		return this.insertPaneNearFocused(newId, dir, true);
+		return this.insertPaneNearFocused(newId, dir);
 	}
 
 	/** Insert a new leaf already floated (no split-then-toggle). */
@@ -896,7 +899,7 @@ export class PaneHost {
 		this.floating.set(paneId, { x, y, width, height, z: this.floatingZ++ });
 		this.justFloated.add(paneId);
 		this.mountTree();
-		this.focusAfterLayout(paneId);
+		this.focusPane(paneId, { created: true });
 		this.opts.onPaneLayout?.();
 		this.opts.onPaneReorder?.();
 		return paneId;
@@ -1236,42 +1239,28 @@ export class PaneHost {
 		return true;
 	}
 
-	private insertPaneNearFocused(
-		paneId: string,
-		dir: "h" | "v",
-		createTerminal: boolean,
-	): string | null {
-		if (this.floating.has(this.focusedId)) return null;
+	private insertPaneNearFocused(paneId: string, dir: "h" | "v"): string | null {
 		const motion = this.capturePaneMotion();
 		const style = this.layoutStyle();
 		const from = this.focusedId;
 
-		if (style === "master" && this.insertIntoMasterStack(paneId)) {
-			// New windows join the stack (Hyprland master default).
-			this.mountTree();
-			this.focusAfterLayout(paneId);
-			this.playPaneMotion(motion);
-			this.opts.onPaneLayout?.();
-			return createTerminal || this.terminals.has(paneId) ? paneId : null;
+		// Master mode tries the stack first; other layouts split the focused leaf.
+		if (style !== "master" || !this.insertIntoMasterStack(paneId)) {
+			const next = replaceLeaf(this.tree, from, {
+				kind: "split",
+				dir: style === "dwindle" ? this.dwindleDirForPane(from, dir) : dir,
+				ratio: 0.5,
+				a: { kind: "leaf", id: from },
+				b: { kind: "leaf", id: paneId },
+			});
+			if (!next) return null;
+			this.tree = next;
 		}
-
-		const resolvedDir =
-			style === "dwindle" ? this.dwindleDirForPane(from, dir) : dir;
-		const rep: PaneSplit = {
-			kind: "split",
-			dir: resolvedDir,
-			ratio: 0.5,
-			a: { kind: "leaf", id: from },
-			b: { kind: "leaf", id: paneId },
-		};
-		const next = replaceLeaf(this.tree, from, rep);
-		if (!next) return null;
-		this.tree = next;
 		this.mountTree();
-		this.focusAfterLayout(paneId);
+		this.focusPane(paneId, { created: true });
 		this.playPaneMotion(motion);
 		this.opts.onPaneLayout?.();
-		return createTerminal || this.terminals.has(paneId) ? paneId : null;
+		return paneId;
 	}
 
 	private firstTiledPane(node: PaneNode): string | null {

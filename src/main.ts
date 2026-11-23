@@ -2776,8 +2776,14 @@ async function boot(): Promise<void> {
 		owner.setFocusedPaneId(paneId);
 	}
 
+	type PointerPosition = { x: number; y: number };
 	let pointerFocusRaf = 0;
-	let lastPointerPos: { x: number; y: number } | null = null;
+	let lastPointerPos: PointerPosition | null = null;
+	let creationWarp: PointerPosition | null = null;
+
+	function paneLeafAt(x: number, y: number): HTMLElement | null | undefined {
+		return document.elementFromPoint(x, y)?.closest<HTMLElement>(".pane-leaf");
+	}
 
 	function focusPaneUnderPointer(refocus = false): boolean {
 		if (!(focusFollowsRef.v && lastPointerPos) || hasOpenOverlay())
@@ -2785,9 +2791,7 @@ async function boot(): Promise<void> {
 		for (const host of tabPaneHosts.values()) {
 			if (host.isPaneInteractionActive()) return false;
 		}
-		const leaf = document
-			.elementFromPoint(lastPointerPos.x, lastPointerPos.y)
-			?.closest(".pane-leaf") as HTMLElement | null;
+		const leaf = paneLeafAt(lastPointerPos.x, lastPointerPos.y);
 		const id = leaf?.dataset.paneId;
 		if (!id) return false;
 		const owner = hostForPaneId(id);
@@ -2802,25 +2806,30 @@ async function boot(): Promise<void> {
 	}
 
 	function schedulePointerFocus(): void {
-		if (!focusFollowsRef.v || pointerFocusRaf) return;
+		if (!focusFollowsRef.v || pointerFocusRaf || creationWarp) return;
 		pointerFocusRaf = requestAnimationFrame(() => {
 			pointerFocusRaf = 0;
 			focusPaneUnderPointer();
 		});
 	}
 
+	function cancelPointerFocus(): void {
+		if (pointerFocusRaf) cancelAnimationFrame(pointerFocusRaf);
+		pointerFocusRaf = 0;
+	}
+
 	function installPointerFocusFollow(): void {
 		const trackPointer = (ev: PointerEvent): void => {
 			if (ev.pointerType === "touch") return;
 			lastPointerPos = { x: ev.clientX, y: ev.clientY };
-			schedulePointerFocus();
+			if (terminalPaneRoot.contains(ev.target as Node)) schedulePointerFocus();
 		};
 		const clearPointer = (): void => {
 			lastPointerPos = null;
 		};
-		terminalPaneRoot.addEventListener("pointermove", trackPointer, true);
-		terminalPaneRoot.addEventListener("pointerdown", trackPointer, true);
-		terminalPaneRoot.addEventListener("pointerleave", clearPointer);
+		document.addEventListener("pointermove", trackPointer, true);
+		document.addEventListener("pointerdown", trackPointer, true);
+		document.documentElement.addEventListener("pointerleave", clearPointer);
 		window.addEventListener("blur", clearPointer);
 	}
 
@@ -2834,6 +2843,66 @@ async function boot(): Promise<void> {
 	};
 
 	let cursorWarpReady = false;
+
+	function alignCursorWithCreatedPane(row?: HTMLElement): void {
+		// Creation explicitly focuses the new pane, not a queued pre-split hit.
+		cancelPointerFocus();
+		if (
+			!cursorWarpReady ||
+			!cursorFollowPaneFocusRef.v ||
+			hasOpenOverlay() ||
+			!document.hasFocus()
+		) {
+			return;
+		}
+
+		const leaf = row?.closest<HTMLElement>(".pane-leaf");
+		if (!leaf) return;
+		const previous = lastPointerPos;
+		if (previous && paneLeafAt(previous.x, previous.y) === leaf) return;
+
+		const rect = leaf.getBoundingClientRect();
+		const left = Math.max(0, rect.left);
+		const top = Math.max(0, rect.top);
+		const right = Math.min(window.innerWidth, rect.right);
+		const bottom = Math.min(window.innerHeight, rect.bottom);
+		if (left >= right || top >= bottom) return;
+		// Prefer the visible center, with alternatives for overlapping floats.
+		for (const [a, b] of [
+			[0.5, 0.5],
+			[0.25, 0.25],
+			[0.75, 0.25],
+			[0.25, 0.75],
+			[0.75, 0.75],
+		] as const) {
+			const x = Math.round(left + (right - left) * a);
+			const y = Math.round(top + (bottom - top) * b);
+			if (paneLeafAt(x, y) === leaf) {
+				void moveCursorForCreation({ x, y });
+				return;
+			}
+		}
+	}
+
+	async function moveCursorForCreation(point: PointerPosition): Promise<void> {
+		// Suppress transient focus changes until the one-shot native move completes.
+		const previous = lastPointerPos;
+		creationWarp = point;
+		try {
+			await appWindow.setCursorPosition(new LogicalPosition(point.x, point.y));
+			if (
+				creationWarp === point &&
+				lastPointerPos === previous &&
+				document.hasFocus()
+			) {
+				lastPointerPos = point;
+			}
+		} catch {
+			/* Native cursor positioning is best-effort. */
+		} finally {
+			if (creationWarp === point) creationWarp = null;
+		}
+	}
 
 	function scheduleCursorWarpToPane(
 		paneId?: string,
@@ -2979,8 +3048,7 @@ async function boot(): Promise<void> {
 				getGlobalFocusedPaneId: focusedPaneId,
 				resolveFocusAfterLayout: (fallback) => {
 					// Resolve against the new layout before FLIP transforms start.
-					if (pointerFocusRaf) cancelAnimationFrame(pointerFocusRaf);
-					pointerFocusRaf = 0;
+					cancelPointerFocus();
 					if (focusPaneUnderPointer(true)) return true;
 					const owner = hostForPaneId(fallback);
 					if (owner && owner !== paneHost && !owner.isPaneFollowing(fallback)) {
@@ -2991,7 +3059,7 @@ async function boot(): Promise<void> {
 				},
 				suppressEnterAnimation: () =>
 					document.documentElement.classList.contains("partty-booting"),
-				onPaneFocus: (id) => {
+				onPaneFocus: (id, created) => {
 					lastFocusedPaneId = id;
 					const pt = getPaneTerminalById(id);
 					// Sync hot path only: terminal focus + PTY focus IPC.
@@ -3012,7 +3080,8 @@ async function boot(): Promise<void> {
 					}
 					scheduleFocusAuxiliary(id);
 					try {
-						scheduleCursorWarpToPane(id);
+						if (created) alignCursorWithCreatedPane(pt?.row);
+						else scheduleCursorWarpToPane(id);
 					} catch {
 						/* ignore */
 					}
@@ -3260,7 +3329,7 @@ async function boot(): Promise<void> {
 		);
 	}
 
-	function switchToTab(tabId: string): void {
+	function switchToTab(tabId: string, created = false): void {
 		if (tabId === activeTabId) return;
 		const nextHost = ensureTabPaneHost(tabId);
 		if (!nextHost) return;
@@ -3312,7 +3381,7 @@ async function boot(): Promise<void> {
 		// When focus-follows-cursor is on, refocus to whichever pane the
 		// mouse is already hovering over after the tab switch. Defer one
 		// frame so the incoming tab's DOM is laid out and visible.
-		schedulePointerFocus();
+		if (!created) schedulePointerFocus();
 
 		if (nextShell) {
 			nextShell.classList.remove("term-tab-pane-shell--hidden");
@@ -3357,11 +3426,15 @@ async function boot(): Promise<void> {
 			tabsState.tabs.length > 1,
 		);
 		renderTabsBar();
-		getFocusedTerm()?.focus();
-		scheduleCursorWarpToPane(lastFocusedPaneId, {
-			force: true,
-			delayMs: motionDurationMs("medium"),
-		});
+		if (created) {
+			nextHost.focusPane(nextHost.getFocusedPaneId(), { created: true });
+		} else {
+			getFocusedTerm()?.focus();
+			scheduleCursorWarpToPane(lastFocusedPaneId, {
+				force: true,
+				delayMs: motionDurationMs("medium"),
+			});
+		}
 		requestAnimationFrame(() => {
 			nextHost.forEachPane((id, pt) => {
 				void ensurePtyForPane(id, pt);
@@ -3847,7 +3920,7 @@ async function boot(): Promise<void> {
 			initialTree: empty.tree,
 			initialFocusedId: empty.focusedId,
 		});
-		if (switchTo) switchToTab(id);
+		if (switchTo) switchToTab(id, true);
 		else renderTabsBar();
 		return id;
 	}

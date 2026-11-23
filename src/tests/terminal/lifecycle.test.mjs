@@ -177,6 +177,13 @@ test("pane removal follows the remounted pointer hit or the nearest surviving sp
 		for (const id of ids) this.renderNode({ kind: "leaf", id });
 	};
 	PaneHost.prototype.leafEl = () => new Element();
+	PaneHost.prototype.floatingLeafEl = () => new Element();
+	PaneHost.prototype.defaultFloatingGeometry = () => ({
+		x: 24,
+		y: 24,
+		width: 480,
+		height: 320,
+	});
 	const leaf = (id) => ({ kind: "leaf", id });
 	const split = (a, b) => ({ kind: "split", dir: "h", ratio: 0.5, a, b });
 	const tree = split(
@@ -188,6 +195,7 @@ test("pane removal follows the remounted pointer hit or the nearest surviving sp
 	let nextId = 0;
 	const transitions = [];
 	const fallbacks = [];
+	const createdFocus = [];
 	const host = new PaneHost(
 		new Element(),
 		{
@@ -197,9 +205,10 @@ test("pane removal follows the remounted pointer hit or the nearest surviving sp
 			suppressEnterAnimation: () => true,
 			onPaneCreated: noop,
 			onPaneDisposed: noop,
-			onPaneFocus: (id) => {
+			onPaneFocus: (id, created) => {
 				focus = id;
 				transitions.push(id);
+				if (created) createdFocus.push(id);
 			},
 			getGlobalFocusedPaneId: () => focus,
 			resolveFocusAfterLayout: (fallback) => {
@@ -231,11 +240,12 @@ test("pane removal follows the remounted pointer hit or the nearest surviving sp
 	exits.shift()();
 	assert.deepEqual(transitions, ["center", "root"]); // Background removal preserves focus.
 
-	assert.equal(host.splitFocused("h"), "new-1");
-	assert.equal(focus, "root"); // Opening a pane keeps focus under a stationary pointer.
-	hovered = null;
-	assert.equal(host.splitFocused("h"), "new-2");
-	assert.equal(focus, "new-2"); // Without a hit, use the action's normal focus target.
+	assert.equal(host.splitFocused("v"), "new-1");
+	assert.equal(focus, "new-1"); // A stationary pointer does not win over creation.
+	assert.equal(host.createFloatingPane(), "new-2");
+	assert.equal(focus, "new-2");
+	assert.deepEqual(createdFocus, ["new-1", "new-2"]);
+	assert.deepEqual(fallbacks, ["center", "left"]);
 });
 
 function deferred() {
