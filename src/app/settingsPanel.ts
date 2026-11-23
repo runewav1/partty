@@ -24,6 +24,7 @@ export type ParttyPrefs = {
 	webgl_shed_on_hide: boolean;
 	discard_buffer_on_hide: boolean;
 	scrollback_lines: number;
+	scrollback_search_lines: number;
 	snapshot_max_lines: number;
 	preload_webgl_on_startup: boolean;
 	defer_window_show_until_prepared: boolean;
@@ -257,6 +258,32 @@ export function createSettingsPanel(
 	let overlay: OverlayHandle | null = null;
 
 	const form = root.querySelector("#settings-form") as HTMLFormElement | null;
+	const scrollbackField = form?.querySelector<HTMLInputElement>(
+		"#setting-scrollback",
+	);
+	const searchDepthField = form?.querySelector<HTMLInputElement>(
+		"#setting-scrollback-search",
+	);
+	const scrollbackLines = () =>
+		Math.max(
+			0,
+			Math.min(50_000, Math.floor(scrollbackField?.valueAsNumber || 0)),
+		);
+	const searchDepth = () =>
+		clampScrollbackSearchLines(
+			searchDepthField?.valueAsNumber ?? NaN,
+			scrollbackLines(),
+		);
+	function syncSearchDepth(): void {
+		if (!searchDepthField) return;
+		searchDepthField.max = String(scrollbackLines());
+		if (searchDepthField.value) searchDepthField.value = String(searchDepth());
+	}
+	scrollbackField?.addEventListener("input", () => {
+		if (searchDepthField) searchDepthField.max = String(scrollbackLines());
+	});
+	scrollbackField?.addEventListener("change", syncSearchDepth);
+	searchDepthField?.addEventListener("change", syncSearchDepth);
 
 	function g(n: string): string {
 		return (
@@ -369,10 +396,8 @@ export function createSettingsPanel(
 			initial_cwd: cwd || null,
 			webgl_shed_on_hide: gc("webgl_shed_on_hide"),
 			discard_buffer_on_hide: gc("discard_buffer_on_hide"),
-			scrollback_lines: Math.max(
-				0,
-				Math.min(50_000, Number.parseInt(g("scrollback_lines"), 10) || 0),
-			),
+			scrollback_lines: scrollbackLines(),
+			scrollback_search_lines: searchDepth(),
 			snapshot_max_lines: Math.max(
 				50,
 				Math.min(50_000, Number.parseInt(g("snapshot_max_lines"), 10) || 2500),
@@ -859,6 +884,11 @@ export function createSettingsPanel(
 		setVal("font_terminal", pr.font_terminal ?? "");
 		setVal("font_ui", pr.font_ui ?? "");
 		setVal("scrollback_lines", String(p.scrollback_lines));
+		setVal(
+			"scrollback_search_lines",
+			String(pr.scrollback_search_lines ?? 2500),
+		);
+		syncSearchDepth();
 		setVal("snapshot_max_lines", String(p.snapshot_max_lines));
 		setVal("window_effect_opacity", String(pr.window_effect_opacity ?? 0));
 		setVal(
@@ -1178,3 +1208,5 @@ export function createSettingsPanel(
 		isOpen: () => open,
 	};
 }
+
+import { clampScrollbackSearchLines } from "../terminal/termLifecycle";

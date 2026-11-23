@@ -443,6 +443,33 @@ test("closing clears the rows and reopening rebuilds them", async (t) => {
 	assert.equal(h.rows().length, 2, "reopen rebuilds the rows");
 });
 
+test("Tab expands one result without replacing the query or moving selection", async (t) => {
+	let expanded = false;
+	const h = await setup(t, {
+		commands: () => [
+			{ id: "tab", label: "Tab" },
+			{
+				id: "pane",
+				label: "Pane",
+				onTab: () => {
+					expanded = !expanded;
+				},
+			},
+			...(expanded ? [{ id: "match", label: "Match" }] : []),
+		],
+	});
+	fire(h.input, "keydown", key("ArrowDown"));
+	fire(h.input, "keydown", key("Tab"));
+	assert.equal(h.input.value, "");
+	assert.equal(h.rows().length, 3);
+	assert.equal(
+		h.rows()[1].classList.contains("command-palette-item--active"),
+		true,
+	);
+	fire(h.input, "keydown", key("Tab"));
+	assert.equal(h.rows().length, 2);
+});
+
 test("reused rows execute the newest remove callback", async (t) => {
 	const removals = [];
 	let generation = 0;

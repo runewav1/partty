@@ -83,6 +83,7 @@ trail_color = "#80bfff"
 | Key                  | Type  | Default | Range                       |
 | -------------------- | ----- | ------- | --------------------------- |
 | `backlog`            | u32   | `1000`  | scrollback lines            |
+| `search_depth`       | u32   | `2500`  | maximum rows per pane for quoted `:` search; clamped to `backlog`, `0` disables |
 | `snapshot_max`       | u32   | `2500`  | lines kept for hide/restore |
 | `smooth_duration_ms` | float | `0.0`   | `0` (instant) – `1000`      |
 | `sensitivity`        | float | `1.0`   | `0.1`–`10.0` (multiplier)   |

@@ -25,7 +25,12 @@ export type PaletteCommand = {
 	labelHtml?: string;
 	/** Null reserves a hidden indicator for rows that can receive progress. */
 	progress?: PtyProgress | null;
-	appearance?: "workspace-tab" | "workspace-pane" | "workspace-remote";
+	appearance?:
+		| "workspace-tab"
+		| "workspace-pane"
+		| "workspace-remote"
+		| "workspace-match";
+	onTab?: () => void;
 	/** Live trailing text (e.g. elapsed time); patched in place on refresh. */
 	status?: string;
 	run: () => void | Promise<void>;
@@ -41,8 +46,10 @@ export type CommandPaletteMount = {
 	/** Optional prefiltered view whose order must not be changed by the ranker. */
 	getFilteredCommands?: (
 		query: string,
+		refresh: () => void,
 	) => readonly PaletteCommand[] | undefined;
-	filteredEmptyText?: string;
+	filteredEmptyText?: string | (() => string);
+	onFilterClosed?: () => void;
 	/** Load persisted / refresh before showing (e.g. custom commands). */
 	onBeforeOpen?: () => Promise<void>;
 	/** Called after close (success or cancel) so host can refocus terminal */
@@ -99,6 +106,7 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 		getCommands,
 		getFilteredCommands,
 		filteredEmptyText,
+		onFilterClosed,
 		onBeforeOpen,
 		onClosed,
 		onTabComplete,
@@ -148,11 +156,16 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 	function applyFilter(skipUnchanged = false): void {
 		const selectedId =
 			skipUnchanged && !filterRaf ? filtered[selected]?.id : undefined;
-		const custom = getFilteredCommands?.(input.value);
+		const custom = getFilteredCommands?.(input.value, refreshFilter);
 		filtered =
 			custom ??
 			filterAndRankCommands(getCommands(), normalizeQuery(input.value));
-		emptyMessage = custom && !filtered.length ? (filteredEmptyText ?? "") : "";
+		emptyMessage =
+			custom && !filtered.length
+				? typeof filteredEmptyText === "function"
+					? filteredEmptyText()
+					: (filteredEmptyText ?? "")
+				: "";
 		const retained = selectedId
 			? filtered.findIndex((cmd) => cmd.id === selectedId)
 			: -1;
@@ -178,6 +191,10 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 		}
 		renderList();
 		lastRenderSignature = signature;
+	}
+
+	function refreshFilter(): void {
+		if (open && !filterRaf) applyFilter(true);
 	}
 
 	function scheduleFilter(): void {
@@ -340,6 +357,9 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 	function closePalette(skipFocus = false): void {
 		if (!open) return;
 		open = false;
+		onFilterClosed?.();
+		if (filterRaf) cancelAnimationFrame(filterRaf);
+		filterRaf = 0;
 		overlay?.release();
 		overlay = null;
 		island?.dismiss("palette");
@@ -403,12 +423,17 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 			runSelected();
 			return;
 		}
-		if (e.key === "Tab" && onTabComplete) {
+		if (e.key === "Tab" && (onTabComplete || filtered[selected]?.onTab)) {
 			e.preventDefault();
 			e.stopPropagation();
 			const sel = filtered[selected] ?? null;
-			const next = onTabComplete(input.value, sel);
-			if (next !== null) {
+			if (sel?.onTab) {
+				sel.onTab();
+				applyFilter(true);
+				return;
+			}
+			const next = onTabComplete?.(input.value, sel);
+			if (next != null) {
 				if (next !== input.value) input.value = next;
 				selected = 0;
 				scheduleFilter();

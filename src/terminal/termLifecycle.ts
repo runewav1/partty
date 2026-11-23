@@ -7,6 +7,7 @@ export type ParttyLifecyclePrefs = {
 	webgl_shed_on_hide: boolean;
 	discard_buffer_on_hide: boolean;
 	scrollback_lines: number;
+	scrollback_search_lines: number;
 	snapshot_max_lines: number;
 	preload_webgl_on_startup: boolean;
 	defer_window_show_until_prepared: boolean;
@@ -20,6 +21,7 @@ const defaultLifecyclePrefs: ParttyLifecyclePrefs = {
 	webgl_shed_on_hide: true,
 	discard_buffer_on_hide: false,
 	scrollback_lines: 1000,
+	scrollback_search_lines: 1000,
 	snapshot_max_lines: 2500,
 	preload_webgl_on_startup: true,
 	defer_window_show_until_prepared: true,
@@ -35,11 +37,27 @@ function b(v: unknown, fallback: boolean): boolean {
 	return typeof v === "boolean" ? v : fallback;
 }
 
+export function clampScrollbackSearchLines(
+	depth: number,
+	scrollback: number,
+): number {
+	return Math.max(0, Math.min(scrollback, Math.floor(n(depth, 2500))));
+}
+
 /** Merge Rust `prefs` JSON (may include unrelated keys) into lifecycle options. */
 export function mergeLifecyclePrefs(
 	raw: Record<string, unknown> | undefined,
 ): ParttyLifecyclePrefs {
 	if (!raw) return { ...defaultLifecyclePrefs };
+	const scrollback = Math.max(
+		0,
+		Math.min(
+			50_000,
+			Math.floor(
+				n(raw.scrollback_lines, defaultLifecyclePrefs.scrollback_lines),
+			),
+		),
+	);
 	return {
 		webgl_shed_on_hide: b(
 			raw.webgl_shed_on_hide,
@@ -49,14 +67,10 @@ export function mergeLifecyclePrefs(
 			raw.discard_buffer_on_hide,
 			defaultLifecyclePrefs.discard_buffer_on_hide,
 		),
-		scrollback_lines: Math.max(
-			0,
-			Math.min(
-				50_000,
-				Math.floor(
-					n(raw.scrollback_lines, defaultLifecyclePrefs.scrollback_lines),
-				),
-			),
+		scrollback_lines: scrollback,
+		scrollback_search_lines: clampScrollbackSearchLines(
+			n(raw.scrollback_search_lines, 2500),
+			scrollback,
 		),
 		snapshot_max_lines: Math.max(
 			50,

@@ -71,6 +71,7 @@ function scoreLexicalMatch(
 export function filterAndRankLexical<T extends LexicalSearchItem>(
 	all: readonly T[],
 	parts: string[],
+	stableTies = false,
 ): T[] {
 	if (parts.length === 0) return [...all];
 	const query = parts.join(" ");
@@ -80,8 +81,10 @@ export function filterAndRankLexical<T extends LexicalSearchItem>(
 		.sort(
 			(a, b) =>
 				b.score - a.score ||
-				a.item.label.length - b.item.label.length ||
-				a.item.label.localeCompare(b.item.label),
+				(stableTies
+					? 0
+					: a.item.label.length - b.item.label.length ||
+						a.item.label.localeCompare(b.item.label)),
 		)
 		.map((row) => row.item);
 }

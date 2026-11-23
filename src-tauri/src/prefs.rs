@@ -57,6 +57,10 @@ const fn default_scrollback_lines() -> u32 {
 const fn default_snapshot_max_lines() -> u32 {
     2500
 }
+
+const fn default_scrollback_search_lines() -> u32 {
+    2500
+}
 fn default_ui_theme() -> String {
     "partty".to_string()
 }
@@ -186,6 +190,8 @@ pub struct Prefs {
     pub discard_buffer_on_hide: bool,
     #[serde(default = "default_scrollback_lines")]
     pub scrollback_lines: u32,
+    #[serde(default = "default_scrollback_search_lines")]
+    pub scrollback_search_lines: u32,
     #[serde(default = "default_snapshot_max_lines")]
     pub snapshot_max_lines: u32,
     #[serde(default = "default_true")]
@@ -392,6 +398,7 @@ impl Default for Prefs {
             webgl_shed_on_hide: true,
             discard_buffer_on_hide: false,
             scrollback_lines: 1000,
+            scrollback_search_lines: default_scrollback_search_lines(),
             snapshot_max_lines: 2500,
             preload_webgl_on_startup: true,
             defer_window_show_until_prepared: true,
@@ -705,6 +712,8 @@ impl Default for FontSection {
 pub struct ScrollSection {
     #[serde(default = "default_scrollback_lines")]
     pub backlog: u32,
+    #[serde(default = "default_scrollback_search_lines")]
+    pub search_depth: u32,
     #[serde(default = "default_snapshot_max_lines")]
     pub snapshot_max: u32,
     #[serde(default)]
@@ -719,6 +728,7 @@ impl Default for ScrollSection {
     fn default() -> Self {
         Self {
             backlog: default_scrollback_lines(),
+            search_depth: default_scrollback_search_lines(),
             snapshot_max: default_snapshot_max_lines(),
             smooth_duration_ms: 0.0,
             sensitivity: default_scroll_sensitivity(),
@@ -1281,6 +1291,7 @@ impl From<ConfigToml> for Prefs {
             terminal_line_height: c.font.line_height,
             terminal_letter_spacing: c.font.letter_spacing,
             scrollback_lines: c.scroll.backlog,
+            scrollback_search_lines: c.scroll.search_depth.min(c.scroll.backlog.min(50_000)),
             snapshot_max_lines: c.scroll.snapshot_max,
             terminal_smooth_scroll_duration: c.scroll.smooth_duration_ms,
             terminal_scroll_sensitivity: c.scroll.sensitivity,
@@ -1396,6 +1407,9 @@ impl From<&Prefs> for ConfigToml {
             },
             scroll: ScrollSection {
                 backlog: p.scrollback_lines,
+                search_depth: p
+                    .scrollback_search_lines
+                    .min(p.scrollback_lines.min(50_000)),
                 snapshot_max: p.snapshot_max_lines,
                 smooth_duration_ms: p.terminal_smooth_scroll_duration,
                 sensitivity: p.terminal_scroll_sensitivity,
@@ -1697,6 +1711,18 @@ mod renderer_config_tests {
 
     fn prefs_from(text: &str) -> Prefs {
         Prefs::from(toml::from_str::<ConfigToml>(text).unwrap())
+    }
+
+    #[test]
+    fn scrollback_search_depth_roundtrips_and_cannot_exceed_backlog() {
+        assert_eq!(
+            prefs_from("[scroll]\nbacklog = 50000").scrollback_search_lines,
+            2500
+        );
+        let prefs = prefs_from("[scroll]\nbacklog = 20000\nsearch_depth = 30000");
+        assert_eq!(prefs.scrollback_search_lines, 20000);
+        let saved = toml::to_string(&ConfigToml::from(&prefs)).unwrap();
+        assert_eq!(prefs_from(&saved).scrollback_search_lines, 20000);
     }
 
     #[test]

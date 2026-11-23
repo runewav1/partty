@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	parseWorkspaceSearch,
 	sshPaneTarget,
 	workspacePaletteCommands,
 	workspaceSearchQuery,
@@ -52,6 +53,78 @@ test("only a leading colon activates workspace search", () => {
 	assert.equal(workspaceSearchQuery("@"), undefined);
 	assert.equal(workspaceSearchQuery("@profile:float"), undefined);
 	assert.equal(workspaceSearchQuery("deploy:build"), undefined);
+});
+
+test("scrollback search requires a complete literal phrase of at least three characters", () => {
+	for (const query of [
+		"x",
+		"xy",
+		'"a"',
+		'"🙂🙂"',
+		'"pnpm tunnel:start',
+		'xy "build"',
+	]) {
+		assert.equal(parseWorkspaceSearch(query), null);
+	}
+	assert.deepEqual(parseWorkspaceSearch("2"), { metadata: "2" });
+	assert.deepEqual(parseWorkspaceSearch('deploy "pnpm tunnel:start"'), {
+		metadata: "deploy",
+		phrase: "pnpm tunnel:start",
+	});
+	assert.deepEqual(parseWorkspaceSearch(String.raw`"say \"hi\""`), {
+		metadata: "",
+		phrase: 'say "hi"',
+	});
+	assert.equal(parseWorkspaceSearch(`"${"\\".repeat(5000)}`), null);
+});
+
+test("quoted results expose selectable, escaped previews and unfold only their pane", () => {
+	const hits = {
+		count: 7,
+		matches: Array.from({ length: 5 }, (_, row) => ({
+			row,
+			rowText: "<abc>",
+			before: "<",
+			text: "abc",
+			after: ">",
+		})),
+	};
+	let target;
+	const panes = [
+		{
+			...tabs[0].panes[0],
+			hits,
+			searchTerms: "hidden-distro",
+			toggleMatches: () => {
+				panes[0].expanded = !panes[0].expanded;
+			},
+			runMatch: (match) => {
+				target = match.row;
+			},
+		},
+		{ ...tabs[0].panes[1], hits },
+	];
+	const render = () =>
+		workspacePaletteCommands([{ ...tabs[0], panes }], "", 0, true);
+	const [header, pane, preview] = render();
+	assert.equal(header.appearance, "workspace-tab");
+	assert.equal(pane.status, "7 matches");
+	assert.equal(preview.labelHtml, "&lt;<mark>abc</mark>&gt;");
+	void preview.run();
+	assert.equal(target, 0);
+	assert.equal(
+		render().filter((row) => row.appearance === "workspace-match").length,
+		6,
+	);
+	pane.onTab();
+	assert.equal(
+		render().filter((row) => row.appearance === "workspace-match").length,
+		8,
+	);
+	assert.equal(
+		workspacePaletteCommands([{ ...tabs[0], panes }], "hidden-distro")[1].id,
+		pane.id,
+	);
 });
 
 test("workspace results retain tab and pane order and combine tab and pane terms", () => {

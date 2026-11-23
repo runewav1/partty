@@ -379,6 +379,34 @@ function getPathToLeaf(tree: PaneNode, id: string): string | null {
 	return null;
 }
 
+export function paneIdsByTreeDistance(tree: PaneNode, from: string): string[] {
+	const origin = getPathToLeaf(tree, from);
+	const leaves: { id: string; distance: number }[] = [];
+	function visit(node: PaneNode, depth: number, shared: number): void {
+		if (node.kind === "leaf") {
+			leaves.push({
+				id: node.id,
+				distance: depth + (origin?.length ?? 0) - 2 * shared,
+			});
+			return;
+		}
+		visit(
+			node.a,
+			depth + 1,
+			shared + Number(shared === depth && origin?.[depth] === "a"),
+		);
+		visit(
+			node.b,
+			depth + 1,
+			shared + Number(shared === depth && origin?.[depth] === "b"),
+		);
+	}
+	visit(tree, 0, 0);
+	return (
+		origin === null ? leaves : leaves.sort((a, b) => a.distance - b.distance)
+	).map(({ id }) => id);
+}
+
 function getNodeByPath(tree: PaneNode, path: string): PaneNode {
 	let cur: PaneNode = tree;
 	for (const ch of path) {

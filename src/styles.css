@@ -1715,6 +1715,21 @@ html.tabs-hidden #main-workspace {
 	padding-left: 30px;
 }
 
+.command-palette-item--workspace-match .command-palette-item-row {
+	padding-inline-start: 3rem;
+}
+
+.command-palette-item--workspace-match .command-palette-item-label {
+	font-family: var(--font-terminal, monospace);
+	white-space: pre;
+}
+
+.command-palette-item--workspace-match mark {
+	background: color-mix(in srgb, var(--accent-primary) 28%, transparent);
+	color: inherit;
+	font-weight: 650;
+}
+
 .cp-workspace-primary,
 .cp-workspace-detail {
 	display: block;
