@@ -266,11 +266,11 @@ Type into the empty picker field to filter (case-insensitive). Hotkeys: [`profil
 
 ## Opening profiles
 
-| Method         | How                                                                                     |
-| -------------- | --------------------------------------------------------------------------------------- |
+| Method         | How                                                                                    |
+| -------------- | -------------------------------------------------------------------------------------- |
 | Palette        | Select New tab, Split, or New floating pane, then press Tab to open the profile picker |
-| Split keybinds | `Alt+Shift+V` (right) / `Alt+Shift+H` (down) → picker                                   |
-| Alias          | With empty filter, press the configured character                                       |
+| Split keybinds | `Alt+Shift+V` (right) / `Alt+Shift+H` (down) → picker                                  |
+| Alias          | With empty filter, press the configured character                                      |
 
 ## Icons
 
