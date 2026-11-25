@@ -165,40 +165,43 @@ Static checks:
 
 ## Roadmap
 
-Partty is _far from done_. Although it achieves very good performance metrics, pushing it to the very maximum
-capabilities we can within the WebView2 runtime is an experimental goal -- reaching native performance under
-constraint is a partial goal of the entire project.
+Recently, a lot of the features that I *thought* were unique and differentiated this implementation from others
+were readily apparent in terminals like Rex (great work by Superlogical and Mitchell by the way, 
+and other (though questionably maintained) open source terminals. Clearly, in the age of AI, it's increasingly 
+easy to face competition (for which I can't blame anyone; plus, I definitely use it).
 
-Alongside this, I envision a rich native extension system and support for a novel Partty Protocol ecosystem,
-allowing us to render images, videos, and simple GUIs (in replacement or augment of TUIs) to expand the use
-case and appeal of the terminal. The former TypeScript sandbox has been removed; the future system will run
-on the Rust side rather than executing user JavaScript in the WebView.
+So the goal is to level the playing field; the project might move away from Tauri, try becoming class-platform,
+and improve things like TtFP, rendering speed, parsing, and so on. A big change, sure, but it's needed.
 
-Some notable examples could be:
+Some of the things I find to be notable features we're missing is fast, performant SSH (low typing latency, lightning
+fast rendering of terminal state), faster overall performance (it's incredible what I've got to work inside of the webview,
+but I can't act like it's native performance), and things like visual copy mode, etc.
 
-- Creating a CLI helper (or helper(s), akin to kittens in Kitty) to cast .pdf, .epub, .md, and more, directly as
-  an overlay on the pane from which the cast was called.
-- Creating interactive overlays in form of GUIs to extend or act as TUI alternatives.
-- Rendering videos in full, lossless quality and complete render speeds, as opposed to being limited by
-  terminal data streaming (stream to the front-end, render over the terminal viewport).
-- Rendering images without loss of quality, with the same concept as video rendering.
-- Refactoring the tabbing system with a terminal style bar, packed with system time information, current tab indicators,
-  or any other arbitrary variables, etc.
+A lot of features have been tried and removed; alert strings (managing strings to match in terminals or specific profiles
+so you can be notified, for example, when "stopped" is emitted in the terminal buffer for a deployment host SSH profile); a
+ACP based command line helper (reads the buffer context and provides help on something you ask about), and persistent terminal
+history.
 
-A more realistic (and sensible) goal for Partty is to give the community the _tools_ to do this: establish
-a capable native extension surface and allow optional extension of the terminal's ability to do these sorts
-of experiments, rather than build them in as non-negotiable features bundled into the base application.
-This respects users who just want the terminal, and respects those who want more.
+Of these, most of them are problems already solved (see Atuin, which solves the last two), but I may return to alert strings
+at some point, since it's an interesting feature and unlocks some real world value when working in the terminal, and not
+just larping with six Claude panes.
+
+Some of the more obvious priorities will be things like OSC 7501 for agent/program status, which will be followed by
+expansion of the naive interpreter to consume this and notify directly on the desktop when the front-end is hidden.
+
+With this being said, six or seven months of work have gone into almost pure performance and friction work; day to day,
+this terminal is more than performant enough (dare I say competitive with the others for actual use) and splits, switches, tabs,
+floating panes, and the rest are very easy to get a hang of and use, as are profiles. But there's a lot to do, and before that, 
+a lot to *think* about, so the roadmap is essentially a work in progress as much as the terminal is. You may see some features or
+experience improvements come up, but they won't be major (they might).
 
 ## Note on Image Rendering
 
-Image rendering within the terminal is not supported by utilizing the lone binary. The workaround is exposed
-by a platform limitation I discovered, which is that Windows Terminal supports rendering Sixel, and
-implementations of a terminal using raw conPTY/conhost.exe OS capabilities _do not_ support this.
+If you use the terminal on it's own, you won't be able to render images. This isn't a fault of the terminal itself,
+but rather that the OS PTY provider will actually remove unrecognized sequences from the stream.
 
 The solution is the same as Windows Terminal; load `OpenConsole.exe` and `conpty.dll` alongside the terminal,
 and use them instead of conPTY. This enables Sixel rendering.
 
-This is currently an experimental capability of Partty, and isn't bundled alongside the application,
-which means you'll have to source pre-built binaries for the two from something like `nuget`, or build them
-yourself.
+I may look into making OpenConsole and conpty.dll embedded within the binary, but this offers a scoped feature for 
+non-negotiable size increase.
