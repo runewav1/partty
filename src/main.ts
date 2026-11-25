@@ -21,7 +21,7 @@ import {
 	type PaletteCommand,
 } from "./app/commandPalette";
 import { showAlert } from "./app/dialog";
-import { createFindBar, type FindBarApi } from "./app/findBar";
+import type { FindBarApi } from "./app/findBar";
 import { type ShortcutEffect, shortcutRuns } from "./app/modalShortcuts";
 import {
 	bindMouseCursorForceVisible,
@@ -46,6 +46,11 @@ import {
 	initTabBar,
 	type TabRenderModel,
 } from "./app/tabBar";
+import {
+	applyPaneFocusPresentation,
+	applyTerminalDisplayPrefs,
+	terminalFontStackFromDocument,
+} from "./app/terminalPresentation";
 import { createThemeFamilyShortcut } from "./app/themeFamilyShortcut";
 import type { ThemeModalApi } from "./app/themeModal";
 import { createTooltipController } from "./app/tooltips";
@@ -209,7 +214,6 @@ import {
 	applyUiTheme,
 	buildXtermThemeFromDocument,
 	buildXtermThemeFromPrefs,
-	DEFAULT_TERMINAL_FONT_STACK,
 	ensureCustomThemesLoaded,
 	normalizePaneThemePrefs,
 	type PaneThemePrefs,
@@ -243,7 +247,6 @@ import {
 import {
 	afterAnimationFrames,
 	animateClass,
-	applyMotionPreferences,
 	cancelElementAnimations,
 	hideSurface,
 	motionDisabled,
@@ -275,8 +278,6 @@ const PTY_OUTPUT_FLUSH_MS = 4;
 const PTY_OUTPUT_BACKGROUND_FLUSH_MS = 33;
 const PTY_OUTPUT_MAX_BATCH_BYTES = 128 * 1024;
 
-const IDLE_WEBGL_MS = 400;
-
 type PersistedPayload = { prefs: Record<string, unknown> };
 
 const PTY_FALLBACK_COLS = 80;
@@ -305,92 +306,6 @@ function clampPtyColsRows(
 		cols: Math.max(2, Math.min(65_535, Math.floor(cols))),
 		rows: Math.max(1, Math.min(65_535, Math.floor(rows))),
 	};
-}
-
-function scheduleIdle(cb: () => void, timeout = IDLE_WEBGL_MS): void {
-	if (typeof requestIdleCallback === "undefined") {
-		setTimeout(cb, 1);
-	} else {
-		requestIdleCallback(() => cb(), { timeout });
-	}
-}
-
-function applyTerminalDisplayPrefs(
-	raw: Partial<ParttyPrefs>,
-	acrylicAvailable = true,
-): void {
-	const root = document.documentElement;
-	const paneGap =
-		typeof raw.terminal_pane_gap === "number"
-			? raw.terminal_pane_gap
-			: raw.terminal_no_gap
-				? 0
-				: 6;
-	const sandboxPadding =
-		typeof raw.terminal_sandbox_padding === "number"
-			? raw.terminal_sandbox_padding
-			: 0;
-	root.classList.toggle("terminal-no-gap", paneGap <= 0);
-	root.classList.toggle("terminal-no-round", Boolean(raw.terminal_no_round));
-	root.classList.toggle(
-		"terminal-no-pane-border",
-		Boolean(raw.terminal_no_pane_border),
-	);
-	root.classList.toggle(
-		"terminal-no-focus-border",
-		Boolean(raw.terminal_no_focus_border),
-	);
-	applyMotionPreferences(
-		raw.terminal_animation_speed,
-		raw.terminal_animation_style,
-	);
-	const backdropAlpha =
-		typeof raw.window_effect_opacity === "number"
-			? raw.window_effect_opacity
-			: 0;
-	const appAlpha =
-		raw.window_effect_mode === "transparent" ||
-		(raw.window_effect_mode === "acrylic" && !acrylicAvailable)
-			? backdropAlpha
-			: raw.window_effect_mode === "acrylic"
-				? 0
-				: 1;
-	const paneRadius =
-		typeof raw.pane_corner_radius === "number" ? raw.pane_corner_radius : 6;
-	root.style.setProperty(
-		"--pane-outer-gap",
-		`${Math.max(0, Math.min(32, paneGap))}px`,
-	);
-	root.style.setProperty(
-		"--pane-sandbox-padding",
-		`${Math.max(0, Math.min(32, sandboxPadding))}px`,
-	);
-	root.style.setProperty("--partty-app-bg-alpha", String(appAlpha));
-	root.style.setProperty(
-		"--partty-pane-radius",
-		`${Math.max(0, Math.min(32, paneRadius))}px`,
-	);
-}
-
-function applyPaneFocusScalePrefs(raw: Partial<ParttyPrefs>): void {
-	const enabled = raw.focus_pane_scale ?? true;
-	const intensity = Math.max(
-		0,
-		Math.min(
-			1,
-			typeof raw.pane_focus_scale_intensity === "number"
-				? raw.pane_focus_scale_intensity
-				: 0.45,
-		),
-	);
-	document.documentElement.classList.toggle(
-		"pane-focus-scale",
-		enabled && intensity > 0,
-	);
-	document.documentElement.style.setProperty(
-		"--pane-focus-scale-delta",
-		String(intensity * 0.014),
-	);
 }
 
 function normalizeSplitLayoutStyle(raw: unknown): SplitLayoutStyle {
@@ -451,13 +366,6 @@ function maybeBlockBrowserPrintShortcut(e: KeyboardEvent): void {
 	e.stopPropagation();
 }
 
-function terminalFontStackFromDocument(): string {
-	const raw = getComputedStyle(document.documentElement)
-		.getPropertyValue("--font-terminal")
-		.trim();
-	return raw.replace(/^["']|["']$/g, "") || DEFAULT_TERMINAL_FONT_STACK;
-}
-
 async function boot(): Promise<void> {
 	if (!import.meta.env.DEV) {
 		document.querySelectorAll("[data-dev-only]").forEach((el) => {
@@ -510,31 +418,7 @@ async function boot(): Promise<void> {
 		acrylicAvailableRef.v,
 	);
 
-	document.documentElement.classList.toggle(
-		"pane-blur-unfocused",
-		Boolean((persisted.prefs as Partial<ParttyPrefs>).blur_unfocused_panes),
-	);
-	document.documentElement.style.setProperty(
-		"--pane-blur-radius",
-		String((persisted.prefs as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6),
-	);
-	document.documentElement.style.setProperty(
-		"--pane-opacity-focused",
-		String(
-			(persisted.prefs as Partial<ParttyPrefs>).pane_opacity_focused ?? 1.0,
-		),
-	);
-	document.documentElement.style.setProperty(
-		"--pane-opacity-unfocused",
-		String(
-			(persisted.prefs as Partial<ParttyPrefs>).pane_opacity_unfocused ?? 1.0,
-		),
-	);
-	document.documentElement.classList.toggle(
-		"pane-variable-opacity",
-		Boolean((persisted.prefs as Partial<ParttyPrefs>).pane_variable_opacity),
-	);
-	applyPaneFocusScalePrefs(persisted.prefs as Partial<ParttyPrefs>);
+	applyPaneFocusPresentation(persisted.prefs as Partial<ParttyPrefs>);
 
 	const tabsHidden = localStorage.getItem(TABS_HIDDEN_KEY) === "1";
 	document.documentElement.classList.toggle("tabs-hidden", tabsHidden);
@@ -5152,31 +5036,7 @@ async function boot(): Promise<void> {
 								}
 							}
 							tooltips.apply(document);
-							document.documentElement.classList.toggle(
-								"pane-blur-unfocused",
-								saved.blur_unfocused_panes,
-							);
-							document.documentElement.style.setProperty(
-								"--pane-blur-radius",
-								String((saved as Partial<ParttyPrefs>).pane_blur_radius ?? 1.6),
-							);
-							document.documentElement.style.setProperty(
-								"--pane-opacity-focused",
-								String(
-									(saved as Partial<ParttyPrefs>).pane_opacity_focused ?? 1.0,
-								),
-							);
-							document.documentElement.style.setProperty(
-								"--pane-opacity-unfocused",
-								String(
-									(saved as Partial<ParttyPrefs>).pane_opacity_unfocused ?? 1.0,
-								),
-							);
-							document.documentElement.classList.toggle(
-								"pane-variable-opacity",
-								Boolean((saved as Partial<ParttyPrefs>).pane_variable_opacity),
-							);
-							applyPaneFocusScalePrefs(saved);
+							applyPaneFocusPresentation(saved);
 							const prevUi = pickUiPrefs(
 								previous as unknown as Record<string, unknown>,
 							);
@@ -5356,10 +5216,14 @@ async function boot(): Promise<void> {
 		scheduleResizeImmediate(true);
 	};
 
-	const findRoot = document.getElementById("terminal-find");
-	const findBar: FindBarApi | null = findRoot
-		? createFindBar({
-				root: findRoot,
+	const findLazy = lazyCell<FindBarApi>();
+	const ensureFindBar = (): Promise<FindBarApi | null> =>
+		findLazy.ensure(async () => {
+			const root = document.getElementById("terminal-find");
+			if (!root) return null;
+			const { createFindBar } = await import("./app/findBar");
+			return createFindBar({
+				root,
 				getTerminal: getFocusedTerm,
 				getHighlightColors: () => {
 					const pane = focusedPaneId();
@@ -5367,8 +5231,9 @@ async function boot(): Promise<void> {
 				},
 				island: commandIsland,
 				onClosed: focusActiveTerminal,
-			})
-		: null;
+			});
+		});
+	const openFind = (): void => runLazy(ensureFindBar, (api) => api.open());
 
 	let openHelpPanel: () => void = () => {};
 	let closeHelpPanel: () => void = () => {};
@@ -6005,7 +5870,7 @@ async function boot(): Promise<void> {
 				label: "Find in terminal",
 				keywords: "search locate text scrollback query find",
 				hotkey: k.label("terminal_find"),
-				run: () => findBar?.open(),
+				run: openFind,
 			},
 			{
 				id: "open-settings",
@@ -6410,11 +6275,12 @@ async function boot(): Promise<void> {
 		(e) => {
 			if (!k.match(e, "terminal_find")) return;
 			if (!consumeSinglePress(e)) return;
+			const findBar = findLazy.get();
 			if (findBar?.isOpen()) {
 				findBar.close();
 				return;
 			}
-			findBar?.open();
+			openFind();
 		},
 		true,
 	);
@@ -6900,10 +6766,6 @@ async function boot(): Promise<void> {
 		/* ignore */
 	});
 
-	scheduleIdle(() => {
-		void import("./app/settingsPanel");
-	});
-
 	window.addEventListener("resize", () => scheduleResizeDebounced());
 	for (const event of ["keydown", "pointerdown", "wheel"] as const) {
 		window.addEventListener(event, noteReclaimActivity, {
@@ -6985,7 +6847,7 @@ async function boot(): Promise<void> {
 		}
 		mouseCursorController?.dispose();
 		paneHost = null;
-		findBar?.dispose();
+		findLazy.get()?.dispose();
 		commandPalette?.dispose();
 		if (tabProgressRaf) cancelAnimationFrame(tabProgressRaf);
 		commandIsland?.dispose();
