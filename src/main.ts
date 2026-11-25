@@ -170,7 +170,6 @@ import {
 import {
 	collectLeafIds,
 	directionalAdjacentLeafId,
-	ensurePaneSerialize,
 	findPaneLeaf,
 	PaneHost,
 	type PaneHostInit,
@@ -194,7 +193,6 @@ import {
 	type PersistedPaneLayout,
 	paneHostInitFromLayout,
 } from "./terminal/paneLayout";
-import { serializeReplayMouseEncoding } from "./terminal/replayModes";
 import {
 	COLLAPSED_MATCHES,
 	type ScrollbackHits,
@@ -202,10 +200,14 @@ import {
 	scanScrollback,
 } from "./terminal/scrollbackSearch";
 import {
+	restoreScrollbackIfNeeded,
+	stashScrollbackForHide,
+	writeTerminalSerialized,
+} from "./terminal/scrollbackStash";
+import {
 	activeRendererKind,
 	createRendererAddon,
 	disposeWebgpuSession,
-	firstContentScrollbackLine,
 	mergeLifecyclePrefs,
 	type ParttyLifecyclePrefs,
 	type RendererKind,
@@ -6342,143 +6344,13 @@ async function boot(): Promise<void> {
 		);
 	}
 
-	type StashedPaneBuffer = {
-		data: string;
-		cols: number;
-		rows: number;
-	};
-
-	async function persistTerminalBuffersForHide(): Promise<void> {
-		if (!lp.destroy_webview_on_hide) return;
-
-		const buffers: Record<string, string> = {};
-		if (lp.discard_buffer_on_hide) {
-			for (const host of tabPaneHosts.values()) {
-				host.forEachPane((_id, pt) => {
-					try {
-						pt.term.reset();
-					} catch {
-						/* ignore */
-					}
-				});
-			}
-		} else {
-			const jobs: Promise<void>[] = [];
-			for (const host of tabPaneHosts.values()) {
-				host.forEachPane((id, pt) => {
-					jobs.push(
-						(async () => {
-							try {
-								const serialize = await ensurePaneSerialize(pt);
-								const start = firstContentScrollbackLine(pt.term);
-								const end = Math.max(0, pt.term.buffer.normal.length - 1);
-								const payload: StashedPaneBuffer = {
-									data:
-										serialize.serialize({ range: { start, end } }) +
-										serializeReplayMouseEncoding(pt.term),
-									cols: pt.term.cols,
-									rows: pt.term.rows,
-								};
-								buffers[id] = JSON.stringify(payload);
-							} catch (e) {
-								console.warn("serialize pane", id, e);
-							}
-						})(),
-					);
-				});
-			}
-			await Promise.all(jobs);
-		}
-
-		try {
-			await invoke("stash_terminal_buffers", { buffers });
-		} catch (e) {
-			console.warn("stash_terminal_buffers", e);
-		}
-	}
-
-	function writeTerminalSerialized(
-		term: Terminal,
-		data: string | Uint8Array,
-	): Promise<void> {
-		return new Promise((resolve, reject) => {
-			try {
-				term.write(data, () => resolve());
-			} catch (e) {
-				reject(e);
-			}
-		});
-	}
-
-	async function restoreSerializedTerminals(): Promise<void> {
-		if (lp.discard_buffer_on_hide) {
-			try {
-				await invoke("take_terminal_buffers");
-			} catch {
-				/* ignore */
-			}
-			return;
-		}
-
-		let map: Record<string, string> | null = null;
-		try {
-			map = await invoke<Record<string, string> | null>(
-				"take_terminal_buffers",
-			);
-		} catch {
-			/* ignore */
-		}
-		if (!map || Object.keys(map).length === 0) return;
-
-		const writes: Promise<void>[] = [];
-		for (const host of tabPaneHosts.values()) {
-			host.forEachPane((id, pt) => {
-				const rawPane = map![id];
-				if (!rawPane) return;
-				writes.push(
-					(async () => {
-						try {
-							let data = rawPane;
-							let cols = 0;
-							let rows = 0;
-							if (rawPane.startsWith("{")) {
-								const parsed = JSON.parse(rawPane) as StashedPaneBuffer;
-								if (typeof parsed.data === "string") {
-									data = parsed.data;
-									cols = Number(parsed.cols) || 0;
-									rows = Number(parsed.rows) || 0;
-								}
-							}
-							if (cols >= 2 && rows >= 1) {
-								pt.term.resize(cols, rows);
-							}
-							await writeTerminalSerialized(pt.term, data);
-							backendReplayRestoredPanes.add(id);
-						} catch (e) {
-							console.warn("restoreSerializedTerminals", id, e);
-						}
-					})(),
-				);
-			});
-		}
-		await Promise.all(writes);
-	}
-
-	async function takeNeedsScrollbackRestore(
-		fallback: boolean,
-	): Promise<boolean> {
-		try {
-			return await invoke<boolean>("take_webview_destroyed_for_hide");
-		} catch (e) {
-			console.warn("take_webview_destroyed_for_hide", e);
-			return fallback;
-		}
-	}
-
-	async function restoreScrollbackIfNeeded(fallback: boolean): Promise<void> {
-		if (await takeNeedsScrollbackRestore(fallback)) {
-			await restoreSerializedTerminals();
-		}
+	function restoreScrollback(fallback: boolean): Promise<void> {
+		return restoreScrollbackIfNeeded(
+			tabPaneHosts.values(),
+			lp.discard_buffer_on_hide,
+			fallback,
+			(id) => backendReplayRestoredPanes.add(id),
+		);
 	}
 
 	function waitAnimationFrames(count = 2): Promise<void> {
@@ -6512,7 +6384,7 @@ async function boot(): Promise<void> {
 			await waitAnimationFrames(2);
 
 			// Restore before PTY ensure/replay so catch-up cannot race an empty buffer.
-			await restoreScrollbackIfNeeded(lp.destroy_webview_on_hide);
+			await restoreScrollback(lp.destroy_webview_on_hide);
 			await ensurePtyForAllTabHosts();
 
 			await mountWebglForActivePanes();
@@ -6692,7 +6564,7 @@ async function boot(): Promise<void> {
 				if (paneHost && lp.destroy_webview_on_hide) {
 					for (const host of tabPaneHosts.values()) persistHostLayout(host);
 				}
-				await persistTerminalBuffersForHide();
+				await stashScrollbackForHide(tabPaneHosts.values(), lp);
 				if (lp.webgl_shed_on_hide) {
 					shedWebgl(false);
 				}
@@ -6723,7 +6595,7 @@ async function boot(): Promise<void> {
 				// Non-defer summon (or prepare skipped): restore → paint → unlock, then PTY.
 				summonInProgress = true;
 				try {
-					await restoreScrollbackIfNeeded(false);
+					await restoreScrollback(false);
 					await mountWebglForActivePanes();
 					getFocusedTerm()?.focus();
 					scheduleResizeImmediate();
