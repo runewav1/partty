@@ -49,3 +49,19 @@ export function applyUserTabRename(
 	tab.name = name;
 	tab.userName = name;
 }
+/** Display metadata only; does not interpret or modify the SSH command line. */
+export function sshPaneTarget(
+	host: string | null | undefined,
+	user: string | null | undefined,
+	ip: string | null | undefined,
+): { target: string; ip?: string } | undefined {
+	const address = ip?.trim();
+	const endpoint = host?.trim() || address;
+	if (!endpoint) return undefined;
+	const login = user?.trim();
+	return {
+		target:
+			login && !endpoint.includes("@") ? `${login}@${endpoint}` : endpoint,
+		ip: address && address !== endpoint.split("@").at(-1) ? address : undefined,
+	};
+}

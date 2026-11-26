@@ -22,6 +22,7 @@ import {
 } from "./app/commandPalette";
 import { showAlert } from "./app/dialog";
 import type { FindBarApi } from "./app/findBar";
+import { lazyWorkspaceSearch } from "./app/lazyWorkspaceSearch";
 import { type ShortcutEffect, shortcutRuns } from "./app/modalShortcuts";
 import {
 	bindMouseCursorForceVisible,
@@ -54,13 +55,7 @@ import {
 import { createThemeFamilyShortcut } from "./app/themeFamilyShortcut";
 import type { ThemeModalApi } from "./app/themeModal";
 import { createTooltipController } from "./app/tooltips";
-import {
-	parseWorkspaceSearch,
-	sshPaneTarget,
-	type WorkspacePaletteTab,
-	workspacePaletteCommands,
-	workspaceSearchQuery,
-} from "./app/workspacePalette";
+import type { WorkspacePaletteTab } from "./app/workspacePalette";
 import {
 	type ByteChunkBuffer,
 	createByteChunkBuffer,
@@ -128,6 +123,7 @@ import {
 	tabDisplayName as formatTabDisplayName,
 	type PaneNameParts,
 	paneHeadline,
+	sshPaneTarget,
 } from "./tabs/displayNames";
 import {
 	type DeferredTabInit,
@@ -193,12 +189,7 @@ import {
 	type PersistedPaneLayout,
 	paneHostInitFromLayout,
 } from "./terminal/paneLayout";
-import {
-	COLLAPSED_MATCHES,
-	type ScrollbackHits,
-	type ScrollbackMatch,
-	scanScrollback,
-} from "./terminal/scrollbackSearch";
+import type { ScrollbackMatch } from "./terminal/scrollbackSearch";
 import {
 	restoreScrollbackIfNeeded,
 	stashScrollbackForHide,
@@ -5256,117 +5247,8 @@ async function boot(): Promise<void> {
 		return sessionId ? (ptyProgressBySession.get(sessionId) ?? null) : null;
 	}
 
-	let workspaceScan: {
-		query: string;
-		depth: number;
-		pending: boolean;
-		hits: Map<string, ScrollbackHits>;
-		expanded: Set<string>;
-	} | null = null;
-
-	function scanWorkspacePanes(
-		tabs: WorkspacePaletteTab[],
-		metadata: string,
-		phrase: string,
-		state: NonNullable<typeof workspaceScan>,
-		refresh: () => void,
-	): void {
-		const eligible = metadata
-			? new Set(workspacePaletteCommands(tabs, metadata).map((row) => row.id))
-			: null;
-		const active = tabs.find((tab) => tab.id === activeTabId);
-		const selected = focusedPaneId();
-		const activeOrder =
-			paneHost && selected
-				? paneIdsByTreeDistance(paneHost.getTree(), selected)
-				: null;
-		const nearby = [...tabs].sort(
-			(a, b) =>
-				Math.abs(a.index - (active?.index ?? 1)) -
-				Math.abs(b.index - (active?.index ?? 1)),
-		);
-		const sessions: string[] = [];
-		let focusedSession: string | undefined;
-		for (const tab of nearby) {
-			const panes =
-				tab === active && activeOrder
-					? [...tab.panes].sort(
-							(a, b) =>
-								activeOrder.indexOf(a.paneId) - activeOrder.indexOf(b.paneId),
-						)
-					: tab.panes;
-			for (const { sessionId, paneId } of panes) {
-				if (
-					!sessionId ||
-					!paneBySessionId.has(sessionId) ||
-					(eligible && !eligible.has(`workspace-pane-${sessionId}`))
-				)
-					continue;
-				if (paneId === selected) focusedSession = sessionId;
-				else sessions.push(sessionId);
-			}
-		}
-		if (focusedSession) sessions.push(focusedSession);
-		if (!sessions.length || !state.depth) {
-			state.pending = false;
-			return;
-		}
-		const queue = sessions.values();
-		let current: ReturnType<typeof scanScrollback> | undefined;
-		let sessionId: string | undefined;
-		function step(): void {
-			if (workspaceScan !== state) return;
-			if (sessionId && !paneBySessionId.has(sessionId)) current = undefined;
-			const deadline = performance.now() + 5;
-			let changed = false;
-			do {
-				if (!current) {
-					sessionId = queue.next().value;
-					if (!sessionId) {
-						state.pending = false;
-						refresh();
-						return;
-					}
-					const pt = paneBySessionId.get(sessionId);
-					if (!pt) continue;
-					current = scanScrollback(pt.term, state.depth, phrase);
-				}
-				const next = current.next();
-				if (next.done) {
-					if (next.value.count && sessionId) {
-						state.hits.set(sessionId, next.value);
-						changed = true;
-					}
-					current = undefined;
-				}
-			} while (performance.now() < deadline);
-			if (changed) refresh();
-			requestAnimationFrame(step);
-		}
-		requestAnimationFrame(step);
-	}
-
-	function getWorkspacePaletteCommands(
-		raw: string,
-		refresh: () => void,
-	): PaletteCommand[] | undefined {
-		const query =
-			profilePickerSession || workspacePickerOpen
-				? undefined
-				: workspaceSearchQuery(raw);
-		const parsed = query === undefined ? null : parseWorkspaceSearch(query);
-		const depth = lp.scrollback_search_lines;
-		if (
-			!parsed?.phrase ||
-			workspaceScan?.query !== query ||
-			workspaceScan?.depth !== depth
-		) {
-			workspaceScan = null;
-		}
-		if (query === undefined) return undefined;
-		if (!parsed) return [];
-		const state = workspaceScan;
-		const tabs: WorkspacePaletteTab[] = tabsInIndexOrder().map((tab, index) => {
+	function workspaceSearchTabs(): WorkspacePaletteTab[] {
+		return tabsInIndexOrder().map((tab, index) => {
 			const paneIds = tabPaneIds(tab.id);
 			return {
 				id: tab.id,
@@ -5389,7 +5271,6 @@ async function boot(): Promise<void> {
 									profile?.sshIp ?? spawn.sshIp,
 								) ?? { target: parts.profileName })
 							: undefined;
-					const hits = sessionId ? state?.hits.get(sessionId) : undefined;
 					const run = (match?: ScrollbackMatch) => {
 						const live = sessionId ? paneBySessionId.get(sessionId) : undefined;
 						const target = live?.paneId ?? paneId;
@@ -5431,48 +5312,21 @@ async function boot(): Promise<void> {
 						]
 							.filter(Boolean)
 							.join(" "),
-						hits,
-						expanded: sessionId ? state?.expanded.has(sessionId) : false,
-						toggleMatches:
-							state &&
-							sessionId &&
-							hits &&
-							hits.matches.length > COLLAPSED_MATCHES
-								? () => {
-										if (!state.expanded.delete(sessionId))
-											state.expanded.add(sessionId);
-									}
-								: undefined,
 						run: () => run(),
 						runMatch: run,
 					};
 				}),
 			};
 		});
-		if (parsed.phrase && !state) {
-			workspaceScan = {
-				query,
-				depth,
-				pending: true,
-				hits: new Map(),
-				expanded: new Set(),
-			};
-			scanWorkspacePanes(
-				tabs,
-				parsed.metadata,
-				parsed.phrase,
-				workspaceScan,
-				refresh,
-			);
-			return [];
-		}
-		return workspacePaletteCommands(
-			tabs,
-			parsed.metadata,
-			Date.now(),
-			!!parsed.phrase,
-		);
 	}
+	const workspaceSearch = lazyWorkspaceSearch({
+		tabs: workspaceSearchTabs,
+		activeTabId: () => activeTabId,
+		focusedPaneId,
+		nearbyPaneIds: (id) =>
+			paneHost ? paneIdsByTreeDistance(paneHost.getTree(), id) : null,
+		terminal: (id) => paneBySessionId.get(id)?.term,
+	});
 
 	let processToastTimer = 0;
 	const processToast = document.getElementById(
@@ -6053,16 +5907,15 @@ async function boot(): Promise<void> {
 					input: cpInput,
 					list: cpList,
 					getCommands: () => getMergedPaletteCommands(cpInput?.value ?? ""),
-					getFilteredCommands: getWorkspacePaletteCommands,
-					filteredEmptyText: () =>
-						workspaceScan?.pending
-							? "Searching scrollback…"
-							: workspaceScan
-								? "No matches in available scrollback"
-								: "No matching tabs or panes",
-					onFilterClosed: () => {
-						workspaceScan = null;
-					},
+					getFilteredCommands: (query, refresh) =>
+						workspaceSearch.filter(
+							query,
+							lp.scrollback_search_lines,
+							refresh,
+							!profilePickerSession && !workspacePickerOpen,
+						),
+					filteredEmptyText: () => workspaceSearch.emptyText,
+					onFilterClosed: workspaceSearch.clear,
 					onBeforeOpen: async () => {
 						closeHelpPanel();
 						// Don't block open on profile re-detection (shell/WSL probes).
@@ -6557,7 +6410,7 @@ async function boot(): Promise<void> {
 		}),
 		listen("partty-hide", () => {
 			cancelReclaim();
-			if (workspaceScan) commandPalette?.close();
+			if (workspaceSearch.scanning) commandPalette?.close();
 			lastPointerPos = null;
 			flushPendingPaneZoom();
 			void (async () => {

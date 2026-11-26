@@ -34,11 +34,6 @@ export type WorkspacePaletteTab = {
 	run: PaletteCommand["run"];
 };
 
-export function workspaceSearchQuery(raw: string): string | undefined {
-	const query = raw.trimStart();
-	return query.startsWith(":") ? query.slice(1).trim() : undefined;
-}
-
 export function parseWorkspaceSearch(query: string): {
 	metadata: string;
 	phrase?: string;
@@ -56,23 +51,6 @@ export function parseWorkspaceSearch(query: string): {
 		(!metadata || TAB_INDEX.test(metadata) || Array.from(metadata).length >= 3)
 		? { metadata, phrase }
 		: null;
-}
-
-/** Metadata only: never parse a commandline or change the SSH spawn target. */
-export function sshPaneTarget(
-	host: string | null | undefined,
-	user: string | null | undefined,
-	ip: string | null | undefined,
-): WorkspacePalettePane["remote"] {
-	const address = ip?.trim();
-	const endpoint = host?.trim() || address;
-	if (!endpoint) return undefined;
-	const login = user?.trim();
-	return {
-		target:
-			login && !endpoint.includes("@") ? `${login}@${endpoint}` : endpoint,
-		ip: address && address !== endpoint.split("@").at(-1) ? address : undefined,
-	};
 }
 
 export function workspacePaletteCommands(

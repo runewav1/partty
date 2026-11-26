@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
 	parseWorkspaceSearch,
-	sshPaneTarget,
 	workspacePaletteCommands,
-	workspaceSearchQuery,
 } from "../../app/workspacePalette.ts";
 import { selectTabProgress } from "../../pty/ptyProgress.ts";
+import { sshPaneTarget } from "../../tabs/displayNames.ts";
+import { createVmLoader } from "../support/vm.mjs";
 
 const progress = { state: "normal", value: 42 };
 const noop = () => {};
@@ -46,13 +46,73 @@ const tabs = [
 	},
 ];
 
-test("only a leading colon activates workspace search", () => {
+test("leading-colon queries load search on demand and only the active query refreshes", async () => {
+	let nextFrame = 0;
+	const frames = new Map();
+	const loader = createVmLoader({
+		root: new URL("../../", import.meta.url),
+		globals: {
+			performance,
+			requestAnimationFrame: (step) => {
+				frames.set(++nextFrame, step);
+				return nextFrame;
+			},
+			cancelAnimationFrame: (id) => frames.delete(id),
+		},
+	});
+	const { lazyWorkspaceSearch, workspaceSearchQuery } = await loader.api(
+		"app/lazyWorkspaceSearch.ts",
+	);
 	assert.equal(workspaceSearchQuery("  :"), "");
 	assert.equal(workspaceSearchQuery(" :deploy build "), "deploy build");
 	assert.equal(workspaceSearchQuery(": deploy@host"), "deploy@host");
 	assert.equal(workspaceSearchQuery("@"), undefined);
 	assert.equal(workspaceSearchQuery("@profile:float"), undefined);
 	assert.equal(workspaceSearchQuery("deploy:build"), undefined);
+
+	const pane = { ...tabs[0].panes[0], sessionId: "shell" };
+	const line = { translateToString: () => "new prompt" };
+	const buffer = { type: "normal", length: 1, getLine: () => line };
+	const term = { cols: 80, buffer: { active: buffer, normal: buffer } };
+	const search = lazyWorkspaceSearch({
+		tabs: () => [{ ...tabs[0], panes: [{ ...pane }] }],
+		activeTabId: () => tabs[0].id,
+		focusedPaneId: () => pane.paneId,
+		nearbyPaneIds: () => null,
+		terminal: (id) => (id === "shell" ? term : undefined),
+	});
+	assert.equal(search.filter("regular", 100, assert.fail, true), undefined);
+	assert.equal(search.filter(":", 100, assert.fail, false), undefined);
+	assert.equal(search.scanning, false);
+
+	let staleRefreshes = 0;
+	search.filter(':"old prompt"', 100, () => staleRefreshes++, true);
+	assert.equal(search.emptyText, "Loading workspace search…");
+	search.clear();
+	const loaded = Promise.withResolvers();
+	const query = ':"new prompt"';
+	search.filter(query, 100, loaded.resolve, true);
+	await loaded.promise;
+	assert.equal(staleRefreshes, 0);
+
+	let results;
+	const refresh = () => {
+		results = search.filter(query, 100, refresh, true);
+	};
+	search.filter(':"old prompt"', 100, () => staleRefreshes++, true);
+	search.filter(query, 100, refresh, true);
+	assert.equal(frames.size, 1, "changing the query cancels the previous scan");
+	for (const [id, step] of frames) {
+		frames.delete(id);
+		step();
+	}
+	assert.equal(staleRefreshes, 0);
+	assert.ok(results.some((row) => row.labelHtml?.includes("new prompt")));
+	search.filter(':"third prompt"', 100, assert.fail, true);
+	assert.equal(frames.size, 1);
+	search.clear();
+	assert.equal(search.scanning, false);
+	assert.equal(frames.size, 0);
 });
 
 test("scrollback search requires a complete literal phrase of at least three characters", () => {
