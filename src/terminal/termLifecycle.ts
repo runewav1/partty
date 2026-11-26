@@ -214,3 +214,92 @@ export function disposeWebgpuSession(): void {
 	webgpuSessionPending = undefined;
 	webgpuFailed = false;
 }
+
+type PaneRenderer = {
+	pending?: Promise<void>;
+	addon?: TerminalRendererAddon;
+	retryAfter?: number;
+	listeners?: { dispose(): void }[];
+};
+
+export function createPaneRenderers(useWebgpu: () => boolean) {
+	// A pane's id can change while an addon is loading or after it mounts.
+	const states = new Map<Terminal, PaneRenderer>();
+
+	function dispose(term: Terminal): void {
+		const state = states.get(term);
+		if (!state) return;
+		states.delete(term);
+		for (const listener of state.listeners ?? []) listener.dispose();
+		try {
+			state.addon?.dispose();
+		} catch (error) {
+			// biome-ignore lint/suspicious/noConsole: continue releasing other renderers.
+			console.warn("Terminal renderer disposal failed", error);
+		}
+	}
+
+	async function mount(term: Terminal, state: PaneRenderer): Promise<void> {
+		for (const delay of [0, 50, 120, 240]) {
+			if (delay)
+				// biome-ignore lint/performance/noAwaitInLoops: retries are sequential.
+				await new Promise<void>((resolve) => setTimeout(resolve, delay));
+			if (states.get(term) !== state) return;
+			let addon: TerminalRendererAddon | undefined;
+			const webgpu = useWebgpu();
+			try {
+				addon = await createRendererAddon(webgpu);
+				if (states.get(term) !== state) {
+					addon.dispose();
+					return;
+				}
+				term.loadAddon(addon);
+				const expected = webgpu ? "webgpu" : "webgl";
+				if (term.element && activeRendererKind(term) !== expected)
+					throw new Error(`Expected a ${expected} terminal renderer`);
+				const failed = () => {
+					if (states.get(term) !== state) return;
+					dispose(term);
+					void ensure(term);
+				};
+				state.listeners = [addon.onContextLoss(failed)];
+				if ("onError" in addon) state.listeners.push(addon.onError(failed));
+				term.refresh(0, term.rows - 1);
+				state.addon = addon;
+				return;
+			} catch (error) {
+				for (const listener of state.listeners ?? []) listener.dispose();
+				state.listeners = undefined;
+				addon?.dispose();
+				if (states.get(term) !== state) return;
+				// biome-ignore lint/suspicious/noConsole: renderer failure leaves the DOM fallback in use.
+				console.warn("Terminal renderer mount failed", error);
+				// WebGPU factory failures are latched until the session is shed.
+				if (webgpu && !addon) break;
+			}
+		}
+		state.retryAfter = Date.now() + 10_000;
+	}
+
+	function ensure(term: Terminal): Promise<void> {
+		const existing = states.get(term);
+		if (existing?.pending !== undefined) return existing.pending;
+		if (existing?.addon || (existing?.retryAfter ?? 0) > Date.now())
+			return Promise.resolve();
+		const state: PaneRenderer = {};
+		states.set(term, state);
+		state.pending = mount(term, state).finally(() => {
+			state.pending = undefined;
+		});
+		return state.pending;
+	}
+
+	return {
+		ensure,
+		dispose,
+		shed() {
+			for (const term of states.keys()) dispose(term);
+			disposeWebgpuSession();
+		},
+	};
+}

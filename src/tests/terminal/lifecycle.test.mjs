@@ -362,7 +362,7 @@ test("renderer creation is shared and a late completion cannot survive hide", as
 	lifecycle.disposeWebgpuSession();
 });
 
-test("WebGPU shedding releases ready sessions and summon creates fresh pane addons", async () => {
+test("renderer disposal cancels in-flight mounts and summon recreates pane addons", async () => {
 	const sessions = [];
 	const load = await modules({
 		"@partty/addon-webgpu": {
@@ -382,6 +382,8 @@ test("WebGPU shedding releases ready sessions and summon creates fresh pane addo
 							const addon = {
 								session: this,
 								disposed: false,
+								onContextLoss: () => ({ dispose: noop }),
+								onError: () => ({ dispose: noop }),
 								dispose() {
 									this.disposed = true;
 								},
@@ -401,27 +403,43 @@ test("WebGPU shedding releases ready sessions and summon creates fresh pane addo
 		},
 	});
 	const lifecycle = await load("terminal/termLifecycle.ts");
+	const renderers = lifecycle.createPaneRenderers(() => true);
+	const makeTerm = () => ({
+		rows: 5,
+		refresh: noop,
+		loadAddon(addon) {
+			this.addon = addon;
+		},
+	});
+	const active = makeTerm();
+	const other = makeTerm();
 	for (let cycle = 0; cycle < 3; cycle++) {
+		const mounting = renderers.ensure(active);
+		assert.equal(renderers.ensure(active), mounting);
+		const cancelled = renderers.ensure(other);
+		renderers.dispose(other);
 		// biome-ignore lint/performance/noAwaitInLoops: Each summon must follow the previous dismiss of the shared session.
-		const addons = await Promise.all([
-			lifecycle.createRendererAddon(true),
-			lifecycle.createRendererAddon(true),
-		]);
+		await Promise.all([mounting, cancelled]);
+		const session = sessions[cycle];
 		assert.equal(sessions.length, cycle + 1);
-		assert.notEqual(addons[0], addons[1]);
-		assert.ok(addons.every((addon) => addon.session === sessions[cycle]));
+		assert.equal(session.addons.filter((addon) => !addon.disposed).length, 1);
+		assert.equal(active.addon.session, session);
 		if (cycle > 0) {
 			// Delayed callbacks from a disposed device cannot poison the new session.
 			sessions[cycle - 1].error();
 			sessions[cycle - 1].loss();
 		}
-		const extra = await lifecycle.createRendererAddon(true);
-		assert.equal(extra.session, sessions[cycle]);
-		// Same disposal order as main.ts shedWebgl: pane addons, then session.
-		for (const addon of [...addons, extra]) addon.dispose();
-		lifecycle.disposeWebgpuSession();
-		lifecycle.disposeWebgpuSession();
-		assert.equal(sessions[cycle].disposed, 1);
+		await renderers.ensure(other);
+		const oldAddon = other.addon;
+		renderers.dispose(other);
+		assert.equal(oldAddon.disposed, true);
+		assert.equal(active.addon.disposed, false);
+		await renderers.ensure(other);
+		assert.notEqual(other.addon, oldAddon);
+		assert.equal(other.addon.session, session);
+		renderers.shed();
+		renderers.shed();
+		assert.equal(session.disposed, 1);
 	}
 });
 

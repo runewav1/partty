@@ -9,7 +9,6 @@ import {
 } from "@tauri-apps/api/window";
 import type { FitAddon } from "@xterm/addon-fit";
 import type { Terminal } from "@xterm/xterm";
-import type { TerminalRendererAddon } from "./terminal/termLifecycle";
 import "@xterm/xterm/css/xterm.css";
 
 import {
@@ -196,12 +195,9 @@ import {
 	writeTerminalSerialized,
 } from "./terminal/scrollbackStash";
 import {
-	activeRendererKind,
-	createRendererAddon,
-	disposeWebgpuSession,
+	createPaneRenderers,
 	mergeLifecyclePrefs,
 	type ParttyLifecyclePrefs,
-	type RendererKind,
 } from "./terminal/termLifecycle";
 import {
 	applyUiTheme,
@@ -318,16 +314,6 @@ function isPaneLayoutUsable(p: PersistedPaneLayout): boolean {
 }
 
 type PtyExitEvent = { sessionId: string };
-type PaneWebglStatus = "pending" | "ready" | "failed" | "disposed";
-type PaneWebglState = {
-	status: PaneWebglStatus;
-	attempts: number;
-	generation: number;
-	addon?: TerminalRendererAddon;
-	lastError?: unknown;
-	lastFailureAt?: number;
-	contextLossDispose?: { dispose(): void };
-};
 type PendingPtyOutput = {
 	sessionId: string;
 	chunks: ByteChunkBuffer;
@@ -1264,11 +1250,11 @@ async function boot(): Promise<void> {
 		paneLinkProviders.delete(paneId);
 		paneWebLinks.get(paneId)?.dispose();
 		paneWebLinks.delete(paneId);
-		disposeWebglForPane(paneId);
 		paneShellState.delete(paneId);
 		paneCwdHints.delete(paneId);
 		paneRemoteIsWindows.delete(paneId);
 		paneProfileIds.delete(paneId);
+		paneProgramNames.delete(paneId);
 		lastPtyDims.delete(paneId);
 		pendingPaneSpawnStartup.delete(paneId);
 		pendingPtyWriteByPane.delete(paneId);
@@ -1278,7 +1264,10 @@ async function boot(): Promise<void> {
 		backendReplayRestoredPanes.delete(paneId);
 	}
 
-	const paneWebglStates = new Map<string, PaneWebglState>();
+	const paneRenderers = createPaneRenderers(
+		() => !(persisted.prefs as Partial<ParttyPrefs>).use_webgl,
+	);
+	let renderersShedOnHide = false;
 	const backendReplayRestoredPanes = new Set<string>();
 
 	function getFocusedTerm(): Terminal | null {
@@ -1495,117 +1484,29 @@ async function boot(): Promise<void> {
 		closeFocusedPane(paneId);
 	}
 
-	function disposeWebglForPane(paneId: string): void {
-		const state = paneWebglStates.get(paneId);
-		if (!state) return;
-		state.status = "disposed";
-		try {
-			state.contextLossDispose?.dispose();
-		} catch {
-			/* ignore */
-		}
-		try {
-			state.addon?.dispose();
-		} catch {
-			/* ignore */
-		}
-		paneWebglStates.delete(paneId);
-	}
-
-	function shedWebgl(reclaim = true): void {
-		for (const paneId of [...paneWebglStates.keys()])
-			disposeWebglForPane(paneId);
-		disposeWebgpuSession();
-		// Addons, atlas textures and the shared GPU session are now garbage.
-		if (reclaim) scheduleReclaim();
-	}
-
-	async function ensureWebglOnPane(paneId: string): Promise<void> {
-		if (!lp.preload_webgl_on_startup && document.visibilityState === "hidden")
-			return;
-		const pt = paneHost?.getPaneTerminal(paneId);
-		if (!pt) return;
-		const existing = paneWebglStates.get(paneId);
-		if (existing?.status === "ready" || existing?.status === "pending") return;
+	async function ensurePaneRenderer(term: Terminal): Promise<void> {
 		if (
-			existing?.status === "failed" &&
-			existing.lastFailureAt &&
-			Date.now() - existing.lastFailureAt < 10_000
-		) {
+			renderersShedOnHide ||
+			(!lp.preload_webgl_on_startup && document.visibilityState === "hidden")
+		)
 			return;
-		}
-
-		const generation = (existing?.generation ?? 0) + 1;
-		const state: PaneWebglState = {
-			status: "pending",
-			attempts: existing?.attempts ?? 0,
-			generation,
-		};
-		paneWebglStates.set(paneId, state);
-
-		const delays = [0, 50, 120, 240];
-		for (let i = 0; i < delays.length; i++) {
-			if (delays[i] > 0)
-				await new Promise<void>((r) => setTimeout(r, delays[i]));
-			if (paneWebglStates.get(paneId) !== state) return;
-			let addon: TerminalRendererAddon | undefined;
-			try {
-				const useWebgpu = !(persisted.prefs as Partial<ParttyPrefs>).use_webgl;
-				state.attempts++;
-				addon = await createRendererAddon(useWebgpu);
-				if (
-					paneWebglStates.get(paneId) !== state ||
-					paneHost?.getPaneTerminal(paneId) !== pt
-				) {
-					addon.dispose();
-					return;
-				}
-				pt.term.loadAddon(addon);
-				// Verify the renderer actually installed by RenderService, not the
-				// addon we just created. WebGPU mode must be webgpu; a silent
-				// WebGL/DOM install is a hard, recorded failure.
-				const kind = activeRendererKind(pt.term);
-				const want: RendererKind = useWebgpu ? "webgpu" : "webgl";
-				if (pt.term.element && kind !== want) {
-					throw new Error(
-						`expected ${want} renderer but active renderer is ${kind}`,
-					);
-				}
-				const failed = () => {
-					disposeWebglForPane(paneId);
-					void ensureWebglOnPane(paneId);
-				};
-				const loss = addon.onContextLoss(failed);
-				const error = "onError" in addon ? addon.onError(failed) : undefined;
-				state.contextLossDispose = {
-					dispose() {
-						loss.dispose();
-						error?.dispose();
-					},
-				};
-				state.addon = addon;
-				state.status = "ready";
-				paneWebglStates.set(paneId, state);
-				pt.term.refresh(0, pt.term.rows - 1);
-				return;
-			} catch (e) {
-				addon?.dispose();
-				if (paneWebglStates.get(paneId) !== state) return;
-				state.lastError = e;
-				console.warn("renderer mount failed for pane", paneId, e);
-			}
-		}
-
-		state.status = "failed";
-		state.lastFailureAt = Date.now();
-		paneWebglStates.set(paneId, state);
+		await paneRenderers.ensure(term);
 	}
 
-	/** Remount WebGL on panes in the active tab host (e.g. after hide shed). */
-	async function mountWebglForActivePanes(): Promise<void> {
-		const ids: string[] = [];
-		paneHost?.forEachPane((id) => ids.push(id));
-		await Promise.all(ids.map((id) => ensureWebglOnPane(id)));
+	function visibleRendererTerminals(): Set<Terminal> {
+		const visible = new Set<Terminal>();
+		for (const host of tabPaneHosts.values()) {
+			host.forEachPane((id, { term }) => {
+				if (host === paneHost || host.isPaneFollowing(id)) visible.add(term);
+			});
+		}
+		return visible;
+	}
+
+	async function mountVisibleRenderers(): Promise<void> {
+		await Promise.all(
+			Array.from(visibleRendererTerminals(), ensurePaneRenderer),
+		);
 	}
 
 	function isTerminalVisiblyEmpty(term: Terminal): boolean {
@@ -2450,8 +2351,13 @@ async function boot(): Promise<void> {
 		// Skip stale work if the user already hopped to another pane.
 		if (paneHost?.getFocusedPaneId() !== paneId) return;
 
-		await ensureWebglOnPane(paneId);
-		if (paneHost?.getFocusedPaneId() !== paneId) return;
+		await ensurePaneRenderer(pt.term);
+		if (
+			hasOpenOverlay() ||
+			focusedPaneId() !== paneId ||
+			paneHost?.getPaneTerminal(paneId) !== pt
+		)
+			return;
 
 		pt.term.focus();
 	}
@@ -2499,7 +2405,6 @@ async function boot(): Promise<void> {
 		rekeyKeyed(pendingPtyOutputByPane, from, to);
 		rekeyKeyed(ptyBulkWriteTailByPane, from, to);
 		rekeyKeyed(pendingZoomByPane, from, to);
-		rekeyKeyed(paneWebglStates, from, to);
 		rekeyKeyedSet(ptyBulkActiveByPane, from, to);
 		rekeyKeyedSet(backendReplayRestoredPanes, from, to);
 		rekeyKeyedSet(pendingCreationReflowPanes, from, to);
@@ -3028,7 +2933,8 @@ async function boot(): Promise<void> {
 						() => onSelDispose.dispose(),
 						() => bufferChange.dispose(),
 					]);
-					if (lp.preload_webgl_on_startup) void ensureWebglOnPane(id);
+					if (lp.preload_webgl_on_startup && tabId === activeTabId)
+						void ensurePaneRenderer(pt.term);
 					const explicitProfile =
 						pendingPaneSpawnProfile.get(id) ?? pendingNewPaneProfile.v;
 					pendingPaneSpawnProfile.delete(id);
@@ -3074,6 +2980,8 @@ async function boot(): Promise<void> {
 				},
 				onPaneDisposed: (pid, sessionId) => {
 					void ptyKillPane(sessionId).catch(() => {});
+					const term = paneBySessionId.get(sessionId)?.term;
+					if (term) paneRenderers.dispose(term);
 					paneBySessionId.delete(sessionId);
 					if (ptyProgressBySession.delete(sessionId)) scheduleTabProgress();
 					paneThemes.delete(pid);
@@ -3323,6 +3231,7 @@ async function boot(): Promise<void> {
 			});
 		}
 		requestAnimationFrame(() => {
+			if (paneHost === nextHost) void mountVisibleRenderers();
 			nextHost.forEachPane((id, pt) => {
 				void ensurePtyForPane(id, pt);
 			});
@@ -5151,7 +5060,8 @@ async function boot(): Promise<void> {
 		paneCwdHints.clear();
 		paneRemoteIsWindows.clear();
 		lastPtyDims.clear();
-		shedWebgl();
+		paneRenderers.shed();
+		scheduleReclaim();
 		const tabId = activeTabId;
 		disposeTabPaneHost(tabId);
 		clearPaneLayout();
@@ -6249,6 +6159,7 @@ async function boot(): Promise<void> {
 	}
 
 	async function runPrepareShow(): Promise<void> {
+		renderersShedOnHide = false;
 		summonInProgress = true;
 		summonPreparedByDefer = false;
 		try {
@@ -6263,7 +6174,7 @@ async function boot(): Promise<void> {
 			await restoreScrollback(lp.destroy_webview_on_hide);
 			await ensurePtyForAllTabHosts();
 
-			await mountWebglForActivePanes();
+			await mountVisibleRenderers();
 			const ft = getFocusedTerm();
 			if (ft) ft.refresh(0, ft.rows - 1);
 			if (paneHost) scheduleHostGeometryRepair(paneHost);
@@ -6436,14 +6347,14 @@ async function boot(): Promise<void> {
 			if (workspaceSearch.scanning) commandPalette?.close();
 			lastPointerPos = null;
 			flushPendingPaneZoom();
+			// Cancel pending installs before async serialization can overlap a summon.
+			renderersShedOnHide = lp.webgl_shed_on_hide;
 			void (async () => {
+				if (renderersShedOnHide) paneRenderers.shed();
 				if (paneHost && lp.destroy_webview_on_hide) {
 					for (const host of tabPaneHosts.values()) persistHostLayout(host);
 				}
 				await stashScrollbackForHide(tabPaneHosts.values(), lp);
-				if (lp.webgl_shed_on_hide) {
-					shedWebgl(false);
-				}
 				// WebView teardown waits for stash (see schedule_destroy_webview_after_hide).
 			})().catch((e) => {
 				console.error("partty-hide", e);
@@ -6458,6 +6369,7 @@ async function boot(): Promise<void> {
 			});
 		}),
 		listen("partty-show", () => {
+			renderersShedOnHide = false;
 			void (async () => {
 				// Defer-show: prepare already restored/painted — avoid a second pass.
 				if (summonPreparedByDefer) {
@@ -6472,7 +6384,7 @@ async function boot(): Promise<void> {
 				summonInProgress = true;
 				try {
 					await restoreScrollback(false);
-					await mountWebglForActivePanes();
+					await mountVisibleRenderers();
 					getFocusedTerm()?.focus();
 					scheduleResizeImmediate();
 					await waitAnimationFrames(2);
