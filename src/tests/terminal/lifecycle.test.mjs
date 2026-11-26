@@ -81,7 +81,7 @@ async function modules(
 	return api;
 }
 
-test("dismiss/rebuild preserves each PTY and zoom through storage, tab rekey and hydration", async () => {
+test("restored panes keep their sessions and zoom; reused or duplicated slots get new sessions", async () => {
 	const load = await modules();
 	const { PaneHost, collectLeafIds } = await load("terminal/paneHost.ts");
 	const tabs = await load("tabs/tabsSession.ts");
@@ -159,6 +159,8 @@ test("dismiss/rebuild preserves each PTY and zoom through storage, tab rekey and
 	});
 	assert.equal(invalid.getPaneTerminal("1a").term.options.fontSize, 12);
 	assert.equal(invalid.getPaneTerminal("1b").term.options.fontSize, 12);
+	assert.notEqual(invalid.getPaneTerminal("1a").sessionId, sessions["1a"]);
+	assert.notEqual(invalid.getPaneTerminal("1b").sessionId, sessions["1b"]);
 });
 
 test("pane removal follows the remounted pointer hit or the nearest surviving split", async () => {
@@ -256,66 +258,6 @@ function deferred() {
 	});
 	return { promise, resolve, reject };
 }
-
-test("dismiss→rebuild re-hooks the same PTY session (regression: session must survive webview teardown)", async () => {
-	const load = await modules();
-	const { PaneHost, collectLeafIds } = await load("terminal/paneHost.ts");
-	const tabs = await load("tabs/tabsSession.ts");
-	const { mapLayoutToTabKey } = await load("terminal/paneIds.ts");
-	PaneHost.prototype.mountTree = function () {
-		const ids = [];
-		collectLeafIds(this.getTree(), ids);
-		for (const id of ids) this.renderNode({ kind: "leaf", id });
-	};
-	const createHost = (tree, sessions) =>
-		new PaneHost(
-			new Element(),
-			{
-				rootPaneId: tree.kind === "leaf" ? tree.id : tree.a.id,
-				getTheme: () => ({}),
-				onPaneCreated: noop,
-				suppressEnterAnimation: () => true,
-			},
-			{ initialTree: tree, initialSessionIds: sessions },
-		);
-
-	// Round trip mirrors the real flow: webview A lives → hide persists the
-	// layout (including per-pane session ids) → webview A is destroyed →
-	// webview B boots from the persisted layout and must re-hook the SAME
-	// backend session ids (the PTY processes kept alive in Rust).
-	const tree = {
-		kind: "split",
-		dir: "h",
-		ratio: 0.5,
-		a: { kind: "leaf", id: "1a" },
-		b: { kind: "leaf", id: "1b" },
-	};
-	const webviewA = createHost(tree);
-	const sessions = {};
-	webviewA.forEachPane((id, pt) => {
-		sessions[id] = pt.sessionId;
-	});
-	// Simulate the `partty-hide` persist-all-hosts path.
-	tabs.persistLayoutForTab("tab-1", {
-		v: 1,
-		tree,
-		focusedId: "1b",
-		paneSessionIds: sessions,
-	});
-	const layoutOnDisk = tabs.initialLayoutForTab("tab-1", false);
-	const restored = mapLayoutToTabKey(layoutOnDisk, "1", new Set()).layout;
-	const webviewB = createHost(restored.tree, restored.paneSessionIds);
-	assert.equal(webviewB.getPaneTerminal("1a").sessionId, sessions["1a"]);
-	assert.equal(webviewB.getPaneTerminal("1b").sessionId, sessions["1b"]);
-	// The backend re-subscribe in pty_ensure keys purely on sessionId, so a
-	// preserved id proves the correct process is re-attached rather than respawned.
-
-	// Guard: WITHOUT the persisted session ids (pre-fix behavior), every rebuilt
-	// pane would allocate a fresh session and pty_ensure would spawn a new shell.
-	const noSessionMap = createHost(restored.tree);
-	assert.notEqual(noSessionMap.getPaneTerminal("1a").sessionId, sessions["1a"]);
-	assert.notEqual(noSessionMap.getPaneTerminal("1b").sessionId, sessions["1b"]);
-});
 
 test("first tab rehydrates the per-tab layout (with session ids) even when a legacy layout lingers", async () => {
 	const load = await modules();

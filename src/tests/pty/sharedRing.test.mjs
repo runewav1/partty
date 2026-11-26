@@ -63,17 +63,6 @@ function makeRegistry({ flowControl = () => true } = {}) {
 	return { registry, delivered, released, notify };
 }
 
-test("routes bytes to the ring's session and acknowledges them", () => {
-	const { registry, delivered, notify } = makeRegistry();
-	const a = makeRing(1, "a");
-	registry.receiveBuffer(a.buffer, a.info);
-	notify(1, a.write([65, 66]));
-	assert.deepEqual(delivered, [["a", [65, 66]]]);
-	assert.equal(a.readPos(), 2);
-	notify(1, 2);
-	assert.equal(delivered.length, 1);
-});
-
 function heldSession(opts) {
 	const reg = makeRegistry(opts);
 	const a = makeRing(1, "a", 4 * MiB);
@@ -129,23 +118,37 @@ test("parse progress keeps a legitimate hold armed", () => {
 	}
 });
 
-test("copies across the wrap point", () => {
-	const { registry, delivered, notify } = makeRegistry();
-	const a = makeRing(1, "a");
-	registry.receiveBuffer(a.buffer, a.info);
-	notify(1, a.write([0, 0, 0, 0, 0, 0]));
-	notify(1, a.write([1, 2, 3, 4, 5]));
-	assert.deepEqual(delivered[1], ["a", [1, 2, 3, 4, 5]]);
-	assert.equal(a.readPos(), 11);
-});
+test("acknowledged output remains valid when the writer reuses wrapped ring space", () => {
+	const delivered = [];
+	const registry = createSharedRingRegistry({
+		onBytes: (sessionId, bytes) => delivered.push({ sessionId, bytes }),
+		release: () => {},
+		flowControl: () => true,
+	});
+	const ring = makeRing(1, "pane");
+	const notify = (pos) => registry.receiveMessage({ parttyRings: [[1, pos]] });
+	registry.receiveBuffer(ring.buffer, ring.info);
+	notify(ring.write([0, 0, 0, 0, 0, 0]));
+	const pos = ring.write([1, 2, 3, 4, 5]);
+	notify(pos);
+	assert.equal(ring.readPos(), 11);
+	notify(pos);
+	assert.equal(
+		delivered.length,
+		2,
+		"repeated positions do not redeliver bytes",
+	);
 
-test("delivers copies rather than views into ring memory", () => {
-	const { registry, delivered, notify } = makeRegistry();
-	const a = makeRing(1, "a");
-	registry.receiveBuffer(a.buffer, a.info);
-	notify(1, a.write([7, 7]));
-	a.write([9, 9, 9, 9, 9, 9, 9, 9]);
-	assert.deepEqual(delivered, [["a", [7, 7]]]);
+	ring.write([9, 9, 9, 9, 9, 9, 9, 9]);
+	// Keep the actual arrays handed to consumers; a test-side copy would
+	// hide accidental delivery of a view into reusable ring memory.
+	assert.deepEqual(
+		delivered.map(({ sessionId, bytes }) => [sessionId, [...bytes]]),
+		[
+			["pane", [0, 0, 0, 0, 0, 0]],
+			["pane", [1, 2, 3, 4, 5]],
+		],
+	);
 });
 
 test("skips ahead without delivering when the reader lost sync", () => {

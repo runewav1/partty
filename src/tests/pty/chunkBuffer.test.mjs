@@ -21,9 +21,8 @@ const {
 	drainByteChunks,
 } = await import("../../pty/chunkBuffer.ts");
 
-test("string buffer accumulates totals and ignores empty pushes", () => {
+test("input chunks accumulate in order and each drain clears the pending input", () => {
 	const buf = createStringChunkBuffer();
-	assert.equal(buf.totalChars, 0);
 	pushStringChunk(buf, "");
 	assert.equal(buf.chunks.length, 0);
 	assert.equal(buf.totalChars, 0);
@@ -31,29 +30,16 @@ test("string buffer accumulates totals and ignores empty pushes", () => {
 	pushStringChunk(buf, "ab");
 	pushStringChunk(buf, "cde");
 	assert.equal(buf.totalChars, 5);
-	assert.equal(buf.chunks.length, 2);
-});
-
-test("string drain joins in order once and resets the buffer", () => {
-	const buf = createStringChunkBuffer();
-	pushStringChunk(buf, "foo");
-	pushStringChunk(buf, "bar");
-	pushStringChunk(buf, "baz");
-
-	assert.equal(drainStringChunks(buf), "foobarbaz");
+	assert.equal(drainStringChunks(buf), "abcde");
 	assert.equal(buf.totalChars, 0);
-	assert.equal(buf.chunks.length, 0);
 	assert.equal(drainStringChunks(buf), "");
-});
 
-test("string drain of a single chunk returns the stored value", () => {
-	const buf = createStringChunkBuffer();
 	pushStringChunk(buf, "solo");
 	assert.equal(drainStringChunks(buf), "solo");
 	assert.equal(drainStringChunks(buf), "");
 });
 
-test("byte buffer reports pending bytes and drains concatenated in order", () => {
+test("output drains in order and can hand off a lone chunk without copying", () => {
 	const buf = createByteChunkBuffer();
 	assert.equal(peekByteChunkBytes(buf), 0);
 	pushByteChunk(buf, new Uint8Array());
@@ -67,13 +53,10 @@ test("byte buffer reports pending bytes and drains concatenated in order", () =>
 	assert.deepEqual(Array.from(drainByteChunks(buf)), [1, 2, 3, 4, 5]);
 	assert.equal(peekByteChunkBytes(buf), 0);
 	assert.deepEqual(Array.from(drainByteChunks(buf)), []);
-});
 
-test("single-chunk byte drain is zero-copy", () => {
-	const buf = createByteChunkBuffer();
 	const single = Uint8Array.from([7, 8, 9]);
 	pushByteChunk(buf, single);
 
 	assert.equal(drainByteChunks(buf), single);
-	assert.equal(buf.totalBytes, 0);
+	assert.equal(peekByteChunkBytes(buf), 0);
 });

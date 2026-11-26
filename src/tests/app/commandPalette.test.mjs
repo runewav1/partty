@@ -524,92 +524,57 @@ test("a changed run reference applies without rebuilding rows", async (t) => {
 	assert.equal(ranTag, "new", "Enter uses the newest run reference");
 });
 
-const FIELD_CASES = [
-	{
-		name: "label",
-		initial: [{ id: "a", label: "A" }],
-		mutate: (rows) => {
-			rows[0].label = "B";
-		},
-		labels: ["B"],
-	},
-	{
-		name: "labelHtml",
-		initial: [{ id: "a", label: "A" }],
-		mutate: (rows) => {
-			rows[0].labelHtml = "<b>A</b>";
-		},
-		labels: [""],
-	},
-	{
-		name: "hotkey",
-		initial: [{ id: "a", label: "A" }],
-		mutate: (rows) => {
-			rows[0].hotkey = "Ctrl+K";
-		},
-		labels: ["A"],
-	},
-	{
-		name: "remove presence",
-		initial: [{ id: "a", label: "A" }],
-		mutate: (rows) => {
-			rows[0].remove = () => {};
-		},
-		labels: ["A"],
-	},
-	{
-		name: "removeLabel",
-		initial: [{ id: "a", label: "A", remove: () => {}, removeLabel: "X" }],
-		mutate: (rows) => {
-			rows[0].removeLabel = "Y";
-		},
-		labels: ["A"],
-	},
-	{
-		name: "id",
-		initial: [{ id: "a", label: "A" }],
-		mutate: (rows) => {
-			rows[0].id = "b";
-		},
-		labels: ["A"],
-	},
-	{
-		name: "order",
-		initial: [
-			{ id: "a", label: "A" },
-			{ id: "b", label: "B" },
-		],
-		mutate: (rows) => {
-			rows.reverse();
-		},
-		labels: ["B", "A"],
-	},
-	{
-		name: "delimiter-bearing fields",
-		initial: [{ id: "a", label: "b|c" }],
-		mutate: (rows) => {
-			rows[0].id = "a|b";
-			rows[0].label = "c";
-		},
-		labels: ["c"],
-	},
-];
+test("refresh reflects command changes while keeping unchanged rows", async (t) => {
+	const command = { id: "a", label: "b|c" };
+	const rows = [command, { id: "other", label: "Other" }];
+	const h = await setup(t, { commands: () => rows, refreshMs: 500 });
+	const current = () => h.rows()[rows.indexOf(command)];
+	const label = () => current().children[0].children[0];
+	const original = current();
+	h.env.tickIntervals();
+	assert.equal(current(), original);
 
-for (const testCase of FIELD_CASES) {
-	test(`interval refresh rebuilds when ${testCase.name} changes`, async (t) => {
-		const rows = testCase.initial.map((row) => ({ ...row }));
-		const h = await setup(t, { commands: () => rows, refreshMs: 500 });
-		const before = h.replaceCount();
+	// This update must not collide with the original ID + label.
+	Object.assign(command, { id: "a|b", label: "c" });
+	h.env.tickIntervals();
+	assert.deepEqual(h.labels(), ["c", "Other"]);
 
-		h.env.tickIntervals();
-		assert.equal(h.replaceCount(), before, "identical rows are reused");
+	command.label = "Renamed";
+	h.env.tickIntervals();
+	assert.equal(label().textContent, "Renamed");
 
-		testCase.mutate(rows);
-		h.env.tickIntervals();
-		assert.equal(h.replaceCount(), before + 1, "the field change rebuilds");
-		assert.deepEqual(h.labels(), testCase.labels);
-	});
-}
+	command.id = "renamed-command";
+	h.env.tickIntervals();
+	assert.equal(current().id, "palette-opt-renamed-command");
+
+	command.labelHtml = "<b>Renamed</b>";
+	h.env.tickIntervals();
+	assert.equal(label().innerHTML, "<b>Renamed</b>");
+
+	command.hotkey = "Ctrl+K";
+	h.env.tickIntervals();
+	assert.ok(
+		current().children[0].children.some(
+			(child) => child.textContent === "Ctrl+K",
+		),
+	);
+
+	command.remove = () => {};
+	h.env.tickIntervals();
+	assert.ok(findRemoveButton(current()));
+
+	command.removeLabel = "Remove saved command";
+	h.env.tickIntervals();
+	assert.equal(
+		findRemoveButton(current()).getAttribute("aria-label"),
+		"Remove saved command",
+	);
+
+	rows.reverse();
+	h.env.tickIntervals();
+	assert.equal(h.labels()[0], "Other");
+	assert.equal(label().innerHTML, "<b>Renamed</b>");
+});
 
 test("idle interval refreshes skip row construction but keep fetching commands", async (t) => {
 	const commands = Array.from({ length: 6 }, (_, i) => ({
@@ -619,17 +584,7 @@ test("idle interval refreshes skip row construction but keep fetching commands",
 	}));
 	const h = await setup(t, { commands: () => commands, refreshMs: 500 });
 
-	// Baseline: one forced (non-deduped) rebuild creates 3 nodes per row.
-	h.env.resetCreateCount();
-	fire(h.input, "input");
-	h.env.advanceRaf();
-	assert.equal(
-		h.env.createCount,
-		commands.length * 3,
-		"one full render creates 3 nodes per row",
-	);
-
-	// Optimized: idle interval ticks fetch fresh commands but create nothing.
+	// Idle ticks must keep the data fresh without allocating replacement rows.
 	const before = h.replaceCount();
 	const gets = h.getCalls();
 	h.env.resetCreateCount();
