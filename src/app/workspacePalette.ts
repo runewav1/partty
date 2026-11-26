@@ -6,7 +6,7 @@ import {
 	type ScrollbackMatch,
 } from "../terminal/scrollbackSearch.ts";
 import { escapeHtml } from "../util/html.ts";
-import { filterAndRankLexical, normalizeQuery } from "../util/lexicalSearch.ts";
+import { normalizeQuery, scoreLexicalMatch } from "../util/lexicalSearch.ts";
 import type { PaletteCommand } from "./commandPalette";
 
 const TAB_INDEX = /^(?:tab\s+)?([1-9]\d*)$/i;
@@ -61,7 +61,8 @@ export function workspacePaletteCommands(
 ): PaletteCommand[] {
 	const tabIndex = query.match(TAB_INDEX)?.[1];
 	const parts = tabIndex ? [] : normalizeQuery(query);
-	const rows: PaletteCommand[] = [];
+	const normalized = parts.join(" ");
+	const groups: { rows: PaletteCommand[]; score: number }[] = [];
 	for (const tab of tabs) {
 		if (tabIndex && tabIndex !== String(tab.index)) continue;
 		const prefix = `tab ${tab.index} ${tab.label}`;
@@ -74,7 +75,7 @@ export function workspacePaletteCommands(
 			run: tab.run,
 		};
 		const children = new Map<string, PaletteCommand[]>();
-		const panes: PaletteCommand[] = tab.panes
+		const panes = tab.panes
 			.filter((pane) => !quoted || pane.hits?.count)
 			.map((pane) => {
 				const { startedAt } = pane;
@@ -112,22 +113,22 @@ export function workspacePaletteCommands(
 						})),
 					);
 				}
-				return {
+				const keywords = [
+					"pane",
+					pane.paneId,
+					pane.profileName,
+					pane.cwd,
+					pane.oscTitle,
+					detail,
+					pane.remote ? "ssh remote" : null,
+					running ? "running process" : reported ? "progress" : "idle",
+					pane.searchTerms,
+				].join(" ");
+				const row: PaletteCommand = {
 					id,
 					label: headline,
 					labelHtml: `<span class="cp-workspace-primary" title="${escapeHtml(headline)}">${badge}<span class="cp-label-name">${escapeHtml(headline)}</span></span>${detail ? ` <span class="cp-workspace-detail" title="${escapeHtml(detail)}">${escapeHtml(detail)}</span>` : ""}`,
-					keywords: [
-						prefix,
-						"pane",
-						pane.paneId,
-						pane.profileName,
-						pane.cwd,
-						pane.oscTitle,
-						detail,
-						pane.remote ? "ssh remote" : null,
-						running ? "running process" : reported ? "progress" : "idle",
-						pane.searchTerms,
-					].join(" "),
+					keywords: `${prefix} ${keywords}`,
 					appearance: pane.remote ? "workspace-remote" : "workspace-pane",
 					progress: pane.progress,
 					hotkey: pane.toggleMatches ? "Tab" : undefined,
@@ -141,16 +142,56 @@ export function workspacePaletteCommands(
 					run: pane.run,
 					onTab: pane.toggleMatches,
 				};
+				return {
+					row,
+					id,
+					label: headline,
+					keywords,
+					remote: pane.remote?.target,
+				};
 			});
-		const matches = filterAndRankLexical(panes, parts, true);
-		if (
-			matches.length ||
-			(!quoted && filterAndRankLexical([header], parts).length)
-		) {
-			rows.push(header);
-			for (const pane of matches)
-				rows.push(pane, ...(children.get(pane.id) ?? []));
+		const tabMatch = { id: header.id, label: tab.label, keywords: prefix };
+		const tabScore = quoted
+			? null
+			: parts.length
+				? scoreLexicalMatch(tabMatch, parts, normalized)
+				: 0;
+		const matches: { row: PaletteCommand; score: number }[] = [];
+		for (const pane of panes) {
+			let score = parts.length ? scoreLexicalMatch(pane, parts, normalized) : 0;
+			if (parts.length && pane.remote && pane.remote !== pane.label) {
+				const remote = scoreLexicalMatch(
+					{ ...pane, label: pane.remote },
+					parts,
+					normalized,
+				);
+				if (remote !== null && (score === null || remote > score))
+					score = remote;
+			}
+			if (score !== null) matches.push({ row: pane.row, score });
+			else if (scoreLexicalMatch(pane.row, parts, normalized) !== null) {
+				// A match that needs the tab's keywords ranks behind direct matches.
+				matches.push({ row: pane.row, score: -1 });
+			}
 		}
+		if (!matches.length && tabScore === null) continue;
+		// In a text search, the header is selectable context unless it matches
+		// on its own. Browse and numeric tab queries keep the header first.
+		const headerMatch = { row: header, score: tabScore ?? -2 };
+		if (parts.length) {
+			matches.push(headerMatch);
+			matches.sort((a, b) => b.score - a.score);
+		} else {
+			matches.unshift(headerMatch);
+		}
+		groups.push({
+			rows: matches.flatMap(({ row }) => [
+				row,
+				...(children.get(row.id) ?? []),
+			]),
+			score: matches[0]!.score,
+		});
 	}
-	return rows;
+	if (parts.length) groups.sort((a, b) => b.score - a.score);
+	return groups.flatMap(({ rows }) => rows);
 }

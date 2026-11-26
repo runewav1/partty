@@ -272,9 +272,17 @@ test("prefiltered workspace rows keep their order and update status in place", a
 		commands: () => [],
 		getFilteredCommands: (query) => {
 			if (query === ":miss") return [];
+			const tab = {
+				id: "tab",
+				label: "Tools",
+				appearance: "workspace-tab",
+				run: () => {
+					picked = "tab";
+				},
+			};
+			if (query === ":tools") return [tab];
 			if (query !== ":build") return undefined;
 			return [
-				{ id: "tab", label: "Tools", appearance: "workspace-tab" },
 				{
 					id: "pane",
 					label: "build",
@@ -284,6 +292,7 @@ test("prefiltered workspace rows keep their order and update status in place", a
 						picked = "pane";
 					},
 				},
+				tab,
 			];
 		},
 		filteredEmptyText: "No matching tabs or panes",
@@ -298,15 +307,25 @@ test("prefiltered workspace rows keep their order and update status in place", a
 	h.input.value = ":build";
 	fire(h.input, "input");
 	h.env.advanceRaf();
-	assert.deepEqual(h.labels(), ["Tools", "build"]);
-	const pane = h.rows()[1];
+	assert.deepEqual(h.labels(), ["build", "Tools"]);
+	assert.equal(
+		h.list.getAttribute("aria-activedescendant"),
+		"palette-opt-pane",
+	);
+	const pane = h.rows()[0];
 	const status = pane.querySelector(".command-palette-item-status");
 	assert.equal(status.textContent, "6s");
-	fire(h.input, "keydown", key("ArrowDown"));
 	elapsed = "7s";
 	h.env.tickIntervals();
-	assert.equal(h.rows()[1], pane);
+	assert.equal(h.rows()[0], pane);
 	assert.equal(status.textContent, "7s");
+
+	h.input.value = ":tools";
+	fire(h.input, "input");
+	h.env.advanceRaf();
+	assert.deepEqual(h.labels(), ["Tools"]);
+	h.input.value = ":build";
+	fire(h.input, "input");
 	fire(h.input, "keydown", key("Enter"));
 	assert.equal(picked, "pane");
 });

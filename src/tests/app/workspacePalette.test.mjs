@@ -182,12 +182,17 @@ test("quoted results expose selectable, escaped previews and unfold only their p
 		8,
 	);
 	assert.equal(
-		workspacePaletteCommands([{ ...tabs[0], panes }], "hidden-distro")[1].id,
+		workspacePaletteCommands(
+			[{ ...tabs[0], panes }],
+			"hidden-distro",
+			0,
+			true,
+		)[0].id,
 		pane.id,
 	);
 });
 
-test("workspace results retain tab and pane order and combine tab and pane terms", () => {
+test("workspace search ranks direct pane matches while retaining tab context and browse order", async () => {
 	const ids = (query) =>
 		workspacePaletteCommands(tabs, query, 6100).map((c) => c.id);
 	assert.deepEqual(ids(""), [
@@ -197,16 +202,42 @@ test("workspace results retain tab and pane order and combine tab and pane terms
 		"workspace-tab-spare",
 	]);
 	assert.deepEqual(ids("zeta deploy 192.0.2.7"), [
-		"workspace-tab-work",
 		"workspace-pane-work-1:b",
+		"workspace-tab-work",
 	]);
 	assert.deepEqual(ids("zeta"), ids("1"));
 	assert.deepEqual(ids("tab 2"), ["workspace-tab-spare"]);
 	assert.deepEqual(ids("idle"), [
-		"workspace-tab-work",
 		"workspace-pane-work-1:a",
+		"workspace-tab-work",
 	]);
 	assert.deepEqual(ids("unknown"), []);
+
+	const visited = [];
+	const sshTabs = [
+		{
+			...tabs[1],
+			panes: [{ ...tabs[0].panes[0], searchTerms: "mango" }],
+		},
+		{
+			...tabs[0],
+			label: "rune@kiwi",
+			run: () => visited.push("tab"),
+			panes: ["kiwi", "mango"].map((host, i) => ({
+				...tabs[0].panes[i],
+				remote: { target: `rune@${host}` },
+				run: () => visited.push(host),
+			})),
+		},
+	];
+	const mango = workspacePaletteCommands(sshTabs, "mango");
+	assert.equal(mango[0].id, "workspace-pane-work-1:b");
+	assert.equal(mango[1].id, "workspace-tab-work");
+	await mango[0].run();
+	const kiwi = workspacePaletteCommands(sshTabs, "rune@kiwi");
+	assert.equal(kiwi[0].id, "workspace-pane-work-1:a");
+	await kiwi[0].run();
+	assert.deepEqual(visited, ["mango", "kiwi"]);
 });
 
 test("remote rows expose command, elapsed time, escaped identity, and progress", () => {
@@ -263,6 +294,6 @@ test("OSC-only panes are not labeled idle and keep their stable row id", () => {
 		"remote",
 	);
 	assert.equal(first[1].status, "Progress");
-	assert.equal(second[1].id, first[1].id);
-	assert.equal(second[1].label, "SSH profile");
+	assert.equal(second[0].id, first[1].id);
+	assert.equal(second[0].label, "SSH profile");
 });

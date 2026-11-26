@@ -5255,7 +5255,29 @@ async function boot(): Promise<void> {
 				index: index + 1,
 				label: tabDisplayName(tab.id),
 				progress: tabProgress(tab.id, paneIds),
-				run: () => switchToTab(tab.id),
+				run: () => {
+					const autoName = tab.userName ? null : tab.name;
+					switchToTab(tab.id);
+					const host = tabPaneHosts.get(tab.id);
+					if (!host) return;
+					const lastUsed = host.getFocusedPaneId();
+					let target = lastUsed;
+					if (
+						autoName &&
+						autoTabNameFromPane(paneNameParts(lastUsed)) !== autoName
+					) {
+						target =
+							host
+								.getLeafIdsInOrder()
+								.find(
+									(id) =>
+										host.canFocusPane(id) &&
+										autoTabNameFromPane(paneNameParts(id)) === autoName,
+								) ?? lastUsed;
+					}
+					cancelPointerFocus();
+					focusPaneGlobal(target, host);
+				},
 				panes: paneIds.map((paneId) => {
 					const sessionId = tabPaneSessionId(tab.id, paneId);
 					const parts = paneNameParts(paneId);

@@ -26,7 +26,7 @@ export type LexicalSearchItem = {
  * Rank a match so shorter / label-primary hits win.
  * Returns null when the item does not match.
  */
-function scoreLexicalMatch(
+export function scoreLexicalMatch(
 	item: LexicalSearchItem,
 	parts: string[],
 	query: string,

@@ -420,6 +420,11 @@ export function createCommandPalette(mount: CommandPaletteMount): {
 		if (e.key === "Enter") {
 			e.preventDefault();
 			e.stopPropagation();
+			if (filterRaf) {
+				cancelAnimationFrame(filterRaf);
+				filterRaf = 0;
+				applyFilter();
+			}
 			runSelected();
 			return;
 		}
