@@ -81,7 +81,7 @@ async function modules(
 	return api;
 }
 
-test("restored panes keep their sessions and zoom; reused or duplicated slots get new sessions", async () => {
+test("restored tabs keep focus, sessions, and zoom; reused or duplicated slots get new sessions", async () => {
 	const load = await modules();
 	const { PaneHost, collectLeafIds } = await load("terminal/paneHost.ts");
 	const tabs = await load("tabs/tabsSession.ts");
@@ -101,6 +101,8 @@ test("restored panes keep their sessions and zoom; reused or duplicated slots ge
 				getTheme: () => ({}),
 				fontSize: 12,
 				onPaneCreated: noop,
+				onPaneFocus: noop,
+				applyPaneFocusClasses: noop,
 				suppressEnterAnimation: () => true,
 			},
 			paneHostInitFromLayout(layout),
@@ -112,8 +114,9 @@ test("restored panes keep their sessions and zoom; reused or duplicated slots ge
 		a: { kind: "leaf", id: "1a" },
 		b: { kind: "leaf", id: "1b" },
 	};
-	const layout = { v: 1, tree, focusedId: "1b" };
+	const layout = { v: 1, tree, focusedId: "1a" };
 	const original = createHost(layout);
+	original.focusPane("1b");
 	original.getPaneTerminal("1a").fit.fit = noop;
 	original.getPaneTerminal("1b").fit.fit = noop;
 	original.setPaneFontSize("1a", 16.25);
@@ -127,12 +130,14 @@ test("restored panes keep their sessions and zoom; reused or duplicated slots ge
 	assert.notEqual(sessions["1a"], sessions["1b"]);
 	tabs.persistLayoutForTab("tab-1", {
 		...layout,
+		focusedId: original.getFocusedPaneId(),
 		paneSessionIds: sessions,
 		paneZoomFontSizes: zooms,
 	});
 	const saved = tabs.initialLayoutForTab("tab-1", false);
 	const restored = mapLayoutToTabKey(saved, "2", new Set()).layout;
 	const rebuilt = createHost(restored);
+	assert.equal(rebuilt.getFocusedPaneId(), "2b");
 	assert.equal(rebuilt.getPaneTerminal("2a").sessionId, sessions["1a"]);
 	assert.equal(rebuilt.getPaneTerminal("2b").sessionId, sessions["1b"]);
 	assert.equal(rebuilt.getPaneTerminal("2a").term.options.fontSize, 16.25);
