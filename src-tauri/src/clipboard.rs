@@ -12,6 +12,7 @@ use std::ptr;
 /// CF_UNICODETEXT (13) — stable Win32 format id; not exposed by the
 /// DataExchange feature in windows-sys 0.61 (lives under Ole).
 const CF_UNICODETEXT: u32 = 13;
+const CF_HDROP: u32 = 15;
 
 /// Read UTF-16 text from the system clipboard.
 ///
@@ -19,10 +20,29 @@ const CF_UNICODETEXT: u32 = 13;
 /// tight sequence. `GetClipboardData` returns a handle we lock for reading;
 /// the data is NUL-terminated UTF-16 and we cap the scan defensively.
 pub fn read_text() -> Result<String, String> {
+    read(false).map(|content| match content {
+        PasteContent::Text(text) | PasteContent::FilePath(text) => text,
+    })
+}
+
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", content = "text", rename_all = "camelCase")]
+pub enum PasteContent {
+    Text(String),
+    FilePath(String),
+}
+
+/// Interactive terminal paste also accepts the first file copied in Explorer.
+pub fn read_for_paste() -> Result<PasteContent, String> {
+    read(true)
+}
+
+fn read(include_file_path: bool) -> Result<PasteContent, String> {
     use windows_sys::Win32::System::DataExchange::{
         CloseClipboard, GetClipboardData, OpenClipboard,
     };
-    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalUnlock};
+    use windows_sys::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
+    use windows_sys::Win32::UI::Shell::DragQueryFileW;
 
     unsafe {
         if OpenClipboard(ptr::null_mut()) == 0 {
@@ -30,27 +50,39 @@ pub fn read_text() -> Result<String, String> {
         }
         let result = (|| {
             let handle = GetClipboardData(CF_UNICODETEXT);
-            if handle.is_null() {
-                return Ok(String::new());
-            }
-            let locked = GlobalLock(handle);
-            if locked.is_null() {
-                return Ok(String::new());
-            }
-            let mut end = 0usize;
-            while *locked.cast::<u16>().add(end) != 0 {
-                end += 1;
-                if end > (1 << 20) {
-                    break;
+            if !handle.is_null() {
+                let units = (GlobalSize(handle) / size_of::<u16>()).min(1 << 20);
+                let locked = GlobalLock(handle);
+                if !locked.is_null() {
+                    let data = std::slice::from_raw_parts(locked.cast::<u16>(), units);
+                    let end = data.iter().position(|&unit| unit == 0).unwrap_or(units);
+                    let text = String::from_utf16_lossy(&data[..end]);
+                    GlobalUnlock(handle);
+                    if !text.is_empty() {
+                        return PasteContent::Text(text);
+                    }
                 }
             }
-            let text =
-                String::from_utf16_lossy(std::slice::from_raw_parts(locked.cast::<u16>(), end));
-            GlobalUnlock(handle);
-            Ok(text)
+
+            if include_file_path {
+                let drop = GetClipboardData(CF_HDROP);
+                if !drop.is_null() {
+                    let len = DragQueryFileW(drop, 0, ptr::null_mut(), 0);
+                    if len > 0 && len <= 32_767 {
+                        let mut path = vec![0; len as usize + 1];
+                        let copied = DragQueryFileW(drop, 0, path.as_mut_ptr(), len + 1);
+                        if copied == len {
+                            return PasteContent::FilePath(String::from_utf16_lossy(
+                                &path[..copied as usize],
+                            ));
+                        }
+                    }
+                }
+            }
+            PasteContent::Text(String::new())
         })();
         CloseClipboard();
-        result
+        Ok(result)
     }
 }
 

@@ -5010,23 +5010,25 @@ async function boot(): Promise<void> {
 	);
 
 	async function pasteFromClipboard(): Promise<void> {
+		const term = getFocusedTerm();
+		if (!term) return;
 		try {
-			const text = await invoke<string>("clipboard_read_text");
-			if (!text) return;
-			const pid = paneHost?.getFocusedPaneId();
-			if (!pid) return;
-			const term = paneHost?.getPaneTerminal(pid)?.term;
-			if (!term) return;
-			// Go through xterm so newlines normalize and bracketed paste wraps when
-			// the app (TUI) enabled it — raw ptyWrite skipped both and broke OpenCode etc.
-			// Path-shaped clipboard content is translated per the focused pane's shell.
+			const { kind, text } = await invoke<{
+				kind: "text" | "filePath";
+				text: string;
+			}>("clipboard_read_for_paste");
+			const pid = focusedPaneId();
+			if (!pid || getPaneTerminalById(pid)?.term !== term || hasOpenOverlay())
+				return;
+			// An empty bracketed paste lets a TUI read non-text formats itself.
+			if (!text && !term.modes.bracketedPasteMode) return;
+			const style = pathStyleForPaneId(pid);
+			// File drops are literal paths: shell quotes can prevent a TUI from attaching them.
 			term.focus();
 			term.paste(
-				translatePasteText(
-					text,
-					pathStyleForPaneId(pid),
-					clipboardPathSourceForPaste(text),
-				),
+				kind === "filePath"
+					? translatePathFromSource(text, style, null, "windows")
+					: translatePasteText(text, style, clipboardPathSourceForPaste(text)),
 			);
 		} catch {
 			/* empty clipboard or read failed */
@@ -5672,7 +5674,7 @@ async function boot(): Promise<void> {
 				id: "paste",
 				label: "Paste",
 				keywords: "clipboard context edit",
-				run: () => void pasteFromClipboard(),
+				run: pasteFromClipboard,
 			},
 			// --- App ---
 			{

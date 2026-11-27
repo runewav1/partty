@@ -9,7 +9,7 @@ commands.allow = [
   "pty_kill_pane",
   "pty_focus_pane",
   "pty_ack_exit",
-  "clipboard_read_text",
+  "clipboard_read_for_paste",
   "get_persisted_state",
   "get_acrylic_available",
   "stash_terminal_buffers",

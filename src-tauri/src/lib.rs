@@ -120,10 +120,13 @@ fn open_external_url(url: String) -> Result<(), String> {
     open_url_in_default_browser(&normalized)
 }
 
-/// Read UTF-16 text from the system clipboard (replaces `tauri-plugin-clipboard-manager`).
+/// Read text or a copied file path for an interactive terminal paste.
 #[tauri::command]
-fn clipboard_read_text() -> Result<String, String> {
-    clipboard::read_text()
+async fn clipboard_read_for_paste() -> Result<clipboard::PasteContent, String> {
+    // Clipboard owners may provide the file or text on demand.
+    tauri::async_runtime::spawn_blocking(clipboard::read_for_paste)
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Open an http(s) URL with the default browser (ShellExecuteW; replaces `opener`).
@@ -1127,7 +1130,7 @@ pub fn run() {
             pty_kill_pane,
             pty_ack_exit,
             pty_focus_pane,
-            clipboard_read_text,
+            clipboard_read_for_paste,
             get_persisted_state,
             get_acrylic_available,
             wbmem::reclaim_wbmem,
