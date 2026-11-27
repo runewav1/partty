@@ -333,6 +333,28 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn scoop_git_bash_installations_are_discovered() {
+        let temp = Fixture::new();
+        for (variable, relative) in [
+            ("SCOOP", "apps/git/current/bin/bash.exe"),
+            ("SCOOP_GLOBAL", "apps/git/current/bin/bash.exe"),
+            ("USERPROFILE", "scoop/apps/git/current/bin/bash.exe"),
+            ("ProgramData", "scoop/apps/git/current/bin/bash.exe"),
+        ] {
+            let exe = temp.exe(&format!("custom location 日本語/{relative}"));
+            let root = temp
+                .0
+                .join("custom location 日本語")
+                .to_string_lossy()
+                .into_owned();
+            let candidates =
+                scoop_git_bash_candidates(&|key| (key == variable).then(|| root.clone()));
+            assert!(candidates.contains(&exe), "{variable}: {}", exe.display());
+        }
+        assert!(scoop_git_bash_candidates(&|_| None).is_empty());
+    }
+
+    #[test]
     fn expands_environment_without_reinterpreting_windows_paths() {
         let lookup = |key: &str| match key {
             "TOOLS" => Some(r"D:\Odd & 日本語\Tools".into()),
@@ -382,6 +404,21 @@ pub(crate) mod tests {
     }
 }
 
+fn scoop_git_bash_candidates(env: &impl Fn(&str) -> Option<String>) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    for variable in ["SCOOP", "SCOOP_GLOBAL"] {
+        if let Some(root) = env(variable) {
+            paths.push(PathBuf::from(root).join("apps/git/current/bin/bash.exe"));
+        }
+    }
+    for variable in ["USERPROFILE", "ProgramData"] {
+        if let Some(root) = env(variable) {
+            paths.push(PathBuf::from(root).join("scoop/apps/git/current/bin/bash.exe"));
+        }
+    }
+    paths
+}
+
 pub fn resolve_git_bash() -> Option<PathBuf> {
     for root in [reg::USER, reg::MACHINE] {
         for view in [reg::VIEW64, reg::VIEW32] {
@@ -395,10 +432,18 @@ pub fn resolve_git_bash() -> Option<PathBuf> {
         }
     }
     // A Git installation can have any directory name. Identify it by its layout.
-    let git = resolve_on_path("git.exe")?;
-    let root = git.parent()?.parent()?;
-    let bash = root.join("bin/bash.exe");
-    executable_exists(&bash).then_some(bash)
+    if let Some(git) = resolve_on_path("git.exe")
+        && let Some(root) = git.parent().and_then(Path::parent)
+    {
+        let bash = root.join("bin/bash.exe");
+        if executable_exists(&bash) {
+            return Some(bash);
+        }
+    }
+    // Scoop shims do not expose the installation root, so check its standard roots.
+    scoop_git_bash_candidates(&|name| std::env::var(name).ok())
+        .into_iter()
+        .find(|p| executable_exists(p))
 }
 
 pub fn resolve_wsl() -> Option<PathBuf> {

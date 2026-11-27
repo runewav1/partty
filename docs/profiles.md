@@ -108,7 +108,9 @@ Known stable candidates are preferred over known preview candidates. Within each
 channel, the source order above is preserved; conventional version directories
 prefer higher major versions. `pwsh-preview` selects a known preview installation.
 Git Bash also uses Git for Windows registration and the installation containing
-`git.exe` on PATH, so its directory need not be named `Git`.
+`git.exe` on PATH, so its directory need not be named `Git`. Scoop installations
+are checked at `apps\git\current\bin\bash.exe` under user, global, and
+`SCOOP`/`SCOOP_GLOBAL` roots.
 
 A portable executable in an arbitrary folder must be exposed through PATH,
 registration, or an explicit profile path. Discovery does not recursively scan
