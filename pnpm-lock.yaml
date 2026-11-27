@@ -186,11 +186,11 @@ importers:
   .:
     dependencies:
       '@partty/addon-webgl':
-        specifier: 0.20.6
-        version: 0.20.6
+        specifier: 0.21.0-rc1
+        version: 0.21.0-rc1
       '@partty/addon-webgpu':
-        specifier: 0.1.9
-        version: 0.1.9
+        specifier: 0.2.0-rc1
+        version: 0.2.0-rc1
       '@tauri-apps/api':
         specifier: ^2.12.5
         version: 2.12.5
@@ -319,11 +319,11 @@ packages:
   '@oxc-project/types@0.156.0':
     resolution: {integrity: sha512-1Duyg48TdJNdyhEB8Xn1L36bT9Pv6GUtlKjHxOys8xkaF/rQq3XJE+bAurSK/AgIz5mGFsb77cn9Pb20+WCScw==}
 
-  '@partty/addon-webgl@0.20.6':
-    resolution: {integrity: sha512-KzmshRZYaieDjqqAVCChecFuHuAjX3S3As1zdtvT3CTb9kBz5bvb4cqFT0IJ5PixUkQIgw4MkZszoYWdWMBhFQ==}
+  '@partty/addon-webgl@0.21.0-rc1':
+    resolution: {integrity: sha512-JgG4XoJj3Rxnr1rbSUBMHhv66OFn6BACMFDDkF02TsaT6BhOyPgo7rr+iaoubnbSwOG/RYBTBw04g7XmP34S4w==}
 
-  '@partty/addon-webgpu@0.1.9':
-    resolution: {integrity: sha512-YTiD+/QtrMYRZQqSKywMRk1n3P6miufYXgSRLH/fj9L3tMOd1YJ+MM3k6fczvoz660416rlmtDhKfsAMxHto4Q==}
+  '@partty/addon-webgpu@0.2.0-rc1':
+    resolution: {integrity: sha512-nHPSSd7dow3EHgNWIwjP70doXNyct05mo46QEJAed63dzjs8arh6LQEpgQXmQNXA7Pjvx4c4mq5NQzcaVQ04kQ==}
 
   '@partty/xterm@6.2.5':
     resolution: {integrity: sha512-D41HntKSDaiFJFRd5VDex2m5myZ1zIyr1Au2YssxyRjVGkOrJitQqWLrrBnK8AmBjzvZwd91Y9kNf5uwMZ8fXA==}
@@ -916,9 +916,9 @@ snapshots:
 
   '@oxc-project/types@0.156.0': {}
 
-  '@partty/addon-webgl@0.20.6': {}
+  '@partty/addon-webgl@0.21.0-rc1': {}
 
-  '@partty/addon-webgpu@0.1.9': {}
+  '@partty/addon-webgpu@0.2.0-rc1': {}
 
   '@partty/xterm@6.2.5': {}
 
