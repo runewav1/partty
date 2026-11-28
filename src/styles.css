@@ -620,7 +620,7 @@ html.theme-modal-open #main-workspace {
 	display: none;
 }
 
-html:not(.term-tabs-multiple):not(.term-tabs-force-strip):not(.term-tabs-have-progress) .term-tabs-strip {
+html:not(.term-tabs-multiple):not(.term-tabs-force-strip) .term-tabs-strip {
 	display: none;
 }
 
@@ -1540,7 +1540,7 @@ html.terminal-motion-off *::after {
 }
 
 html.tabs-hidden .term-toolbar,
-html.tabs-collapsed:not(.term-tabs-have-progress) .term-toolbar {
+html.tabs-collapsed .term-toolbar {
 	display: none !important;
 }
 

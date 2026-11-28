@@ -4208,17 +4208,11 @@ async function boot(): Promise<void> {
 
 	function refreshTabProgress(): boolean {
 		let visibilityChanged = false;
-		let anyVisible = false;
 		for (const [id, { tab, ring }] of tabProgressRings) {
 			const wasHidden = ring.hidden;
 			updateProgressRing(tab, ring, tabProgress(id));
 			visibilityChanged ||= wasHidden !== ring.hidden;
-			anyVisible ||= !ring.hidden;
 		}
-		document.documentElement.classList.toggle(
-			"term-tabs-have-progress",
-			anyVisible,
-		);
 		return visibilityChanged;
 	}
 
