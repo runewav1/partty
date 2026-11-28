@@ -23,7 +23,7 @@
 	"dependencies": {
 		"@partty/addon-webgl": "0.21.0-rc1",
 		"@partty/addon-webgpu": "0.2.0-rc1",
-		"@tauri-apps/api": "^2.12.5",
+		"@tauri-apps/api": "^2.13.0",
 		"@xterm/addon-fit": "beta",
 		"@xterm/addon-image": "beta",
 		"@xterm/addon-ligatures": "beta",
